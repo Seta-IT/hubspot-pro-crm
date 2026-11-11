@@ -1884,7 +1884,7 @@ export default function HubSpotProCrmApp() {
         <div className="max-w-[1680px] mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-2">
           {/* Left Breadcrumb & Strictly Scoped Clickable Badges */}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5 text-xs text-[#516f90] font-medium mr-1">
+            <div className="flex items-center gap-1.5 text-xs text-[#516f90] font-semibold mr-1">
               <button
                 type="button"
                 onClick={() => setActiveModule("OVERVIEW_AI")}
@@ -2035,7 +2035,7 @@ export default function HubSpotProCrmApp() {
                       setSelectedPipelineId(e.target.value);
                       setActiveModule("DEALS_KANBAN");
                     }}
-                    className="bg-transparent text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer"
+                    className="bg-transparent text-xs text-slate-800 focus:outline-none cursor-pointer"
                   >
                     {pipelines.map((p) => (
                       <option key={p.id} value={p.id} className="text-[#33475b]">

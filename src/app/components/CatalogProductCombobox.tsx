@@ -150,7 +150,7 @@ export function CatalogProductCombobox({
             setOpen(false);
           }
         }}
-        className={`w-full px-2 py-1.5 rounded border text-xs font-semibold ${
+        className={`w-full px-2 py-1.5 rounded border text-xs ${
           invalid ? 'border-rose-500' : 'border-slate-300'
         } bg-white focus:outline-none focus:ring-2 focus:ring-[color:var(--sti-accent)]/40`}
       />

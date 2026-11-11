@@ -275,12 +275,12 @@ export default function AutomationsSequencesTab({
 
         {activeTab === 'WORKFLOWS' && (
           <div className="flex flex-wrap items-center gap-2.5">
-            <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+            <div className="font-semibold flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
               <span>Contato p/ Teste:</span>
               <select
                 value={testTargetContactId}
                 onChange={(e) => setTestTargetContactId(e.target.value)}
-                className="bg-transparent font-semibold text-slate-900 focus:outline-none"
+                className="bg-transparent text-slate-900 focus:outline-none"
               >
                 {contacts.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -290,12 +290,12 @@ export default function AutomationsSequencesTab({
               </select>
             </div>
 
-            <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+            <div className="font-semibold flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
               <span>Deal p/ Teste:</span>
               <select
                 value={testTargetDealId}
                 onChange={(e) => setTestTargetDealId(e.target.value)}
-                className="bg-transparent font-semibold text-slate-900 focus:outline-none max-w-[180px] truncate"
+                className="bg-transparent text-slate-900 focus:outline-none max-w-[180px] truncate"
               >
                 {deals.map((d) => (
                   <option key={d.id} value={d.id}>
@@ -502,7 +502,7 @@ export default function AutomationsSequencesTab({
               <h3 className="text-sm font-semibold text-slate-900">
                 Histórico Auditável de Execuções de Workflows ({filteredExecutions.length})
               </h3>
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white border border-slate-200 text-xs">
+              <div className="font-semibold inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white border border-slate-200 text-xs">
                 <Filter className="w-3.5 h-3.5 text-slate-500" />
                 <select
                   value={execStatusFilter}
@@ -511,7 +511,7 @@ export default function AutomationsSequencesTab({
                       e.target.value as 'ALL' | 'COMPLETED' | 'SKIPPED' | 'FAILED'
                     )
                   }
-                  className="bg-transparent font-semibold text-slate-700 focus:outline-none"
+                  className="bg-transparent text-slate-700 focus:outline-none"
                 >
                   <option value="ALL">Todos os Status ({executions.length})</option>
                   <option value="COMPLETED">COMPLETED</option>
@@ -619,7 +619,7 @@ export default function AutomationsSequencesTab({
                 <select
                   value={wfTrigger}
                   onChange={(e) => setWfTrigger(e.target.value as WorkflowTriggerType)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 bg-white"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs text-slate-900 bg-white"
                 >
                   <option value="CONTACT_CREATED">Quando um Contato é Criado (CONTACT_CREATED)</option>
                   <option value="FORM_SUBMITTED">Quando um Formulário Web é Submetido (FORM_SUBMITTED)</option>

@@ -132,7 +132,17 @@ html, body {
 }
 
 
-/* Corporate Typography Hierarchy: Semibold on Titles, Headers, Labels, Buttons & Strong Elements */
-h1, h2, h3, h4, h5, h6, th, strong, b, label, summary {
+/* Corporate typography: font-semibold (600) on titles, labels, buttons, tabs and menus.
+   Tailwind font-* classes still override this rule (higher specificity).
+   Body, descriptions, helpers, placeholders and secondary table cells stay regular (400). */
+h1, h2, h3, h4, h5, h6, th, strong, b, label, summary,
+button,
+[type="button"],
+[type="submit"],
+[type="reset"],
+[role="button"],
+[role="tab"],
+[role="menuitem"],
+[role="option"] {
   font-weight: 600;
 }

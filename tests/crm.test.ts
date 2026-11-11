@@ -3504,8 +3504,8 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
       "PROPOSTA COMERCIAL\n",
       "Vendedor: <strong",
       '<span className="uppercase">Descrição</span>',
-      'font-extrabold">Código</th>',
-      'font-extrabold">Unitário</th>',
+      'font-semibold">Código</th>',
+      'font-semibold">Unitário</th>',
       "                Descontos\n",
       '"Valor Total" : "Valor Mensal"',
       "Valor Total dos Produtos",
@@ -3820,21 +3820,23 @@ describe("Padronização da Arquitetura de Navegação nos 3 Sistemas (CRM, ERP 
       "Formulário de enriquecer domínio na barra superior deve ter sido removido de ContactsCompaniesTab"
     );
   });
-  it("garante tipografia rica e destacada na Proposta Comercial e menus (font-bold, font-extrabold, font-black e strong), coluna Vendedor sem Canal/Comercial B2B, sem checkboxes na tabela de propostas e sanitizacao runtime stripEmojisDeep", async () => {
+  it("garante tipografia rica e destacada na Proposta Comercial e menus (font-semibold e strong), coluna Vendedor sem Canal/Comercial B2B, sem checkboxes na tabela de propostas e sanitizacao runtime stripEmojisDeep", async () => {
     const rootDir = process.cwd();
     const propPageSrc = fs.readFileSync(path.join(rootDir, "src/app/proposta/[id]/page.tsx"), "utf8");
     const crmSidebarSrc = fs.readFileSync(path.join(rootDir, "src/app/components/CrmSidebar.tsx"), "utf8");
     const gcSidebarSrc = fs.readFileSync(path.join(rootDir, "src/app/components/GestaoClickSidebar.tsx"), "utf8");
     const erpSrc = fs.readFileSync(path.join(rootDir, "src/app/components/ErpGestaoClickTab.tsx"), "utf8");
 
-    // 1. Proposta Comercial possui bastante destaque em negrito (font-bold, font-extrabold, font-black e <strong>)
-    assert.ok(propPageSrc.includes("font-bold"), "Proposta Comercial deve conter font-bold");
-    assert.ok(propPageSrc.includes("font-extrabold") || propPageSrc.includes("font-black"), "Proposta Comercial deve conter font-extrabold / font-black nos destaques");
+    // 1. Proposta Comercial destaca rotulos, valores, botoes e cabecalhos com font-semibold e <strong>.
+    //    A logo SETA IT pode manter font-black (marca, nao chrome de interface).
+    assert.ok(propPageSrc.includes("font-semibold"), "Proposta Comercial deve conter font-semibold");
     assert.ok(propPageSrc.includes("<strong"), "Proposta Comercial deve conter tags <strong> nos rotulos e valores");
+    assert.equal((propPageSrc.match(/font-extrabold/g) || []).length, 0, "Proposta Comercial nao deve usar font-extrabold; o destaque padrao e font-semibold");
+    assert.ok(propPageSrc.includes("font-black tracking-tight"), "Logo SETA IT pode manter font-black");
 
-    // 2. Menus e sidebars preservam font-semibold / font-bold
-    assert.ok(/\bfont-(semibold|bold)\b/.test(crmSidebarSrc), "CrmSidebar deve preservar negrito em titulos e itens ativos do menu");
-    assert.ok(/\bfont-(semibold|bold)\b/.test(gcSidebarSrc), "GestaoClickSidebar deve preservar negrito em titulos e itens ativos do menu");
+    // 2. Menus e sidebars preservam font-semibold
+    assert.ok(/\bfont-semibold\b/.test(crmSidebarSrc), "CrmSidebar deve preservar semibold em titulos e itens ativos do menu");
+    assert.ok(/\bfont-semibold\b/.test(gcSidebarSrc), "GestaoClickSidebar deve preservar semibold em titulos e itens ativos do menu");
 
     // 3. Coluna Vendedor sem barra Canal, sem Comercial B2B abaixo do nome do vendedor e sem checkboxes/Editar Selecionado
     assert.equal(erpSrc.includes("Vendedor / Canal"), false, "Nao deve exibir Vendedor / Canal no cabecalho da proposta");

@@ -491,7 +491,7 @@ export function HubSpotCardEmailComposer({
           <select
             value={selectedTemplateId}
             onChange={(e) => handleApplyTemplate(e.target.value)}
-            className="w-full px-2.5 py-1.5 rounded-lg border border-[#cbd6e2] bg-[#f5f8fa] text-xs font-semibold text-[#33475b]"
+            className="w-full px-2.5 py-1.5 rounded-lg border border-[#cbd6e2] bg-[#f5f8fa] text-xs text-[#33475b]"
           >
             <option value="">Selecionar template pré-pronto...</option>
             {templates.map((tpl) => (
@@ -549,7 +549,7 @@ export function HubSpotCardEmailComposer({
             <select
               value={newTplCategory}
               onChange={(e) => setNewTplCategory(e.target.value as CrmEmailTemplateCategory)}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold"
+              className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
             >
               <option value="PROSPECCAO">PROSPECÇÃO</option>
               <option value="FOLLOW_UP">FOLLOW_UP</option>
@@ -623,7 +623,7 @@ export function HubSpotCardEmailComposer({
               value={toEmails}
               onChange={(e) => setToEmails(e.target.value)}
               placeholder="executivo@empresa.com.br, compras@empresa.com.br"
-              className="w-full px-3 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold text-[#33475b]"
+              className="w-full px-3 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs text-[#33475b]"
             />
           </div>
           <div>
@@ -633,7 +633,7 @@ export function HubSpotCardEmailComposer({
             <select
               value={senderName}
               onChange={(e) => setSenderName(e.target.value)}
-              className="w-full px-2.5 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold text-[#33475b]"
+              className="w-full px-2.5 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs text-[#33475b]"
             >
               {SETA_OWNER_OPTIONS.filter((o) => !o.includes('Inativo')).map((ow) => (
                 <option key={ow} value={ow}>
@@ -683,7 +683,7 @@ export function HubSpotCardEmailComposer({
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder="Ex: [Seta Telecom] Proposta Comercial & SLA Dedicado"
-            className="w-full px-3 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold text-[#33475b]"
+            className="w-full px-3 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs text-[#33475b]"
           />
         </div>
 
@@ -727,7 +727,7 @@ export function HubSpotCardEmailComposer({
                   onChange={(e) =>
                     setFollowUpPreset(e.target.value as '1' | '2' | '3' | '7' | 'CUSTOM')
                   }
-                  className="px-2 py-1 rounded border border-[#cbd6e2] bg-[#f5f8fa] text-[11px] font-semibold text-[#0091ae]"
+                  className="px-2 py-1 rounded border border-[#cbd6e2] bg-[#f5f8fa] text-[11px] text-[#0091ae]"
                 >
                   <option value="1">Amanhã (1 dia)</option>
                   <option value="2">Em 2 dias úteis</option>
@@ -740,14 +740,14 @@ export function HubSpotCardEmailComposer({
                     type="date"
                     value={customFollowUpDate}
                     onChange={(e) => setCustomFollowUpDate(e.target.value)}
-                    className="px-2 py-1 rounded border border-[#cbd6e2] bg-white text-[11px] font-semibold"
+                    className="px-2 py-1 rounded border border-[#cbd6e2] bg-white text-[11px]"
                   />
                 )}
                 <input
                   type="time"
                   value={followUpTime}
                   onChange={(e) => setFollowUpTime(e.target.value)}
-                  className="px-2 py-1 rounded border border-[#cbd6e2] bg-white text-[11px] font-semibold"
+                  className="px-2 py-1 rounded border border-[#cbd6e2] bg-white text-[11px]"
                 />
               </div>
             )}
@@ -760,7 +760,7 @@ export function HubSpotCardEmailComposer({
                 <select
                   value={followUpType}
                   onChange={(e) => setFollowUpType(e.target.value as CrmTaskType)}
-                  className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50 font-semibold"
+                  className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50"
                 >
                   <option value="EMAIL">E-mail de Follow-up</option>
                   <option value="CALL">Ligação Telefônica</option>
@@ -772,7 +772,7 @@ export function HubSpotCardEmailComposer({
                 <select
                   value={followUpQueue}
                   onChange={(e) => setFollowUpQueue(e.target.value)}
-                  className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50 font-semibold"
+                  className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50"
                 >
                   {HUBSPOT_TASK_QUEUES.map((q) => (
                     <option key={q} value={q}>
@@ -786,7 +786,7 @@ export function HubSpotCardEmailComposer({
                 <select
                   value={followUpPriority}
                   onChange={(e) => setFollowUpPriority(e.target.value as CrmTaskPriority)}
-                  className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50 font-semibold"
+                  className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-50"
                 >
                   <option value="HIGH">Alta</option>
                   <option value="MEDIUM">Média</option>
@@ -999,7 +999,7 @@ export function HubSpotRecordTasksSection({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Ex: Ligar para validar proposta de locação PABX IP"
-              className="w-full px-3 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold text-[#33475b]"
+              className="w-full px-3 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs text-[#33475b]"
             />
           </div>
 
@@ -1011,7 +1011,7 @@ export function HubSpotRecordTasksSection({
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value as CrmTaskType)}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs"
               >
                 <option value="CALL">Ligação</option>
                 <option value="EMAIL">E-mail</option>
@@ -1025,7 +1025,7 @@ export function HubSpotRecordTasksSection({
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as CrmTaskPriority)}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs"
               >
                 <option value="HIGH">Alta</option>
                 <option value="MEDIUM">Média</option>
@@ -1041,7 +1041,7 @@ export function HubSpotRecordTasksSection({
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs"
               />
             </div>
             <div>
@@ -1052,7 +1052,7 @@ export function HubSpotRecordTasksSection({
                 type="time"
                 value={dueTime}
                 onChange={(e) => setDueTime(e.target.value)}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs"
               />
             </div>
           </div>
@@ -1065,7 +1065,7 @@ export function HubSpotRecordTasksSection({
               <select
                 value={queueName}
                 onChange={(e) => setQueueName(e.target.value)}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs"
               >
                 {HUBSPOT_TASK_QUEUES.map((q) => (
                   <option key={q} value={q}>
@@ -1081,7 +1081,7 @@ export function HubSpotRecordTasksSection({
               <select
                 value={reminderMinutesBefore}
                 onChange={(e) => setReminderMinutesBefore(Number(e.target.value))}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs"
               >
                 <option value={0}>No horário do vencimento</option>
                 <option value={15}>15 minutos antes</option>
@@ -1097,7 +1097,7 @@ export function HubSpotRecordTasksSection({
               <select
                 value={assignedTo}
                 onChange={(e) => setAssignedTo(e.target.value)}
-                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs font-semibold"
+                className="w-full px-2 py-1.5 rounded-lg border border-[#cbd6e2] bg-white text-xs"
               >
                 {SETA_OWNER_OPTIONS.filter((o) => !o.includes('Inativo')).map((ow) => (
                   <option key={ow} value={ow}>

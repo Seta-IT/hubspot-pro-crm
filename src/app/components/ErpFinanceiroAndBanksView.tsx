@@ -354,7 +354,7 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
   );
   const Kpi = ({ label, value, tone }: { label: string; value: string; tone: string }) => (
     <div className="bg-white rounded-md border border-slate-200 p-3">
-      <div className="text-[11px] font-medium text-slate-500">{label}</div>
+      <div className="text-[11px] font-semibold text-slate-500">{label}</div>
       <div className={`text-base font-semibold ${tone}`}>{value}</div>
     </div>
   );
@@ -369,7 +369,7 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
   const statusLabel = (s: string) =>
     ({ PAGO: 'Pago', PAGA: 'Paga', ABERTO: 'Em aberto', ATRASADO: 'Atrasado', VENCIDA: 'Vencida', EMITIDA: 'Emitida', CANCELADA: 'Cancelada' } as Record<string, string>)[s] || s;
   const Pill = ({ status }: { status: string }) => (
-    <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${statusBadge(status)}`}>{statusLabel(status)}</span>
+    <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full ${statusBadge(status)}`}>{statusLabel(status)}</span>
   );
   const th = 'px-3 py-2 text-[11px] font-semibold text-slate-500';
   const td = 'px-3 py-2';
@@ -465,12 +465,12 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
           {bankAccounts.map((b) => (
             <button key={b.id} type="button" onClick={() => setFluxoBank(fluxoBank === b.name ? null : b.name)}
               className={`text-left bg-white rounded-md border p-3 cursor-pointer ${fluxoBank === b.name ? 'border-[#1e3a6e] ring-1 ring-[#1e3a6e]' : 'border-slate-200 hover:border-slate-300'}`}>
-              <div className="flex items-center gap-1 text-[11px] font-medium text-slate-500"><Building2 size={12} />{b.name}</div>
+              <div className="flex items-center gap-1 text-[11px] font-semibold text-slate-500"><Building2 size={12} />{b.name}</div>
               <div className={`text-base font-semibold ${b.balance < 0 ? 'text-rose-700' : 'text-slate-900'}`}>{money(b.balance)}</div>
             </button>
           ))}
           <div className="bg-white rounded-md border border-slate-200 p-3">
-            <div className="text-[11px] font-medium text-slate-500">Saldo consolidado</div>
+            <div className="text-[11px] font-semibold text-slate-500">Saldo consolidado</div>
             <div className={`text-base font-semibold ${consolidated < 0 ? 'text-rose-700' : 'text-slate-900'}`}>{money(consolidated)}</div>
           </div>
         </div>
@@ -689,7 +689,7 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
                       <td className={`${td} text-right whitespace-nowrap font-semibold ${acc && acc.balance < 0 ? 'text-rose-700' : acc ? 'text-slate-900' : 'text-slate-400 font-normal'}`}>{acc ? money(acc.balance) : 'Não sincronizada'}</td>
                       <td className={`${td} text-right`}>
                         {acc && (
-                          <button type="button" onClick={() => openCollectionEditor('bankAccounts', `Editar Saldo — ${acc.name}`, acc as unknown as Record<string, unknown>, bankFields, { deleteId: acc.id, deleteLabel: acc.name })} className="text-xs font-medium text-[#1e3a6e] hover:underline cursor-pointer">
+                          <button type="button" onClick={() => openCollectionEditor('bankAccounts', `Editar Saldo — ${acc.name}`, acc as unknown as Record<string, unknown>, bankFields, { deleteId: acc.id, deleteLabel: acc.name })} className="text-xs font-semibold text-[#1e3a6e] hover:underline cursor-pointer">
                             Editar saldo
                           </button>
                         )}

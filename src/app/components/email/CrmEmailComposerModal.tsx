@@ -1175,7 +1175,7 @@ export function CrmEmailComposerModal({
                 <select
                   value={followUpPreset}
                   onChange={(e) => setFollowUpPreset(e.target.value as FollowUpPreset)}
-                  className="px-1.5 py-0.5 rounded border border-slate-200 bg-white text-[11px] font-semibold text-slate-700"
+                  className="px-1.5 py-0.5 rounded border border-slate-200 bg-white text-[11px] text-slate-700"
                 >
                   {FOLLOW_UP_PRESETS.map((p) => (
                     <option key={p.id} value={p.id}>

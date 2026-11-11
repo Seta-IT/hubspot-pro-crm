@@ -440,7 +440,7 @@ export function SetaErpPdvPosView({
               <select
                 value={selectedClientName}
                 onChange={(e) => setSelectedClientName(e.target.value)}
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
               >
                 <option value="Consumidor Final / Venda Balcão">Consumidor Final / Venda Balcão</option>
                 <option value="MUNDIVOX COMUNICACOES LTDA">MUNDIVOX COMUNICACOES LTDA</option>
@@ -456,7 +456,7 @@ export function SetaErpPdvPosView({
               <select
                 value={sellerName}
                 onChange={(e) => setSellerName(e.target.value)}
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
               >
                 <option value="Marcelo Mira">Marcelo Mira</option>
                 <option value="Evelyn Olivia de Rosa Ternero">Evelyn Olivia de Rosa Ternero</option>
@@ -978,7 +978,7 @@ export function SetaErpStockAndPurchasesSubbar({
                   <select
                     value={cfopEntrada}
                     onChange={(e) => setCfopEntrada(e.target.value)}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                   >
                     <option value="1.551 — Compra de bem para o Ativo Imobilizado (Parque de Locação)">
                       1.551 — Ativo Imobilizado (Parque de Locação)
@@ -1000,7 +1000,7 @@ export function SetaErpStockAndPurchasesSubbar({
                     type="text"
                     value={costCenter}
                     onChange={(e) => setCostCenter(e.target.value)}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                   />
                 </div>
               </div>

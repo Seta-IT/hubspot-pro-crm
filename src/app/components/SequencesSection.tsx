@@ -239,7 +239,7 @@ export default function SequencesSection({
   return (
     <div className="space-y-6">
       {feedbackBanner && (
-        <div className="p-4 rounded-xl bg-emerald-950 text-white border border-emerald-700 flex items-center justify-between gap-3 text-xs font-medium shadow-sm">
+        <div className="p-4 rounded-xl bg-emerald-950 text-white border border-emerald-700 flex items-center justify-between gap-3 text-xs font-semibold shadow-sm">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{feedbackBanner}</span>
@@ -466,14 +466,14 @@ export default function SequencesSection({
               Simule avanço de etapa, abertura, clique ou resposta do lead para validar o encerramento imediato (`PAUSED_ON_REPLY`).
             </p>
           </div>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+          <div className="font-semibold inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
             <Filter className="w-3.5 h-3.5 text-slate-500" />
             <select
               value={statusFilter}
               onChange={(e) =>
                 setStatusFilter(e.target.value as CanonicalSequenceEnrollmentState | 'ALL')
               }
-              className="bg-transparent font-semibold text-slate-800 focus:outline-none"
+              className="bg-transparent text-slate-800 focus:outline-none"
             >
               <option value="ALL">Todos ({enrollments.length})</option>
               {TEN_CADENCE_STATES.map((st) => (
@@ -543,7 +543,7 @@ export default function SequencesSection({
                       {enr.nextStepDueAt && (
                         <>
                           <span>•</span>
-                          <span className="text-indigo-600 font-medium">
+                          <span className="text-indigo-600 font-semibold">
                             Próximo disparo: {formatDateTimeBR(enr.nextStepDueAt)}
                           </span>
                         </>

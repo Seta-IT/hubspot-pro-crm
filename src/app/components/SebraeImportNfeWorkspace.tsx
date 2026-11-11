@@ -399,9 +399,9 @@ export default function SebraeImportNfeWorkspace({
         <table className="w-full text-left text-xs border border-slate-200 rounded">
           <thead className="bg-slate-50 text-slate-500 text-[11px] border-b border-slate-200">
             <tr>
-              <th className="py-2 px-3 font-medium">Totais</th>
-              <th className="py-2 px-3 font-medium text-right">Valor</th>
-              <th className="py-2 px-3 font-medium">Detalhe</th>
+              <th className="py-2 px-3 font-semibold">Totais</th>
+              <th className="py-2 px-3 font-semibold text-right">Valor</th>
+              <th className="py-2 px-3 font-semibold">Detalhe</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -663,13 +663,13 @@ export default function SebraeImportNfeWorkspace({
                   type="text"
                   disabled
                   value="55 (NF-e)"
-                  className="w-24 px-2.5 py-2 rounded border bg-slate-100 font-mono font-semibold text-slate-600"
+                  className="w-24 px-2.5 py-2 rounded border bg-slate-100 font-mono text-slate-600"
                 />
                 <input
                   type="text"
                   value={serie}
                   onChange={(e) => setSerie(e.target.value)}
-                  className="flex-1 px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                  className="flex-1 px-3 py-2 rounded border border-slate-300 font-mono"
                   placeholder="Série (1)"
                 />
               </div>
@@ -680,7 +680,7 @@ export default function SebraeImportNfeWorkspace({
                 type="text"
                 value={nNF}
                 onChange={(e) => setNNF(e.target.value)}
-                className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
               />
             </div>
             <div className="sm:col-span-2">
@@ -691,7 +691,7 @@ export default function SebraeImportNfeWorkspace({
                 type="text"
                 value={natOp}
                 onChange={(e) => setNatOp(e.target.value)}
-                className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                className="w-full px-3 py-2 rounded border border-slate-300"
               />
             </div>
           </div>
@@ -704,7 +704,7 @@ export default function SebraeImportNfeWorkspace({
               <select
                 value={crt}
                 onChange={(e) => setCrt(e.target.value as '1' | '2' | '3')}
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold text-slate-800"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-slate-800"
               >
                 <option value="1">1 — Simples Nacional (CSOSN 900)</option>
                 <option value="2">2 — Simples Nacional (Excesso Sublimite)</option>
@@ -716,7 +716,7 @@ export default function SebraeImportNfeWorkspace({
               <select
                 value={finNFe}
                 onChange={(e) => setFinNFe(e.target.value as '1' | '2')}
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
               >
                 <option value="1">1 — NF-e Normal (Desembaraço Inicial)</option>
                 <option value="2">2 — NF-e Complementar (Variação Cambial / Imposto)</option>
@@ -727,7 +727,7 @@ export default function SebraeImportNfeWorkspace({
               <select
                 value={indFinal}
                 onChange={(e) => setIndFinal(e.target.value as '0' | '1')}
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
               >
                 <option value="0">0 — Normal (Comercialização / Locação)</option>
                 <option value="1">1 — Consumidor Final (Ativo Imobilizado CFOP 3.551)</option>
@@ -740,7 +740,7 @@ export default function SebraeImportNfeWorkspace({
               <select
                 value={indIntermed}
                 onChange={(e) => setIndIntermed(e.target.value as '0' | '1')}
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
               >
                 <option value="0">0 — Operação sem intermediador (Padrão Sebrae 4.01)</option>
                 <option value="1">1 — Operação em site/plataforma de terceiros</option>
@@ -773,7 +773,7 @@ export default function SebraeImportNfeWorkspace({
                 type="text"
                 value={di.exporterName}
                 onChange={(e) => setDi({ ...di, exporterName: e.target.value })}
-                className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                className="w-full px-3 py-2 rounded border border-slate-300"
               />
             </div>
             <div>
@@ -784,7 +784,7 @@ export default function SebraeImportNfeWorkspace({
                 type="text"
                 value={di.exporterIdEstrangeiro}
                 onChange={(e) => setDi({ ...di, exporterIdEstrangeiro: e.target.value })}
-                className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
               />
             </div>
           </div>
@@ -804,7 +804,7 @@ export default function SebraeImportNfeWorkspace({
                     exporterCountryName: found?.name || 'EXTERIOR',
                   });
                 }}
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
               >
                 {BACEN_COUNTRIES.map((c) => (
                   <option key={c.code} value={c.code}>
@@ -885,7 +885,7 @@ export default function SebraeImportNfeWorkspace({
                 type="text"
                 value={di.nDI}
                 onChange={(e) => setDi({ ...di, nDI: e.target.value })}
-                className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold text-[#1e3a6e]"
+                className="w-full px-3 py-2 rounded border border-slate-300 font-mono text-[#1e3a6e]"
               />
             </div>
             <div>
@@ -907,7 +907,7 @@ export default function SebraeImportNfeWorkspace({
                 type="text"
                 value={di.xLocDesemb}
                 onChange={(e) => setDi({ ...di, xLocDesemb: e.target.value })}
-                className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                className="w-full px-3 py-2 rounded border border-slate-300"
               />
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -918,7 +918,7 @@ export default function SebraeImportNfeWorkspace({
                   maxLength={2}
                   value={di.UFDesemb}
                   onChange={(e) => setDi({ ...di, UFDesemb: e.target.value.toUpperCase() })}
-                  className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold text-center"
+                  className="w-full px-3 py-2 rounded border border-slate-300 font-mono text-center"
                 />
               </div>
               <div>
@@ -946,7 +946,7 @@ export default function SebraeImportNfeWorkspace({
                     tpViaTransp: e.target.value as ErpImportDeclarationInfo['tpViaTransp'],
                   })
                 }
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
               >
                 <option value="1">1 — Marítima (Exige AFRMM)</option>
                 <option value="4">4 — Aérea (Viracopos / GRU)</option>
@@ -966,7 +966,7 @@ export default function SebraeImportNfeWorkspace({
                     tpIntermedio: e.target.value as '1' | '2' | '3',
                   })
                 }
-                className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
               >
                 <option value="1">1 — Importação por Conta Própria</option>
                 <option value="2">2 — Importação por Conta e Ordem</option>
@@ -1175,7 +1175,7 @@ export default function SebraeImportNfeWorkspace({
                           next[idx] = { ...next[idx], cProd: e.target.value };
                           setRawItems(next);
                         }}
-                        className="w-full px-2.5 py-1.5 rounded border bg-white font-mono font-semibold"
+                        className="w-full px-2.5 py-1.5 rounded border bg-white font-mono"
                       />
                     </div>
                     <div className="sm:col-span-4">
@@ -1190,7 +1190,7 @@ export default function SebraeImportNfeWorkspace({
                           next[idx] = { ...next[idx], xProd: e.target.value };
                           setRawItems(next);
                         }}
-                        className="w-full px-2.5 py-1.5 rounded border bg-white font-semibold"
+                        className="w-full px-2.5 py-1.5 rounded border bg-white"
                       />
                     </div>
                     <div className="sm:col-span-2">
@@ -1219,7 +1219,7 @@ export default function SebraeImportNfeWorkspace({
                           };
                           setRawItems(next);
                         }}
-                        className="w-full px-2 py-1.5 rounded border bg-white font-mono font-semibold"
+                        className="w-full px-2 py-1.5 rounded border bg-white font-mono"
                       >
                         <option value="3.102">3.102 (Comercialização)</option>
                         <option value="3.551">3.551 (Ativo Imobilizado)</option>
@@ -1238,7 +1238,7 @@ export default function SebraeImportNfeWorkspace({
                           next[idx] = { ...next[idx], qCom: Math.max(1, Number(e.target.value) || 1) };
                           setRawItems(next);
                         }}
-                        className="w-full px-2 py-1.5 rounded border bg-white text-center font-semibold"
+                        className="w-full px-2 py-1.5 rounded border bg-white text-center"
                       />
                     </div>
                     <div className="sm:col-span-1">

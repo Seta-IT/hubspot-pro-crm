@@ -575,7 +575,7 @@ export default function AdminSettingsCenterTab({
                   type="email"
                   value={smtpUser}
                   onChange={(e) => setSmtpUser(e.target.value)}
-                  className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                  className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
               <div>
@@ -649,7 +649,7 @@ export default function AdminSettingsCenterTab({
                   type="email"
                   value={testRecipient}
                   onChange={(e) => setTestRecipient(e.target.value)}
-                  className="flex-1 px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                  className="flex-1 px-3 py-2 rounded border border-slate-300 bg-white"
                 />
                 <button
                   type="button"
@@ -740,7 +740,7 @@ export default function AdminSettingsCenterTab({
                 <select
                   value={newFieldObj}
                   onChange={(e) => setNewFieldObj(e.target.value as CustomFieldObjectType)}
-                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                 >
                   <option value="CONTACT">Contato (CRM)</option>
                   <option value="COMPANY">Empresa / Cliente</option>
@@ -755,7 +755,7 @@ export default function AdminSettingsCenterTab({
                 <select
                   value={newFieldType}
                   onChange={(e) => setNewFieldType(e.target.value as CustomFieldDataType)}
-                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                 >
                   <option value="TEXT">Texto Livre</option>
                   <option value="NUMBER">Número</option>
@@ -927,7 +927,7 @@ export default function AdminSettingsCenterTab({
                     onChange={(e) =>
                       setEditingTemplate({ ...editingTemplate, name: e.target.value })
                     }
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                    className="w-full px-3 py-2 rounded border border-slate-300"
                   />
                 </div>
                 <div>
@@ -940,7 +940,7 @@ export default function AdminSettingsCenterTab({
                         category: e.target.value as EmailTemplateRecord['category'],
                       })
                     }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                   >
                     <option value="ERP_PROPOSAL">ERP • Proposta Comercial PDF</option>
                     <option value="ERP_FINANCE_FISCAL">ERP • Boleto / Recibo Locação / NF</option>
@@ -959,7 +959,7 @@ export default function AdminSettingsCenterTab({
                   onChange={(e) =>
                     setEditingTemplate({ ...editingTemplate, subjectTemplate: e.target.value })
                   }
-                  className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                  className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
               <div>
@@ -1236,7 +1236,7 @@ export default function AdminSettingsCenterTab({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">Nome Completo</label>
-                    <input type="text" value={selectedUserProfile.name} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, name: e.target.value })} className="w-full px-3 py-2 rounded border border-slate-300 font-semibold" />
+                    <input type="text" value={selectedUserProfile.name} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, name: e.target.value })} className="w-full px-3 py-2 rounded border border-slate-300" />
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">E-mail Corporativo</label>
@@ -1273,7 +1273,7 @@ export default function AdminSettingsCenterTab({
                           crmItemPermissions: buildDefaultCrmItemPermissions(nextCrm),
                         });
                       }}
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold text-[#0d2b4e]"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-[#0d2b4e]"
                     >
                       {(Object.keys(crmRolesCatalogState) as CrmAccountRole[]).map((k) => (
                         <option key={k} value={k}>{k} — {crmRolesCatalogState[k].label}</option>
@@ -1292,7 +1292,7 @@ export default function AdminSettingsCenterTab({
                           erpItemPermissions: buildDefaultErpItemPermissions(nextErp),
                         });
                       }}
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold text-[#1e3a6e]"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-[#1e3a6e]"
                     >
                       {(Object.keys(erpRolesCatalogState) as ErpAccountRole[]).map((k) => (
                         <option key={k} value={k}>{k} — {erpRolesCatalogState[k].label}</option>
@@ -1429,7 +1429,7 @@ export default function AdminSettingsCenterTab({
                         <select
                           value={newUserCrmRole}
                           onChange={(e) => setNewUserCrmRole(e.target.value as CrmAccountRole)}
-                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold text-[#0d2b4e]"
+                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-[#0d2b4e]"
                         >
                           {(Object.keys(crmRolesCatalogState) as CrmAccountRole[]).map((cKey) => (
                             <option key={cKey} value={cKey}>
@@ -1452,7 +1452,7 @@ export default function AdminSettingsCenterTab({
                             else if (nextErp === 'ERP_ADMIN') setNewUserLegacyRole('SUPER_ADMIN');
                             else if (nextErp === 'ERP_COMMERCIAL') setNewUserLegacyRole('SALES_MANAGER');
                           }}
-                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold text-[#1e3a6e]"
+                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-[#1e3a6e]"
                         >
                           {(Object.keys(erpRolesCatalogState) as ErpAccountRole[]).map((eKey) => (
                             <option key={eKey} value={eKey}>

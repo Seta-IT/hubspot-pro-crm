@@ -1143,12 +1143,12 @@ export default function FormsBuilderTab({
                     Histórico de Conversões de Formulários ({filteredSubmissions.length})
                   </h3>
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                    <div className="font-semibold inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
                       <Filter className="w-3.5 h-3.5 text-slate-500" />
                       <select
                         value={submissionFilterFormId}
                         onChange={(e) => setSubmissionFilterFormId(e.target.value)}
-                        className="bg-transparent font-semibold text-slate-800 focus:outline-none"
+                        className="bg-transparent text-slate-800 focus:outline-none"
                       >
                         <option value="ALL">Todos os Formulários ({submissions.length})</option>
                         {forms.map((f) => (
@@ -1308,7 +1308,7 @@ export default function FormsBuilderTab({
                   {customFields.map((f, idx) => (
                     <div
                       key={`${f.name}-${idx}`}
-                      className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs"
+                      className="font-semibold flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs"
                     >
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-slate-800">{f.label}</span>

@@ -93,7 +93,7 @@ function SectionCard({
         <h3 className="flex items-center gap-2 text-[15px] text-slate-700">
           <Icon className="w-4 h-4 text-slate-500" />
           <span>
-            {lead} <strong className="font-bold text-[#1e3a6e]">{strong}</strong>
+            {lead} <strong className="font-semibold text-[#1e3a6e]">{strong}</strong>
           </span>
         </h3>
         <p className="text-[11px] text-slate-500 mt-0.5">{subtitle}</p>
@@ -467,7 +467,7 @@ export default function CertificateA1UploadCard({ onShowToast, environment, onOp
               accept=".pfx,.p12,application/x-pkcs12"
               onChange={handleSelectFile}
               disabled={busy !== null}
-              className="block w-full sm:w-72 text-[11px] font-semibold text-slate-700 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border file:border-slate-300 file:bg-slate-50 file:text-slate-700 file:font-semibold"
+              className="block w-full sm:w-72 text-[11px] text-slate-700 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border file:border-slate-300 file:bg-slate-50 file:text-slate-700 file:font-semibold"
             />
           </SettingRow>
           <SettingRow icon={KeyRound} title="Senha do certificado" description="Usada só para validar e proteger o arquivo. Não é exibida novamente.">
@@ -478,7 +478,7 @@ export default function CertificateA1UploadCard({ onShowToast, environment, onOp
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={busy !== null}
-              className="w-full sm:w-72 px-3 py-2 rounded border border-slate-300 font-semibold"
+              className="w-full sm:w-72 px-3 py-2 rounded border border-slate-300"
             />
           </SettingRow>
         </SectionCard>
@@ -536,7 +536,7 @@ export default function CertificateA1UploadCard({ onShowToast, environment, onOp
               <select
                 value={environment.value}
                 onChange={(e) => environment.onChange(e.target.value as SefazEnvironment)}
-                className="w-full sm:w-72 px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                className="w-full sm:w-72 px-3 py-2 rounded border border-slate-300 bg-white"
               >
                 <option value="PRODUCAO">Produção (validade jurídica)</option>
                 <option value="HOMOLOGACAO">Homologação (testes)</option>

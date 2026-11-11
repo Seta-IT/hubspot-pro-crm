@@ -598,7 +598,7 @@ export function ProposalEditModal({
                 type="button"
                 onClick={() => setShowVersionHistoryPanel((v) => !v)}
                 aria-expanded={showVersionHistoryPanel}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-medium cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer"
               >
                 <History className="w-3.5 h-3.5 text-slate-500" />
                 <span>
@@ -637,7 +637,7 @@ export function ProposalEditModal({
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="text-[11px] font-bold text-slate-600">Modelo da proposta</label>
+                <label className="text-[11px] font-semibold text-slate-600">Modelo da proposta</label>
                 <select
                   value={resolveProposalLayoutKind(draft.templateStyle)}
                   onChange={(e) =>
@@ -645,7 +645,7 @@ export function ProposalEditModal({
                       templateStyle: e.target.value as ErpCommercialProposal['templateStyle'],
                     })
                   }
-                  className="px-3 py-1.5 rounded border border-emerald-400 bg-emerald-50 font-extrabold text-emerald-950"
+                  className="px-3 py-1.5 rounded border border-emerald-400 bg-emerald-50 text-emerald-950"
                 >
                   {PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((tpl) => (
                     <option key={tpl.id} value={tpl.id}>
@@ -654,7 +654,7 @@ export function ProposalEditModal({
                   ))}
                 </select>
 
-                <label className="text-[11px] font-bold text-slate-600">Tipo de orçamento</label>
+                <label className="text-[11px] font-semibold text-slate-600">Tipo de orçamento</label>
                 <select
                   value={draft.budgetType || 'LOCACAO'}
                   onChange={(e) =>
@@ -662,7 +662,7 @@ export function ProposalEditModal({
                       budgetType: e.target.value as ErpCommercialProposal['budgetType'],
                     })
                   }
-                  className="px-3 py-1.5 rounded border border-[#1e3a6e]/40 bg-blue-50/40 font-extrabold text-[#1e3a6e]"
+                  className="px-3 py-1.5 rounded border border-[#1e3a6e]/40 bg-blue-50/40 text-[#1e3a6e]"
                 >
                   <option value="PRODUTOS">Orçamento de Produtos</option>
                   <option value="SERVICOS">Orçamento de Serviços</option>
@@ -677,13 +677,13 @@ export function ProposalEditModal({
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 items-start">
                 {/* Coluna 1: Número */}
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Número</label>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">Número</label>
                   <div className="flex">
                     <input
                       type="text"
                       value={draft.code}
                       onChange={(e) => updateDraft({ code: e.target.value })}
-                      className="w-full px-3 py-2 rounded-l border border-slate-300 bg-slate-100 font-mono font-bold text-slate-800"
+                      className="w-full px-3 py-2 rounded-l border border-slate-300 bg-slate-100 font-mono text-slate-800"
                     />
                     <span className="px-2.5 py-2 bg-slate-100 border border-l-0 border-slate-300 rounded-r text-slate-500 flex items-center">
                       <Edit3 className="w-3.5 h-3.5" />
@@ -694,11 +694,11 @@ export function ProposalEditModal({
                 {/* Coluna 2: Cliente * (Busca Autocomplete + Aviso Cliente Não Cadastrado + Botão Verde "+ Adicionar novo") */}
                 <div className="sm:col-span-3 relative">
                   <div className="flex items-center justify-between mb-1">
-                    <label className="block text-[11px] font-bold text-slate-700">
+                    <label className="block text-[11px] font-semibold text-slate-700">
                       Cliente <span className="text-rose-600">*</span>
                     </label>
                     {draft.companyCnpj && (
-                      <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                      <span className="text-[10px] font-mono font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
                         CNPJ: {draft.companyCnpj}
                       </span>
                     )}
@@ -719,7 +719,7 @@ export function ProposalEditModal({
                           companyId: null,
                         });
                       }}
-                      className="w-full px-3 py-2 rounded border border-slate-300 focus:border-[#0091ae] focus:outline-none font-semibold text-slate-900 bg-white"
+                      className="w-full px-3 py-2 rounded border border-slate-300 focus:border-[#0091ae] focus:outline-none text-slate-900 bg-white"
                     />
                     {clientSearchInput && (
                       <button
@@ -756,7 +756,7 @@ export function ProposalEditModal({
                                       : 'hover:bg-slate-100 text-slate-900'
                                   }`}
                                 >
-                                  <div className="font-extrabold text-xs truncate">{comp.name}</div>
+                                  <div className="font-semibold text-xs truncate">{comp.name}</div>
                                   <div
                                     className={`text-[11px] truncate ${
                                       isHighlighted ? 'text-blue-100' : 'text-slate-500'
@@ -769,7 +769,7 @@ export function ProposalEditModal({
                             })
                           ) : (
                             <div className="p-3.5 bg-amber-50/90 text-amber-950 space-y-1">
-                              <div className="flex items-center gap-1.5 font-extrabold text-xs text-amber-900">
+                              <div className="flex items-center gap-1.5 font-semibold text-xs text-amber-900">
                                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
                                 <span>
                                   Nenhum cliente cadastrado encontrado para &ldquo;{clientSearchInput}&rdquo;.
@@ -787,7 +787,7 @@ export function ProposalEditModal({
                           <button
                             type="button"
                             onClick={handleOpenQuickNewClientModal}
-                            className="w-full py-2 px-3 rounded bg-[#10b981] hover:bg-emerald-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition"
+                            className="w-full py-2 px-3 rounded bg-[#10b981] hover:bg-emerald-600 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition"
                           >
                             <Plus className="w-4 h-4" />
                             <strong>+ Adicionar novo</strong>
@@ -795,7 +795,7 @@ export function ProposalEditModal({
                           <button
                             type="button"
                             onClick={() => setClientDropdownOpen(false)}
-                            className="px-2.5 py-2 rounded border border-slate-300 bg-white text-slate-600 hover:text-slate-900 text-[11px] font-bold cursor-pointer shrink-0"
+                            className="px-2.5 py-2 rounded border border-slate-300 bg-white text-slate-600 hover:text-slate-900 text-[11px] font-semibold cursor-pointer shrink-0"
                           >
                             Fechar
                           </button>
@@ -807,7 +807,7 @@ export function ProposalEditModal({
 
                 {/* Coluna 3: Data * */}
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     Data <span className="text-rose-600">*</span>
                   </label>
                   <input
@@ -818,13 +818,13 @@ export function ProposalEditModal({
                       (draft.createdAt ? draft.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10))
                     }
                     onChange={(e) => updateDraft({ proposalDate: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                   />
                 </div>
 
                 {/* Coluna 4: Validade */}
                 <div className="sm:col-span-1">
-                  <label htmlFor="proposal-valid-until" className="block text-[11px] font-bold text-slate-700 mb-1">Validade</label>
+                  <label htmlFor="proposal-valid-until" className="block text-[11px] font-semibold text-slate-700 mb-1">Validade</label>
                   <input
                     id="proposal-valid-until"
                     ref={validityInputRef}
@@ -855,7 +855,7 @@ export function ProposalEditModal({
 
                 {/* Coluna 5: Prazo de Entrega */}
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-[#1e3a6e] mb-1">
+                  <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
                     Prazo de Entrega
                   </label>
                   <input
@@ -869,13 +869,13 @@ export function ProposalEditModal({
                         deliveryForecast: e.target.value,
                       })
                     }
-                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-bold text-slate-900"
+                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-slate-900"
                   />
                 </div>
 
                 {/* Coluna 6: SLA (Nível de Serviço) */}
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-[#1e3a6e] mb-1">
+                  <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
                     SLA (Nível de Serviço)
                   </label>
                   <select
@@ -888,7 +888,7 @@ export function ProposalEditModal({
                         slaResponseHours: opt.slaResponseHours,
                       });
                     }}
-                    className="w-full px-2.5 py-2 rounded border border-blue-300 bg-white font-extrabold text-[#1e3a6e]"
+                    className="w-full px-2.5 py-2 rounded border border-blue-300 bg-white text-[#1e3a6e]"
                   >
                     {PROPOSAL_SLA_OPTIONS.map((opt) => (
                       <option key={opt.id} value={opt.id}>
@@ -902,7 +902,7 @@ export function ProposalEditModal({
               {/* LINHA 2 DO GESTÃOCLICK: Vendedor | E-mail do Vendedor | WhatsApp do Vendedor | Situação | Aos cuidados de */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
                 <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     Vendedor (Usuário do Sistema)
                   </label>
                   <select
@@ -915,7 +915,7 @@ export function ProposalEditModal({
                         sellerPhone: info.phone,
                       });
                     }}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                   >
                     <option value="">Selecione</option>
                     <option value="Marcelo Mira">Marcelo Mira</option>
@@ -928,7 +928,7 @@ export function ProposalEditModal({
                 </div>
 
                 <div className="sm:col-span-3">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     E-mail do Vendedor
                   </label>
                   <input
@@ -941,7 +941,7 @@ export function ProposalEditModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     WhatsApp do Vendedor
                   </label>
                   <input
@@ -954,13 +954,13 @@ export function ProposalEditModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Situação</label>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">Situação</label>
                   <select
                     value={draft.status}
                     onChange={(e) =>
                       updateDraft({ status: e.target.value as ErpCommercialProposal['status'] })
                     }
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold text-slate-800"
+                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-slate-800"
                   >
                     <option value="RASCUNHO">Em Aberto</option>
                     <option value="ENVIADA">Enviado ao Cliente</option>
@@ -972,7 +972,7 @@ export function ProposalEditModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     Aos cuidados de
                   </label>
                   <input
@@ -990,7 +990,7 @@ export function ProposalEditModal({
               {/* LINHA 3: Centro de custo | Plano de contas | Nome | CNPJ | Prazo */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     Centro de custo
                   </label>
                   <input
@@ -1010,7 +1010,7 @@ export function ProposalEditModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     Plano de contas
                   </label>
                   <input
@@ -1030,7 +1030,7 @@ export function ProposalEditModal({
                 </div>
 
                 <div className="sm:col-span-4">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     Nome da proposta <span className="text-rose-600">*</span>
                   </label>
                   <input
@@ -1039,12 +1039,12 @@ export function ProposalEditModal({
                     value={draft.title}
                     onChange={(e) => updateDraft({ title: e.target.value })}
                     placeholder="Ex: Locação Central PABX IP Seta Cloud + Terminais Yealink"
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
+                    className="w-full px-3 py-2 rounded border border-slate-300 text-slate-900"
                   />
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">CNPJ ou CPF</label>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">CNPJ ou CPF</label>
                   <input
                     type="text"
                     placeholder="00.000.000/0000-00"
@@ -1055,7 +1055,7 @@ export function ProposalEditModal({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     Prazo do contrato (meses) *
                   </label>
                   <input
@@ -1066,7 +1066,7 @@ export function ProposalEditModal({
                     onChange={(e) =>
                       updateDraft({ contractMonths: Math.max(1, Number(e.target.value) || 24) })
                     }
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-[#1e3a6e]"
+                    className="w-full px-3 py-2 rounded border border-slate-300 text-[#1e3a6e]"
                   />
                 </div>
               </div>
@@ -1123,7 +1123,7 @@ export function ProposalEditModal({
                     value={resolveProposalServiceType(draft)}
                     onChange={(e) => updateDraft({ serviceType: e.target.value })}
                     placeholder="Ex.: Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação"
-                    className="w-full px-3 py-2 rounded border border-indigo-300 bg-white font-semibold text-slate-900 text-xs"
+                    className="w-full px-3 py-2 rounded border border-indigo-300 bg-white text-slate-900 text-xs"
                   />
                   <datalist id="proposal-service-type-options">
                     {PROPOSAL_SERVICE_TYPE_OPTIONS.map((opt) => (
@@ -1149,7 +1149,7 @@ export function ProposalEditModal({
                           slaResponseHours: opt.slaResponseHours,
                         });
                       }}
-                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-semibold text-[#1e3a6e]"
+                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-[#1e3a6e]"
                     >
                       {PROPOSAL_SLA_OPTIONS.map((opt) => (
                         <option key={opt.id} value={opt.id}>
@@ -1175,7 +1175,7 @@ export function ProposalEditModal({
                         deliveryForecast: e.target.value,
                       })
                     }
-                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-semibold text-slate-900"
+                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-slate-900"
                   />
                   <datalist id="proposal-delivery-leadtime-options">
                     {PROPOSAL_DELIVERY_SUGGESTIONS.map((item) => (
@@ -1192,7 +1192,7 @@ export function ProposalEditModal({
                     <select
                       value={[1, 6, 12, 24, 36, 48, 60].includes(Number(draft.contractMonths)) ? String(draft.contractMonths) : "24"}
                       onChange={(e) => updateDraft({ contractMonths: Math.max(1, Number(e.target.value) || 24) })}
-                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white font-semibold text-slate-900"
+                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-slate-900"
                     >
                       <option value="1">Avulso / 1 mês</option>
                       <option value="6">6 meses</option>
@@ -1241,7 +1241,7 @@ export function ProposalEditModal({
 
               {/* LINHA 4 DO GESTÃOCLICK: Introdução da proposta */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                   Introdução da proposta
                 </label>
                 <textarea
@@ -1264,7 +1264,7 @@ export function ProposalEditModal({
               </div>
             </div>
             <div className="p-5">
-              <label className="block text-[11px] font-bold text-slate-700 mb-1">Capa</label>
+              <label className="block text-[11px] font-semibold text-slate-700 mb-1">Capa</label>
               <input
                 type="text"
                 value={coverText}
@@ -1309,7 +1309,7 @@ export function ProposalEditModal({
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-12 gap-3">
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                   Prazo de entrega
                 </label>
                 <input
@@ -1323,11 +1323,11 @@ export function ProposalEditModal({
                       deliveryForecast: e.target.value,
                     })
                   }
-                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                 />
               </div>
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                   Transportadora
                 </label>
                 <select
@@ -1342,7 +1342,7 @@ export function ProposalEditModal({
                 </select>
               </div>
               <div className="sm:col-span-2">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                   Valor do Frete (R$)
                 </label>
                 <input
@@ -1353,11 +1353,11 @@ export function ProposalEditModal({
                   onChange={(e) =>
                     updateDraft({ shippingCost: Math.max(0, Number(e.target.value) || 0) })
                   }
-                  className="w-full px-3 py-2 rounded border border-slate-300 text-right font-bold"
+                  className="w-full px-3 py-2 rounded border border-slate-300 text-right font-semibold"
                 />
               </div>
               <div className="sm:col-span-4">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                   Endereço de entrega
                 </label>
                 <input
@@ -1386,23 +1386,23 @@ export function ProposalEditModal({
             <div className="p-5 space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-8 gap-2.5 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                  <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                     Subtotal Produtos
                   </span>
-                  <strong className="text-xs font-extrabold text-slate-900">
+                  <strong className="text-xs font-semibold text-slate-900">
                     {formatBRL(draft.productsSubtotal || 0)}
                   </strong>
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                  <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                     Subtotal serviços
                   </span>
-                  <strong className="text-xs font-extrabold text-indigo-900">
+                  <strong className="text-xs font-semibold text-indigo-900">
                     {formatBRL(draft.servicesSubtotal || 0)}
                   </strong>
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                  <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                     Desconto
                   </span>
                   <div className="flex items-center gap-1 mt-0.5">
@@ -1438,42 +1438,42 @@ export function ProposalEditModal({
                   </div>
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                  <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                     Total de descontos
                   </span>
-                  <strong className="text-xs font-extrabold text-slate-900">
+                  <strong className="text-xs font-semibold text-slate-900">
                     - {formatBRL(itemDiscountsTotal + globalDiscountBrl)}
                   </strong>
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                  <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                     Setup único
                   </span>
-                  <strong className="text-xs font-extrabold text-amber-800">
+                  <strong className="text-xs font-semibold text-amber-800">
                     {formatBRL(draft.oneTimeSetupTotal || 0)}
                   </strong>
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                  <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                     Frete
                   </span>
-                  <strong className="text-xs font-bold text-slate-800">
+                  <strong className="text-xs font-semibold text-slate-800">
                     {formatBRL(draft.shippingCost || 0)}
                   </strong>
                 </div>
                 <div className="bg-emerald-50 px-2.5 py-1.5 rounded border border-emerald-200">
-                  <span className="text-[10px] uppercase font-extrabold text-emerald-700 block">
+                  <span className="text-[10px] uppercase font-semibold text-emerald-700 block">
                     Valor Mensal
                   </span>
-                  <strong className="text-sm font-black text-emerald-800">
+                  <strong className="text-sm font-semibold text-emerald-800">
                     {formatBRL(draft.monthlyRecurringTotal)}
                   </strong>
                 </div>
                 <div className="bg-[#1e3a6e] text-white px-2.5 py-1.5 rounded">
-                  <span className="text-[10px] uppercase font-bold text-emerald-300 block">
+                  <span className="text-[10px] uppercase font-semibold text-emerald-300 block">
                     Total ({draft.contractMonths}m)
                   </span>
-                  <strong className="text-sm font-black text-white">
+                  <strong className="text-sm font-semibold text-white">
                     {formatBRL(draft.totalContractValue)}
                   </strong>
                 </div>
@@ -1484,7 +1484,7 @@ export function ProposalEditModal({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5">
                     <Calendar className="w-4 h-4 text-[#1e3a6e]" />
-                    <span className="font-extrabold text-slate-800">
+                    <span className="font-semibold text-slate-800">
                       Parcelas e vencimentos
                     </span>
                   </div>
@@ -1502,7 +1502,7 @@ export function ProposalEditModal({
                         key={preset.n}
                         type="button"
                         onClick={() => handleGenerateInstallments(preset.n)}
-                        className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer border ${
+                        className={`px-2.5 py-1 rounded text-[11px] font-semibold cursor-pointer border ${
                           installmentCount === preset.n
                             ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]'
                             : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
@@ -1516,7 +1516,7 @@ export function ProposalEditModal({
 
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
                   <div className="sm:col-span-2">
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       Nº Parcelas
                     </label>
                     <input
@@ -1525,17 +1525,17 @@ export function ProposalEditModal({
                       max={60}
                       value={installmentCount}
                       onChange={(e) => setInstallmentCount(Math.max(1, Number(e.target.value) || 1))}
-                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 font-bold"
+                      className="w-full px-2.5 py-1.5 rounded border border-slate-300"
                     />
                   </div>
                   <div className="sm:col-span-3">
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       Forma de Pagamento
                     </label>
                     <select
                       value={defaultPaymentMethod}
                       onChange={(e) => setDefaultPaymentMethod(e.target.value)}
-                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white font-semibold"
+                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white"
                     >
                       <option value="BOLETO">Boleto Bancário Híbrido PIX</option>
                       <option value="PIX">PIX Empresarial</option>
@@ -1545,7 +1545,7 @@ export function ProposalEditModal({
                     </select>
                   </div>
                   <div className="sm:col-span-2">
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       1º Vencimento
                     </label>
                     <input
@@ -1556,7 +1556,7 @@ export function ProposalEditModal({
                     />
                   </div>
                   <div className="sm:col-span-3">
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       Resumo da Condição de Pagamento
                     </label>
                     <input
@@ -1570,7 +1570,7 @@ export function ProposalEditModal({
                     <button
                       type="button"
                       onClick={() => handleGenerateInstallments()}
-                      className="w-full px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs cursor-pointer"
+                      className="w-full px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs cursor-pointer"
                     >
                       Gerar Parcelas
                     </button>
@@ -1593,7 +1593,7 @@ export function ProposalEditModal({
                       <tbody className="divide-y divide-slate-100">
                         {draft.installments.map((inst, idx) => (
                           <tr key={idx}>
-                            <td className="py-1.5 px-2.5 font-mono font-bold">#{inst.number}</td>
+                            <td className="py-1.5 px-2.5 font-mono font-semibold">#{inst.number}</td>
                             <td className="py-1.5 px-2.5">
                               <input
                                 type="date"
@@ -1620,7 +1620,7 @@ export function ProposalEditModal({
                                   };
                                   updateDraft({ installments: copy });
                                 }}
-                                className="w-full px-2 py-1 rounded border border-slate-300 text-right font-bold"
+                                className="w-full px-2 py-1 rounded border border-slate-300 text-right font-semibold"
                               />
                             </td>
                             <td className="py-1.5 px-2.5">
@@ -1683,7 +1683,7 @@ export function ProposalEditModal({
             </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                   Observações Comerciais &amp; Fiscais (Sai no PDF)
                 </label>
                 <textarea
@@ -1694,7 +1694,7 @@ export function ProposalEditModal({
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                   Cláusulas técnicas e SLA
                 </label>
                 <textarea
@@ -1745,7 +1745,7 @@ export function ProposalEditModal({
               <div className="p-4 space-y-3">
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-100 text-slate-700 font-extrabold uppercase text-[10px] border-b border-slate-200">
+                    <thead className="bg-slate-100 text-slate-700 font-semibold uppercase text-[10px] border-b border-slate-200">
                       <tr>
                         <th className="py-2.5 px-3 w-36">Versão</th>
                         <th className="py-2.5 px-3 w-48">Data e responsável</th>
@@ -1770,15 +1770,15 @@ export function ProposalEditModal({
                           >
                             <td className="py-3 px-3">
                               <div className="flex items-center gap-2">
-                                <span className="font-extrabold text-xs text-[#0d2b4e]">
+                                <span className="font-semibold text-xs text-[#0d2b4e]">
                                   Versão {ver.version}
                                 </span>
                                 {isCurrentVer ? (
-                                  <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-extrabold">
+                                  <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-semibold">
                                     ATUAL
                                   </span>
                                 ) : (
-                                  <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-bold">
+                                  <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-semibold">
                                     ANTERIOR
                                   </span>
                                 )}
@@ -1793,7 +1793,7 @@ export function ProposalEditModal({
                             </td>
 
                             <td className="py-3 px-3">
-                              <div className="font-extrabold text-emerald-700">
+                              <div className="font-semibold text-emerald-700">
                                 {formatBRL(snap.monthlyRecurringTotal || 0)}/mês •{" "}
                                 {(snap.items || []).length}{" "}
                                 {(snap.items || []).length === 1 ? "item" : "itens"} •{" "}
@@ -1851,7 +1851,7 @@ export function ProposalEditModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                className="px-4 py-2 rounded border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
                 Cancelar
               </button>
@@ -1874,7 +1874,7 @@ export function ProposalEditModal({
                   <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong> • Frete:{' '}
                   <strong>{formatBRL(draft.shippingCost || 0)}</strong>
                 </span>
-                <strong className="text-base font-black text-[#1e3a6e]">
+                <strong className="text-base font-semibold text-[#1e3a6e]">
                   Valor total ({draft.contractMonths}m): {formatBRL(draft.totalContractValue)}
                 </strong>
               </div>
@@ -1902,10 +1902,10 @@ export function ProposalEditModal({
                 <div className="flex items-center gap-2">
                   <Building2 className="w-5 h-5" />
                   <div>
-                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-100 block">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-100 block">
                       Cadastro rápido do cliente
                     </span>
-                    <h3 className="text-sm font-extrabold">
+                    <h3 className="text-sm font-semibold">
                       + Adicionar Novo Cliente e Vincular Automaticamente à Proposta
                     </h3>
                   </div>
@@ -1921,13 +1921,13 @@ export function ProposalEditModal({
 
               <div className="p-5 space-y-3.5 max-h-[80vh] overflow-y-auto">
                 {qcRfbBanner && (
-                  <div className="p-3 rounded bg-emerald-950 text-emerald-300 border border-emerald-500 font-bold flex items-center gap-2">
+                  <div className="p-3 rounded bg-emerald-950 text-emerald-300 border border-emerald-500 font-semibold flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 shrink-0" />
                     <span>{qcRfbBanner}</span>
                   </div>
                 )}
                 {qcErrorMsg && (
-                  <div className="p-3 rounded bg-rose-50 text-rose-800 border border-rose-300 font-bold flex items-center gap-2">
+                  <div className="p-3 rounded bg-rose-50 text-rose-800 border border-rose-300 font-semibold flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                     <span>{qcErrorMsg}</span>
                   </div>
@@ -1935,18 +1935,18 @@ export function ProposalEditModal({
 
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
                   <div className="sm:col-span-3">
-                    <label className="block font-bold text-slate-700 mb-1">Tipo de Pessoa</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Tipo de Pessoa</label>
                     <select
                       value={qcPersonType}
                       onChange={(e) => setQcPersonType(e.target.value as 'PJ' | 'PF')}
-                      className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                      className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
                     >
                       <option value="PJ">Pessoa Jurídica (CNPJ)</option>
                       <option value="PF">Pessoa Física (CPF)</option>
                     </select>
                   </div>
                   <div className="sm:col-span-5">
-                    <label className="block font-bold text-slate-700 mb-1">
+                    <label className="block font-semibold text-slate-700 mb-1">
                       {qcPersonType === 'PF' ? 'CPF *' : 'CNPJ *'}
                     </label>
                     <input
@@ -1963,7 +1963,7 @@ export function ProposalEditModal({
                         }
                       }}
                       placeholder={qcPersonType === 'PF' ? '000.000.000-00' : '00.000.000/0001-00'}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-slate-900"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono text-slate-900"
                     />
                   </div>
                   <div className="sm:col-span-4">
@@ -1971,7 +1971,7 @@ export function ProposalEditModal({
                       type="button"
                       disabled={qcLookingUpRfb || qcPersonType === 'PF'}
                       onClick={() => handleLookupQuickClientRfb(qcCnpjCpf)}
-                      className="w-full py-2 px-3 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-extrabold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                      className="w-full py-2 px-3 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white font-semibold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
                     >
                       <Search className="w-3.5 h-3.5 text-emerald-300" />
                       <span>{qcLookingUpRfb ? 'Consultando RFB...' : 'Consultar Receita Federal'}</span>
@@ -1981,7 +1981,7 @@ export function ProposalEditModal({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">
+                    <label className="block font-semibold text-slate-700 mb-1">
                       Razão Social / Nome Completo *
                     </label>
                     <input
@@ -1989,11 +1989,11 @@ export function ProposalEditModal({
                       value={qcLegalName}
                       onChange={(e) => setQcLegalName(e.target.value)}
                       placeholder="Ex.: Digisystem Serviços Especializados LTDA"
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
+                      className="w-full px-3 py-2 rounded border border-slate-300 text-slate-900"
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Nome Fantasia</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Nome Fantasia</label>
                     <input
                       type="text"
                       value={qcTradeName}
@@ -2006,7 +2006,7 @@ export function ProposalEditModal({
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Inscrição Estadual</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Inscrição Estadual</label>
                     <input
                       type="text"
                       value={qcIe}
@@ -2015,7 +2015,7 @@ export function ProposalEditModal({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Telefone ou WhatsApp</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Telefone ou WhatsApp</label>
                     <input
                       type="text"
                       value={qcPhone}
@@ -2025,7 +2025,7 @@ export function ProposalEditModal({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">E-mail comercial</label>
+                    <label className="block font-semibold text-slate-700 mb-1">E-mail comercial</label>
                     <input
                       type="email"
                       value={qcEmail}
@@ -2038,7 +2038,7 @@ export function ProposalEditModal({
 
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                   <div className="sm:col-span-3">
-                    <label className="block font-bold text-slate-700 mb-1">CEP</label>
+                    <label className="block font-semibold text-slate-700 mb-1">CEP</label>
                     <input
                       type="text"
                       value={qcCep}
@@ -2048,7 +2048,7 @@ export function ProposalEditModal({
                     />
                   </div>
                   <div className="sm:col-span-5">
-                    <label className="block font-bold text-slate-700 mb-1">Logradouro</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Logradouro</label>
                     <input
                       type="text"
                       value={qcStreet}
@@ -2057,7 +2057,7 @@ export function ProposalEditModal({
                     />
                   </div>
                   <div className="sm:col-span-2">
-                    <label className="block font-bold text-slate-700 mb-1">Número</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Número</label>
                     <input
                       type="text"
                       value={qcNumber}
@@ -2066,19 +2066,19 @@ export function ProposalEditModal({
                     />
                   </div>
                   <div className="sm:col-span-2">
-                    <label className="block font-bold text-slate-700 mb-1">UF</label>
+                    <label className="block font-semibold text-slate-700 mb-1">UF</label>
                     <input
                       type="text"
                       value={qcState}
                       onChange={(e) => setQcState(e.target.value.toUpperCase())}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                      className="w-full px-3 py-2 rounded border border-slate-300"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Cidade</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Cidade</label>
                     <input
                       type="text"
                       value={qcCity}
@@ -2087,7 +2087,7 @@ export function ProposalEditModal({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">
+                    <label className="block font-semibold text-slate-700 mb-1">
                       Aos cuidados de (Contato na Proposta)
                     </label>
                     <input
@@ -2104,7 +2104,7 @@ export function ProposalEditModal({
                   <button
                     type="button"
                     onClick={() => setShowQuickClientModal(false)}
-                    className="px-4 py-2 rounded border border-slate-300 font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                    className="px-4 py-2 rounded border border-slate-300 font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
                   >
                     Cancelar
                   </button>
@@ -2112,7 +2112,7 @@ export function ProposalEditModal({
                     type="button"
                     disabled={qcSaving}
                     onClick={handleSaveAndLinkQuickClient}
-                    className="px-5 py-2 rounded bg-[#10b981] hover:bg-emerald-600 text-white font-extrabold shadow-sm cursor-pointer disabled:opacity-50"
+                    className="px-5 py-2 rounded bg-[#10b981] hover:bg-emerald-600 text-white font-semibold shadow-sm cursor-pointer disabled:opacity-50"
                   >
                     {qcSaving ? 'Salvando e Vinculando...' : 'Salvar e Vincular à Proposta'}
                   </button>
@@ -2250,7 +2250,7 @@ export function ContractEditModal({
     offsetDays: draft.customDueOffsetDays ?? 45,
     targetWeekday: draft.customDueTargetWeekday || 'WEDNESDAY',
   });
-  const lblCls = 'block font-bold text-slate-700 mb-1';
+  const lblCls = 'block font-semibold text-slate-700 mb-1';
   const inpCls = 'w-full px-3 py-2 rounded border border-slate-300';
   const numOrUndef = (v: string): number | undefined => (v === '' ? undefined : Number(v) || 0);
   const computedInvoiceTotal = (c: ErpRentalContract): number => {
@@ -2565,7 +2565,7 @@ export function ContractEditModal({
                       required
                       value={draft.title}
                       onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                      className={fieldErrCls('title', 'w-full px-3 py-2 rounded border border-slate-300 font-semibold')}
+                      className={fieldErrCls('title', 'w-full px-3 py-2 rounded border border-slate-300')}
                     />
                     {fieldError('title') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('title')}</span>}
                   </div>
@@ -2575,7 +2575,7 @@ export function ContractEditModal({
                       type="text"
                       value={draft.contractNumber}
                       onChange={(e) => setDraft({ ...draft, contractNumber: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                     />
                   </div>
                   <div>
@@ -2584,7 +2584,7 @@ export function ContractEditModal({
                       type="text"
                       value={draft.externalContractNumber || ''}
                       onChange={(e) => setDraft({ ...draft, externalContractNumber: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                      className="w-full px-3 py-2 rounded border border-slate-300"
                     />
                   </div>
                   <div className="sm:col-span-2">
@@ -2594,7 +2594,7 @@ export function ContractEditModal({
                       required
                       value={draft.companyName}
                       onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
-                      className={fieldErrCls('companyName', 'w-full px-3 py-2 rounded border border-slate-300 font-semibold')}
+                      className={fieldErrCls('companyName', 'w-full px-3 py-2 rounded border border-slate-300')}
                     />
                     {fieldError('companyName') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('companyName')}</span>}
                   </div>
@@ -2604,7 +2604,7 @@ export function ContractEditModal({
                       type="text"
                       value={draft.companyCnpj}
                       onChange={(e) => setDraft({ ...draft, companyCnpj: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                     />
                   </div>
                   <div>
@@ -2613,7 +2613,7 @@ export function ContractEditModal({
                       type="text"
                       value={draft.sellerName || ''}
                       onChange={(e) => setDraft({ ...draft, sellerName: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                      className="w-full px-3 py-2 rounded border border-slate-300"
                     />
                   </div>
                   <div>
@@ -2622,7 +2622,7 @@ export function ContractEditModal({
                       type="text"
                       value={draft.proposalNumber || ''}
                       onChange={(e) => setDraft({ ...draft, proposalNumber: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                      className="w-full px-3 py-2 rounded border border-slate-300"
                     />
                   </div>
                   <div>
@@ -2630,7 +2630,7 @@ export function ContractEditModal({
                     <select
                       value={draft.modality || 'LOCACAO'}
                       onChange={(e) => setDraft({ ...draft, modality: e.target.value as ErpContractModality })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold text-slate-800"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-slate-800"
                     >
                       <option value="LOCACAO">Locação de Equipamentos</option>
                       <option value="SERVICO">Serviços Técnicos / NOC</option>
@@ -2643,7 +2643,7 @@ export function ContractEditModal({
                     <select
                       value={draft.status}
                       onChange={(e) => setDraft({ ...draft, status: e.target.value as ErpRentalContract['status'] })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                     >
                       <option value="ATIVO">ATIVO</option>
                       <option value="EM_IMPLANTACAO">EM IMPLANTAÇÃO</option>
@@ -2653,7 +2653,7 @@ export function ContractEditModal({
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">Centro de custo</label>
-                    <input list="ctr-cost-centers" value={draft.costCenter || ''} onChange={(e) => setDraft({ ...draft, costCenter: e.target.value })} data-testid="contract-cost-center" className="w-full px-3 py-2 rounded border border-slate-300 font-semibold" />
+                    <input list="ctr-cost-centers" value={draft.costCenter || ''} onChange={(e) => setDraft({ ...draft, costCenter: e.target.value })} data-testid="contract-cost-center" className="w-full px-3 py-2 rounded border border-slate-300" />
                     <datalist id="ctr-cost-centers">{auxOptions.costCenters.map((c) => (<option key={c} value={c} />))}</datalist>
                   </div>
                 </div>
@@ -2669,7 +2669,7 @@ export function ContractEditModal({
                         const nextEnd = computeContractEndDate(nextStart, draft.contractMonths);
                         setDraft({ ...draft, startDate: nextStart, endDate: nextEnd });
                       }}
-                      className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono font-semibold"
+                      className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono"
                     />
                   </div>
                   <div>
@@ -2683,7 +2683,7 @@ export function ContractEditModal({
                         const nextEnd = computeContractEndDate(draft.startDate, nextMonths);
                         setDraft({ ...draft, contractMonths: nextMonths, endDate: nextEnd, contractTermLabel: `${nextMonths} meses` });
                       }}
-                      className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-semibold"
+                      className="w-full px-2.5 py-2 rounded border border-slate-300 bg-white"
                     />
                   </div>
                   <div>
@@ -2692,13 +2692,13 @@ export function ContractEditModal({
                       type="date"
                       value={(draft.endDate || '').slice(0, 10)}
                       onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
-                      className={fieldErrCls('endDate', 'w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono font-semibold')}
+                      className={fieldErrCls('endDate', 'w-full px-2.5 py-2 rounded border border-slate-300 bg-white font-mono')}
                     />
                     {fieldError('endDate') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('endDate')}</span>}
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">Plano de contas</label>
-                    <input list="ctr-chart-accounts-geral" value={draft.chartOfAccounts || ''} onChange={(e) => setDraft({ ...draft, chartOfAccounts: e.target.value })} data-testid="contract-chart-of-accounts" className="w-full px-2.5 py-2 rounded border border-slate-300 font-semibold" />
+                    <input list="ctr-chart-accounts-geral" value={draft.chartOfAccounts || ''} onChange={(e) => setDraft({ ...draft, chartOfAccounts: e.target.value })} data-testid="contract-chart-of-accounts" className="w-full px-2.5 py-2 rounded border border-slate-300" />
                     <datalist id="ctr-chart-accounts-geral">{auxOptions.chartOfAccountsList.map((c) => (<option key={c} value={c} />))}</datalist>
                   </div>
                 </div>
@@ -2712,12 +2712,12 @@ export function ContractEditModal({
                         value={draft.remessaNfeNumber}
                         onChange={(e) => setDraft({ ...draft, remessaNfeNumber: e.target.value })}
                         placeholder="Nº NF-e remessa"
-                        className="px-3 py-2 rounded border border-slate-300 font-mono font-semibold"
+                        className="px-3 py-2 rounded border border-slate-300 font-mono"
                       />
                       <select
                         value={draft.remessaCfop}
                         onChange={(e) => setDraft({ ...draft, remessaCfop: e.target.value as '5.908' | '6.908' })}
-                        className="px-3 py-2 rounded border border-slate-300 bg-white font-mono font-semibold"
+                        className="px-3 py-2 rounded border border-slate-300 bg-white font-mono"
                       >
                         <option value="5.908">CFOP 5.908 (Estadual)</option>
                         <option value="6.908">CFOP 6.908 (Interestadual)</option>
@@ -2733,7 +2733,7 @@ export function ContractEditModal({
                       rows={2}
                       value={draft.internalNotes || ''}
                       onChange={(e) => setDraft({ ...draft, internalNotes: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                      className="w-full px-3 py-2 rounded border border-slate-300"
                     />
                   </div>
                 </div>
@@ -2802,7 +2802,7 @@ export function ContractEditModal({
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
                       <div>
-                        <label className="block font-bold text-slate-700 mb-1">Unidade de Tempo</label>
+                        <label className="block font-semibold text-slate-700 mb-1">Unidade de Tempo</label>
                         <select
                           value={customDurationUnit}
                           onChange={(e) => {
@@ -2810,7 +2810,7 @@ export function ContractEditModal({
                             setCustomDurationUnit(u);
                             applyRenewalDurationToDraft('CUSTOM', u, customMonthsValue, customDaysValue);
                           }}
-                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                         >
                           <option value="MONTHS">Meses Personalizados (ex.: 6, 7, 18m)</option>
                           <option value="DAYS">Dias Corridos (ex.: 90, 180 dias)</option>
@@ -2820,7 +2820,7 @@ export function ContractEditModal({
 
                       {customDurationUnit === 'MONTHS' && (
                         <div>
-                          <label className="block font-bold text-slate-700 mb-1">
+                          <label className="block font-semibold text-slate-700 mb-1">
                             Quantidade de Meses (Qualquer Prazo)
                           </label>
                           <input
@@ -2838,14 +2838,14 @@ export function ContractEditModal({
                               );
                             }}
                             placeholder="Ex.: 18"
-                            className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
+                            className="w-full px-3 py-2 rounded border border-slate-300 text-slate-900"
                           />
                         </div>
                       )}
 
                       {customDurationUnit === 'DAYS' && (
                         <div>
-                          <label className="block font-bold text-slate-700 mb-1">
+                          <label className="block font-semibold text-slate-700 mb-1">
                             Quantidade de Dias Corridos
                           </label>
                           <input
@@ -2863,13 +2863,13 @@ export function ContractEditModal({
                               );
                             }}
                             placeholder="Ex.: 90"
-                            className="w-full px-3 py-2 rounded border border-slate-300 font-bold text-slate-900"
+                            className="w-full px-3 py-2 rounded border border-slate-300 text-slate-900"
                           />
                         </div>
                       )}
 
                       <div>
-                        <label className="block font-bold text-slate-700 mb-1">Nova Data de Início</label>
+                        <label className="block font-semibold text-slate-700 mb-1">Nova Data de Início</label>
                         <input
                           type="date"
                           value={(draft.startDate || '').slice(0, 10)}
@@ -2879,12 +2879,12 @@ export function ContractEditModal({
                       </div>
 
                       <div>
-                        <label className="block font-bold text-slate-700 mb-1">Nova Data de Término</label>
+                        <label className="block font-semibold text-slate-700 mb-1">Nova Data de Término</label>
                         <input
                           type="date"
                           value={(draft.endDate || '').slice(0, 10)}
                           onChange={(e) => setDraft({ ...draft, endDate: e.target.value })}
-                          className="w-full px-3 py-2 rounded border border-slate-300 font-mono font-bold text-slate-800"
+                          className="w-full px-3 py-2 rounded border border-slate-300 font-mono text-slate-800"
                         />
                       </div>
                     </div>
@@ -2918,7 +2918,7 @@ export function ContractEditModal({
                           readjustmentIndex: e.target.value as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL',
                         })
                       }
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                     >
                       <option value="IPCA">IPCA (IBGE)</option>
                       <option value="IGP-M">IGP-M (FGV)</option>
@@ -2942,7 +2942,7 @@ export function ContractEditModal({
                       type="text"
                       value={renewalSlaText}
                       onChange={(e) => setRenewalSlaText(e.target.value)}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
+                      className="w-full px-3 py-2 rounded border border-slate-300"
                     />
                   </div>
                 </div>
@@ -2990,7 +2990,7 @@ export function ContractEditModal({
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
                     <label className={lblCls}>Competência (MM/AAAA)</label>
-                    <input type="text" value={billingCompetence} onChange={(e) => { setBillingCompetence(e.target.value); setDraft({ ...draft, lastBilledCompetence: e.target.value }); }} className={`${inpCls} font-mono font-bold`} />
+                    <input type="text" value={billingCompetence} onChange={(e) => { setBillingCompetence(e.target.value); setDraft({ ...draft, lastBilledCompetence: e.target.value }); }} className={`${inpCls} font-mono font-semibold`} />
                   </div>
                   <div>
                     <label className={lblCls}>Produtos / Serviços (Soma R$)</label>
@@ -3034,11 +3034,11 @@ export function ContractEditModal({
                   </div>
                 </div>
                 <div className="flex flex-wrap items-end gap-4">
-                  <label className="inline-flex items-center gap-2 font-bold text-slate-700">
+                  <label className="inline-flex items-center gap-2 font-semibold text-slate-700">
                     <input type="checkbox" checked={Boolean(draft.includeFreightInInvoice)} onChange={(e) => updateTotals({ includeFreightInInvoice: e.target.checked })} className="w-4 h-4" />
                     Incluir Frete na Fatura
                   </label>
-                  <label className="inline-flex items-center gap-2 font-bold text-slate-700">
+                  <label className="inline-flex items-center gap-2 font-semibold text-slate-700">
                     <input type="checkbox" checked={autoSyncMonthly} onChange={(e) => setAutoSyncMonthly(e.target.checked)} className="w-4 h-4" />
                     Recalcular total automaticamente
                   </label>
@@ -3176,13 +3176,13 @@ export function ContractEditModal({
                   <thead><tr className="text-slate-500 uppercase text-[10px]"><th className="py-1">Parcela</th><th>Competência</th><th>Vencimento</th><th>Periodicidade</th><th>Regra</th><th className="text-right">Valor</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {upcomingCycles.map((c) => (
-                      <tr key={c.cycleIndex}><td className="py-1 font-mono">{c.cycleIndex}</td><td>{c.competenceMonth}</td><td className="font-bold">{c.dueDateBr}</td><td>{c.recurrenceLabel}</td><td>{c.ruleLabel || '—'}</td><td className="text-right font-bold">{formatBRL(c.expectedAmountBrl)}</td></tr>
+                      <tr key={c.cycleIndex}><td className="py-1 font-mono">{c.cycleIndex}</td><td>{c.competenceMonth}</td><td className="font-semibold">{c.dueDateBr}</td><td>{c.recurrenceLabel}</td><td>{c.ruleLabel || '—'}</td><td className="text-right font-semibold">{formatBRL(c.expectedAmountBrl)}</td></tr>
                     ))}
                   </tbody>
                 </table>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => downloadContractInvoicesCsvOnDemand(draft, contractInvoices)} className="px-3 py-1.5 rounded border border-slate-300 font-bold cursor-pointer hover:bg-slate-50">Exportar Histórico CSV</button>
-                  <button type="button" onClick={() => downloadContractBillingHistoryReportOnDemand(draft, contractInvoices, 'PRINT')} className="px-3 py-1.5 rounded border border-slate-300 font-bold cursor-pointer hover:bg-slate-50">Relatório Completo de Faturas (A4)</button>
+                  <button type="button" onClick={() => downloadContractInvoicesCsvOnDemand(draft, contractInvoices)} className="px-3 py-1.5 rounded border border-slate-300 font-semibold cursor-pointer hover:bg-slate-50">Exportar Histórico CSV</button>
+                  <button type="button" onClick={() => downloadContractBillingHistoryReportOnDemand(draft, contractInvoices, 'PRINT')} className="px-3 py-1.5 rounded border border-slate-300 font-semibold cursor-pointer hover:bg-slate-50">Relatório Completo de Faturas (A4)</button>
                 </div>
                 {contractInvoices.length === 0 ? (
                   <div className="text-xs text-slate-500 italic">Nenhuma fatura emitida para este contrato ainda.</div>
@@ -3192,15 +3192,15 @@ export function ContractEditModal({
                     <tbody className="divide-y divide-slate-100">
                       {contractInvoices.map((inv) => (
                         <tr key={inv.id}>
-                          <td className="py-1 font-mono font-bold">{inv.documentNumber}</td>
+                          <td className="py-1 font-mono font-semibold">{inv.documentNumber}</td>
                           <td>{inv.competenceMonth}</td>
                           <td>{(inv.issueDate || '').slice(0, 10)}</td>
                           <td>{(inv.dueDate || '').slice(0, 10)}</td>
                           <td>{inv.status}</td>
-                          <td className="text-right font-bold">{formatBRL(inv.netAmount || inv.grossAmount)}</td>
+                          <td className="text-right font-semibold">{formatBRL(inv.netAmount || inv.grossAmount)}</td>
                           <td className="text-right whitespace-nowrap">
-                            <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'PRINT')} className="px-2 py-0.5 rounded font-bold cursor-pointer mr-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">Baixar PDF</button>
-                            <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'DOWNLOAD')} className="px-2 py-0.5 rounded border border-slate-300 font-bold cursor-pointer">Baixar Fatura HTML</button>
+                            <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'PRINT')} className="px-2 py-0.5 rounded font-semibold cursor-pointer mr-1 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">Baixar PDF</button>
+                            <button type="button" onClick={() => downloadInvoicePdfOnDemand(inv, draft, 'DOWNLOAD')} className="px-2 py-0.5 rounded border border-slate-300 font-semibold cursor-pointer">Baixar Fatura HTML</button>
                           </td>
                         </tr>
                       ))}
@@ -3255,7 +3255,7 @@ export function ContractEditModal({
 
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Índice Contratual</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Índice Contratual</label>
                     <select
                       value={draft.readjustmentIndex}
                       onChange={(e) =>
@@ -3264,7 +3264,7 @@ export function ContractEditModal({
                           readjustmentIndex: e.target.value as 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL',
                         })
                       }
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-bold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                     >
                       <option value="IPCA">IPCA (IBGE)</option>
                       <option value="IGP-M">IGP-M (FGV)</option>
@@ -3273,17 +3273,17 @@ export function ContractEditModal({
                     </select>
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Percentual de Reajuste (%)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Percentual de Reajuste (%)</label>
                     <input
                       type="number"
                       step="0.01"
                       value={readjPercentInput}
                       onChange={(e) => setReadjPercentInput(e.target.value)}
-                      className="w-full px-3 py-2 rounded border border-slate-300 font-bold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 font-semibold"
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Valor mensal atual (R$)</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Valor mensal atual (R$)</label>
                     <input
                       type="number"
                       value={draft.monthlyValue}
@@ -3294,7 +3294,7 @@ export function ContractEditModal({
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Novo valor mensal</label>
+                    <label className="block font-semibold text-slate-700 mb-1">Novo valor mensal</label>
                     <div className="px-3 py-2 rounded bg-slate-50 border border-slate-200 font-semibold text-slate-800">
                       {formatBRL(
                         Math.round(
@@ -3307,7 +3307,7 @@ export function ContractEditModal({
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Justificativa / Cláusula do Aditivo</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Justificativa / Cláusula do Aditivo</label>
                   <input
                     type="text"
                     value={readjNoteInput}
@@ -3432,7 +3432,7 @@ export function ContractEditModal({
                             copy[idx] = { ...copy[idx], serialNumber: e.target.value };
                             updateEquipments(copy);
                           }}
-                          className="w-full px-2 py-1.5 rounded border border-slate-300 font-mono font-semibold text-xs"
+                          className="w-full px-2 py-1.5 rounded border border-slate-300 font-mono text-xs"
                         />
                       </div>
                       <div className="sm:col-span-1">
@@ -3447,7 +3447,7 @@ export function ContractEditModal({
                             copy[idx] = { ...copy[idx], quantity: Number(e.target.value) };
                             updateEquipments(copy);
                           }}
-                          className={`w-full px-2 py-1.5 rounded border font-semibold text-xs text-right ${fieldError(`equipments.${idx}.quantity`) ? 'border-rose-500' : 'border-slate-300'}`}
+                          className={`w-full px-2 py-1.5 rounded border text-xs text-right ${fieldError(`equipments.${idx}.quantity`) ? 'border-rose-500' : 'border-slate-300'}`}
                         />
                         {fieldError(`equipments.${idx}.quantity`) && <span className="text-[10px] font-semibold text-rose-600">{fieldError(`equipments.${idx}.quantity`)}</span>}
                       </div>
@@ -3500,7 +3500,7 @@ export function ContractEditModal({
                     value={draft.legalBasisNote || ''}
                     onChange={(e) => setDraft({ ...draft, legalBasisNote: e.target.value })}
                     placeholder="Locação de bens móveis (não incidência de ISSQN — LC 116/2003 e Súmula Vinculante 31 STF)."
-                    className="w-full px-3 py-2 rounded border border-slate-300 font-semibold text-xs"
+                    className="w-full px-3 py-2 rounded border border-slate-300 text-xs"
                   />
                 </div>
               </div>
@@ -3573,7 +3573,7 @@ export function ContractEditModal({
                     title="Em uso"
                     aria-disabled
                     onClick={() => setShowInUseModal(true)}
-                    className="px-3.5 py-2 rounded border border-slate-200 bg-slate-50 text-slate-400 font-bold cursor-not-allowed"
+                    className="px-3.5 py-2 rounded border border-slate-200 bg-slate-50 text-slate-400 font-semibold cursor-not-allowed"
                   >
                     Excluir Contrato
                   </button>
@@ -3581,13 +3581,13 @@ export function ContractEditModal({
                   <button
                     type="button"
                     onClick={() => setConfirmDelete(true)}
-                    className="px-3.5 py-2 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold cursor-pointer"
+                    className="px-3.5 py-2 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold cursor-pointer"
                   >
                     Excluir Contrato
                   </button>
                 ) : (
                   <div className="flex items-center gap-2 p-2 rounded bg-rose-50 border border-rose-300">
-                    <span className="font-extrabold text-rose-800">Confirmar exclusão definitiva?</span>
+                    <span className="font-semibold text-rose-800">Confirmar exclusão definitiva?</span>
                     <button
                       type="button"
                       disabled={deleting}
@@ -3600,14 +3600,14 @@ export function ContractEditModal({
                           setDeleting(false);
                         }
                       }}
-                      className="px-3 py-1 rounded bg-rose-600 text-white font-extrabold cursor-pointer"
+                      className="px-3 py-1 rounded bg-rose-600 text-white font-semibold cursor-pointer"
                     >
                       {deleting ? 'Excluindo...' : 'Sim, Excluir'}
                     </button>
                     <button
                       type="button"
                       onClick={() => setConfirmDelete(false)}
-                      className="px-2.5 py-1 rounded border bg-white text-slate-700 font-bold cursor-pointer"
+                      className="px-2.5 py-1 rounded border bg-white text-slate-700 font-semibold cursor-pointer"
                     >
                       Cancelar
                     </button>
@@ -3619,7 +3619,7 @@ export function ContractEditModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded border border-slate-300 font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                className="px-4 py-2 rounded border border-slate-300 font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
                 {isReadOnly ? 'Fechar Consulta' : 'Cancelar'}
               </button>
@@ -3681,22 +3681,22 @@ export function InvoiceEditModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-3.5 text-xs">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Nº Documento</label>
+              <label className="block font-semibold text-slate-700 mb-1">Nº Documento</label>
               <input
                 type="text"
                 value={draft.documentNumber}
                 onChange={(e) => setDraft({ ...draft, documentNumber: e.target.value })}
-                className="w-full px-3 py-2 rounded border font-mono font-bold"
+                className="w-full px-3 py-2 rounded border font-mono"
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Tipo Fiscal</label>
+              <label className="block font-semibold text-slate-700 mb-1">Tipo Fiscal</label>
               <select
                 value={draft.documentType}
                 onChange={(e) =>
                   setDraft({ ...draft, documentType: e.target.value as ErpFiscalDocumentType })
                 }
-                className="w-full px-3 py-2 rounded border bg-white font-bold"
+                className="w-full px-3 py-2 rounded border bg-white"
               >
                 <option value="FATURA_LOCACAO">FATURA DE LOCAÇÃO (0% ISS)</option>
                 <option value="NFSE_SERVICO">NFS-e SERVIÇO TÉCNICO</option>
@@ -3705,13 +3705,13 @@ export function InvoiceEditModal({
               </select>
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Status</label>
+              <label className="block font-semibold text-slate-700 mb-1">Status</label>
               <select
                 value={draft.status}
                 onChange={(e) =>
                   setDraft({ ...draft, status: e.target.value as ErpFiscalInvoice['status'] })
                 }
-                className="w-full px-3 py-2 rounded border bg-white font-bold"
+                className="w-full px-3 py-2 rounded border bg-white"
               >
                 <option value="EMITIDA">EMITIDA</option>
                 <option value="PAGA">PAGA</option>
@@ -3723,7 +3723,7 @@ export function InvoiceEditModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Cliente / Tomador *</label>
+              <label className="block font-semibold text-slate-700 mb-1">Cliente / Tomador *</label>
               <input
                 type="text"
                 required
@@ -3733,7 +3733,7 @@ export function InvoiceEditModal({
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">CNPJ</label>
+              <label className="block font-semibold text-slate-700 mb-1">CNPJ</label>
               <input
                 type="text"
                 value={draft.companyCnpj}
@@ -3745,7 +3745,7 @@ export function InvoiceEditModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Valor Bruto (R$)</label>
+              <label className="block font-semibold text-slate-700 mb-1">Valor Bruto (R$)</label>
               <input
                 type="number"
                 min={0}
@@ -3756,7 +3756,7 @@ export function InvoiceEditModal({
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Competência</label>
+              <label className="block font-semibold text-slate-700 mb-1">Competência</label>
               <input
                 type="text"
                 value={draft.competenceMonth}
@@ -3765,7 +3765,7 @@ export function InvoiceEditModal({
               />
             </div>
             <div>
-              <label className="block font-bold text-slate-700 mb-1">Vencimento</label>
+              <label className="block font-semibold text-slate-700 mb-1">Vencimento</label>
               <input
                 type="text"
                 value={draft.dueDate}
@@ -3776,7 +3776,7 @@ export function InvoiceEditModal({
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 mb-1">Descrição do Item Fiscal</label>
+            <label className="block font-semibold text-slate-700 mb-1">Descrição do Item Fiscal</label>
             <textarea
               rows={2}
               value={draft.itemsDescription[0]?.description || ''}
@@ -3795,7 +3795,7 @@ export function InvoiceEditModal({
           <InvoiceExtraFieldsPanel draft={draft} setDraft={setDraft} />
 
           <div className="flex justify-end gap-2 pt-3 border-t">
-            <button type="button" onClick={onClose} className="px-4 py-2 rounded border font-bold cursor-pointer">
+            <button type="button" onClick={onClose} className="px-4 py-2 rounded border font-semibold cursor-pointer">
               Cancelar
             </button>
             <button type="submit" disabled={saving} className="px-5 py-2 rounded font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">
@@ -4001,12 +4001,12 @@ export function GenericRecordEditModal({
                 f.key === 'nfeAccessKey';
               return (
                 <div key={f.key} className={isWide && isFullSpan ? 'sm:col-span-2' : undefined}>
-                  <label className="block font-bold text-slate-700 mb-1">{f.label}</label>
+                  <label className="block font-semibold text-slate-700 mb-1">{f.label}</label>
                   {f.type === 'select' && f.options ? (
                     <select
                       value={String(values[f.key] ?? f.options[0] ?? '')}
                       onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
-                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white font-semibold"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                     >
                       {f.options.map((opt) => (
                         <option key={opt} value={opt}>
@@ -4063,7 +4063,7 @@ export function GenericRecordEditModal({
                       />
                       {/cnpj|cpf/i.test(f.key) && docFeedback && (
                         <span
-                          className={`block text-[10px] font-bold mt-1 ${
+                          className={`block text-[10px] font-semibold mt-1 ${
                             docFeedback.isValid ? 'text-slate-800' : 'text-rose-600'
                           }`}
                         >
@@ -4078,7 +4078,7 @@ export function GenericRecordEditModal({
           </fieldset>
 
           {errorMsg && (
-            <div className="p-2.5 rounded bg-rose-50 border border-rose-300 text-rose-800 font-bold text-xs">
+            <div className="p-2.5 rounded bg-rose-50 border border-rose-300 text-rose-800 font-semibold text-xs">
               {errorMsg}
             </div>
           )}
@@ -4091,7 +4091,7 @@ export function GenericRecordEditModal({
                     title="Em uso"
                     aria-disabled
                     onClick={() => setShowInUseModal(true)}
-                    className="px-3 py-1.5 rounded border border-slate-200 bg-slate-50 text-slate-400 font-bold cursor-not-allowed"
+                    className="px-3 py-1.5 rounded border border-slate-200 bg-slate-50 text-slate-400 font-semibold cursor-not-allowed"
                   >
                     Excluir Registro
                   </button>
@@ -4099,13 +4099,13 @@ export function GenericRecordEditModal({
                   <button
                     type="button"
                     onClick={() => setConfirmDelete(true)}
-                    className="px-3 py-1.5 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold cursor-pointer"
+                    className="px-3 py-1.5 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold cursor-pointer"
                   >
                     Excluir Registro
                   </button>
                 ) : (
                   <div className="flex items-center gap-1.5 p-1.5 rounded bg-rose-50 border border-rose-300">
-                    <span className="font-extrabold text-rose-800">Confirmar exclusão?</span>
+                    <span className="font-semibold text-rose-800">Confirmar exclusão?</span>
                     <button
                       type="button"
                       disabled={deleting}
@@ -4118,14 +4118,14 @@ export function GenericRecordEditModal({
                           setDeleting(false);
                         }
                       }}
-                      className="px-2.5 py-1 rounded bg-rose-600 text-white font-extrabold cursor-pointer"
+                      className="px-2.5 py-1 rounded bg-rose-600 text-white font-semibold cursor-pointer"
                     >
                       {deleting ? 'Excluindo...' : 'Sim, Excluir'}
                     </button>
                     <button
                       type="button"
                       onClick={() => setConfirmDelete(false)}
-                      className="px-2 py-1 rounded border bg-white text-slate-700 font-bold cursor-pointer"
+                      className="px-2 py-1 rounded border bg-white text-slate-700 font-semibold cursor-pointer"
                     >
                       Não
                     </button>
@@ -4134,7 +4134,7 @@ export function GenericRecordEditModal({
               )}
             </div>
             <div className="flex items-center gap-2">
-              <button type="button" onClick={onClose} className="px-4 py-2 rounded border font-bold cursor-pointer">
+              <button type="button" onClick={onClose} className="px-4 py-2 rounded border font-semibold cursor-pointer">
                 {isReadOnly ? 'Fechar Consulta' : 'Cancelar'}
               </button>
               {isReadOnly ? (
