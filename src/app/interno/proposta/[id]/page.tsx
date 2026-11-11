@@ -27,10 +27,11 @@ export default function InternalProposalPage() {
     fetch(`/api/interno/proposta/${encodeURIComponent(rawId)}`, {
       credentials: 'same-origin',
       cache: 'no-store',
+      redirect: 'manual',
     })
       .then(async (res) => {
         if (cancelled) return;
-        if (res.status === 401) {
+        if (res.status === 401 || res.status === 0 || res.type === 'opaqueredirect') {
           window.location.assign(`/login?next=${encodeURIComponent(next)}`);
           return;
         }
@@ -39,7 +40,9 @@ export default function InternalProposalPage() {
           setError(
             res.status === 403
               ? 'Seu perfil não tem permissão para ver esta proposta.'
-              : 'Proposta comercial não encontrada.'
+              : res.status === 404
+                ? 'Proposta comercial não encontrada.'
+                : 'Não foi possível carregar a visão interna.'
           );
           setLoading(false);
           return;

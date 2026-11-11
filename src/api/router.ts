@@ -43,6 +43,7 @@ import {
   diffHydratedProposals,
   getProposalsByDealOrCompany,
   getProposalsByRefs,
+  proposalRouteLookupRefs,
   hashProposal,
   isEmptyDiff,
   isProposalsTableState,
@@ -1289,16 +1290,9 @@ export class CrmApiRouter {
     const ctx = this.proposalTableCtx;
     if (!ctx) return;
     const db = this.proposalsDb();
-    const refs: string[] = [];
+    const refs = proposalRouteLookupRefs(method, cleanPath);
     let rows: StoredProposal[] = [];
-    const byRef = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)(?:\/[^/]+)?$/);
-    if (byRef) {
-      try {
-        refs.push(decodeURIComponent(byRef[1]).trim());
-      } catch {
-        refs.push(byRef[1]);
-      }
-    }
+    const byRef = /^\/api\/erp\/proposals\/[^/]+(?:\/[^/]+)?$/.test(cleanPath);
     const shortM = cleanPath.match(/^\/api\/p\/([^/]+)$/);
     if (shortM && method === 'GET') {
       let code = '';
