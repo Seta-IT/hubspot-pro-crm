@@ -11,6 +11,7 @@
 // ============================================================================
 
 import type { ProposalLightTemplateId } from './proposal-share';
+import { setaBrandLogoImgHtml } from './seta-brand-mark';
 
 /** Classes Tailwind de cada modelo da folha (as mesmas da proposta, por modelo). */
 export interface ProposalSheetTw {
@@ -242,9 +243,8 @@ ${proposalSheetCssVarsBlock()}
     .ccl-header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .ccl-header-row + .ccl-header-row { border-top: 1px solid rgba(226, 232, 240, 0.8); margin-top: 6px; padding-top: 5px; }
     .ccl-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-    .ccl-logo { background: ${C.white}; border: 1px solid ${C.slate200}; border-radius: 6px; padding: 6px 11px; display: flex; align-items: center; gap: 7px; flex-shrink: 0; box-shadow: 0 1px rgba(0,0,0,0.05); }
-    .ccl-logo b { font-size: 18px; font-weight: 900; letter-spacing: -0.025em; line-height: 1; }
-    .ccl-logo i { width: 2px; height: 18px; background: ${C.brandOrange}; display: inline-block; }
+    .ccl-logo { display: flex; align-items: center; flex-shrink: 0; }
+    .ccl-logo img { display: block; height: 36px; width: auto; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .ccl-company { font-size: 16px; font-weight: 600; letter-spacing: -0.025em; color: var(--ps-header-ink); margin: 0; line-height: 1.25; }
     .ccl-company-sub { font-size: 10.5px; font-weight: 600; color: ${C.slate600}; margin: 0; }
     .ccl-company-sub2 { font-size: 10.5px; color: ${C.slate500}; margin: 0; }
@@ -326,7 +326,7 @@ export function cclLetterheadHtml(input: {
   return `<div class="ccl-header">
       <div class="ccl-header-row">
         <div class="ccl-brand">
-          <div class="ccl-logo"><b style="color:${C.ink}">SETA</b><i></i><b style="color:${C.brandOrange}">IT</b></div>
+          <div class="ccl-logo">${setaBrandLogoImgHtml({ heightPx: 36 })}</div>
           <div style="min-width:0;">
             <h1 class="ccl-company">SETA TELECOM LTDA</h1>
             <p class="ccl-company-sub">${input.companySubtitle ?? 'Infraestrutura de TI, Redes, Segurança &amp; Locação Corporativa (HaaS)'}</p>

@@ -13,6 +13,7 @@ import {
   receiptItemDescription,
 } from '../src/app/lib/contract-billing-utils';
 import { setaBankTransferLine, SETA_BANK_TRANSFER } from '../src/app/lib/company-bank-details';
+import { SETA_BRAND_LOGO_ALT, SETA_BRAND_LOGO_DATA_URI } from '../src/app/lib/seta-brand-mark';
 import { PROPOSAL_SHEET_TW } from '../src/app/lib/proposal-sheet-theme';
 import { PROPOSAL_TEMPLATE_STYLE_OPTIONS } from '../src/app/lib/proposal-share';
 
@@ -168,5 +169,19 @@ describe('Recibo de Locação no template da proposta', () => {
     const billing = src('src/app/components/ErpGestaoClickTab.tsx');
     assert.ok(billing.includes('receiptInvoiceReferenceLabel('));
     assert.ok(billing.includes('receiptItemDescription('));
+  });
+
+  it('traz a logomarca oficial SETA | IT (data URI) no cabeçalho, em todos os modelos e no rascunho', () => {
+    const png = readFileSync(join(process.cwd(), 'public/brand/seta-it-logo.png'));
+    assert.equal(SETA_BRAND_LOGO_DATA_URI, `data:image/png;base64,${png.toString('base64')}`);
+    assert.ok(src('src/app/lib/proposal-sheet-theme.ts').includes('setaBrandLogoImgHtml'));
+    for (const o of [...PROPOSAL_TEMPLATE_STYLE_OPTIONS, { id: 'DRAFT' }]) {
+      const html = o.id === 'DRAFT'
+        ? buildStandaloneInvoiceHtml(inv, null, { draft: true, templateStyle: 'CLEAN_CORPORATE_LIGHT' })
+        : buildStandaloneInvoiceHtml(inv, null, { templateStyle: o.id });
+      assert.ok(html.includes(SETA_BRAND_LOGO_DATA_URI), `${o.id}: data URI da marca`);
+      assert.ok(html.includes(`alt="${SETA_BRAND_LOGO_ALT}"`), `${o.id}: alt`);
+      assert.doesNotMatch(html, /<img[^>]+src=["']\/brand\/seta-it-logo/, `${o.id}: não depende de /brand no src`);
+    }
   });
 });
