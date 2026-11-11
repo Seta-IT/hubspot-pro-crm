@@ -277,7 +277,8 @@ export function mapJiraComments(issue: Record<string, unknown>): TicketComment[]
     const accountType = String(author.accountType || '').toLowerCase();
     const isCustomer = accountType === 'customer';
     const jsdPublic = c.jsdPublic;
-    const isInternal = jsdPublic === false || jsdPublic === 'false';
+    // Fail-closed: so e publico se jsdPublic === true (boolean). Qualquer outro valor e interno.
+    const isInternal = jsdPublic !== true;
     const created = toIso(c.created as string) || new Date(0).toISOString();
     return {
       id: `jira-c-${c.id || idx}`,

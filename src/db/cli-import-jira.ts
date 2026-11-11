@@ -2,11 +2,13 @@
 // SetaDesk - importacao Jira STT -> chamados SD- (somente leitura no Jira)
 // ----------------------------------------------------------------------------
 // Dry-run por padrao: gera JSON e relatorio, NAO grava no banco.
-// --apply so roda com SETADESK_IMPORT_APPLY=1 e DATABASE_URL (nao usar ate o
-// CISO liberar as tabelas). Nunca escreve, transiciona ou comenta no Jira.
+// --apply exige SETADESK_IMPORT_APPLY=1 e DATABASE_URL, realinha a sequencia
+// para max(STT)+1 e so importa o projeto STT. Nunca escreve, transiciona ou
+// comenta no Jira.
 // Uso:
 //   npm run setadesk:import-jira -- --out <dir> [--keys-file piloto_keys.json]
 //       [--input jira-source.json] [--changelog-dir dir]
+//   SETADESK_IMPORT_APPLY=1 npm run setadesk:import-jira -- --apply --out <dir> --input <json>
 // ============================================================================
 
 import fs from 'node:fs';
@@ -232,15 +234,32 @@ ${rows}
 `;
 }
 
-async function maybeApply(_items: ImportPlanItem[]): Promise<void> {
-  if (!APPLY) return;
-  if (process.env.SETADESK_IMPORT_APPLY !== '1') {
-    fail('Recusado: --apply exige SETADESK_IMPORT_APPLY=1. Nada foi gravado.');
+/** Mensagem de recusa das pre-condicoes do --apply, ou null se puder gravar. */
+export function setaDeskImportApplyDenial(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env.SETADESK_IMPORT_APPLY !== '1') {
+    return 'Recusado: --apply exige SETADESK_IMPORT_APPLY=1. Nada foi gravado.';
   }
-  if (!process.env.DATABASE_URL && !process.env.DATABASE_POSTGRES_URL) {
-    fail('Recusado: --apply exige DATABASE_URL. Nada foi gravado.');
+  if (!env.DATABASE_URL && !env.DATABASE_POSTGRES_URL) {
+    return 'Recusado: --apply exige DATABASE_URL. Nada foi gravado.';
   }
-  fail('Recusado: a gravacao no Neon ainda depende da liberacao do CISO. Nada foi gravado.');
+  return null;
+}
+
+async function maybeApply(items: ImportPlanItem[], maxStt: number): Promise<{
+  created: number;
+  updated: number;
+  skipped: number;
+  nextSequenceValue: number;
+} | null> {
+  if (!APPLY) return null;
+  const denial = setaDeskImportApplyDenial();
+  if (denial) fail(denial);
+  const { applyJiraImport } = await import('./setadesk-store');
+  const result = await applyJiraImport(items, { maxStt, project: PROJECT });
+  console.log(
+    `[SetaDesk import] Gravados: cria ${result.created}, atualiza ${result.updated}, ignora ${result.skipped}. Sequencia alinhada para ${result.nextSequenceValue} (proximo = SD-${result.nextSequenceValue}).`
+  );
+  return result;
 }
 
 function existingFromPlan(items: ImportPlanItem[]): Map<string, ExistingImportRow> {
@@ -326,11 +345,17 @@ async function main() {
     buildReport({ generatedAt, items: first, secondPass: second, maxStt, nextSeq, project: PROJECT })
   );
 
-  await maybeApply(first);
+  const applied = await maybeApply(first, maxStt);
 
-  console.log(
-    `[SetaDesk import] Dry-run: ${first.length} itens, cria ${payload.counts.create}, 2a execucao ignora ${payload.counts.secondPassSkip}. Proximo chamado novo: SD-${nextSeq}. JSON: ${jsonPath}. Relatorio: ${mdPath}. Nada gravado no banco.`
-  );
+  if (applied) {
+    console.log(
+      `[SetaDesk import] Apply: ${first.length} itens planejados. JSON: ${jsonPath}. Relatorio: ${mdPath}.`
+    );
+  } else {
+    console.log(
+      `[SetaDesk import] Dry-run: ${first.length} itens, cria ${payload.counts.create}, 2a execucao ignora ${payload.counts.secondPassSkip}. Proximo chamado novo: SD-${nextSeq}. JSON: ${jsonPath}. Relatorio: ${mdPath}. Nada gravado no banco.`
+    );
+  }
 }
 
 if (require.main === module) {

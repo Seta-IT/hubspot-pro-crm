@@ -324,6 +324,15 @@ CREATE TABLE IF NOT EXISTS setadesk_mail_sync_state (
       'Sequencia de chamados novos comeca em max(SD-, STT- em jira_key)+1 para nao colidir com a importacao',
     sql: SETADESK_ALIGN_SEQUENCE_SQL,
   },
+  {
+    id: '0003_comments_internal_default',
+    description:
+      'Comentarios novos sao internos por padrao (fail-closed); altera somente setadesk_ticket_comments.is_internal',
+    sql: `
+ALTER TABLE IF EXISTS setadesk_ticket_comments
+  ALTER COLUMN is_internal SET DEFAULT TRUE;
+`,
+  },
 ];
 
 /**

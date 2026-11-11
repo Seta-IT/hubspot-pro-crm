@@ -7,12 +7,15 @@
 //
 // Modelo de uso por requisicao (router.handle):
 //   1. loadSetaDeskTickets(): le os chamados das tabelas setadesk_* (fonte de
-//      verdade) e devolve uma "linha de base" (fingerprint por chamado);
+//      verdade) e devolve uma "linha de base" (fingerprint por chamado).
+//      So roda em rotas autenticadas de chamados (/api/tickets*), nunca em rota
+//      publica (isPublicStiHubPath).
 //   2. reserveSetaDeskTicketKeys(n): reserva chaves SD-<n> na sequencia propria
 //      antes de rotas que criam chamados;
 //   3. syncSetaDeskTickets(): grava apenas chamados novos/alterados (upsert por
 //      id), comentarios novos (insert idempotente por id), historico de campos
 //      e notificacao de chamado novo; remove os que foram apagados.
+//   4. reconcileFromLegacyState nunca copia os 5 chamados demo JSM-101..105.
 // ============================================================================
 
 import crypto from 'crypto';
@@ -21,9 +24,18 @@ import { getPostgresPool, isPostgresEnabled } from './postgres';
 import {
   applySetaDeskMigrations,
   SETADESK_ALIGN_SEQUENCE_SQL,
+  SETADESK_JIRA_IMPORT_PROJECT,
   SETADESK_TICKET_KEY_PREFIX,
   SETADESK_TICKET_SEQUENCE,
 } from './setadesk-schema';
+import {
+  JIRA_IMPORT_SOURCE,
+  planJiraImport,
+  type ExistingImportRow,
+  type ImportPlanItem,
+  type JiraAttachmentRef,
+  type JiraHistoryEntry,
+} from './setadesk-jira-map';
 import type { ServiceTicket, TicketComment } from './types';
 
 let schemaReady: Promise<string[]> | null = null;
@@ -52,6 +64,32 @@ export function resetSetaDeskSchemaCache(): void {
 
 export function formatSetaDeskTicketKey(n: number | string): string {
   return `${SETADESK_TICKET_KEY_PREFIX}-${n}`;
+}
+
+/** Ids dos 5 chamados de demonstracao do seed (crm_kv_store). Nunca entram em setadesk_tickets. */
+export const SETADESK_LEGACY_DEMO_TICKET_IDS = [
+  'tkt-jsm-101',
+  'tkt-jsm-102',
+  'tkt-jsm-103',
+  'tkt-jsm-104',
+  'tkt-jsm-105',
+] as const;
+
+/** Chaves dos 5 chamados de demonstracao do seed. */
+export const SETADESK_LEGACY_DEMO_TICKET_KEYS = [
+  'JSM-101',
+  'JSM-102',
+  'JSM-103',
+  'JSM-104',
+  'JSM-105',
+] as const;
+
+/** Deterministico: so os 5 demos JSM-101..105 (id tkt-jsm-101..105 ou chave JSM-101..105). */
+export function isLegacyDemoServiceTicket(t: { id?: string | null; key?: string | null }): boolean {
+  const id = String(t.id || '').trim().toLowerCase();
+  if ((SETADESK_LEGACY_DEMO_TICKET_IDS as readonly string[]).includes(id)) return true;
+  const key = String(t.key || '').trim().toUpperCase();
+  return (SETADESK_LEGACY_DEMO_TICKET_KEYS as readonly string[]).includes(key);
 }
 
 export function fingerprintTicket(t: ServiceTicket): string {
@@ -266,9 +304,10 @@ async function insertComments(client: PoolClient, ticketId: string, comments: Ti
 /**
  * Reconcilia os chamados que vivem no snapshot legado (crm_kv_store / arquivo)
  * com as tabelas SetaDesk, preservando id, chave original (como legacy_key) e
- * datas. Copia os que faltam (exceto os apagados no SetaDesk, via tombstone) e
- * atualiza os que estao mais novos no legado (ex.: editados por uma versao
- * anterior do app antes do deploy). Nao e importacao do Jira.
+ * datas. Copia os que faltam (exceto os apagados no SetaDesk, via tombstone, e
+ * os 5 chamados demo JSM-101..105 do seed) e atualiza os que estao mais novos
+ * no legado (ex.: editados por uma versao anterior do app antes do deploy).
+ * Nao e importacao do Jira.
  * Retorna quantos chamados foram gravados.
  */
 async function reconcileFromLegacyState(
@@ -278,6 +317,7 @@ async function reconcileFromLegacyState(
 ): Promise<number> {
   if (!legacyTickets.length) return 0;
   const candidates = legacyTickets.filter((t) => {
+    if (isLegacyDemoServiceTicket(t)) return false;
     const at = current.get(t.id);
     if (at === undefined) return true;
     return Date.parse(t.updatedAt) > Date.parse(at);
@@ -314,6 +354,29 @@ async function reconcileFromLegacyState(
 /** Garante que a sequencia nunca emita uma chave SD- ja usada (nem um numero STT importado). */
 export async function alignSequenceWithExistingKeys(client: PoolClient) {
   await client.query(SETADESK_ALIGN_SEQUENCE_SQL);
+}
+
+/**
+ * Alinha a sequencia para max(chaves existentes, minNextValue).
+ * minNextValue e o proximo numero desejado (ex.: max(STT)+1 = 249).
+ * Idempotente: nunca reduz a sequencia. is_called=false => proximo nextval devolve esse valor.
+ */
+export async function alignSequenceToAtLeast(client: PoolClient, minNextValue: number): Promise<number> {
+  await alignSequenceWithExistingKeys(client);
+  const floor = Math.max(1, Math.floor(Number(minNextValue) || 0));
+  if (floor > 1) {
+    await client.query(
+      `SELECT setval('${SETADESK_TICKET_SEQUENCE}', GREATEST(
+        (SELECT CASE WHEN is_called THEN last_value ELSE last_value - 1 END FROM ${SETADESK_TICKET_SEQUENCE}),
+        $1::bigint - 1,
+        0) + 1, false)`,
+      [floor]
+    );
+  }
+  const r = await client.query<{ n: string }>(
+    `SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END::text AS n FROM ${SETADESK_TICKET_SEQUENCE}`
+  );
+  return Number(r.rows[0]?.n || floor);
 }
 
 /** Le todos os chamados (com comentarios) das tabelas SetaDesk. */
@@ -480,4 +543,137 @@ export function ticketKeysNeededForRoute(
     return Math.max(1, Math.min(n, 500));
   }
   return 0;
+}
+
+const INSERT_ATTACHMENT_SQL = `
+INSERT INTO setadesk_ticket_attachments
+  (id, ticket_id, filename, mime_type, size_bytes, storage, url, source, external_id, created_at)
+VALUES ($1, $2, $3, $4, $5, 'JIRA_REF', $6, $7, $8, $9)
+ON CONFLICT DO NOTHING`;
+
+const INSERT_HISTORY_SQL = `
+INSERT INTO setadesk_ticket_history
+  (ticket_id, field, old_value, new_value, actor, source, external_id, changed_at)
+VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7, $8)
+ON CONFLICT DO NOTHING`;
+
+async function insertJiraAttachments(client: PoolClient, ticketId: string, attachments: JiraAttachmentRef[]) {
+  for (const a of attachments || []) {
+    const externalId = a.id ? String(a.id) : null;
+    const id = `jira-a-${ticketId}-${a.id || a.filename}`;
+    await client.query(INSERT_ATTACHMENT_SQL, [
+      id,
+      ticketId,
+      a.filename || 'anexo',
+      a.mimeType ?? null,
+      a.size ?? null,
+      a.url ?? null,
+      a.source || JIRA_IMPORT_SOURCE,
+      externalId,
+      ts(a.createdAt) || new Date().toISOString(),
+    ]);
+  }
+}
+
+async function insertJiraHistory(client: PoolClient, ticketId: string, changelog: JiraHistoryEntry[]) {
+  for (const h of changelog || []) {
+    await client.query(INSERT_HISTORY_SQL, [
+      ticketId,
+      h.field || 'unknown',
+      JSON.stringify(h.oldValue ?? null),
+      JSON.stringify(h.newValue ?? null),
+      h.actor ?? null,
+      JIRA_IMPORT_SOURCE,
+      h.externalId ?? null,
+      ts(h.changedAt) || new Date().toISOString(),
+    ]);
+  }
+}
+
+export interface ApplyJiraImportResult {
+  created: number;
+  updated: number;
+  skipped: number;
+  nextSequenceValue: number;
+}
+
+/**
+ * Grava o plano de importacao STT -> SD- (idempotente por jira_key / import_hash).
+ * Replaneja contra o estado atual do banco, insere comentarios/anexos/historico
+ * com ON CONFLICT DO NOTHING, e realinha a sequencia para max(STT)+1.
+ * Nao altera o Jira.
+ */
+export async function applyJiraImport(
+  items: ImportPlanItem[],
+  opts: { maxStt: number; project?: string }
+): Promise<ApplyJiraImportResult> {
+  const project = String(opts.project || SETADESK_JIRA_IMPORT_PROJECT).toUpperCase();
+  if (project !== SETADESK_JIRA_IMPORT_PROJECT) {
+    throw new Error(
+      `Somente o projeto ${SETADESK_JIRA_IMPORT_PROJECT} e importado nesta fase (recebido: ${project}).`
+    );
+  }
+  const mapped = (items || [])
+    .map((it) => it.mapped)
+    .filter((m) => String(m.mapping.jiraKey || '').toUpperCase().startsWith(`${SETADESK_JIRA_IMPORT_PROJECT}-`));
+  const pool = getPostgresPool();
+  if (!pool) {
+    throw new Error('Recusado: --apply exige DATABASE_URL. Nada foi gravado.');
+  }
+  await ensureSetaDeskSchema(pool);
+  const client = await pool.connect();
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
+  let nextSequenceValue = Math.max(1, Math.floor(Number(opts.maxStt) || 0) + 1);
+  try {
+    await client.query('BEGIN');
+    const existingRes = await client.query<{
+      id: string;
+      jira_key: string;
+      import_hash: string | null;
+      external_updated_at: Date | string | null;
+    }>(
+      `SELECT id, jira_key, import_hash, external_updated_at FROM setadesk_tickets WHERE jira_key IS NOT NULL`
+    );
+    const existing = new Map<string, ExistingImportRow & { id: string }>();
+    for (const row of existingRes.rows) {
+      const k = String(row.jira_key || '').toUpperCase();
+      existing.set(k, {
+        id: row.id,
+        jiraKey: k,
+        importHash: row.import_hash,
+        externalUpdatedAt: iso(row.external_updated_at),
+      });
+    }
+    const planned = planJiraImport(mapped, existing);
+    const importedAt = new Date().toISOString();
+    for (const it of planned) {
+      if (it.action === 'skip') {
+        skipped += 1;
+        continue;
+      }
+      const prev = existing.get(it.mapped.mapping.jiraKey.toUpperCase());
+      const ticket = { ...it.mapped.ticket, importedAt };
+      if (prev?.id) ticket.id = prev.id;
+      await client.query(UPSERT_TICKET_SQL, ticketToParams(ticket));
+      await insertComments(client, ticket.id, ticket.comments || []);
+      await insertJiraAttachments(client, ticket.id, it.mapped.attachments || []);
+      await insertJiraHistory(client, ticket.id, it.mapped.changelog || []);
+      if (it.action === 'create') created += 1;
+      else updated += 1;
+    }
+    nextSequenceValue = await alignSequenceToAtLeast(client, nextSequenceValue);
+    await client.query('COMMIT');
+    return { created, updated, skipped, nextSequenceValue };
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // ignora
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
 }

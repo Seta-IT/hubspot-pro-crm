@@ -8,6 +8,7 @@ import { computeRealtimeTicketSla } from '../src/api/router';
 import {
   mapJiraCategory,
   mapJiraChannel,
+  mapJiraComments,
   mapJiraIssue,
   mapJiraPriority,
   mapJiraStatus,
@@ -15,6 +16,7 @@ import {
   sdKeyFromStt,
   toIso,
 } from '../src/db/setadesk-jira-map';
+import { setaDeskImportApplyDenial } from '../src/db/cli-import-jira';
 
 const issue = (over: Record<string, unknown> = {}) =>
   ({
@@ -126,5 +128,52 @@ describe('SetaDesk - mapeamento Jira STT', () => {
       ])
     );
     assert.equal(second[0].action, 'skip');
+  });
+
+  it('comentario so e publico se jsdPublic === true (fail-closed)', () => {
+    const commentsOf = (jsdPublic: unknown) =>
+      mapJiraComments(
+        issue({
+          fields: {
+            ...(issue().fields as object),
+            comment: {
+              comments: [
+                {
+                  id: 'c1',
+                  jsdPublic,
+                  body: 'texto',
+                  created: '2025-05-21T19:30:43.014-0300',
+                  author: { displayName: 'Agente', accountType: 'atlassian' },
+                },
+              ],
+            },
+          },
+        })
+      );
+    assert.equal(commentsOf(true)[0].isInternal, false);
+    assert.equal(commentsOf(false)[0].isInternal, true);
+    assert.equal(commentsOf('true')[0].isInternal, true, 'string true nao publica');
+    assert.equal(commentsOf('false')[0].isInternal, true);
+    assert.equal(commentsOf(undefined)[0].isInternal, true);
+    assert.equal(commentsOf(null)[0].isInternal, true);
+    assert.equal(commentsOf(1)[0].isInternal, true);
+    assert.equal(commentsOf(0)[0].isInternal, true);
+  });
+
+  it('--apply continua exigindo SETADESK_IMPORT_APPLY=1 e DATABASE_URL; cadeado do CISO removido', () => {
+    assert.match(
+      setaDeskImportApplyDenial({}) || '',
+      /SETADESK_IMPORT_APPLY=1/
+    );
+    assert.match(
+      setaDeskImportApplyDenial({ SETADESK_IMPORT_APPLY: '1' }) || '',
+      /DATABASE_URL/
+    );
+    assert.equal(
+      setaDeskImportApplyDenial({ SETADESK_IMPORT_APPLY: '1', DATABASE_URL: 'postgres://local/test' }),
+      null
+    );
+    assert.doesNotMatch(setaDeskImportApplyDenial({}) || '', /CISO/i);
+    assert.doesNotMatch(setaDeskImportApplyDenial({ SETADESK_IMPORT_APPLY: '1' }) || '', /CISO/i);
   });
 });

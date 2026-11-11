@@ -508,6 +508,16 @@ export interface ApiRequest {
   bodyBytes?: number;
 }
 
+/**
+ * loadSetaDeskTickets so roda em rotas autenticadas de chamados.
+ * Qualquer rota publica (portal, auth, proposta, health, etc.) fica de fora.
+ */
+export function shouldLoadSetaDeskTicketsForRoute(method: string, path: string): boolean {
+  const clean = (path || '/').replace(/\/+$/, '') || '/';
+  if (isPublicStiHubPath(clean, method)) return false;
+  return clean === '/api/tickets' || clean.startsWith('/api/tickets/');
+}
+
 export interface ApiResponse<T = unknown> {
   status: number;
   body: T;
@@ -1203,8 +1213,13 @@ export class CrmApiRouter {
     await this.ensureCompanyEmitterHydrated();
 
     // SetaDesk: chamados vem das tabelas setadesk_* (fonte de verdade) quando ha Postgres.
+    // So em rotas autenticadas de chamados; rota publica nunca dispara o load.
     let setaDeskBaseline: SetaDeskBaseline | null = null;
-    if (this.isSingletonRepo && isSetaDeskPostgresEnabled()) {
+    if (
+      this.isSingletonRepo &&
+      isSetaDeskPostgresEnabled() &&
+      shouldLoadSetaDeskTicketsForRoute(method, cleanPath)
+    ) {
       try {
         const loaded = await loadSetaDeskTickets(this.repo.getState().serviceTickets || []);
         if (loaded) {
