@@ -3,11 +3,15 @@
 // Pede ao servidor, com a sessao MFA do vendedor/admin, o link da versao atual:
 // POST /api/erp/proposals/:id/public-link => { url, expiresAt, version }.
 // O token fica no fragmento (#t=) da URL; nada aqui o registra.
+// O `code` da API (ex.: PROPOSAL_EXPIRED) segue no resultado para a UI decidir
+// o botão; o texto do erro sozinho não identifica a validade vencida.
 // ============================================================================
+
+import { readProposalLinkErrorCode } from './proposal-validity-return';
 
 export type SignedProposalLinkResult =
   | { ok: true; url: string; expiresAt: string; version: number }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; code?: string };
 
 export async function requestSignedProposalLink(proposalId: string): Promise<SignedProposalLinkResult> {
   const id = String(proposalId || '').trim();
@@ -34,7 +38,13 @@ export async function requestSignedProposalLink(proposalId: string): Promise<Sig
           : res.status === 404
             ? 'Proposta ainda não salva no servidor. Salve a proposta e tente de novo.'
             : 'Não foi possível gerar o link para o cliente.';
-    return { ok: false, status: res.status, error: (typeof json?.error === 'string' && json.error) || fallback };
+    const code = readProposalLinkErrorCode(json);
+    return {
+      ok: false,
+      status: res.status,
+      error: (typeof json?.error === 'string' && json.error) || fallback,
+      ...(code ? { code } : {}),
+    };
   } catch {
     return { ok: false, status: 0, error: 'Falha de conexão ao gerar o link para o cliente.' };
   }
@@ -87,7 +97,7 @@ export type SignedLinkState =
   | { status: 'not-needed' }
   | { status: 'loading' }
   | { status: 'ok'; url: string }
-  | { status: 'error'; error: string };
+  | { status: 'error'; error: string; code?: string };
 
 /**
  * Checagem final da v4 (01/11/2026): o e-mail de PROPOSTA so sai com o link ASSINADO. Se a

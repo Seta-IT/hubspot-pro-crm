@@ -158,6 +158,7 @@ import { copySignedProposalLink, copySignedProposalVersionLink, openWithSignedPr
 import { copySignedInvoiceLink } from '../lib/invoice-link-client';
 import { buildIssuedInvoiceEmailPayload, findLinkedRentalContract } from '../lib/invoice-email-payload';
 import { buildContractEmailPayload } from '../lib/contract-email-payload';
+import { assignInternalFlowHref, hrefAfterProposalSave, stripConsumedSendParams } from '../lib/proposal-validity-return';
 import { isIssuedInvoiceStatus } from '../../modules/erp/invoice-send-attachments';
 import {
   countRecordUsage,
@@ -432,10 +433,12 @@ export default function ErpGestaoClickTab({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [erpMobileDrawerOpen, setErpMobileDrawerOpen] = useState(false);
   const [editingProposal, setEditingProposalRaw] = useState<ErpCommercialProposal | null>(null);
+  const [proposalEditorFocus, setProposalEditorFocus] = useState<'validUntil' | null>(null);
   // Modo tabela (erp_proposals): a lista traz resumos (__summary, sem historico/textos longos);
   // Editar sempre abre o registro completo vindo de GET /api/erp/proposals/:id.
   const proposalsTableMode = erpData?.proposalsStorage === 'table';
-  const setEditingProposal = (p: ErpCommercialProposal | null) => {
+  const setEditingProposal = (p: ErpCommercialProposal | null, opts?: { focus?: 'validUntil' }) => {
+    setProposalEditorFocus(opts?.focus ?? null);
     if (!p || !(p as unknown as Record<string, unknown>).__summary) {
       setEditingProposalRaw(p);
       return;
@@ -717,16 +720,73 @@ export default function ErpGestaoClickTab({
   React.useEffect(() => {
     if (!targetEntity || !erpData) return;
     const { type, id, query } = targetEntity;
+    const forgetSendReturn = () => {
+      if (typeof window === 'undefined') return;
+      const next = stripConsumedSendParams(`${window.location.pathname}${window.location.search}${window.location.hash}`);
+      const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (next !== current) window.history.replaceState(null, '', next);
+    };
+    const openProposalEmail = (prop: ErpCommercialProposal) => {
+      setEmailModalPayload({
+        docType: 'PROPOSAL',
+        recipientName: prop.careOf || prop.contactName || prop.companyName,
+        recipientEmail: prop.contactEmail || '',
+        companyName: prop.companyName,
+        companyCnpj: prop.companyCnpj,
+        companyId: prop.companyId,
+        contactId: prop.contactId,
+        documentCode: prop.code,
+        amountBrl: prop.monthlyRecurringTotal,
+        proposalId: prop.id,
+        customSubject: `Proposta Comercial ${prop.code} — Seta Telecom (${prop.companyName})`,
+      });
+      forgetSendReturn();
+    };
     if (type === 'PROPOSAL') {
       setActiveSection('ORCAMENTOS');
+      const focus = query === 'validade' ? 'validUntil' as const : undefined;
       const found = erpData.proposals.find((p) => p.id === id || p.code === id);
       if (found) {
         setHighlightedProposalId(found.id);
         setIsCreatingProposalModal(false);
-        setEditingProposal(found);
-      } else if (erpData.proposalsStorage === 'table' && id) {
+        setEditingProposal(found, focus ? { focus } : undefined);
+      } else if ((erpData.proposalsStorage === 'table' || query === 'validade') && id) {
         setIsCreatingProposalModal(false);
-        setEditingProposal({ id, __summary: true } as unknown as ErpCommercialProposal);
+        setEditingProposal({ id, __summary: true } as unknown as ErpCommercialProposal, focus ? { focus } : undefined);
+      }
+    } else if (type === 'CONTRACT_EMAIL') {
+      setActiveSection('CONTRATOS');
+      const ctr = erpData.rentalContracts.find((c) => c.id === id || c.contractNumber === id);
+      if (ctr) {
+        const contact = ctr.contactId ? contacts.find((c) => c.id === ctr.contactId) : undefined;
+        const recipientName = contact ? `${contact.firstName || ''} ${contact.lastName || ''}`.trim() : undefined;
+        setEmailModalPayload(buildContractEmailPayload(ctr, {
+          invoices: erpData.invoices,
+          remessaDocs: erpData.invoices,
+          proposals: erpData.proposals,
+          recipientName: recipientName || undefined,
+        }));
+      } else {
+        onShowToast('Não foi possível reabrir o envio do e-mail deste contrato.');
+      }
+      forgetSendReturn();
+    } else if (type === 'PROPOSAL_EMAIL') {
+      setActiveSection('ORCAMENTOS');
+      const prop = erpData.proposals.find((p) => p.id === id || p.code === id);
+      if (prop && !(prop as unknown as Record<string, unknown>).__summary) {
+        openProposalEmail(prop);
+      } else if (id) {
+        fetch(`/api/erp/proposals/${encodeURIComponent(id)}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => {
+            const full = j && j.data && !Array.isArray(j.data) ? (j.data as ErpCommercialProposal) : null;
+            if (full) openProposalEmail(full);
+            else onShowToast('Não foi possível reabrir o envio do e-mail desta proposta.');
+          })
+          .catch(() => onShowToast('Não foi possível reabrir o envio do e-mail desta proposta.'));
+        forgetSendReturn();
+      } else {
+        forgetSendReturn();
       }
     } else if (type === 'CONTRACT') {
       setActiveSection('CONTRATOS');
@@ -1356,6 +1416,11 @@ export default function ErpGestaoClickTab({
         : `Orçamento ${saved.code} salvo na Versão v${verNum}.0 (${revCount} revisão(ões) registradas no histórico)!`
     );
     await onRefresh();
+    const backHref =
+      typeof window !== 'undefined'
+        ? hrefAfterProposalSave(window.location.search, String(saved.id || updated.id || ''))
+        : null;
+    if (backHref) assignInternalFlowHref(backHref);
   };
 
   const openProposalStatusModal = (prop: ErpCommercialProposal, expandVersions = true) => {
@@ -6721,6 +6786,7 @@ export default function ErpGestaoClickTab({
           contacts={contacts}
           deals={deals}
           isNew={isCreatingProposalModal}
+          focusField={proposalEditorFocus}
         />
       )}
       {rowBillingPreviewContract && (

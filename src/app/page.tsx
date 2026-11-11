@@ -53,6 +53,7 @@ import {
   shouldOfferHomeScreenChoice,
   systemHasAccess,
 } from './lib/home-screen';
+import { proposalFlowNavigation } from './lib/proposal-validity-return';
 import { loadClientIamUsersOverride, migrateClientIamStorage } from './lib/auth';
 import { saveClientIamUserOverrideIfNewer } from './lib/iam-seal-cache';
 import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
@@ -1210,6 +1211,17 @@ export default function HubSpotProCrmApp() {
       typeof window !== 'undefined'
         ? parseHomeDeepLink(window.location.search, window.location.hash)
         : { hasDeepLink: false, screenId: null };
+    // Atualizar validade / voltar ao envio: a URL manda (não a tela inicial salva).
+    const flowNav =
+      typeof window !== 'undefined' && systemHasAccess('ERP', access)
+        ? proposalFlowNavigation(window.location.search)
+        : null;
+    if (flowNav) {
+      setErpInitialSection(flowNav.section);
+      setErpTargetEntity(flowNav.target);
+      setErpNavigationTrigger((n) => n + 1);
+      setActiveModule('ERP_GESTAOCLICK');
+    }
     const apply = (saved: HomeScreenId | null) => {
       setHomeScreenPreference(saved);
       const resolution = resolveInitialHomeScreen({ saved, access, deepLink });
