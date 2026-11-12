@@ -493,6 +493,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS setadesk_history_external_uidx
   ON setadesk_ticket_history (ticket_id, source, external_id) WHERE external_id IS NOT NULL;
 `,
   },
+  {
+    id: '0005_pipeline_mailbox_unique',
+    description:
+      'Caixa de e-mail da fila unica (minusculas) quando preenchida; nao impede varias filas sem mailbox.',
+    sql: `
+CREATE UNIQUE INDEX IF NOT EXISTS setadesk_pipelines_mailbox_uidx
+  ON setadesk_pipelines (LOWER(mailbox))
+  WHERE mailbox IS NOT NULL AND BTRIM(mailbox) <> '';
+`,
+  },
 ];
 
 /**

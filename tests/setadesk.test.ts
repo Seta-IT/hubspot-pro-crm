@@ -37,8 +37,30 @@ import {
   SETADESK_LEGACY_DEMO_TICKET_KEYS,
   ticketKeysNeededForRoute,
 } from '../src/db/setadesk-store';
-import { canManageSetaDeskPipelines } from '../src/api/setadesk-pipeline-guards';
-import { setaDeskPurgeApplyDenial } from '../src/db/cli-purge-tickets';
+import {
+  assertUniquePipelineMailbox,
+  canManageSetaDeskPipelines,
+  parseSetaDeskPipelineWrite,
+  PIPELINE_MAILBOX_DUPLICATE_ERROR,
+} from '../src/api/setadesk-pipeline-guards';
+import {
+  planSetaDeskTicketPurge,
+  SETADESK_PURGE_DELETE_STATEMENTS,
+  SETADESK_PURGE_PROTECTED_TABLES,
+  setaDeskPurgeSqlTouchesProtectedTables,
+} from '../src/db/setadesk-purge';
+import { formatSetaDeskPurgeReport, setaDeskPurgeApplyDenial } from '../src/db/cli-purge-tickets';
+import { assertSetaDeskAttachmentStorage, isSetaDeskFinancePipeline } from '../src/db/setadesk-attachment-storage';
+import {
+  displayTicketCompanyCnpj,
+  displayTicketSubject,
+  formatMaskedAccountNumber,
+  formatMaskedCnpj,
+  maskSensitiveFinanceText,
+  ticketMatchesSearch,
+} from '../src/app/lib/setadesk-ticket-search';
+import { filterGlobalSearchEntries } from '../src/app/components/GlobalHeaderSearch';
+
 
 describe('SetaDesk - geracao de chave TEC-/FIN- (fallback sem Postgres)', () => {
   it('a numeracao TEC acompanha o STT importado; JSM- e DEV- nao entram na sequencia', () => {
@@ -245,6 +267,10 @@ describe('SetaDesk - esquema e diff (sem banco)', () => {
     assert.match(m4!.sql, /DROP INDEX IF EXISTS setadesk_history_external_uidx/);
     assert.match(m4!.sql, /ON setadesk_ticket_history \(ticket_id, source, external_id\)/);
     assert.equal(SETADESK_SEED_PIPELINES.map((s) => s.prefix).join(','), 'TEC,FIN');
+    const m5 = SETADESK_MIGRATIONS.find((m) => m.id === '0005_pipeline_mailbox_unique');
+    assert.ok(m5);
+    assert.match(m5!.sql, /CREATE UNIQUE INDEX IF NOT EXISTS setadesk_pipelines_mailbox_uidx/);
+    assert.match(m5!.sql, /LOWER\(mailbox\)/);
   });
 
   it('tem indices unicos de idempotencia (jira_key, jira_id, message_id, ids externos)', () => {
@@ -256,6 +282,7 @@ describe('SetaDesk - esquema e diff (sem banco)', () => {
       'setadesk_email_message_id_uidx',
       'setadesk_attachments_external_uidx',
       'setadesk_outbox_dedupe_uidx',
+      'setadesk_pipelines_mailbox_uidx',
     ]) {
       assert.match(sql, new RegExp(`CREATE UNIQUE INDEX IF NOT EXISTS ${idx}`));
     }
@@ -723,7 +750,7 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
 
   it('aplica migracoes uma vez e reaplicar e no-op', async () => {
     const first = await store.ensureSetaDeskSchema();
-    assert.deepEqual(first, ['0001_setadesk_core', '0002_align_seq_stt', '0003_comments_internal_default', '0004_pipelines_and_history_uidx']);
+    assert.deepEqual(first, ['0001_setadesk_core', '0002_align_seq_stt', '0003_comments_internal_default', '0004_pipelines_and_history_uidx', '0005_pipeline_mailbox_unique']);
     store.resetSetaDeskSchemaCache();
     const second = await store.ensureSetaDeskSchema();
     assert.deepEqual(second, []);
@@ -958,5 +985,276 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     );
     assert.equal(row.rows.find((r) => r.body === 'publico').is_internal, false);
     assert.equal(row.rows.find((r) => r.body === 'interno').is_internal, true);
+  });
+});
+
+
+describe('SetaDesk - purge nao apaga e-mail nem outbox', () => {
+  it('o SQL de exclusao nunca toca nas tabelas protegidas', () => {
+    assert.deepEqual([...SETADESK_PURGE_PROTECTED_TABLES], [
+      'setadesk_email_messages',
+      'setadesk_email_outbox',
+      'setadesk_integration_outbox',
+    ]);
+    for (const sql of SETADESK_PURGE_DELETE_STATEMENTS) {
+      assert.equal(setaDeskPurgeSqlTouchesProtectedTables(sql), false, sql);
+    }
+    assert.equal(
+      setaDeskPurgeSqlTouchesProtectedTables('DELETE FROM setadesk_email_messages WHERE ticket_id IS NOT NULL'),
+      true
+    );
+    assert.equal(
+      setaDeskPurgeSqlTouchesProtectedTables('DELETE FROM setadesk_email_outbox WHERE ticket_id IS NOT NULL'),
+      true
+    );
+    assert.equal(
+      setaDeskPurgeSqlTouchesProtectedTables('DELETE FROM setadesk_integration_outbox WHERE ticket_id IS NOT NULL'),
+      true
+    );
+  });
+
+  it('pula chamados com e-mail ou outbox vinculado e relata', () => {
+    const plan = planSetaDeskTicketPurge({
+      tickets: [
+        { id: 't-free', key: 'TEC-10' },
+        { id: 't-mail', key: 'FIN-20' },
+        { id: 't-out', key: 'TEC-21' },
+        { id: 't-int', key: 'FIN-22' },
+      ],
+      protectedTicketIds: ['t-mail', 't-out', 't-int'],
+    });
+    assert.deepEqual(plan.purgeIds, ['t-free']);
+    assert.deepEqual(plan.purgeKeys, ['TEC-10']);
+    assert.deepEqual(plan.skipped.map((s) => s.key).sort(), ['FIN-20', 'FIN-22', 'TEC-21']);
+    assert.match(plan.skippedReason, /setadesk_email_messages/);
+    assert.match(plan.skippedReason, /setadesk_email_outbox/);
+    assert.match(plan.skippedReason, /setadesk_integration_outbox/);
+    const report = formatSetaDeskPurgeReport(
+      {
+        deleted: {
+          tickets: 1,
+          comments: 0,
+          attachments: 0,
+          history: 0,
+          related: 0,
+          notifications: 0,
+          emailMessages: 0,
+          emailOutbox: 0,
+          integrationOutbox: 0,
+          tombstones: 0,
+        },
+        skippedTickets: plan.skipped,
+        skippedReason: plan.skippedReason,
+        preserved: {
+          emailMessages: 2,
+          emailOutbox: 1,
+          integrationOutbox: 1,
+          tables: SETADESK_PURGE_PROTECTED_TABLES,
+        },
+      },
+      'applied'
+    );
+    assert.match(report, /FIN-20 \(t-mail\)/);
+    assert.match(report, /nao sao apagadas|nao apag/i);
+    assert.doesNotMatch(report, /DELETE FROM setadesk_email/);
+  });
+
+  it('sem vinculo, todos os chamados entram no plano de exclusao', () => {
+    const plan = planSetaDeskTicketPurge({
+      tickets: [{ id: 'a', key: 'TEC-1' }, { id: 'b', key: 'FIN-1' }],
+      protectedTicketIds: [],
+    });
+    assert.deepEqual(plan.purgeIds, ['a', 'b']);
+    assert.equal(plan.skipped.length, 0);
+    assert.equal(plan.skippedReason, '');
+  });
+});
+
+describe('SetaDesk - mailbox da fila', () => {
+  it('valida e-mail, normaliza minusculas e aceita vazio', () => {
+    const ok = parseSetaDeskPipelineWrite({ mailbox: '  Suporte-STI@SetaTelecom.com.br ' });
+    assert.equal(ok.ok, true);
+    if (ok.ok) assert.equal(ok.data.mailbox, 'suporte-sti@setatelecom.com.br');
+    const empty = parseSetaDeskPipelineWrite({ mailbox: '   ' });
+    assert.equal(empty.ok, true);
+    if (empty.ok) assert.equal(empty.data.mailbox, null);
+    const none = parseSetaDeskPipelineWrite({ mailbox: null });
+    assert.equal(none.ok, true);
+    if (none.ok) assert.equal(none.data.mailbox, null);
+    const bad = parseSetaDeskPipelineWrite({ mailbox: 'nao-e-email' });
+    assert.equal(bad.ok, false);
+    if (!bad.ok) assert.match(bad.error, /e-mail valido/);
+    const bad2 = parseSetaDeskPipelineWrite({ mailbox: 'caixa@' });
+    assert.equal(bad2.ok, false);
+  });
+
+  it('rejeita caixa duplicada entre filas, na criacao e na edicao', async () => {
+    const repo = createInMemoryRepository();
+    assert.throws(
+      () => repo.createSetaDeskPipeline({ name: 'Copia', prefix: 'CPY', mailbox: 'SUPORTE-STI@setatelecom.com.br' }),
+      /caixa de e-mail/
+    );
+    const created = repo.createSetaDeskPipeline({ name: 'Qualidade', prefix: 'QLD', mailbox: 'qualidade@setatelecom.com.br' });
+    assert.equal(created.mailbox, 'qualidade@setatelecom.com.br');
+    assert.throws(
+      () => repo.updateSetaDeskPipeline('pl-fin', { mailbox: 'qualidade@SETATELECOM.com.br' }),
+      /caixa de e-mail/
+    );
+    const same = repo.updateSetaDeskPipeline('pl-tec', { mailbox: 'SUPORTE-STI@setatelecom.com.br' });
+    assert.equal(same?.mailbox, 'suporte-sti@setatelecom.com.br');
+    const router = new CrmApiRouter(createInMemoryRepository());
+    const dup = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'POST',
+      path: '/api/tickets/pipelines',
+      query: {},
+      body: { name: 'Outra', prefix: 'OTR', mailbox: 'financeiro-sti@setatelecom.com.br' },
+    });
+    assert.equal(dup.status, 409);
+    const invalid = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'PATCH',
+      path: '/api/tickets/pipelines/pl-tec',
+      query: {},
+      body: { mailbox: 'texto-sem-arroba' },
+    });
+    assert.equal(invalid.status, 400);
+    const okEdit = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'PATCH',
+      path: '/api/tickets/pipelines/pl-tec',
+      query: {},
+      body: { mailbox: '  suporte-sti@SETATELECOM.com.br ' },
+    });
+    assert.equal(okEdit.status, 200);
+    assert.equal((okEdit.body as { data: { mailbox: string } }).data.mailbox, 'suporte-sti@setatelecom.com.br');
+    assert.equal(PIPELINE_MAILBOX_DUPLICATE_ERROR.includes('caixa de e-mail'), true);
+    assert.doesNotThrow(() =>
+      assertUniquePipelineMailbox('novo@setatelecom.com.br', [
+        { id: 'pl-tec', mailbox: 'suporte-sti@setatelecom.com.br' },
+      ])
+    );
+  });
+});
+
+describe('SetaDesk - anexos fora de Blob publico', () => {
+  it('recusa Blob publico ou ausente, inclusive na fila FIN e em caminho futuro de e-mail', () => {
+    assert.equal(isSetaDeskFinancePipeline({ pipelinePrefix: 'FIN' }), true);
+    assert.equal(isSetaDeskFinancePipeline({ pipelineId: 'pl-fin' }), true);
+    assert.equal(isSetaDeskFinancePipeline({ pipelinePrefix: 'TEC' }), false);
+    const jira = assertSetaDeskAttachmentStorage({ storage: 'JIRA_REF', pipelinePrefix: 'FIN' });
+    assert.equal(jira.ok, true);
+    const priv = assertSetaDeskAttachmentStorage({
+      storage: 'BLOB',
+      blobAccess: 'private',
+      pipelinePrefix: 'FIN',
+    });
+    assert.equal(priv.ok, true);
+    const pubFin = assertSetaDeskAttachmentStorage({
+      storage: 'BLOB',
+      blobAccess: 'public',
+      pipelinePrefix: 'FIN',
+    });
+    assert.equal(pubFin.ok, false);
+    if (!pubFin.ok) {
+      assert.equal(pubFin.code, 'BLOB_PUBLIC_FORBIDDEN');
+      assert.match(pubFin.error, /Financeiro/i);
+    }
+    const missing = assertSetaDeskAttachmentStorage({ storage: 'BLOB', pipelineId: 'pl-fin' });
+    assert.equal(missing.ok, false);
+    if (!missing.ok) assert.equal(missing.code, 'BLOB_PRIVATE_REQUIRED');
+    const pubTec = assertSetaDeskAttachmentStorage({
+      storage: 'BLOB',
+      blobAccess: 'public',
+      pipelinePrefix: 'TEC',
+    });
+    assert.equal(pubTec.ok, false);
+    const inbound = assertSetaDeskAttachmentStorage({
+      storage: 'BLOB',
+      blobAccess: null,
+      pipelinePrefix: 'FIN',
+    });
+    assert.equal(inbound.ok, false);
+  });
+
+  it('o codigo atual nao envia anexos SetaDesk para Blob publico nem cria loja paga', () => {
+    const fs = require('fs') as typeof import('fs');
+    const path = require('path') as typeof import('path');
+    const root = process.cwd();
+    const store = fs.readFileSync(path.join(root, 'src/db/setadesk-store.ts'), 'utf8');
+    const schema = fs.readFileSync(path.join(root, 'src/db/setadesk-schema.ts'), 'utf8');
+    const policy = fs.readFileSync(path.join(root, 'src/db/setadesk-attachment-storage.ts'), 'utf8');
+    assert.match(store, /JIRA_REF/);
+    assert.doesNotMatch(store, /@vercel\/blob/);
+    assert.doesNotMatch(store, /access:\s*['"]public['"]/);
+    assert.doesNotMatch(schema, /@vercel\/blob/);
+    assert.match(policy, /assertSetaDeskAttachmentStorage/);
+    assert.match(policy, /Nao cria nem configura/);
+  });
+});
+
+describe('SetaDesk - mascara de CNPJ e conta na busca (dados de bootstrap)', () => {
+  const bootstrapTicket = {
+    key: 'FIN-120',
+    subject: 'TED conta 71924-5 CNPJ 14.806.235/0001-32',
+    description: 'Repasse para agencia 1234 conta 12345-6 do favorecido 14806235000132',
+    equipmentSerial: null as string | null,
+    assignee: 'Financeiro',
+    company: { name: 'Cliente Bootstrap', cnpj: '14.806.235/0001-32' },
+    contact: { firstName: 'Ana', lastName: 'Silva' },
+  };
+
+  it('mascara CNPJ e numero de conta e ainda localiza pelo valor real', () => {
+    assert.equal(formatMaskedCnpj('14.806.235/0001-32'), '14.806.***/****-32');
+    assert.equal(formatMaskedCnpj('14806235000132'), '14.806.***/****-32');
+    assert.match(formatMaskedAccountNumber('71924-5'), /\*\-5$/);
+    assert.equal(displayTicketCompanyCnpj(bootstrapTicket.company.cnpj), '14.806.***/****-32');
+    assert.doesNotMatch(displayTicketCompanyCnpj(bootstrapTicket.company.cnpj), /235\/0001/);
+    const subject = displayTicketSubject(bootstrapTicket.subject);
+    assert.doesNotMatch(subject, /14\.806\.235\/0001-32/);
+    assert.doesNotMatch(subject, /71924-5/);
+    assert.match(subject, /14\.806\.\*\*\*\/\*\*\*\*-32/);
+    const desc = maskSensitiveFinanceText(bootstrapTicket.description);
+    assert.doesNotMatch(desc, /12345-6/);
+    assert.ok(ticketMatchesSearch(bootstrapTicket, '14.806.235/0001-32'));
+    assert.ok(ticketMatchesSearch(bootstrapTicket, '14806235000132'));
+    assert.ok(ticketMatchesSearch(bootstrapTicket, 'FIN-120'));
+    assert.ok(ticketMatchesSearch(bootstrapTicket, 'Cliente Bootstrap'));
+    assert.equal(ticketMatchesSearch(bootstrapTicket, 'inexistente-xyz'), false);
+  });
+
+  it('a busca global de chamados mascara o assunto e ainda encontra pelo CNPJ', () => {
+    const entries = [
+      {
+        id: 'TICKETS:t-fin-120',
+        entityId: 't-fin-120',
+        category: 'TICKETS' as const,
+        system: 'CHAMADOS' as const,
+        title: `${bootstrapTicket.key} - ${displayTicketSubject(bootstrapTicket.subject)}`,
+        subtitle: `Chamado • CHAMADOS • ${bootstrapTicket.company.name} • Fila: ${bootstrapTicket.assignee}`,
+        searchHaystack: [
+          bootstrapTicket.key,
+          bootstrapTicket.subject,
+          bootstrapTicket.description,
+          bootstrapTicket.company.name,
+          bootstrapTicket.company.cnpj,
+        ].join(' '),
+      },
+    ];
+    assert.doesNotMatch(entries[0].title, /14\.806\.235\/0001-32/);
+    const byCnpj = filterGlobalSearchEntries({
+      allEntries: entries,
+      query: '14.806.235/0001-32',
+      systemFilter: 'CHAMADOS',
+      selectedCategories: [],
+    });
+    assert.equal(byCnpj.length, 1);
+    const byAccount = filterGlobalSearchEntries({
+      allEntries: entries,
+      query: '71924-5',
+      systemFilter: 'CHAMADOS',
+      selectedCategories: [],
+    });
+    assert.equal(byAccount.length, 1);
   });
 });

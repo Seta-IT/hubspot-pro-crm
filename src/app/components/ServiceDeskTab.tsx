@@ -46,6 +46,7 @@ import {
   TicketStatus,
 } from '../../db/types';
 import { formatDateTimeBR, formatRelativeDays } from './ui-helpers';
+import { displayTicketCompanyCnpj, displayTicketSubject, normalizeTicketSearchText, ticketMatchesSearch } from '../lib/setadesk-ticket-search';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import DataHealthTab from './DataHealthTab';
 import { ShieldCheck } from 'lucide-react';
@@ -446,12 +447,7 @@ export default function ServiceDeskTab({
     new Set([...SETA_NOC_QUEUES, ...tickets.map((t) => t.assignee).filter(Boolean)])
   );
 
-  const normTicketStr = (v: unknown) =>
-    String(v ?? '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .trim();
+  const normTicketStr = (v: unknown) => normalizeTicketSearchText(v);
 
   const filteredTickets = tickets.filter((t) => {
     if (linkedOsOnlyFilter && !t.serviceOrderId && !t.serviceOrder) return false;
@@ -467,13 +463,7 @@ export default function ServiceDeskTab({
     }
     if (categoryFilter !== 'ALL' && t.category !== categoryFilter) return false;
     if (pipelineFilter !== 'ALL' && t.pipelineId !== pipelineFilter) return false;
-    if (searchQuery.trim()) {
-      const q = normTicketStr(searchQuery);
-      const hay = normTicketStr(
-        `${t.key} ${t.subject} ${t.company?.name || ''} ${t.company?.cnpj || ''} ${t.equipmentSerial || ''} ${t.assignee || ''} ${t.contact?.firstName || ''} ${t.contact?.lastName || ''}`
-      );
-      if (!hay.includes(q)) return false;
-    }
+    if (searchQuery.trim() && !ticketMatchesSearch(t, searchQuery)) return false;
     return true;
   });
 
@@ -1411,7 +1401,7 @@ export default function ServiceDeskTab({
                               </div>
 
                               <h4 className="text-xs font-semibold text-slate-900 leading-snug">
-                                {t.subject}
+                                {displayTicketSubject(t.subject)}
                               </h4>
 
                               {t.company && (
@@ -1501,11 +1491,11 @@ export default function ServiceDeskTab({
                             {t.company?.name || 'Cliente Seta Telecom'}
                           </div>
                           <div className="text-[10px] font-mono text-slate-500">
-                            {t.company?.cnpj || 'CNPJ vinculado'}
+                            {displayTicketCompanyCnpj(t.company?.cnpj)}
                           </div>
                         </td>
                         <td className="py-3 px-3">
-                          <div className="font-semibold text-slate-900">{t.subject}</div>
+                          <div className="font-semibold text-slate-900">{displayTicketSubject(t.subject)}</div>
                           {t.equipmentSerial && (
                             <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
                               S/N: {t.equipmentSerial}
@@ -1566,7 +1556,7 @@ export default function ServiceDeskTab({
                       </span>
                       {getPriorityBadge(t.priority)}
                     </div>
-                    <h4 className="text-xs font-semibold text-slate-900">{t.subject}</h4>
+                    <h4 className="text-xs font-semibold text-slate-900">{displayTicketSubject(t.subject)}</h4>
                     <div className="text-[11px] text-slate-600 font-semibold">
                       {t.company?.name || 'Cliente Seta Telecom'}
                       {t.equipmentSerial ? ` • S/N ${t.equipmentSerial}` : ''}
@@ -1652,7 +1642,7 @@ export default function ServiceDeskTab({
                           <div className="flex items-center gap-2">
                             <span className="font-mono font-semibold text-indigo-700">{t.key}</span>
                             {getPriorityBadge(t.priority)}
-                            <strong className="text-slate-900">{t.subject}</strong>
+                            <strong className="text-slate-900">{displayTicketSubject(t.subject)}</strong>
                           </div>
                           <div className="text-[11px] text-slate-500 mt-0.5">
                             {t.company?.name || 'Cliente Seta'} • Fila: {t.assignee}
@@ -1718,7 +1708,7 @@ export default function ServiceDeskTab({
                           <div className="min-w-0">
                             <div className="font-semibold text-slate-900 truncate">
                               <span className="font-mono text-indigo-700 mr-1.5">{t.key}</span>
-                              {t.subject}
+                              {displayTicketSubject(t.subject)}
                             </div>
                             <span className="text-[10px] text-slate-500">
                               {t.company?.name || 'Cliente Seta Telecom'} • Status: {t.status}
@@ -1820,7 +1810,7 @@ export default function ServiceDeskTab({
                 </div>
               </div>
 
-              <h3 id="setadesk-ticket-dialog-title" className="text-base font-semibold leading-snug">{activeTicket.subject}</h3>
+              <h3 id="setadesk-ticket-dialog-title" className="text-base font-semibold leading-snug">{displayTicketSubject(activeTicket.subject)}</h3>
 
               <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-700 pt-1">
                 {activeTicket.company && (

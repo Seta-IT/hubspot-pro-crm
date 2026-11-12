@@ -143,6 +143,7 @@ import {
   SETADESK_SEED_PIPELINES,
   SETADESK_TICKET_KEY_PREFIX,
 } from './setadesk-schema';
+import { assertUniquePipelineMailbox } from '../api/setadesk-pipeline-guards';
 import type { SetaDeskPipeline } from './types';
 import { applySalesPipelineStageMigration } from '../modules/deals/sales-pipeline-stages';
 import { deriveServerTotpSecret, isTotpPairingPinnedByServer, unsealIamRecord } from './iam-security';
@@ -3693,12 +3694,14 @@ export class CrmRepository {
     const all = this.ensurePipelines();
     if (all.some((p) => p.prefix === prefix)) throw new Error('Ja existe uma fila com este prefixo.');
     if (all.some((p) => p.name.toLowerCase() === name.toLowerCase())) throw new Error('Ja existe uma fila com este nome.');
+    const mailbox = input.mailbox ? String(input.mailbox).trim().toLowerCase() : null;
+    assertUniquePipelineMailbox(mailbox, all);
     const now = new Date().toISOString();
     const created: SetaDeskPipeline = {
       id: `pl-${prefix.toLowerCase()}`,
       name,
       prefix,
-      mailbox: input.mailbox ? String(input.mailbox).trim().toLowerCase() : null,
+      mailbox,
       jiraProjectKey: input.jiraProjectKey ? String(input.jiraProjectKey).trim().toUpperCase() : null,
       sequenceName: pipelineSequenceNameFromPrefix(prefix),
       isActive: input.isActive !== false,
@@ -3745,7 +3748,11 @@ export class CrmRepository {
       }
       current.name = name;
     }
-    if (patch.mailbox !== undefined) current.mailbox = patch.mailbox ? String(patch.mailbox).trim().toLowerCase() : null;
+    if (patch.mailbox !== undefined) {
+      const mailbox = patch.mailbox ? String(patch.mailbox).trim().toLowerCase() : null;
+      assertUniquePipelineMailbox(mailbox, all, id);
+      current.mailbox = mailbox;
+    }
     if (patch.jiraProjectKey !== undefined) {
       current.jiraProjectKey = patch.jiraProjectKey ? String(patch.jiraProjectKey).trim().toUpperCase() : null;
     }

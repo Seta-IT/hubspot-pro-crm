@@ -28,6 +28,7 @@ import {
   ServiceTicket,
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
+import { buildTicketSearchHaystack, displayTicketSubject } from '../lib/setadesk-ticket-search';
 
 export type SearchSystemFilter = 'ALL' | 'CRM' | 'ERP' | 'CHAMADOS';
 
@@ -49,6 +50,8 @@ export interface SearchResultEntry {
   system: 'CRM' | 'ERP' | 'CHAMADOS';
   title: string;
   subtitle: string;
+  /** Texto extra so para correspondencia (ex.: CNPJ integral do chamado). Nao e exibido. */
+  searchHaystack?: string;
   rawRecord?: unknown;
 }
 
@@ -183,6 +186,10 @@ export function entryBelongsToSystem(
   return entry.system === sys;
 }
 
+function entrySearchBlob(entry: SearchResultEntry): string {
+  return `${entry.title} ${entry.subtitle} ${entry.searchHaystack || ''}`;
+}
+
 export function filterGlobalSearchEntries(params: {
   allEntries: SearchResultEntry[];
   query: string;
@@ -219,8 +226,9 @@ export function filterGlobalSearchEntries(params: {
 
     // 3. Respect text / digits query
     if (!q) return true;
-    const hay = normalizeSearchText(`${entry.title} ${entry.subtitle}`);
-    const hayDigits = `${entry.title} ${entry.subtitle}`.replace(/\D+/g, '');
+    const blob = entrySearchBlob(entry);
+    const hay = normalizeSearchText(blob);
+    const hayDigits = blob.replace(/\D+/g, '');
     return hay.includes(q) || (qDigits.length >= 2 && hayDigits.includes(qDigits));
   });
 }
@@ -461,8 +469,16 @@ export default function GlobalHeaderSearch({
         entityId: tk.id,
         category: 'TICKETS',
         system: 'CHAMADOS',
-        title: `${tk.key} - ${tk.subject}`,
+        title: `${tk.key} - ${displayTicketSubject(tk.subject)}`,
         subtitle: `Chamado • CHAMADOS${compName ? ` • ${compName}` : ''} • Fila: ${tk.assignee} • ${tk.status}`,
+        searchHaystack: buildTicketSearchHaystack({
+          key: tk.key,
+          subject: tk.subject,
+          description: tk.description,
+          equipmentSerial: tk.equipmentSerial,
+          assignee: tk.assignee,
+          company: tk.companyId ? { name: compName, cnpj: compMap.get(tk.companyId)?.cnpj } : undefined,
+        }),
         rawRecord: tk,
       });
     }
@@ -505,8 +521,9 @@ export default function GlobalHeaderSearch({
         continue;
       }
       if (q) {
-        const hay = normalizeSearchText(`${entry.title} ${entry.subtitle}`);
-        const hayDigits = `${entry.title} ${entry.subtitle}`.replace(/\D+/g, '');
+        const blob = entrySearchBlob(entry);
+        const hay = normalizeSearchText(blob);
+        const hayDigits = blob.replace(/\D+/g, '');
         if (!hay.includes(q) && !(qDigits.length >= 2 && hayDigits.includes(qDigits))) {
           continue;
         }
