@@ -12,6 +12,7 @@
 import type { ErpCommercialProposal, ErpProposalItem } from '../../db/types';
 import { formatProposalDisplayCode } from './proposal-number';
 import { resolveProposalSlaOption } from './proposal-share';
+import { buildInternalProposalSheet, type InternalProposalIssuerInput, type InternalProposalSheet } from './internal-proposal-sheet';
 
 export const INTERNAL_PROPOSAL_PATH_PREFIX = '/interno/proposta';
 export const INTERNAL_FIELD_MISSING = 'não definido';
@@ -69,6 +70,7 @@ export interface InternalProposalSummaryModel {
   internalNotes: string;
   stablePath: string;
   stableUrl: string;
+  sheet: InternalProposalSheet;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -266,7 +268,13 @@ function kindCopy(kind: InternalProposalKind, recurring: boolean): {
 
 export function toInternalProposalSummary(
   proposal: ErpCommercialProposal,
-  options?: { origin?: string }
+  options?: {
+    origin?: string;
+    issuer?: InternalProposalIssuerInput | null;
+    contractNumber?: string;
+    clientCity?: string | null;
+    clientState?: string | null;
+  }
 ): InternalProposalSummaryModel {
   const kind = resolveInternalProposalKind(proposal);
   const recurring =
@@ -376,5 +384,13 @@ export function toInternalProposalSummary(
     internalNotes: String(proposal.internalNotes || '').trim(),
     stablePath: buildStableInternalProposalPath(proposal.id),
     stableUrl: buildStableInternalProposalUrl(proposal.id, options?.origin),
+    sheet: buildInternalProposalSheet(proposal, kind, {
+      issuer: options?.issuer,
+      contractNumber: options?.contractNumber,
+      clientCity: options?.clientCity,
+      clientState: options?.clientState,
+      slaText: slaValue(proposal),
+      readjustment: readjustmentValue(proposal),
+    }),
   };
 }

@@ -4,6 +4,7 @@
  * A impressão segue o padrão das propostas/contratos: HTML A4 e window.print().
  */
 import type { InternalProposalSummaryModel } from './internal-proposal-summary';
+import { SETA_IT_LOGO_PDF } from './seta-it-logo-pdf';
 
 export function internalProposalPdfFileName(code: string, companyName: string): string {
   const safeCode = String(code || '').replace(/^#/, '').trim().replace(/[^\w.-]+/g, '') || 'sem-codigo';
@@ -26,87 +27,88 @@ function escHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** HTML A4 da folha, sem observações internas e sem botões. */
+/** HTML A4 da folha v3, sem botões e sem observações internas. */
 export function buildInternalProposalPrintHtml(model: InternalProposalSummaryModel): string {
-  const rows = model.lines
+  const sheet = model.sheet;
+  const logo = typeof window !== 'undefined' ? `${window.location.origin}/brand/seta-it-logo.png` : '/brand/seta-it-logo.png';
+  const rows = sheet.lines
     .map(
       (line) =>
-        `<tr><td>${escHtml(line.description)}${line.detail ? `<div class="detail">${escHtml(line.detail)}</div>` : ''}</td><td class="num">${escHtml(line.quantityLabel)}</td><td class="num">${escHtml(line.unitLabel)}</td><td class="num strong">${escHtml(line.lineLabel)}</td></tr>`
+        `<tr><td>${line.index}</td><td>${escHtml(line.sku)}</td><td>${escHtml(line.name)}${line.detail ? `<br><small>${escHtml(line.detail)}</small>` : ''}</td><td class="c">${escHtml(line.unit)}</td><td class="r">${escHtml(line.qty)}</td><td class="r">${escHtml(line.unitPrice)}</td><td class="r">${escHtml(line.subtotal)}</td></tr>`
     )
     .join('');
-  const oneTime = model.oneTimeRows.length
-    ? `<section class="box"><h3>Valores únicos</h3><p class="hint">${escHtml(model.oneTimeCaption)}</p>${model.oneTimeRows
-        .map((row) => `<div class="pair"><span>${escHtml(row.label)}</span><strong>${escHtml(row.value)}</strong></div>`)
-        .join('')}</section>`
-    : '';
-  const conditions = model.conditions
-    .map((c) => `<div class="cond"><div class="k">${escHtml(c.label)}</div><div>${escHtml(c.value)}</div></div>`)
+  const pay = sheet.paymentRows
+    .map(
+      (row) =>
+        `<tr><td>${escHtml(row.due)}</td><td class="r">${escHtml(row.amount)}</td><td class="${row.methodMissing ? 'muted' : ''}">${escHtml(row.method)}</td><td>${escHtml(row.note)}</td></tr>`
+    )
     .join('');
+  const clauses = [
+    sheet.commercialNote ? `<p>${escHtml(sheet.commercialNote)}</p>` : '',
+    `<p><b>CONFIDENCIALIDADE E CONDIÇÕES GERAIS</b> — ${escHtml(sheet.confidentiality)}</p>`,
+    ...sheet.clauses.map((clause) => `<p><b>${escHtml(clause.title)}</b> — ${escHtml(clause.body)}</p>`),
+  ].join('');
   const title = internalProposalPdfFileNameFromModel(model).replace(/\.pdf$/, '');
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"/><title>${escHtml(title)}</title>
 <style>
-@page { size: A4; margin: 12mm; }
-* { box-sizing: border-box; }
-body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #1e293b; font-size: 12px; }
-header { background: #1e3a6e; color: #fff; padding: 16px 22px; }
-.eyebrow { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; opacity: .75; margin: 0; }
-h1 { font-size: 18px; margin: 4px 0 0; font-weight: 600; }
-.kind { margin: 0; font-size: 11px; opacity: .85; }
-article { border: 1px solid #e2e8f0; }
-.pad { padding: 16px 22px; }
-.code { color: #1e3a6e; font-size: 26px; font-weight: 600; margin: 2px 0; }
-.muted { color: #64748b; font-size: 11px; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
-.grid3 { display: grid; grid-template-columns: 1fr 1fr 1.1fr; gap: 8px; margin-top: 12px; }
-.card { border: 1px solid #e2e8f0; background: #f8fafc; padding: 8px 10px; }
-.k { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: #64748b; font-weight: 600; }
-.total { background: #1e3a6e; color: #fff; padding: 8px 10px; }
-.total .k { color: rgba(255,255,255,.75); }
-.total strong { font-size: 18px; }
-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-th { background: #1e3a6e; color: #fff; text-align: left; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; padding: 6px 8px; }
-td { border-top: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; }
-.num { text-align: right; white-space: nowrap; }
-.strong { font-weight: 700; }
-.detail { color: #64748b; font-size: 10px; }
-.box { border: 1px solid #e2e8f0; padding: 8px 10px; margin-top: 10px; }
-.hint { color: #64748b; font-size: 10px; margin: 2px 0 6px; }
-.pair { display: flex; justify-content: space-between; border-top: 1px solid #f1f5f9; padding: 4px 0; }
-.conds { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #e2e8f0; border: 1px solid #e2e8f0; margin-top: 6px; }
-.cond { background: #fff; padding: 8px 10px; }
-footer { background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 10px 22px; font-size: 10px; color: #1e3a6e; word-break: break-all; }
-h3 { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: #64748b; margin: 14px 0 0; }
+@page{size:A4;margin:8mm 9mm}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#1f2937;font-size:10.5px;line-height:1.3}
+.head{display:flex;justify-content:space-between;gap:12px;padding-bottom:7px;border-bottom:2px solid #1e3a6e}
+.brand{display:flex;gap:10px;align-items:center}
+.brand img{width:100px;height:32px}
+h1{margin:0 0 1px;font-size:14px;color:#1e3a6e}
+.l,.contact{font-size:10px;line-height:1.3}
+.contact{text-align:right}
+.contact strong,h1{color:#1e3a6e}
+.docline{display:grid;grid-template-columns:1fr auto;margin-top:7px;padding:4px 10px;background:#eef2f8;border:1px solid #cdd7e6}
+.docline .n{font-size:13px;font-weight:700;color:#1e3a6e;text-align:center}
+.docline .d{font-size:12px;font-weight:700;color:#1e3a6e}
+.contract{margin-top:4px;border:1px solid #cdd7e6;padding:4px 10px;display:flex;gap:8px;align-items:baseline}
+.contract .k{font-weight:700;color:#1e3a6e;text-transform:uppercase;font-size:10px}
+.blank{width:180px;border-bottom:1px solid #1f2937;height:12px}
+.hint{color:#6b7280;font-size:10px}
+.top2{display:grid;grid-template-columns:205px 1fr;gap:12px;margin-top:7px}
+.rental b{color:#1e3a6e}
+.notes p{margin:0 0 2px}
+.sec{margin-top:6px}
+.t{background:#eef2f8;border:1px solid #cdd7e6;border-bottom:0;color:#1e3a6e;font-weight:700;padding:3px 7px}
+table{width:100%;border-collapse:collapse}
+td,th{border:1px solid #cdd7e6;padding:2px 6px;vertical-align:top}
+th{background:#fafbfd;font-size:9.5px;text-transform:uppercase;text-align:left}
+.r{text-align:right;white-space:nowrap}.c{text-align:center}
+.k{font-weight:700;background:#fafbfd;white-space:nowrap}
+.muted{color:#9ca3af}
+.val{display:grid;grid-template-columns:1fr 1fr;border:1px solid #cdd7e6;margin-top:6px}
+.val div{padding:3px 8px;font-weight:700}
+.val div+div{border-left:1px solid #cdd7e6}
+.sum{margin-left:auto;width:270px;border:1px solid #cdd7e6;border-top:0}
+.sum div{display:flex;justify-content:space-between;padding:2px 8px;border-top:1px solid #e5eaf2}
+.sum .g{font-weight:700;color:#1e3a6e}
+.obs{border:1px solid #cdd7e6;padding:5px 8px;font-size:10px;line-height:1.28;column-count:2;column-gap:14px}
+.obs p{margin:0 0 3px}
+.sign{margin-top:6px;border:1px solid #cdd7e6;padding:18px 0 4px;text-align:center}
+.ln{width:300px;margin:0 auto 4px;border-top:1px solid #1f2937}
+.foot{margin-top:4px;text-align:right;font-size:9.5px;color:#6b7280}
 </style></head><body>
-<article>
-<header>
-  <p class="eyebrow">STI-hub · Seta Telecom</p>
-  <h1>Visão interna do orçamento</h1>
-  <p class="kind">${escHtml(model.kindLabel)} · para o contrato</p>
-</header>
-<div class="pad">
-  <div class="k">Orçamento</div>
-  <div class="code">${escHtml(model.codeLabel)}</div>
-  <div class="muted">${escHtml(model.versionLabel)} · ${escHtml(model.statusLabel)}</div>
-  <h2 style="font-size:14px;margin:12px 0 0">${escHtml(model.title)}</h2>
-  <div class="grid2">
-    <div class="card"><div class="k">Cliente</div><strong>${escHtml(model.companyName)}</strong>${model.careOf ? `<div class="muted">A/C ${escHtml(model.careOf)}</div>` : ''}</div>
-    <div class="card"><div class="k">CNPJ</div><strong>${escHtml(model.companyCnpj)}</strong></div>
-  </div>
-  <div class="grid3">
-    <div class="card"><div class="k">${escHtml(model.termLabel)}</div><strong>${escHtml(model.termValue)}</strong></div>
-    <div class="card"><div class="k">Valor mensal</div><strong>${escHtml(model.monthlyLabel)}</strong></div>
-    <div class="total"><div class="k">${escHtml(model.periodLabel)}</div><strong>${escHtml(model.periodValue)}</strong></div>
-  </div>
-  ${model.scopeLabel ? `<p><span class="k">Escopo · </span>${escHtml(model.scopeLabel)}</p>` : ''}
-  <h3>${escHtml(model.itemsHeading)}</h3>
-  <table><thead><tr><th>${escHtml(model.itemColumn)}</th><th class="num">Qtd</th><th class="num">${escHtml(model.unitColumn)}</th><th class="num">${escHtml(model.lineColumn)}</th></tr></thead><tbody>${rows}</tbody></table>
-  ${oneTime}
-  <h3>Condições</h3>
-  <div class="conds">${conditions}</div>
-</div>
-<footer><div class="k">Link interno estável</div>${escHtml(model.stableUrl)}</footer>
-</article>
+<header class="head"><div class="brand"><img src="${escHtml(logo)}" alt="SETA | IT"><div><h1>${escHtml(sheetTitle(sheet))}</h1><div class="l">${escHtml(sheet.issuerLegalName)}</div><div class="l">CNPJ: ${escHtml(sheet.issuerCnpj)}</div><div class="l">${escHtml(sheet.issuerStreet)}</div><div class="l">${escHtml(sheet.issuerCity)}</div></div></div>
+<div class="contact">${sheet.issuerPhone ? `<div><strong>${escHtml(sheet.issuerPhone)}</strong></div>` : ''}${sheet.issuerEmail ? `<div><strong>${escHtml(sheet.issuerEmail)}</strong></div>` : ''}${sheet.sellerName ? `<div>Vendedor: <strong>${escHtml(sheet.sellerName)}</strong></div>` : ''}</div></header>
+<div class="docline"><div class="n">ORÇAMENTO Nº ${escHtml(sheet.budgetNumber)}</div><div class="d">${escHtml(sheet.proposalDateLabel)}</div></div>
+<div class="contract"><span class="k">Nº do contrato:</span>${sheet.contractNumber ? `<strong>${escHtml(sheet.contractNumber)}</strong>` : '<span class="blank"></span><span class="hint">preenchido quando a proposta for convertida em contrato de locação</span>'}</div>
+<div class="top2"><section class="rental"><div><b>${escHtml(sheet.headline)}</b></div><div>${escHtml(sheet.monthlyLine)}</div><div>${escHtml(sheet.deliveryLine)}</div>${sheet.freightLine ? `<div>${escHtml(sheet.freightLine)}</div>` : ''}${sheet.slaLine ? `<div>${escHtml(sheet.slaLine)}</div>` : ''}<div>${escHtml(sheet.readjustmentLine)}</div></section>
+<section class="notes">${sheet.notices.map((note) => `<p>› ${escHtml(note)}</p>`).join('')}</section></div>
+<div class="val"><div>${escHtml(sheet.validityLine)}</div><div>${escHtml(sheet.deliveryForecastLine)}</div></div>
+<section class="sec"><div class="t">DADOS DO CLIENTE</div><table><tr><td class="k">Razão social:</td><td>${escHtml(sheet.clientLegalName)}</td><td class="k">Nome fantasia:</td><td>${escHtml(sheet.clientTradeName)}</td></tr><tr><td class="k">CNPJ/CPF:</td><td>${escHtml(sheet.clientCnpj)}</td><td class="k">Endereço:</td><td>${escHtml(sheet.clientAddress)}</td></tr><tr><td class="k">CEP:</td><td>${escHtml(sheet.clientCep)}</td><td class="k">Cidade/UF:</td><td>${escHtml(sheet.clientCityUf)}</td></tr><tr><td class="k">Telefone:</td><td>${escHtml(sheet.clientPhone)}</td><td class="k">E-mail:</td><td>${escHtml(sheet.clientEmail)}</td></tr></table></section>
+<section class="sec"><div class="t">${escHtml(sheet.itemsSection)}</div><table><thead><tr><th>Item</th><th>Código</th><th>Nome</th><th class="c">Und.</th><th class="r">Qtd.</th><th class="r">Vr. unit. mensal</th><th class="r">Subtotal mensal</th></tr></thead><tbody>${rows}<tr><td colspan="4"><b>TOTAL</b></td><td class="r"><b>${escHtml(sheet.qtyTotal)}</b></td><td></td><td class="r"><b>${escHtml(sheet.monthlyPlain)}</b></td></tr></tbody></table>
+<div class="sum"><div><span>${escHtml(sheet.itemsSection)} (mensal):</span><span>${escHtml(sheet.productsMonthly)}</span></div>${sheet.showFreight ? `<div><span>FRETE (pagamento único):</span><span>${escHtml(sheet.freightAmount)}</span></div>` : ''}<div class="g"><span>TOTAL MENSAL:</span><span>${escHtml(sheet.totalMonthly)}</span></div></div></section>
+<section class="sec"><div class="t">DADOS DO PAGAMENTO</div><table><thead><tr><th>Vencimento</th><th class="r">Valor</th><th>Forma de pagamento</th><th>Observação</th></tr></thead><tbody>${pay}</tbody></table></section>
+<section class="sec"><div class="t">OBSERVAÇÕES</div><div class="obs">${clauses}</div></section>
+<section class="sign"><div class="ln"></div>Assinatura do cliente</section>
+<div class="foot">Orçamento Nº ${escHtml(sheet.budgetNumber)} · ${escHtml(sheet.brandTitle)}</div>
 </body></html>`;
+}
+
+function sheetTitle(sheet: InternalProposalSummaryModel['sheet']): string {
+  return sheet.brandTitle;
 }
 
 export function printInternalProposal(model: InternalProposalSummaryModel): void {
@@ -220,113 +222,154 @@ export function buildInternalProposalPdf(model: InternalProposalSummaryModel): U
     y -= n;
   };
 
-  rect(0, PAGE_H - 64, PAGE_W, 64, NAVY);
-  text(left, PAGE_H - 28, 8, 'STI-HUB  ·  SETA TELECOM', 'F1', '1 1 1');
-  text(left, PAGE_H - 46, 14, 'Visão interna do orçamento', 'F2', '1 1 1');
-  text(right - 210, PAGE_H - 46, 8, `${model.kindLabel} · para o contrato`, 'F1', '1 1 1');
-  y = PAGE_H - 86;
-  text(left, y, 8, 'ORÇAMENTO', 'F2', SLATE);
-  gap(22);
-  text(left, y, 20, model.codeLabel, 'F2', NAVY);
-  text(right - 80, y, 9, model.statusLabel, 'F2', NAVY);
-  gap(14);
-  text(left, y, 9, model.versionLabel, 'F1', SLATE);
-  gap(18);
-  for (const line of wrap(model.title, 11, width)) {
-    text(left, y, 11, line, 'F2', INK);
-    gap(14);
-  }
-  gap(4);
-  rect(left, y - 28, width / 2 - 4, 36, '0.973 0.980 0.988');
-  rect(left + width / 2 + 4, y - 28, width / 2 - 4, 36, '0.973 0.980 0.988');
-  text(left + 8, y - 8, 7, 'CLIENTE', 'F2', SLATE);
-  text(left + 8, y - 22, 9, wrap(model.companyName, 9, width / 2 - 20)[0], 'F2', INK);
-  text(left + width / 2 + 12, y - 8, 7, 'CNPJ', 'F2', SLATE);
-  text(left + width / 2 + 12, y - 22, 9, model.companyCnpj, 'F2', INK);
-  y -= 44;
-  const col = (width - 8) / 3;
-  rect(left, y - 26, col, 34, '1 1 1');
-  rect(left + col + 4, y - 26, col, 34, '1 1 1');
-  rect(left + (col + 4) * 2, y - 26, col, 34, NAVY);
-  text(left + 6, y - 6, 7, model.termLabel.toUpperCase(), 'F2', SLATE);
-  text(left + 6, y - 20, 11, model.termValue, 'F2', NAVY);
-  text(left + col + 10, y - 6, 7, 'VALOR MENSAL', 'F2', SLATE);
-  text(left + col + 10, y - 20, 11, model.monthlyLabel, 'F2', NAVY);
-  text(left + (col + 4) * 2 + 6, y - 6, 7, model.periodLabel.toUpperCase(), 'F2', '1 1 1');
-  text(left + (col + 4) * 2 + 6, y - 20, 11, model.periodValue, 'F2', '1 1 1');
-  y -= 46;
-  text(left, y, 8, model.itemsHeading.toUpperCase(), 'F2', SLATE);
-  gap(8);
-  rect(left, y - 14, width, 16, NAVY);
-  text(left + 6, y - 10, 7, model.itemColumn.toUpperCase(), 'F2', '1 1 1');
-  text(left + 280, y - 10, 7, 'QTD', 'F2', '1 1 1');
-  text(left + 330, y - 10, 7, model.unitColumn.toUpperCase(), 'F2', '1 1 1');
-  text(left + 450, y - 10, 7, model.lineColumn.toUpperCase(), 'F2', '1 1 1');
+  const sheet = model.sheet;
+  y = PAGE_H - 28;
+  const logoW = 78;
+  const logoH = (logoW * SETA_IT_LOGO_PDF.height) / SETA_IT_LOGO_PDF.width;
+  ops.push(`q ${logoW.toFixed(2)} 0 0 ${logoH.toFixed(2)} ${left.toFixed(2)} ${(y - 14).toFixed(2)} cm /Im1 Do Q`);
+  const brandX = left + logoW + 8;
+  text(brandX, y, 11, sheet.brandTitle, 'F2', NAVY);
+  text(brandX, y - 12, 8, sheet.issuerLegalName, 'F1', INK);
+  text(brandX, y - 22, 8, `CNPJ: ${sheet.issuerCnpj}`, 'F1', INK);
+  text(brandX, y - 32, 7, sheet.issuerStreet, 'F1', INK);
+  text(brandX, y - 42, 7, sheet.issuerCity, 'F1', INK);
+  if (sheet.issuerPhone) text(right - 180, y, 8, sheet.issuerPhone, 'F2', NAVY);
+  if (sheet.issuerEmail) text(right - 180, y - 11, 7, sheet.issuerEmail, 'F2', NAVY);
+  if (sheet.sellerName) text(right - 180, y - 22, 7, `Vendedor: ${sheet.sellerName}`, 'F1', INK);
+  ops.push(`${NAVY} RG 1.2 w ${left.toFixed(2)} ${(y - 50).toFixed(2)} ${width.toFixed(2)} 0 re S`);
+  y -= 66;
+  rect(left, y - 4, width, 16, '0.933 0.949 0.973');
+  text(left + 140, y, 9, `ORÇAMENTO Nº ${sheet.budgetNumber}`, 'F2', NAVY);
+  text(right - 70, y, 8, sheet.proposalDateLabel, 'F2', NAVY);
   y -= 18;
-  for (const line of model.lines) {
-    const desc = wrap(line.description, 9, 260);
-    const h = Math.max(16, desc.length * 12 + 4);
-    desc.forEach((part, i) => text(left + 6, y - 12 - i * 11, 9, part, 'F1', INK));
-    text(left + 280, y - 12, 9, line.quantityLabel, 'F1', INK);
-    text(left + 330, y - 12, 9, line.unitLabel, 'F1', INK);
-    text(left + 450, y - 12, 9, line.lineLabel, 'F2', INK);
-    y -= h;
+  ops.push(`0.804 0.843 0.902 RG 0.6 w ${left.toFixed(2)} ${(y - 4).toFixed(2)} ${width.toFixed(2)} 14 re S`);
+  text(left + 4, y, 7, 'Nº DO CONTRATO:', 'F2', NAVY);
+  if (sheet.contractNumber) text(left + 90, y, 8, sheet.contractNumber, 'F2', INK);
+  else {
+    ops.push(`0.12 0.16 0.22 RG 0.6 w ${(left + 92).toFixed(2)} ${(y - 2).toFixed(2)} 140 0 re S`);
+    text(left + 240, y, 6, 'preenchido quando a proposta for convertida em contrato de locação', 'F1', SLATE);
   }
-  if (model.oneTimeRows.length) {
-    gap(14);
-    const caption = wrap(model.oneTimeCaption, 8, width - 24);
-    const boxH = 18 + caption.length * 11 + 8 + model.oneTimeRows.length * 16 + 12;
-    const boxBottom = y - boxH + 14;
-    ops.push(`0.886 0.910 0.941 RG 0.9 w ${left.toFixed(2)} ${boxBottom.toFixed(2)} ${width.toFixed(2)} ${boxH.toFixed(2)} re S`);
-    text(left + 10, y, 8, 'VALORES ÚNICOS', 'F2', SLATE);
-    gap(13);
-    for (const line of caption) {
-      text(left + 10, y, 8, line, 'F1', SLATE);
-      gap(11);
+  y -= 16;
+  text(left, y, 8, sheet.headline, 'F2', NAVY);
+  gap(10);
+  text(left, y, 7, sheet.monthlyLine, 'F1', INK);
+  gap(9);
+  text(left, y, 7, sheet.deliveryLine, 'F1', INK);
+  if (sheet.freightLine) { gap(9); text(left, y, 7, sheet.freightLine, 'F1', INK); }
+  if (sheet.slaLine) { gap(9); text(left, y, 7, wrap(sheet.slaLine, 7, 190)[0], 'F1', INK); }
+  gap(9);
+  text(left, y, 7, sheet.readjustmentLine, 'F1', INK);
+  let noteY = y + 36;
+  for (const note of sheet.notices) {
+    const bits = wrap(`› ${note}`, 6.5, 330);
+    for (const bit of bits) {
+      text(left + 200, noteY, 6.5, bit, 'F1', INK);
+      noteY -= 8;
     }
-    gap(4);
-    for (const row of model.oneTimeRows) {
-      text(left + 10, y, 9, row.label, 'F1', SLATE);
-      text(left + width - 88, y, 9, row.value, 'F2', INK);
-      gap(16);
-    }
-    y = Math.min(y, boxBottom - 10);
   }
-  gap(8);
-  text(left, y, 8, 'CONDIÇÕES', 'F2', SLATE);
-  gap(14);
-  for (let i = 0; i < model.conditions.length; i += 2) {
-    const a = model.conditions[i];
-    const b = model.conditions[i + 1];
-    text(left, y, 7, a.label.toUpperCase(), 'F2', SLATE);
-    if (b) text(left + 270, y, 7, b.label.toUpperCase(), 'F2', SLATE);
-    gap(12);
-    for (const part of wrap(a.value, 9, 250)) {
-      text(left, y, 9, part, 'F1', INK);
-      gap(11);
-    }
-    if (b) {
-      let by = y + 11;
-      for (const part of wrap(b.value, 9, 250)) {
-        text(left + 270, by, 9, part, 'F1', INK);
-        by -= 11;
+  y = Math.min(y, noteY) - 8;
+  rect(left, y - 3, width, 12, '0.933 0.949 0.973');
+  text(left + 4, y, 7, sheet.validityLine, 'F2', INK);
+  text(left + 280, y, 7, sheet.deliveryForecastLine, 'F2', INK);
+  y -= 16;
+  text(left + 4, y, 8, 'DADOS DO CLIENTE', 'F2', NAVY);
+  y -= 4;
+  const clientRows: Array<[string, string, string, string]> = [
+    ['Razão social:', sheet.clientLegalName, 'Nome fantasia:', sheet.clientTradeName],
+    ['CNPJ/CPF:', sheet.clientCnpj, 'Endereço:', sheet.clientAddress],
+    ['CEP:', sheet.clientCep, 'Cidade/UF:', sheet.clientCityUf],
+    ['Telefone:', sheet.clientPhone, 'E-mail:', sheet.clientEmail],
+  ];
+  for (const row of clientRows) {
+    y -= 11;
+    text(left + 2, y, 6.5, row[0], 'F2', INK);
+    text(left + 62, y, 6.5, wrap(row[1], 6.5, 160)[0], 'F1', INK);
+    text(left + 250, y, 6.5, row[2], 'F2', INK);
+    text(left + 320, y, 6.5, wrap(row[3], 6.5, 180)[0], 'F1', INK);
+  }
+  y -= 14;
+  text(left + 4, y, 8, sheet.itemsSection, 'F2', NAVY);
+  y -= 11;
+  text(left, y, 6, 'ITEM  CÓDIGO', 'F2', INK);
+  text(left + 110, y, 6, 'NOME', 'F2', INK);
+  text(left + 300, y, 6, 'UND.', 'F2', INK);
+  text(left + 340, y, 6, 'QTD.', 'F2', INK);
+  text(left + 390, y, 6, 'VR. UNIT.', 'F2', INK);
+  text(left + 460, y, 6, 'SUBTOTAL', 'F2', INK);
+  for (const line of sheet.lines) {
+    y -= 11;
+    text(left, y, 6.5, String(line.index), 'F1', INK);
+    text(left + 18, y, 6.5, line.sku, 'F1', INK);
+    text(left + 90, y, 6.5, wrap(line.name, 6.5, 200)[0], 'F1', INK);
+    text(left + 300, y, 6.5, line.unit, 'F1', INK);
+    text(left + 340, y, 6.5, line.qty, 'F1', INK);
+    text(left + 390, y, 6.5, line.unitPrice, 'F1', INK);
+    text(left + 460, y, 6.5, line.subtotal, 'F1', INK);
+  }
+  y -= 11;
+  text(left, y, 7, 'TOTAL', 'F2', INK);
+  text(left + 340, y, 7, sheet.qtyTotal, 'F2', INK);
+  text(left + 460, y, 7, sheet.monthlyPlain, 'F2', INK);
+  y -= 12;
+  ops.push(`0.804 0.843 0.902 RG 0.6 w ${(left + 300).toFixed(2)} ${(y - 4).toFixed(2)} ${(width - 300).toFixed(2)} ${sheet.showFreight ? 28 : 18} re S`);
+  text(left + 304, y, 7, `${sheet.itemsSection} (mensal):`, 'F1', INK);
+  text(left + 460, y, 7, sheet.productsMonthly, 'F1', INK);
+  if (sheet.showFreight) {
+    y -= 10;
+    text(left + 304, y, 7, 'FRETE (pagamento único):', 'F1', INK);
+    text(left + 460, y, 7, sheet.freightAmount, 'F1', INK);
+  }
+  y -= 10;
+  text(left + 304, y, 7, 'TOTAL MENSAL:', 'F2', NAVY);
+  text(left + 460, y, 7, sheet.totalMonthly, 'F2', NAVY);
+  y -= 14;
+  text(left + 4, y, 8, 'DADOS DO PAGAMENTO', 'F2', NAVY);
+  for (const row of sheet.paymentRows) {
+    y -= 10;
+    text(left, y, 6.5, row.due, 'F1', INK);
+    text(left + 150, y, 6.5, row.amount, 'F1', INK);
+    text(left + 230, y, 6.5, row.method, 'F1', INK);
+    text(left + 340, y, 6.5, wrap(row.note, 6.5, 180)[0], 'F1', INK);
+  }
+  y -= 14;
+  text(left + 4, y, 8, 'OBSERVAÇÕES', 'F2', NAVY);
+  y -= 9;
+  const obs: string[] = [];
+  if (sheet.commercialNote) obs.push(sheet.commercialNote);
+  obs.push(`CONFIDENCIALIDADE E CONDIÇÕES GERAIS — ${sheet.confidentiality}`);
+  for (const clause of sheet.clauses) obs.push(`${clause.title} — ${clause.body}`);
+  const leftCol = obs.slice(0, Math.ceil(obs.length / 2));
+  const rightCol = obs.slice(Math.ceil(obs.length / 2));
+  const paintCol = (x: number, start: number, parts: string[]) => {
+    let cy = start;
+    for (const part of parts) {
+      for (const bit of wrap(part, 6, 250)) {
+        text(x, cy, 6, bit, 'F1', INK);
+        cy -= 7;
       }
+      cy -= 2;
     }
-    gap(6);
-  }
-  gap(8);
-  text(left, y, 7, 'LINK INTERNO ESTÁVEL', 'F2', SLATE);
-  gap(12);
-  text(left, y, 8, model.stableUrl, 'F1', NAVY);
+    return cy;
+  };
+  const endL = paintCol(left, y, leftCol);
+  const endR = paintCol(left + 270, y, rightCol);
+  y = Math.min(endL, endR) - 8;
+  ops.push(`0.12 0.16 0.22 RG 0.6 w ${(left + 150).toFixed(2)} ${y.toFixed(2)} 200 0 re S`);
+  y -= 10;
+  text(left + 190, y, 7, 'Assinatura do cliente', 'F1', INK);
+  y -= 12;
+  text(right - 180, y, 7, `Orçamento Nº ${sheet.budgetNumber} · ${sheet.brandTitle}`, 'F1', SLATE);
 
   const stream = ops.join('\n') + '\n';
+  const logo = decodeBase64(SETA_IT_LOGO_PDF.flateBase64);
   const objects = [
     '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n',
     '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n',
-    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >> endobj\n',
+    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> /XObject << /Im1 7 0 R >> >> >> endobj\n',
     `4 0 obj << /Length ${latin1Bytes(stream).length} >> stream\n`,
     '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj\n',
     '6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >> endobj\n',
+    `7 0 obj << /Type /XObject /Subtype /Image /Width ${SETA_IT_LOGO_PDF.width} /Height ${SETA_IT_LOGO_PDF.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ${logo.length} >> stream\n`,
   ];
   const chunks: Uint8Array[] = [latin1Bytes('%PDF-1.4\n')];
   const offsets: number[] = [0];
@@ -350,10 +393,11 @@ export function buildInternalProposalPdf(model: InternalProposalSummaryModel): U
   pushObj(objects[3], latin1Bytes(stream), 'endstream\nendobj\n');
   pushObj(objects[4]);
   pushObj(objects[5]);
+  pushObj(objects[6], logo, '\nendstream\nendobj\n');
   const xrefAt = cursor;
-  let xref = `xref\n0 7\n0000000000 65535 f \n`;
-  for (let i = 1; i <= 6; i++) xref += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
-  xref += `trailer << /Size 7 /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF`;
+  let xref = `xref\n0 8\n0000000000 65535 f \n`;
+  for (let i = 1; i <= 7; i++) xref += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+  xref += `trailer << /Size 8 /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF`;
   chunks.push(latin1Bytes(xref));
   const total = chunks.reduce((n, c) => n + c.length, 0);
   const out = new Uint8Array(total);
@@ -362,6 +406,13 @@ export function buildInternalProposalPdf(model: InternalProposalSummaryModel): U
     out.set(c, at);
     at += c.length;
   }
+  return out;
+}
+
+function decodeBase64(value: string): Uint8Array {
+  const bin = atob(value);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
 

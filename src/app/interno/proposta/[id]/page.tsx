@@ -63,7 +63,7 @@ export default function InternalProposalPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-[#f4f6f9] flex items-center justify-center p-6">
-        <p className="text-sm font-semibold text-[#1e3a6e]">Carregando visão interna do orçamento...</p>
+        <p className="text-sm font-semibold text-[#1e3a6e]">Carregando orçamento...</p>
       </div>
     );
   }
