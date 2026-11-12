@@ -54,6 +54,8 @@ export interface InternalProposalSheet {
   freightLine: string;
   slaLine: string;
   readjustmentLine: string;
+  /** Quadro de condições: uma linha por informação, rótulo à esquerda e valor à direita. */
+  summaryRows: Array<{ label: string; value: string }>;
   notices: readonly string[];
   validityLine: string;
   deliveryForecastLine: string;
@@ -84,6 +86,8 @@ export interface InternalProposalSheet {
   totalMonthly: string;
   paymentRows: Array<{ due: string; amount: string; method: string; methodMissing: boolean; note: string }>;
   commercialNote: string;
+  /** Observações comerciais quebradas por linha, com o texto original. */
+  commercialNoteLines: string[];
   confidentiality: string;
   clauses: readonly { title: string; body: string }[];
 }
@@ -99,6 +103,35 @@ function money(value: number): string {
 
 function amount(value: number): string {
   return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+}
+
+/** Quebra um texto livre (commercialNotes) em um item por linha, sem reescrever. */
+export function splitCommercialNoteLines(value: unknown): string[] {
+  return String(value || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Quando as condições vêm num campo livre, cada linha vira um item.
+ * "Rótulo: valor" separa as colunas; o restante da linha fica intacto.
+ */
+export function rowsFromFreeConditionText(value: unknown): Array<{ label: string; value: string }> {
+  const pieces = String(value || '')
+    .split(/\r?\n|\s+\/\s+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (pieces.length < 2) return [];
+  return pieces.map((line) => {
+    const colon = line.indexOf(':');
+    if (colon > 0 && colon < 48) {
+      const label = line.slice(0, colon).trim();
+      const rest = line.slice(colon + 1).trim();
+      return { label, value: rest || line };
+    }
+    return { label: '', value: line };
+  });
 }
 
 function daysBetween(from?: string, to?: string): string {
@@ -169,6 +202,23 @@ export function buildInternalProposalSheet(
   const uf = String(options?.clientState || '').trim();
   const readjustment = options?.readjustment || 'não definido';
   const sla = options?.slaText || 'não definido';
+  const proposalKind = service ? 'Serviço' : 'Locação';
+  const summaryRows: Array<{ label: string; value: string }> = [
+    { label: 'Proposta', value: `${proposalKind}${monthLabel ? ` - ${monthLabel}` : ''}` },
+    { label: 'Valor mensal', value: money(monthly) },
+    { label: 'Prazo de entrega estimado', value: delivery || INTERNAL_FIELD_BLANK },
+  ];
+  if (freight > 0) summaryRows.push({ label: 'Frete', value: `${money(freight)} (pagamento único)` });
+  if (sla && sla !== 'não definido') summaryRows.push({ label: 'SLA', value: sla });
+  summaryRows.push({ label: 'Reajuste anual', value: readjustment });
+  const seen = new Set(summaryRows.map((row) => `${row.label}|${row.value}`.toLowerCase()));
+  for (const row of rowsFromFreeConditionText(proposal.commercialNotes)) {
+    const key = `${row.label}|${row.value}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    summaryRows.push(row);
+  }
+  const commercialNoteLines = splitCommercialNoteLines(proposal.commercialNotes);
   const lines = (proposal.items || []).map((item, index) => ({
     index: index + 1,
     sku: String(item.sku || '').trim() || '—',
@@ -218,6 +268,7 @@ export function buildInternalProposalSheet(
     freightLine: freight > 0 ? `Frete: ${money(freight)} (pagamento único)` : '',
     slaLine: sla === 'não definido' ? '' : sla,
     readjustmentLine: `Reajuste anual: ${readjustment}`,
+    summaryRows,
     notices: SETA_INTERNAL_PROPOSAL_NOTICES,
     validityLine: `VALIDADE DA PROPOSTA: ${formatIsoDatePt(proposal.validUntil)}${daysBetween(proposal.proposalDate, proposal.validUntil)}`,
     deliveryForecastLine: `PREVISÃO DE ENTREGA: ${(delivery || INTERNAL_FIELD_BLANK).toUpperCase()}`,
@@ -239,6 +290,7 @@ export function buildInternalProposalSheet(
     totalMonthly: money(monthly),
     paymentRows,
     commercialNote: String(proposal.commercialNotes || '').trim(),
+    commercialNoteLines,
     confidentiality: SETA_INTERNAL_CONFIDENTIALITY,
     clauses: SETA_INTERNAL_CLAUSES,
   };
