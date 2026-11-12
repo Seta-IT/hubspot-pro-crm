@@ -123,4 +123,24 @@ describe('Proposta e documentos - endereco da emitente', () => {
     assert.match(css, /\[data-system="service"\][\s\S]*?--sti-accent:\s*#047857/);
     assert.doesNotMatch(css, /\[data-system="crm"\]\s*\{\s*--sti-accent:\s*#ea580c/);
   });
+
+  it('página pública da proposta usa a cor do CRM #D9541E, sem o laranja antigo', () => {
+    const root = process.cwd();
+    const page = readFileSync(join(root, 'src/app/proposta/[id]/page.tsx'), 'utf8');
+    assert.match(page, /data-system="crm"/);
+    assert.doesNotMatch(page, /#ff7a59|#e86646|#f26522/i);
+    assert.match(page, /text-accent-hover/);
+    assert.match(page, /bg-accent-hover hover:bg-accent text-white/);
+    assert.match(page, /bg-accent inline-block/);
+    assert.match(page, /text-xl font-black tracking-tight text-accent/);
+
+    const theme = readFileSync(join(root, 'src/app/lib/proposal-sheet-theme.ts'), 'utf8');
+    assert.doesNotMatch(theme, /#ff7a59|#e86646|#f26522/i);
+    assert.match(theme, /border-l-\[#D9541E\]/);
+    assert.match(theme, /instEyebrowColor: 'text-\[#BC4718\]'/);
+    assert.match(theme, /bulletColor: 'text-\[#BC4718\]'/);
+    assert.match(theme, /brandOrange: '#D9541E'/);
+    assert.match(theme, /brandOrangeHover: '#BC4718'/);
+    assert.match(theme, /brandOrangeSoft: '#FEF1EA'/);
+  });
 });
