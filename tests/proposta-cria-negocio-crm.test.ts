@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { signStiHubSessionToken } from '../src/app/lib/auth';
 import { CrmApiRouter } from '../src/api/router';
+import { RecordIdConflictError } from '../src/db/record-id-guard';
 import { createInMemoryRepository, type CrmRepository } from '../src/db/repository';
 import {
   CRM_DEAL_COMPANY_HIDDEN_WARNING,
   CRM_DEAL_CONTACT_HIDDEN_WARNING,
+  CRM_DEAL_HIDDEN_WARNING,
+  dealLinkedProposalId,
   findCompanyForProposal,
   findContactForProposal,
   funnelLabelForBudgetType,
@@ -808,5 +811,116 @@ describe('t226u CISO B1-B4 escopo e validação no vínculo proposta-negócio', 
     assert.equal(body.warning || '', '');
     assert.equal(repo.listCompanies().length, companiesBefore);
     assert.equal(repo.listContacts().length, contactsBefore);
+  });
+
+  it('createDeal com o mesmo proposalId devolve o negócio já existente', () => {
+    const repo = createInMemoryRepository();
+    const first = repo.createDeal({
+      title: 'Primeiro negócio da proposta',
+      value: 1000,
+      proposalId: 'prop-lock-create-1',
+    });
+    const second = repo.createDeal({
+      title: 'Tentativa duplicada',
+      value: 2000,
+      proposalId: 'prop-lock-create-1',
+    });
+    assert.equal(second.id, first.id);
+    assert.equal(
+      repo.listDeals().filter((d) => dealLinkedProposalId(d) === 'prop-lock-create-1').length,
+      1
+    );
+  });
+
+  it('duas criações simultâneas da mesma proposta devolvem o mesmo negócio', () => {
+    const repo = createInMemoryRepository();
+    const proposal = repo.createProposal({
+      title: 'Proposta concorrente CRM',
+      companyName: 'Cliente Concorrente CRM',
+      companyCnpj: uniqueCnpj(808),
+      contactName: 'Helena Costa',
+      contactEmail: 'helena.costa.concorrente@teste.example',
+      totalContractValue: 18000,
+    });
+    const dealsBefore = repo.listDeals().length;
+    let concurrent: ReturnType<typeof linkProposalToCrmDeal> | undefined;
+    repo.__testAfterReserveDealForProposal = () => {
+      concurrent = linkProposalToCrmDeal(repo, proposal);
+    };
+    const first = linkProposalToCrmDeal(repo, proposal);
+    const linked = repo.listDeals().filter((d) => dealLinkedProposalId(d) === proposal.id);
+    assert.ok(concurrent, 'a segunda chamada simultânea deveria ter rodado');
+    assert.equal(linked.length, 1);
+    assert.equal(first.deal.id, concurrent!.deal.id);
+    assert.equal(first.proposal.dealId, first.deal.id);
+    assert.equal(concurrent!.proposal.dealId, first.deal.id);
+    assert.equal(first.created, true);
+    assert.equal(concurrent!.created, false);
+    assert.equal(repo.listDeals().length, dealsBefore + 1);
+  });
+
+  it('ao devolver o negócio já existente respeita escopo e visibilidade', () => {
+    const repo = createInMemoryRepository();
+    const proposal = repo.createProposal({
+      title: 'Proposta com negócio fora do escopo',
+      companyName: 'Cliente Escopo Deal',
+      companyCnpj: uniqueCnpj(909),
+      contactName: 'Igor Dias',
+      contactEmail: 'igor.dias.escopo@teste.example',
+      totalContractValue: 9000,
+    });
+    const existing = repo.createDeal({
+      title: 'Negócio de outro responsável',
+      value: 9000,
+      proposalId: proposal.id,
+      companyId: 'co-hidden-x',
+      contactId: 'ct-hidden-x',
+      ownerId: 'usr-seta-01',
+      ownerName: 'Marcelo Lopes Mira',
+    });
+    const dealsBefore = repo.listDeals().length;
+    const result = linkProposalToCrmDeal(repo, proposal, {
+      visibility: {
+        canSeeDeal: () => false,
+        canSeeCompany: () => false,
+        canSeeContact: () => false,
+      },
+    });
+    assert.equal(result.created, false);
+    assert.equal(result.deal.id, existing.id);
+    assert.equal(result.proposal.dealId, existing.id);
+    assert.equal(result.deal.companyId, null);
+    assert.equal(result.deal.contactId, null);
+    assert.equal(result.deal.ownerId, null);
+    assert.ok(result.warnings.includes(CRM_DEAL_HIDDEN_WARNING));
+    assert.equal(repo.listDeals().length, dealsBefore);
+    const stored = repo.getDealById(existing.id)!;
+    assert.equal(stored.ownerId, 'usr-seta-01');
+    assert.equal(stored.companyId, 'co-hidden-x');
+  });
+
+  it('updateDeal devolve 409 quando o proposalId já pertence a outro negócio', async () => {
+    const repo = createInMemoryRepository();
+    const first = repo.createDeal({ title: 'Negócio A', value: 1000, proposalId: 'prop-409-a' });
+    const second = repo.createDeal({ title: 'Negócio B', value: 2000 });
+    assert.throws(
+      () => repo.updateDeal(second.id, { proposalId: 'prop-409-a' }),
+      (err: unknown) =>
+        err instanceof RecordIdConflictError &&
+        err.code === 'PROPOSAL_DEAL_CONFLICT' &&
+        err.status === 409
+    );
+    assert.equal(dealLinkedProposalId(repo.getDealById(second.id)!), null);
+    assert.equal(repo.getDealById(first.id)!.proposalId, 'prop-409-a');
+
+    const router = new CrmApiRouter(repo);
+    const res = await router.dispatch({
+      method: 'PATCH',
+      path: `/api/deals/${second.id}`,
+      query: session(repo),
+      body: { proposalId: 'prop-409-a' },
+    });
+    assert.equal(res.status, 409, JSON.stringify(res.body));
+    assert.equal((res.body as { code?: string }).code, 'PROPOSAL_DEAL_CONFLICT');
   });
 });

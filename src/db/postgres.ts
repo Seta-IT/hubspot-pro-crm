@@ -47,6 +47,27 @@ export async function closePostgresPool(): Promise<void> {
   }
 }
 
+/**
+ * Índice único parcial: no máximo um negócio por proposta do ERP.
+ * Só entra em `npm run db:migrate` — nunca em ensurePostgresSchema, para um
+ * conflito no espelho não ser criado à revelia em todo persist.
+ */
+export const CRM_DEALS_PROPOSAL_ID_UNIQUE_INDEX_SQL = `
+CREATE UNIQUE INDEX IF NOT EXISTS ux_crm_deals_proposal_id
+ON crm_deals ((NULLIF(BTRIM(COALESCE(data->>'proposalId', data->'customProperties'->>'proposalId')), '')))
+WHERE NULLIF(BTRIM(COALESCE(data->>'proposalId', data->'customProperties'->>'proposalId')), '') IS NOT NULL
+`.trim();
+
+export async function ensureCrmDealProposalUniqueIndex(
+  executor: { query: (text: string, params?: unknown[]) => Promise<unknown> }
+): Promise<void> {
+  await executor.query(CRM_DEALS_PROPOSAL_ID_UNIQUE_INDEX_SQL);
+}
+
+export function isPgUniqueViolation(err: unknown): boolean {
+  return Boolean(err && typeof err === 'object' && (err as { code?: unknown }).code === '23505');
+}
+
 export async function ensurePostgresSchema(poolOrClient?: Pool | PoolClient): Promise<void> {
   const executor = poolOrClient || getPostgresPool();
   if (!executor) return;
@@ -343,6 +364,8 @@ export interface MirrorSyncStats {
   deleted: number;
   unchanged: number;
   skippedDeletes?: string;
+  /** Linhas com conflito de unicidade (ex.: proposalId já em outro deal): o existente permanece. */
+  skippedConflicts?: number;
 }
 
 async function syncMirrorTable(client: PgQueryable, spec: MirrorTableSpec, state: CrmDatabaseState): Promise<MirrorSyncStats> {
@@ -359,24 +382,10 @@ async function syncMirrorTable(client: PgQueryable, spec: MirrorTableSpec, state
     if (dbHash.get(id) !== entry.hash) changed.push(entry);
   }
 
-  const cols = [...spec.columns, 'row_hash'];
-  const updateSet = cols.filter((c) => c !== 'id').map((c) => `${c} = EXCLUDED.${c}`).join(', ');
+  let skippedConflicts = 0;
   for (let i = 0; i < changed.length; i += MIRROR_UPSERT_BATCH) {
     const batch = changed.slice(i, i + MIRROR_UPSERT_BATCH);
-    const params: unknown[] = [];
-    const tuples = batch.map(({ row, hash }) => {
-      const vals = [...spec.values(row), hash];
-      const ph = vals.map((v, j) => {
-        params.push(v);
-        const cast = spec.casts[cols[j]];
-        return `$${params.length}${cast ? `::${cast}` : ''}`;
-      });
-      return `(${ph.join(', ')})`;
-    });
-    await client.query(
-      `INSERT INTO ${spec.table} (${cols.join(', ')}) VALUES ${tuples.join(', ')} ON CONFLICT (id) DO UPDATE SET ${updateSet}`,
-      params
-    );
+    skippedConflicts += await upsertMirrorBatch(client, spec, batch);
   }
 
   // Deleções: só o que o app removeu explicitamente (estava no snapshot, saiu do estado).
@@ -396,7 +405,62 @@ async function syncMirrorTable(client: PgQueryable, spec: MirrorTableSpec, state
     }
   }
 
-  return { table: spec.table, upserted: changed.length, deleted, unchanged: current.size - changed.length, skippedDeletes };
+  return {
+    table: spec.table,
+    upserted: changed.length - skippedConflicts,
+    deleted,
+    unchanged: current.size - changed.length,
+    skippedDeletes,
+    ...(skippedConflicts ? { skippedConflicts } : {}),
+  };
+}
+
+function buildMirrorInsert(
+  spec: MirrorTableSpec,
+  batch: Array<{ row: AnyRow; hash: string }>
+): { text: string; params: unknown[] } {
+  const cols = [...spec.columns, 'row_hash'];
+  const updateSet = cols.filter((c) => c !== 'id').map((c) => `${c} = EXCLUDED.${c}`).join(', ');
+  const params: unknown[] = [];
+  const tuples = batch.map(({ row, hash }) => {
+    const vals = [...spec.values(row), hash];
+    const ph = vals.map((_v, j) => {
+      params.push(vals[j]);
+      const cast = spec.casts[cols[j]];
+      return `$${params.length}${cast ? `::${cast}` : ''}`;
+    });
+    return `(${ph.join(', ')})`;
+  });
+  return {
+    text: `INSERT INTO ${spec.table} (${cols.join(', ')}) VALUES ${tuples.join(', ')} ON CONFLICT (id) DO UPDATE SET ${updateSet}`,
+    params,
+  };
+}
+
+/**
+ * Upsert do espelho: conflito de unicidade que não é o PK (ex.: proposalId em
+ * outro deal) não aborta o lote nem a transação — a linha existente permanece
+ * e o restante do salvamento segue até o COMMIT.
+ */
+async function upsertMirrorBatch(
+  client: PgQueryable,
+  spec: MirrorTableSpec,
+  batch: Array<{ row: AnyRow; hash: string }>
+): Promise<number> {
+  if (batch.length === 0) return 0;
+  const ins = buildMirrorInsert(spec, batch);
+  try {
+    await client.query(ins.text, ins.params);
+    return 0;
+  } catch (err) {
+    if (!isPgUniqueViolation(err)) throw err;
+    if (batch.length === 1) return 1;
+    let skipped = 0;
+    for (const entry of batch) {
+      skipped += await upsertMirrorBatch(client, spec, [entry]);
+    }
+    return skipped;
+  }
 }
 
 /**

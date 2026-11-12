@@ -2616,6 +2616,7 @@ export class CrmApiRouter {
       visibility: {
         canSeeCompany: (companyId) => this.sessionCanSeeCrmRecord(query, ctx, { companyId }),
         canSeeContact: (contactId) => this.sessionCanSeeCrmRecord(query, ctx, { contactId }),
+        canSeeDeal: (dealId) => this.sessionCanSeeCrmRecord(query, ctx, { dealId }),
       },
     });
     const warning = result.warnings.filter(Boolean).join(' ');

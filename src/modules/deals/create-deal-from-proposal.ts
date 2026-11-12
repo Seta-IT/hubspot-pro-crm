@@ -44,6 +44,8 @@ export const CRM_DEAL_COMPANY_HIDDEN_WARNING =
   'Empresa já cadastrada para outro responsável; negócio criado sem vínculo de empresa.';
 export const CRM_DEAL_CONTACT_HIDDEN_WARNING =
   'Contato já cadastrado para outro responsável; negócio criado sem vínculo de contato.';
+export const CRM_DEAL_HIDDEN_WARNING =
+  'Já existe um negócio vinculado a esta proposta fora do seu escopo; o vínculo foi mantido sem criar outro.';
 
 /**
  * Visibilidade no mesmo escopo das rotas de empresa e contato.
@@ -53,6 +55,7 @@ export const CRM_DEAL_CONTACT_HIDDEN_WARNING =
 export type CrmRecordVisibility = {
   canSeeCompany?: (companyId: string) => boolean;
   canSeeContact?: (contactId: string) => boolean;
+  canSeeDeal?: (dealId: string) => boolean;
 };
 
 function isVisible(
@@ -144,7 +147,61 @@ function findExistingDeal(repo: CrmRepository, proposal: ErpCommercialProposal):
     const byId = repo.getDealById(proposal.dealId);
     if (byId) return byId;
   }
+  const byProposal = repo.findDealByProposalId(proposal.id);
+  if (byProposal) return byProposal;
   return repo.listDeals().find((d) => dealLinkedProposalId(d) === proposal.id);
+}
+
+function redactHiddenDeal(deal: Deal): Deal {
+  return {
+    ...deal,
+    companyId: null,
+    contactId: null,
+    ownerId: null,
+    ownerName: undefined,
+    customProperties: deal.proposalId ? { proposalId: deal.proposalId } : {},
+  };
+}
+
+function bindExistingDealToProposal(
+  repo: CrmRepository,
+  proposal: ErpCommercialProposal,
+  existingDeal: Deal,
+  companyRes: ResolveCompanyForProposalResult,
+  contactRes: ResolveContactForProposalResult,
+  proposalForLink: ErpCommercialProposal,
+  visibility: CrmRecordVisibility,
+  warnings: string[]
+): LinkProposalToCrmDealResult {
+  const dealVisible = isVisible(visibility.canSeeDeal, existingDeal.id);
+  const nextWarnings = dealVisible ? warnings : [...warnings, CRM_DEAL_HIDDEN_WARNING];
+  const patch: Partial<Deal> = {
+    proposalId: proposal.id,
+    customProperties: {
+      ...(existingDeal.customProperties || {}),
+      proposalId: proposal.id,
+    },
+  };
+  if (dealVisible) {
+    if (!existingDeal.companyId && companyRes.company) patch.companyId = companyRes.company.id;
+    if (!existingDeal.contactId && contactRes.contact) patch.contactId = contactRes.contact.id;
+  }
+  const deal = repo.updateDeal(existingDeal.id, patch) || existingDeal;
+  const linked =
+    repo.attachCrmDealToProposal(proposal.id, {
+      dealId: deal.id,
+      ...attachmentFieldsForProposal(proposalForLink, companyRes.company, contactRes.contact, visibility),
+    }) || proposal;
+  return {
+    proposal: linked,
+    deal: dealVisible ? deal : redactHiddenDeal(deal),
+    company: companyRes.company,
+    contact: contactRes.contact,
+    created: false,
+    companyCreated: companyRes.created,
+    contactCreated: contactRes.created,
+    warnings: nextWarnings,
+  };
 }
 
 function resolveOwner(
@@ -247,6 +304,7 @@ export function linkProposalToCrmDeal(
   const visibility: CrmRecordVisibility = {
     canSeeCompany: (id) => isVisible(options?.visibility?.canSeeCompany, id),
     canSeeContact: (id) => isVisible(options?.visibility?.canSeeContact, id),
+    canSeeDeal: (id) => isVisible(options?.visibility?.canSeeDeal, id),
   };
   const companyRes = resolveOrCreateCompanyForProposal(repo, proposal, visibility);
   const contactRes = resolveOrCreateContactForProposal(
@@ -266,31 +324,16 @@ export function linkProposalToCrmDeal(
   const existingDeal = findExistingDeal(repo, proposal);
 
   if (existingDeal) {
-    const patch: Partial<Deal> = {
-      proposalId: proposal.id,
-      customProperties: {
-        ...(existingDeal.customProperties || {}),
-        proposalId: proposal.id,
-      },
-    };
-    if (!existingDeal.companyId && companyRes.company) patch.companyId = companyRes.company.id;
-    if (!existingDeal.contactId && contactRes.contact) patch.contactId = contactRes.contact.id;
-    const deal = repo.updateDeal(existingDeal.id, patch) || existingDeal;
-    const linked =
-      repo.attachCrmDealToProposal(proposal.id, {
-        dealId: deal.id,
-        ...attachmentFieldsForProposal(proposalForLink, companyRes.company, contactRes.contact, visibility),
-      }) || proposal;
-    return {
-      proposal: linked,
-      deal,
-      company: companyRes.company,
-      contact: contactRes.contact,
-      created: false,
-      companyCreated: companyRes.created,
-      contactCreated: contactRes.created,
-      warnings,
-    };
+    return bindExistingDealToProposal(
+      repo,
+      proposal,
+      existingDeal,
+      companyRes,
+      contactRes,
+      proposalForLink,
+      visibility,
+      warnings
+    );
   }
 
   const owner = resolveOwner(repo, proposal);
@@ -298,7 +341,7 @@ export function linkProposalToCrmDeal(
   // Confere o funil/etapa em listPipelines. Não chama updateDeal com troca de etapa
   // para não inscrever o follow-up automático: a proposta ainda não foi enviada.
   const placement = resolveDealPlacementForProposal(repo.listPipelines(), proposal.budgetType);
-  const deal = repo.createDeal({
+  const createdDeal = repo.getOrCreateDealForProposal(proposal.id, {
     title: String(proposal.title || proposal.code || 'Proposta comercial').trim(),
     value,
     mrr: Number(proposal.monthlyRecurringTotal || 0) || undefined,
@@ -318,6 +361,21 @@ export function linkProposalToCrmDeal(
       source: 'ERP_PROPOSAL',
     },
   });
+
+  if (!createdDeal.created) {
+    return bindExistingDealToProposal(
+      repo,
+      proposal,
+      createdDeal.deal,
+      companyRes,
+      contactRes,
+      proposalForLink,
+      visibility,
+      warnings
+    );
+  }
+
+  const deal = createdDeal.deal;
 
   if (options?.actorName) {
     try {

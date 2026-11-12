@@ -5,6 +5,7 @@
 import {
   checkPostgresHealth,
   closePostgresPool,
+  ensureCrmDealProposalUniqueIndex,
   ensurePostgresSchema,
   getPostgresPool,
   isPostgresEnabled,
@@ -57,6 +58,8 @@ async function main() {
   console.log(`      SetaDesk: ${setaDeskApplied.length ? setaDeskApplied.join(', ') : 'esquema ja atualizado'}`);
   await ensureErpAuxListsSchema(pool);
   console.log('      Listas auxiliares (centro de custo e plano de contas): tabela e seed prontos');
+  await ensureCrmDealProposalUniqueIndex(pool);
+  console.log('      Índice único de negócio por proposta (ux_crm_deals_proposal_id): pronto');
 
   console.log(
     `[2/3] Sincronizando estado do CRM (${forceReset ? 'redefinindo seed inicial' : 'preservando dados existentes ou aplicando seed inicial'})...`

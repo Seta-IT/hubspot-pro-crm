@@ -885,10 +885,28 @@ export function capEmailHistory<T>(list: T[]): T[] {
   return list.length > EMAIL_HISTORY_MAX ? list.slice(-EMAIL_HISTORY_MAX) : list;
 }
 
+
+/** Id da proposta do ERP ligada ao negócio (campo direto ou customProperties). */
+export function linkedProposalIdFromDeal(
+  deal: Pick<Deal, "customProperties"> & { proposalId?: string | null }
+): string | null {
+  const direct = typeof deal.proposalId === "string" ? deal.proposalId.trim() : "";
+  if (direct) return direct;
+  const raw =
+    deal.customProperties && typeof deal.customProperties.proposalId === "string"
+      ? String(deal.customProperties.proposalId).trim()
+      : "";
+  return raw || null;
+}
+
 export class CrmRepository {
   private state: CrmDatabaseState;
   private persistPath: string | null;
   private lastLoadedMtimeMs = 0;
+  /** Reserva do id do negócio por proposta, para não criar dois deals ao mesmo tempo. */
+  private pendingDealByProposalId = new Map<string, string>();
+  /** Hook síncrono só para testes: corre após a reserva e antes da inserção. */
+  __testAfterReserveDealForProposal?: (proposalId: string) => void;
 
   constructor(options: RepositoryOptions = {}) {
     this.persistPath = options.persistPath ?? null;
@@ -2256,7 +2274,93 @@ export class CrmRepository {
     return this.state.deals.find((d) => d.id === id);
   }
 
+  findDealByProposalId(proposalId: string): Deal | undefined {
+    const pid = String(proposalId || "").trim();
+    if (!pid) return undefined;
+    return this.state.deals.find((d) => linkedProposalIdFromDeal(d) === pid);
+  }
+
+  /**
+   * Cria o negócio da proposta de forma atômica e idempotente.
+   * Se já existir (ou outra chamada simultânea já tiver reservado o id),
+   * devolve o negócio existente sem criar outro.
+   */
+  getOrCreateDealForProposal(
+    proposalId: string,
+    input: Partial<Deal> & { title: string; value: number }
+  ): { deal: Deal; created: boolean } {
+    const pid = String(proposalId || "").trim();
+    if (!pid) return { deal: this.createDeal(input), created: true };
+
+    const existing = this.findDealByProposalId(pid);
+    if (existing) return { deal: existing, created: false };
+
+    const reservedFromPending = this.pendingDealByProposalId.get(pid);
+    if (reservedFromPending) {
+      const already = this.getDealById(reservedFromPending);
+      if (already) return { deal: already, created: false };
+      // Outra chamada já reservou e ainda está inserindo: não cria o segundo negócio.
+      return {
+        deal: {
+          id: reservedFromPending,
+          title: String(input.title || "").trim() || "Negócio",
+          value: Number(input.value) || 0,
+          currency: input.currency || "BRL",
+          pipelineId: input.pipelineId || "",
+          stageId: input.stageId || "",
+          probability: input.probability ?? 0,
+          expectedCloseDate: input.expectedCloseDate ?? null,
+          contactId: input.contactId ?? null,
+          companyId: input.companyId ?? null,
+          proposalId: pid,
+          ownerId: input.ownerId ?? null,
+          ownerName: input.ownerName,
+          status: input.status || "OPEN",
+          stageEnteredAt: input.stageEnteredAt || "",
+          lastActivityAt: input.lastActivityAt ?? null,
+          closedAt: input.closedAt ?? null,
+          lostReason: input.lostReason ?? null,
+          nextBestAction: input.nextBestAction ?? null,
+          customProperties: { ...(input.customProperties || {}), proposalId: pid },
+          createdAt: input.createdAt || "",
+          updatedAt: "",
+        },
+        created: false,
+      };
+    }
+
+    const reservedId =
+      String(input.id || "").trim() || `deal-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    this.pendingDealByProposalId.set(pid, reservedId);
+    try {
+      this.__testAfterReserveDealForProposal?.(pid);
+      const afterHook = this.findDealByProposalId(pid) || this.getDealById(reservedId);
+      if (afterHook) return { deal: afterHook, created: false };
+      const deal = this.createDeal({
+        ...input,
+        id: reservedId,
+        proposalId: pid,
+        customProperties: {
+          ...(input.customProperties || {}),
+          proposalId: pid,
+        },
+      });
+      return { deal, created: true };
+    } finally {
+      this.pendingDealByProposalId.delete(pid);
+    }
+  }
+
   createDeal(input: Partial<Deal> & { title: string; value: number }): Deal {
+    const incomingProposalId = String(
+      input.proposalId ||
+        (typeof input.customProperties?.proposalId === "string" ? input.customProperties.proposalId : "") ||
+        ""
+    ).trim();
+    if (incomingProposalId) {
+      const existing = this.findDealByProposalId(incomingProposalId);
+      if (existing) return existing;
+    }
     assertNewRecordId(this.state.deals, input.id, 'DEAL_ID_CONFLICT', 'um negócio'); // Pacote J (A1)
     const now = new Date().toISOString();
     const defaultPipeline = this.state.pipelines[0];
@@ -2414,6 +2518,17 @@ export class CrmRepository {
       lastActivityAt: now,
       updatedAt: now,
     };
+
+    const nextProposalId = linkedProposalIdFromDeal(updated);
+    if (nextProposalId) {
+      const owner = this.findDealByProposalId(nextProposalId);
+      if (owner && owner.id !== existing.id) {
+        throw new RecordIdConflictError(
+          "PROPOSAL_DEAL_CONFLICT",
+          "Esta proposta já está vinculada a outro negócio."
+        );
+      }
+    }
 
     this.state.deals[idx] = updated;
 

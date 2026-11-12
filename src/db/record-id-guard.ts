@@ -13,7 +13,8 @@ export type RecordConflictCode =
   | 'DEAL_ID_CONFLICT'
   | 'TICKET_ID_CONFLICT'
   | 'CONTRACT_ID_CONFLICT'
-  | 'CONTRACT_NUMBER_CONFLICT';
+  | 'CONTRACT_NUMBER_CONFLICT'
+  | 'PROPOSAL_DEAL_CONFLICT';
 
 export class RecordIdConflictError extends Error {
   readonly status = 409;
