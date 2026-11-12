@@ -2,8 +2,9 @@
 // Busca de chamados: haystack e mascara de CNPJ / numero de conta.
 // Aplica-se aos dados reais carregados pelo bootstrap (empresa.cnpj e
 // assunto/descricao que podem trazer conta bancaria ou CNPJ).
-// A correspondencia continua aceitando o valor completo (digitos ou
-// formatado); o que aparece na interface e o valor mascarado.
+// No servidor, texto livre compara so com o chamado ja mascarado;
+// CNPJ e conta so entram com igualdade completa dos digitos.
+// No cliente, o haystack nao inclui os digitos brutos do CNPJ.
 // ============================================================================
 
 export function onlyDigits(value: string): string {
@@ -67,18 +68,18 @@ export interface SetaDeskSearchableTicket {
 }
 
 /**
- * Haystack da busca: inclui CNPJ e conta em texto integral (para o operador
- * localizar pelo valor que ja conhece) e tambem a forma mascarada.
+ * Haystack da busca no cliente: textos e CNPJ ja mascarados, sem a sequencia
+ * bruta de digitos (evita oraculo por trecho). A busca pelo valor completo
+ * de CNPJ ou conta e feita no servidor (ticketMatchesSearchServer).
  */
 export function buildTicketSearchHaystack(ticket: SetaDeskSearchableTicket): string {
-  const cnpj = ticket.company?.cnpj || '';
+  const cnpj = formatMaskedCnpj(ticket.company?.cnpj || '');
   const parts = [
     ticket.key || '',
     ticket.subject || '',
     ticket.description || '',
     ticket.company?.name || '',
     cnpj,
-    onlyDigits(cnpj),
     ticket.equipmentSerial || '',
     ticket.assignee || '',
     ticket.contact?.firstName || '',
@@ -96,6 +97,94 @@ export function ticketMatchesSearch(ticket: SetaDeskSearchableTicket, query: str
   const qDigits = onlyDigits(q);
   if (qDigits.length >= 4 && hay.includes(qDigits)) return true;
   return false;
+}
+
+function collectSensitiveFinanceText(ticket: SetaDeskSearchableTicket): string {
+  return [
+    ticket.subject || '',
+    ticket.description || '',
+    ticket.company?.cnpj || '',
+    ...(ticket.comments || []).map((c) => c.body || ''),
+  ].join(' ');
+}
+
+/** Identificadores sensíveis brutos (so digitos) presentes no chamado. */
+export function extractSensitiveFinanceIdentifiers(ticket: SetaDeskSearchableTicket): {
+  cnpjs: string[];
+  accounts: string[];
+} {
+  const text = collectSensitiveFinanceText(ticket);
+  const cnpjs = new Set<string>();
+  const accounts = new Set<string>();
+  for (const m of text.matchAll(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/g)) {
+    if (/\*/.test(m[0])) continue;
+    const d = onlyDigits(m[0]);
+    if (d.length === 14) cnpjs.add(d);
+  }
+  for (const m of text.matchAll(
+    /\b(?:conta(?:\s*corrente)?|c\/c|cc|ag(?:encia|ência)?\.?|ag)\s*[:nº°o]*\s*([\d.\-]+)/gi
+  )) {
+    const raw = m[1] || '';
+    if (/\*/.test(raw)) continue;
+    const d = onlyDigits(raw);
+    if (d.length >= 4) accounts.add(d);
+  }
+  return { cnpjs: [...cnpjs], accounts: [...accounts] };
+}
+
+/**
+ * Busca no servidor: texto livre so no chamado ja mascarado.
+ * CNPJ e conta so correspondem com igualdade completa dos digitos.
+ */
+export function ticketMatchesSearchServer(ticket: SetaDeskSearchableTicket, query: string): boolean {
+  const q = normalizeTicketSearchText(query);
+  if (!q) return true;
+  const qDigits = onlyDigits(query);
+  if (qDigits) {
+    const ids = extractSensitiveFinanceIdentifiers(ticket);
+    if (ids.cnpjs.includes(qDigits) || ids.accounts.includes(qDigits)) return true;
+  }
+  const masked = maskTicketForResponse({
+    key: ticket.key,
+    subject: ticket.subject,
+    description: ticket.description,
+    equipmentSerial: ticket.equipmentSerial,
+    assignee: ticket.assignee,
+    company: ticket.company,
+    contact: ticket.contact,
+    comments: ticket.comments,
+  });
+  const hay = buildTicketSearchHaystack(masked);
+  return hay.includes(q);
+}
+
+function maskArtifactsIn(value: string): { hasCnpjMask: boolean; accounts: string[] } {
+  return {
+    hasCnpjMask: /\*{3}\/\*{4}/.test(value),
+    accounts: value.match(/\*{4}-\d/g) || [],
+  };
+}
+
+/** Campos do patch que introduzem mascara de CNPJ ou conta ausente no original. */
+export function introducedMaskedFinanceArtifacts(
+  existing: { subject?: string | null; description?: string | null; resolution?: string | null },
+  patch: { subject?: unknown; description?: unknown; resolution?: unknown }
+): Array<'subject' | 'description' | 'resolution'> {
+  const fields = ['subject', 'description', 'resolution'] as const;
+  const bad: Array<(typeof fields)[number]> = [];
+  for (const field of fields) {
+    if (patch[field] === undefined) continue;
+    if (isMaskedEchoOf(existing[field], patch[field])) continue;
+    const incoming = patch[field] === null ? '' : String(patch[field]);
+    const original = String(existing[field] ?? '');
+    const next = maskArtifactsIn(incoming);
+    const prev = maskArtifactsIn(original);
+    const newCnpjMask = next.hasCnpjMask && !prev.hasCnpjMask;
+    const prevAcc = new Set(prev.accounts);
+    const newAccountMask = next.accounts.some((m) => !prevAcc.has(m));
+    if (newCnpjMask || newAccountMask) bad.push(field);
+  }
+  return bad;
 }
 
 export function displayTicketCompanyCnpj(cnpj: string | null | undefined, emptyLabel = 'CNPJ vinculado'): string {

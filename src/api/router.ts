@@ -51,7 +51,7 @@ import {
   type SetaDeskBaseline,
 } from '../db/setadesk-store';
 import { canManageSetaDeskPipelines, parseSetaDeskPipelineWrite } from './setadesk-pipeline-guards';
-import { maskTicketForResponse, ticketMatchesSearch } from '../app/lib/setadesk-ticket-search';
+import { introducedMaskedFinanceArtifacts, maskTicketForResponse, omitMaskedTicketOverwrite, ticketMatchesSearchServer } from '../app/lib/setadesk-ticket-search';
 import {
   countProposals,
   diffHydratedProposals,
@@ -6037,7 +6037,7 @@ export class CrmApiRouter {
               contract: t.contractId ? contracts.get(t.contractId) || null : null,
               serviceOrder: t.serviceOrderId ? serviceOrders.get(t.serviceOrderId) || null : null,
             }))
-            .filter((t) => !searchQ || ticketMatchesSearch(t, searchQ))
+            .filter((t) => !searchQ || ticketMatchesSearchServer(t, searchQ))
             .map((t) => maskTicketForResponse(t));
 
           return {
@@ -6248,7 +6248,23 @@ export class CrmApiRouter {
               },
             };
           }
-          const updated = this.repo.updateServiceTicket(idOrKey, parsedPatch.data as Partial<ServiceTicket>);
+          const currentTicket = this.repo.getServiceTicketById(idOrKey);
+          if (!currentTicket) {
+            return { status: 404, body: { error: 'Chamado não encontrado.' } };
+          }
+          const cleanedPatch = omitMaskedTicketOverwrite(currentTicket, parsedPatch.data);
+          const maskFields = introducedMaskedFinanceArtifacts(currentTicket, cleanedPatch);
+          if (maskFields.length) {
+            return {
+              status: 400,
+              body: {
+                error: 'O texto enviado contém máscara de CNPJ ou conta (***/**** ou ****-n) que não existia no original. Edite o valor real ou deixe o campo inalterado.',
+                code: 'TICKET_PATCH_MASKED_VALUE',
+                fields: maskFields,
+              },
+            };
+          }
+          const updated = this.repo.updateServiceTicket(idOrKey, cleanedPatch as Partial<ServiceTicket>);
           if (!updated) {
             return { status: 404, body: { error: 'Chamado não encontrado.' } };
           }

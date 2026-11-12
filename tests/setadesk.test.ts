@@ -60,7 +60,9 @@ import {
   looksLikeCnpjOrAccountQuery,
   maskSensitiveFinanceText,
   maskTicketForResponse,
+  buildTicketSearchHaystack,
   ticketMatchesSearch,
+  ticketMatchesSearchServer,
 } from '../src/app/lib/setadesk-ticket-search';
 import { filterGlobalSearchEntries } from '../src/app/components/GlobalHeaderSearch';
 
@@ -1258,7 +1260,7 @@ describe('SetaDesk - mascara de CNPJ e conta na busca (dados de bootstrap)', () 
     contact: { firstName: 'Ana', lastName: 'Silva' },
   };
 
-  it('mascara CNPJ e numero de conta e ainda localiza pelo valor real', () => {
+  it('mascara CNPJ e numero de conta; no cliente a busca usa o texto mascarado', () => {
     assert.equal(formatMaskedCnpj('14.806.235/0001-32'), '14.806.***/****-32');
     assert.equal(formatMaskedCnpj('14806235000132'), '14.806.***/****-32');
     assert.match(formatMaskedAccountNumber('71924-5'), /\*\-5$/);
@@ -1270,14 +1272,16 @@ describe('SetaDesk - mascara de CNPJ e conta na busca (dados de bootstrap)', () 
     assert.match(subject, /14\.806\.\*\*\*\/\*\*\*\*-32/);
     const desc = maskSensitiveFinanceText(bootstrapTicket.description);
     assert.doesNotMatch(desc, /12345-6/);
-    assert.ok(ticketMatchesSearch(bootstrapTicket, '14.806.235/0001-32'));
-    assert.ok(ticketMatchesSearch(bootstrapTicket, '14806235000132'));
-    assert.ok(ticketMatchesSearch(bootstrapTicket, 'FIN-120'));
-    assert.ok(ticketMatchesSearch(bootstrapTicket, 'Cliente Bootstrap'));
-    assert.equal(ticketMatchesSearch(bootstrapTicket, 'inexistente-xyz'), false);
+    const masked = maskTicketForResponse(bootstrapTicket);
+    assert.ok(ticketMatchesSearch(masked, 'FIN-120'));
+    assert.ok(ticketMatchesSearch(masked, 'Cliente Bootstrap'));
+    assert.equal(ticketMatchesSearch(masked, '14806235000132'), false);
+    assert.equal(ticketMatchesSearch(masked, '1480'), false);
+    assert.equal(ticketMatchesSearch(masked, '71924'), false);
+    assert.equal(ticketMatchesSearch(masked, 'inexistente-xyz'), false);
   });
 
-  it('a busca global de chamados mascara o assunto e ainda encontra pelo CNPJ', () => {
+  it('a busca global de chamados mascara o assunto e nao expoe digitos brutos no haystack', () => {
     const entries = [
       {
         id: 'TICKETS:t-fin-120',
@@ -1286,30 +1290,33 @@ describe('SetaDesk - mascara de CNPJ e conta na busca (dados de bootstrap)', () 
         system: 'CHAMADOS' as const,
         title: `${bootstrapTicket.key} - ${displayTicketSubject(bootstrapTicket.subject)}`,
         subtitle: `Chamado • CHAMADOS • ${bootstrapTicket.company.name} • Fila: ${bootstrapTicket.assignee}`,
-        searchHaystack: [
-          bootstrapTicket.key,
-          bootstrapTicket.subject,
-          bootstrapTicket.description,
-          bootstrapTicket.company.name,
-          bootstrapTicket.company.cnpj,
-        ].join(' '),
+        searchHaystack: buildTicketSearchHaystack(maskTicketForResponse(bootstrapTicket)),
       },
     ];
     assert.doesNotMatch(entries[0].title, /14\.806\.235\/0001-32/);
-    const byCnpj = filterGlobalSearchEntries({
+    assert.doesNotMatch(entries[0].searchHaystack || '', /14806235000132/);
+    assert.doesNotMatch(entries[0].searchHaystack || '', /71924-5/);
+    const byKey = filterGlobalSearchEntries({
       allEntries: entries,
-      query: '14.806.235/0001-32',
+      query: 'FIN-120',
       systemFilter: 'CHAMADOS',
       selectedCategories: [],
     });
-    assert.equal(byCnpj.length, 1);
-    const byAccount = filterGlobalSearchEntries({
+    assert.equal(byKey.length, 1);
+    const byName = filterGlobalSearchEntries({
       allEntries: entries,
-      query: '71924-5',
+      query: 'Cliente Bootstrap',
       systemFilter: 'CHAMADOS',
       selectedCategories: [],
     });
-    assert.equal(byAccount.length, 1);
+    assert.equal(byName.length, 1);
+    const byDigits = filterGlobalSearchEntries({
+      allEntries: entries,
+      query: '14806235000132',
+      systemFilter: 'CHAMADOS',
+      selectedCategories: [],
+    });
+    assert.equal(byDigits.length, 0);
   });
 });
 
@@ -1463,6 +1470,99 @@ describe('SetaDesk - mascara no servidor e busca por CNPJ/conta', () => {
     assert.equal(stored?.description, RAW_DESC);
     const response = (patched.body as { data: { subject: string } }).data;
     assert.doesNotMatch(response.subject, /71924-5/);
+  });
+
+  it('GET /api/tickets?search= nao e oraculo: trecho devolve 0 e valor completo devolve 1', async () => {
+    const repo = createInMemoryRepository();
+    const company = repo.createCompany({ name: 'Cliente Oraculo CISO', cnpj: '98.765.432/0001-10' });
+    const ticket = repo.createServiceTicket({
+      subject: 'Repasse CNPJ 98.765.432/0001-10 conta 88877-6',
+      description: 'Pagamento ao favorecido',
+      companyId: company.id,
+      category: 'BILLING',
+    });
+    const raw = {
+      ...repo.getServiceTicketById(ticket.id)!,
+      company: { name: company.name, cnpj: company.cnpj },
+    };
+    assert.equal(ticketMatchesSearchServer(raw, '98765432'), false);
+    assert.equal(ticketMatchesSearchServer(raw, '98765432000110'), true);
+    assert.equal(ticketMatchesSearchServer(raw, '88877'), false);
+    assert.equal(ticketMatchesSearchServer(raw, '88877-6'), true);
+
+    const router = new CrmApiRouter(repo);
+    const partialCnpj = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'GET',
+      path: '/api/tickets',
+      query: { search: '98765432' },
+      body: undefined,
+    });
+    assert.equal(partialCnpj.status, 200);
+    assert.equal((partialCnpj.body as { data: unknown[] }).data.length, 0);
+
+    const fullCnpj = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'GET',
+      path: '/api/tickets',
+      query: { search: '98765432000110' },
+      body: undefined,
+    });
+    assert.equal(fullCnpj.status, 200);
+    const fullCnpjRows = (fullCnpj.body as { data: Array<{ id: string; subject: string; company?: { cnpj?: string } }> }).data;
+    assert.equal(fullCnpjRows.length, 1);
+    assert.equal(fullCnpjRows[0].id, ticket.id);
+    assert.doesNotMatch(fullCnpjRows[0].subject, /98\.765\.432\/0001-10/);
+    assert.doesNotMatch(fullCnpjRows[0].company?.cnpj || '', /765\.432/);
+
+    const partialAcc = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'GET',
+      path: '/api/tickets',
+      query: { search: '88877' },
+      body: undefined,
+    });
+    assert.equal(partialAcc.status, 200);
+    assert.equal((partialAcc.body as { data: unknown[] }).data.length, 0);
+
+    const fullAcc = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'GET',
+      path: '/api/tickets',
+      query: { search: '88877-6' },
+      body: undefined,
+    });
+    assert.equal(fullAcc.status, 200);
+    const fullAccRows = (fullAcc.body as { data: Array<{ id: string; subject: string }> }).data;
+    assert.equal(fullAccRows.length, 1);
+    assert.equal(fullAccRows[0].id, ticket.id);
+    assert.doesNotMatch(fullAccRows[0].subject, /88877-6/);
+  });
+
+  it('PATCH devolve 400 se subject, description ou resolution trouxerem mascara que nao existia no original', async () => {
+    const repo = createInMemoryRepository();
+    const { ticket } = seedSensitiveTicket(repo);
+    const router = new CrmApiRouter(repo);
+    const bad = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'PATCH',
+      path: `/api/tickets/${ticket.id}`,
+      query: {},
+      body: { subject: 'Texto editado com ***/**** no meio' },
+    });
+    assert.equal(bad.status, 400);
+    assert.equal((bad.body as { code?: string }).code, 'TICKET_PATCH_MASKED_VALUE');
+    assert.equal(repo.getServiceTicketById(ticket.id)?.subject, RAW_SUBJECT);
+
+    const badAcc = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'PATCH',
+      path: `/api/tickets/${ticket.id}`,
+      query: {},
+      body: { description: 'Valor alterado ****-5' },
+    });
+    assert.equal(badAcc.status, 400);
+    assert.equal(repo.getServiceTicketById(ticket.id)?.description, RAW_DESC);
   });
 
   it('a UI mascara descricao e comentario e usa a busca do servidor para CNPJ ou conta', () => {
