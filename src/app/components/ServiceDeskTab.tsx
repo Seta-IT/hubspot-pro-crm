@@ -321,6 +321,7 @@ export default function ServiceDeskTab({
   const ticketDialogRef = useRef<HTMLDivElement>(null);
   const emailModalOpenRef = useRef(false);
   const closeTicketDialog = () => setSelectedTicketId(null);
+  const [ticketDetail, setTicketDetail] = useState<EnrichedServiceTicket | null>(null);
 
   useEffect(() => {
     if (initialSelectedTicketId) {
@@ -476,8 +477,39 @@ export default function ServiceDeskTab({
     return true;
   });
 
-  const activeTicket =
+  const listedTicket =
     tickets.find((t) => t.id === selectedTicketId || t.key === selectedTicketId) || null;
+  const activeTicket =
+    ticketDetail &&
+    selectedTicketId &&
+    (ticketDetail.id === selectedTicketId || ticketDetail.key === selectedTicketId)
+      ? {
+          ...(listedTicket || ticketDetail),
+          ...ticketDetail,
+          comments: ticketDetail.comments || listedTicket?.comments || [],
+        }
+      : listedTicket;
+
+  useEffect(() => {
+    if (!selectedTicketId) {
+      setTicketDetail(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/tickets/${encodeURIComponent(selectedTicketId)}`);
+        if (!res.ok) return;
+        const json = (await res.json()) as { data?: EnrichedServiceTicket };
+        if (!cancelled && json.data) setTicketDetail(json.data);
+      } catch {
+        // mantem os dados do cartao da lista ate o detalhe ficar disponivel
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTicketId, tickets]);
 
   useEffect(() => {
     if (activeTicket && editingSerialForId !== activeTicket.id) {
@@ -1187,7 +1219,7 @@ export default function ServiceDeskTab({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar JSM-101, S/N, empresa..."
+              placeholder="Buscar TEC-123, FIN-45, S/N, empresa..."
               className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:border-accent"
             />
           </div>
@@ -1728,7 +1760,7 @@ export default function ServiceDeskTab({
             onClick={(event) => event.stopPropagation()}
           >
             {/* Ticket Header */}
-            <div className="p-5 bg-slate-900 text-white space-y-3 shrink-0">
+            <div className="p-5 bg-slate-50 border-b border-slate-200 text-slate-800 space-y-3 shrink-0">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="px-2.5 py-1 rounded-lg bg-accent text-white font-mono text-xs font-semibold">
@@ -1763,7 +1795,7 @@ export default function ServiceDeskTab({
                     target="_blank"
                     rel="noopener noreferrer"
                     title="Abrir link público do protocolo no Portal do Cliente"
-                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold text-emerald-300 inline-flex items-center gap-1"
+                    className="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:bg-emerald-50 text-[10px] font-semibold text-emerald-800 inline-flex items-center gap-1"
                   >
                     <ExternalLink className="w-3 h-3" /> Portal
                   </a>
@@ -1772,7 +1804,7 @@ export default function ServiceDeskTab({
                       type="button"
                       onClick={() => onDeleteTicket(activeTicket.id)}
                       title="Excluir chamado"
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 cursor-pointer"
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-700 hover:bg-rose-50 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -1781,7 +1813,7 @@ export default function ServiceDeskTab({
                     type="button"
                     onClick={closeTicketDialog}
                     aria-label="Fechar"
-                    className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                    className="p-1 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200 cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -1790,7 +1822,7 @@ export default function ServiceDeskTab({
 
               <h3 id="setadesk-ticket-dialog-title" className="text-base font-semibold leading-snug">{activeTicket.subject}</h3>
 
-              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300 pt-1">
+              <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-700 pt-1">
                 {activeTicket.company && (
                   <span className="inline-flex items-center gap-1">
                     <Building2 className="w-3.5 h-3.5 text-[#ff987f]" />
@@ -1799,7 +1831,7 @@ export default function ServiceDeskTab({
                 )}
                 {activeTicket.contact && (
                   <span className="inline-flex items-center gap-1">
-                    <User className="w-3.5 h-3.5 text-emerald-400" />
+                    <User className="w-3.5 h-3.5 text-emerald-700" />
                     {activeTicket.contact.firstName} {activeTicket.contact.lastName} (
                     {activeTicket.contact.email})
                   </span>
@@ -1807,9 +1839,9 @@ export default function ServiceDeskTab({
               </div>
 
               {/* Quick Stage Transition Buttons */}
-              <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[11px] text-slate-400">
-                  Categoria: <strong className="text-white">{getCategoryLabel(activeTicket.category)}</strong>
+              <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-slate-600">
+                  Categoria: <strong className="text-slate-800">{getCategoryLabel(activeTicket.category)}</strong>
                 </span>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {(['OPEN', 'IN_PROGRESS', 'WAITING_CUSTOMER', 'RESOLVED'] as TicketStatus[]).map(
@@ -1820,8 +1852,8 @@ export default function ServiceDeskTab({
                         onClick={() => onUpdateTicket(activeTicket.id, { status: st })}
                         className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition cursor-pointer ${
                           activeTicket.status === st
-                            ? 'bg-emerald-500 text-white'
-                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                            ? 'bg-emerald-700 text-white'
+                            : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
                         }`}
                       >
                         {st === 'OPEN'

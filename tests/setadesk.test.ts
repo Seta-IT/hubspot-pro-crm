@@ -8,7 +8,14 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryRepository, SERVICE_TICKET_EDITABLE_FIELDS } from '../src/db/repository';
 import { TicketTeamPatchSchema } from '../src/api/ticket-guards';
-import { CrmApiRouter, shouldLoadSetaDeskTicketsForRoute, TRUSTED_INTERNAL_CONTEXT } from '../src/api/router';
+import { signStiHubSessionToken } from '../src/app/lib/auth';
+import {
+  CrmApiRouter,
+  isSetaDeskBootstrapPath,
+  resolveBootstrapServiceTickets,
+  shouldLoadSetaDeskTicketsForRoute,
+  TRUSTED_INTERNAL_CONTEXT,
+} from '../src/api/router';
 import {
   portalActionErrorMessage,
   PORTAL_UI_RATE_LIMIT_MESSAGE,
@@ -323,6 +330,98 @@ describe('SetaDesk - demos do legado e carga so em rota autenticada de chamados'
     assert.equal(shouldLoadSetaDeskTicketsForRoute('GET', '/api/tickets/pipelines'), true);
     assert.equal(shouldLoadSetaDeskTicketsForRoute('GET', '/api/companies'), false);
     assert.equal(shouldLoadSetaDeskTicketsForRoute('POST', '/api/forms/submit'), false);
+    // /api/bootstrap e /api/state nao usam esta funcao: a carga e feita a parte, so com permissao de Chamados.
+    assert.equal(shouldLoadSetaDeskTicketsForRoute('GET', '/api/bootstrap'), false);
+    assert.equal(shouldLoadSetaDeskTicketsForRoute('POST', '/api/bootstrap'), false);
+    assert.equal(isSetaDeskBootstrapPath('/api/bootstrap'), true);
+    assert.equal(isSetaDeskBootstrapPath('/api/state'), true);
+    assert.equal(isSetaDeskBootstrapPath('/api/tickets'), false);
+  });
+
+  it('resolveBootstrapServiceTickets: sem permissao ou Postgres indisponivel nao devolve demos; comentarios saem da lista', () => {
+    const demos = [
+      { id: 'tkt-jsm-101', key: 'JSM-101', comments: [{ id: 'c1', body: 'x' }] },
+      { id: 'tkt-tec-1', key: 'TEC-1', comments: [{ id: 'c2', body: 'y' }] },
+      { id: 'tkt-fin-1', key: 'FIN-45', comments: [] },
+    ] as any;
+    assert.deepEqual(resolveBootstrapServiceTickets(demos, { hasChamadosAccess: false, postgresEnabled: true, setaDeskLoaded: true }), []);
+    assert.deepEqual(resolveBootstrapServiceTickets(demos, { hasChamadosAccess: true, postgresEnabled: true, setaDeskLoaded: false }), []);
+    const loaded = resolveBootstrapServiceTickets(demos, { hasChamadosAccess: true, postgresEnabled: true, setaDeskLoaded: true });
+    assert.deepEqual(loaded.map((t) => t.key), ['TEC-1', 'FIN-45']);
+    assert.ok(loaded.every((t) => Array.isArray(t.comments) && t.comments.length === 0));
+    const memory = resolveBootstrapServiceTickets(demos, { hasChamadosAccess: true, postgresEnabled: false, setaDeskLoaded: false });
+    assert.deepEqual(memory.map((t) => t.key), ['JSM-101', 'TEC-1', 'FIN-45']);
+    assert.ok(memory.every((t) => t.comments.length === 0));
+  });
+
+  it('/api/bootstrap HTTP sem sessao nao devolve chamados; sem modulo Chamados a lista vem vazia', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const seedKeys = repo.listServiceTickets().map((t) => t.key);
+    assert.ok(seedKeys.includes('JSM-101'));
+
+    const anon = await router.dispatch({
+      method: 'GET',
+      path: '/api/bootstrap',
+      query: { _fromHttpBridge: '1' },
+    });
+    assert.equal(anon.status, 401);
+    const anonBody = JSON.stringify(anon.body || {});
+    assert.ok(!anonBody.includes('JSM-101'));
+    assert.equal(((anon.body as { data?: { tickets?: unknown[] } }).data || {}).tickets, undefined);
+
+    const tok = (uid: string, email: string, roleId: string, modules: { crm: boolean; erp: boolean; chamados: boolean }, enabled: string[]) =>
+      signStiHubSessionToken({
+        uid,
+        email,
+        name: 'Teste',
+        roleId,
+        scope: 'PROPRIOS',
+        enabledModules: enabled,
+        moduleAccess: modules,
+        mfaVerified: true,
+        mfaMethod: 'TOTP_AUTHENTICATOR',
+        iat: Date.now() - 1000,
+        exp: Date.now() + 3_600_000,
+      } as Parameters<typeof signStiHubSessionToken>[0]);
+
+    const noChamados = await router.dispatch({
+      method: 'GET',
+      path: '/api/bootstrap',
+      query: {
+        _fromHttpBridge: '1',
+        _sessionToken: tok(
+          'usr-seta-08',
+          'marketing@setatelecom.com.br',
+          'ANALISTA_MARKETING',
+          { crm: true, erp: false, chamados: false },
+          ['CRM']
+        ),
+      },
+    });
+    assert.equal(noChamados.status, 200);
+    const noTickets = ((noChamados.body as { data: { tickets: { key: string }[] } }).data).tickets;
+    assert.deepEqual(noTickets, []);
+    assert.ok(!JSON.stringify(noChamados.body).includes('JSM-101'));
+
+    const withChamados = await router.dispatch({
+      method: 'GET',
+      path: '/api/bootstrap',
+      query: {
+        _fromHttpBridge: '1',
+        _sessionToken: tok(
+          'usr-seta-01',
+          'marcelo.mira@setatelecom.com.br',
+          'SUPER_ADMIN',
+          { crm: true, erp: true, chamados: true },
+          ['CRM', 'ERP', 'CHAMADOS']
+        ),
+      },
+    });
+    assert.equal(withChamados.status, 200);
+    const tickets = ((withChamados.body as { data: { tickets: { key: string; comments: unknown[] }[] } }).data).tickets;
+    assert.ok(tickets.some((t) => t.key === 'JSM-101')); // sem Postgres, testes em memoria ainda veem o seed
+    assert.ok(tickets.every((t) => Array.isArray(t.comments) && t.comments.length === 0));
   });
 });
 

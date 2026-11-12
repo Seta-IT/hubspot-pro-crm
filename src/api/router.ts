@@ -40,6 +40,7 @@ import {
 } from '../db/postgres';
 import {
   createSetaDeskPipeline,
+  isLegacyDemoServiceTicket,
   isSetaDeskPostgresEnabled,
   listSetaDeskPipelines,
   loadSetaDeskTickets,
@@ -533,6 +534,37 @@ export function shouldLoadSetaDeskTicketsForRoute(method: string, path: string):
   return clean === '/api/tickets' || clean.startsWith('/api/tickets/');
 }
 
+/** Carga inicial do quadro de Chamados (nao dispara o load em rota publica). */
+export function isSetaDeskBootstrapPath(path: string): boolean {
+  const clean = (path || '/').replace(/\/+$/, '') || '/';
+  return clean === '/api/bootstrap' || clean === '/api/state';
+}
+
+export type BootstrapTicketAccess = {
+  hasChamadosAccess: boolean;
+  postgresEnabled: boolean;
+  setaDeskLoaded: boolean;
+};
+
+/**
+ * Decide quais chamados entram no /api/bootstrap e /api/state.
+ * Sem permissao de Chamados: lista vazia (nenhum demo).
+ * Com Postgres configurado: so tickets reais do SetaDesk; se a carga falhou, lista vazia
+ * (nunca o seed JSM-101..105). Sem Postgres (testes em memoria): estado local, inclusive demos.
+ * O historico (comentarios) nao vai no bootstrap; o detalhe busca em GET /api/tickets/:id.
+ */
+export function resolveBootstrapServiceTickets(
+  tickets: ServiceTicket[],
+  access: BootstrapTicketAccess
+): ServiceTicket[] {
+  if (!access.hasChamadosAccess) return [];
+  if (access.postgresEnabled && !access.setaDeskLoaded) return [];
+  const list = access.postgresEnabled
+    ? tickets.filter((t) => !isLegacyDemoServiceTicket(t))
+    : tickets;
+  return list.map((t) => ({ ...t, comments: [] }));
+}
+
 export interface ApiResponse<T = unknown> {
   status: number;
   body: T;
@@ -889,10 +921,23 @@ export class CrmApiRouter {
     this.companyEmitterHydrated = true;
   }
 
+  private hasChamadosTicketAccess(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal?: boolean; serviceAccount?: boolean }
+  ): boolean {
+    if (ctx.trustedInternal) return true;
+    if (ctx.serviceAccount) return false;
+    const token = query._sessionToken;
+    if (!token) return false;
+    const sess = this.repo.resolveSessionFromToken(token);
+    return Boolean(sess.authenticated && sess.mfaVerified && sess.moduleAccess?.chamados);
+  }
+
   buildBootstrapPayload(
     customAiQuestion?: string,
     gcPrivileged = false,
-    rbacView: ReturnType<CrmApiRouter['bootstrapRbacView']> = { full: false, userId: '', email: '' }
+    rbacView: ReturnType<CrmApiRouter['bootstrapRbacView']> = { full: false, userId: '', email: '' },
+    ticketAccess: BootstrapTicketAccess = { hasChamadosAccess: false, postgresEnabled: false, setaDeskLoaded: false }
   ) {
     const rawContacts = this.repo.listContacts();
     const rawCompanies = this.repo.listCompanies();
@@ -1022,7 +1067,7 @@ export class CrmApiRouter {
         totalViews > 0 ? Number(((totalSubmissions / totalViews) * 100).toFixed(2)) : 0,
     };
 
-    const rawAllTickets = this.repo.listServiceTickets();
+    const rawAllTickets = resolveBootstrapServiceTickets(this.repo.listServiceTickets(), ticketAccess);
     const { tickets: evaluatedTickets, kpis: ticketKpis } = computeRealtimeTicketsAndKpis(rawAllTickets);
     const erpOverviewForTickets = this.repo.getErpOverview();
     const contractsMap = new Map(
@@ -1039,6 +1084,14 @@ export class CrmApiRouter {
       contract: t.contractId ? contractsMap.get(t.contractId) || null : null,
       serviceOrder: t.serviceOrderId ? serviceOrdersMap.get(t.serviceOrderId) || null : null,
     }));
+    if (
+      rawAllTickets.length === 0 &&
+      (!ticketAccess.hasChamadosAccess || (ticketAccess.postgresEnabled && !ticketAccess.setaDeskLoaded))
+    ) {
+      ticketKpis.avgFirstResponseMinutes = 0;
+      ticketKpis.avgCsat = 0;
+      if ('avgResolutionMinutes' in ticketKpis) ticketKpis.avgResolutionMinutes = 0;
+    }
 
     const rawTasks = this.repo.listTasks();
     const enrichedTasks = rawTasks.map((tk) => ({
@@ -1228,18 +1281,27 @@ export class CrmApiRouter {
     await this.ensureCompanyEmitterHydrated();
 
     // SetaDesk: chamados vem das tabelas setadesk_* (fonte de verdade) quando ha Postgres.
-    // So em rotas autenticadas de chamados; rota publica nunca dispara o load.
+    // Rotas /api/tickets* e, com permissao de Chamados, /api/bootstrap e /api/state.
+    // Rota publica nunca dispara o load. O baseline (e o sync posterior) so vale em /api/tickets*.
     let setaDeskBaseline: SetaDeskBaseline | null = null;
+    let setaDeskLoaded = false;
+    const ticketRoute = shouldLoadSetaDeskTicketsForRoute(method, cleanPath);
+    const bootstrapPath = isSetaDeskBootstrapPath(cleanPath);
+    const chamadosAccess = this.hasChamadosTicketAccess(query, { trustedInternal });
     if (
       this.isSingletonRepo &&
       isSetaDeskPostgresEnabled() &&
-      shouldLoadSetaDeskTicketsForRoute(method, cleanPath)
+      (ticketRoute || (bootstrapPath && chamadosAccess))
     ) {
       try {
-        const loaded = await loadSetaDeskTickets(this.repo.getState().serviceTickets || []);
+        const loaded = await loadSetaDeskTickets(
+          ticketRoute ? this.repo.getState().serviceTickets || [] : [],
+          bootstrapPath && !ticketRoute ? { includeComments: false, reconcileLegacy: false } : undefined
+        );
         if (loaded) {
           this.repo.replaceServiceTickets(loaded.tickets);
-          setaDeskBaseline = loaded.baseline;
+          setaDeskLoaded = true;
+          if (ticketRoute) setaDeskBaseline = loaded.baseline;
         }
         const needed = setaDeskBaseline ? ticketKeysNeededForRoute(method, cleanPath, body) : 0;
         const reservePipelineId =
@@ -1249,8 +1311,14 @@ export class CrmApiRouter {
         this.repo.reserveTicketKeys(needed > 0 ? await reserveSetaDeskTicketKeys(needed, reservePipelineId) : []);
       } catch (err) {
         setaDeskBaseline = null;
+        setaDeskLoaded = false;
         this.repo.reserveTicketKeys([]);
-        console.error('[SetaDesk] Postgres indisponivel; usando estado local:', (err as Error)?.message || err);
+        console.error(
+          bootstrapPath
+            ? '[SetaDesk] Postgres indisponivel; bootstrap nao devolve chamados de demonstracao:'
+            : '[SetaDesk] Postgres indisponivel; usando estado local:',
+          (err as Error)?.message || err
+        );
       }
     }
 
@@ -1275,7 +1343,7 @@ export class CrmApiRouter {
       if (rec.reconciled) journalReconciled = true;
     }
 
-    const rawResponse = await this.handleRoute(method, cleanPath, query, body, { trustedInternal, mailerRawBody, certRawBody });
+    const rawResponse = await this.handleRoute(method, cleanPath, query, body, { trustedInternal, mailerRawBody, certRawBody, setaDeskLoaded });
     // Contencao 29/10/2026: nenhuma resposta HTTP expoe totpSecret, passwordHash, codigos OTP etc.
     const response = isHttpRequest
       ? {
@@ -3810,7 +3878,7 @@ export class CrmApiRouter {
     cleanPath: string,
     query: Record<string, string | undefined>,
     body: Record<string, unknown>,
-    ctx: { trustedInternal: boolean; serviceAccount?: boolean; mailerRawBody?: Record<string, unknown>; certRawBody?: Record<string, unknown> } = { trustedInternal: false }
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean; mailerRawBody?: Record<string, unknown>; certRawBody?: Record<string, unknown>; setaDeskLoaded?: boolean } = { trustedInternal: false }
   ): Promise<ApiResponse> {
     try {
       // Conta de servico nao e usuario humano: nao pode ser criada/editada/convidada pelas rotas de usuarios.
@@ -4214,7 +4282,7 @@ export class CrmApiRouter {
         return {
           status: 200,
           body: {
-            data: this.scopeBootstrapProposals(this.buildBootstrapPayload(question, this.gestaoClickPrivilege(query, ctx).allowed, this.bootstrapRbacView(query, ctx)), query, ctx),
+            data: this.scopeBootstrapProposals(this.buildBootstrapPayload(question, this.gestaoClickPrivilege(query, ctx).allowed, this.bootstrapRbacView(query, ctx), { hasChamadosAccess: this.hasChamadosTicketAccess(query, ctx), postgresEnabled: isSetaDeskPostgresEnabled(), setaDeskLoaded: Boolean(ctx.setaDeskLoaded) }), query, ctx),
             reconciliation,
           },
         };
@@ -4226,7 +4294,7 @@ export class CrmApiRouter {
         return {
           status: 200,
           body: {
-            data: this.scopeBootstrapProposals(this.buildBootstrapPayload(undefined, this.gestaoClickPrivilege(query, ctx).allowed, this.bootstrapRbacView(query, ctx)), query, ctx),
+            data: this.scopeBootstrapProposals(this.buildBootstrapPayload(undefined, this.gestaoClickPrivilege(query, ctx).allowed, this.bootstrapRbacView(query, ctx), { hasChamadosAccess: this.hasChamadosTicketAccess(query, ctx), postgresEnabled: isSetaDeskPostgresEnabled(), setaDeskLoaded: Boolean(ctx.setaDeskLoaded) }), query, ctx),
             reconciliation,
           },
         };

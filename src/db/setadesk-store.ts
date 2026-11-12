@@ -8,8 +8,8 @@
 // Modelo de uso por requisicao (router.handle):
 //   1. loadSetaDeskTickets(): le os chamados das tabelas setadesk_* (fonte de
 //      verdade) e devolve uma "linha de base" (fingerprint por chamado).
-//      So roda em rotas autenticadas de chamados (/api/tickets*), nunca em rota
-//      publica (isPublicStiHubPath).
+//      Roda em rotas autenticadas de chamados (/api/tickets*) e, com permissao de
+//      Chamados, na carga do /api/bootstrap e /api/state. Nunca em rota publica.
 //   2. reserveSetaDeskTicketKeys(n): reserva chaves SD-<n> na sequencia propria
 //      antes de rotas que criam chamados;
 //   3. syncSetaDeskTickets(): grava apenas chamados novos/alterados (upsert por
@@ -47,6 +47,19 @@ import {
 } from './setadesk-jira-map';
 import type { ServiceTicket, TicketComment } from './types';
 
+import {
+  isLegacyDemoServiceTicket,
+  SETADESK_LEGACY_DEMO_TICKET_IDS,
+  SETADESK_LEGACY_DEMO_TICKET_KEYS,
+} from './setadesk-demo';
+
+export {
+  isLegacyDemoServiceTicket,
+  SETADESK_LEGACY_DEMO_TICKET_IDS,
+  SETADESK_LEGACY_DEMO_TICKET_KEYS,
+};
+
+
 let schemaReady: Promise<string[]> | null = null;
 
 export function isSetaDeskPostgresEnabled(): boolean {
@@ -73,32 +86,6 @@ export function resetSetaDeskSchemaCache(): void {
 
 export function formatReservedTicketKey(prefix: string, n: number | string): string {
   return formatSetaDeskTicketKey(prefix, n);
-}
-
-/** Ids dos 5 chamados de demonstracao do seed (crm_kv_store). Nunca entram em setadesk_tickets. */
-export const SETADESK_LEGACY_DEMO_TICKET_IDS = [
-  'tkt-jsm-101',
-  'tkt-jsm-102',
-  'tkt-jsm-103',
-  'tkt-jsm-104',
-  'tkt-jsm-105',
-] as const;
-
-/** Chaves dos 5 chamados de demonstracao do seed. */
-export const SETADESK_LEGACY_DEMO_TICKET_KEYS = [
-  'JSM-101',
-  'JSM-102',
-  'JSM-103',
-  'JSM-104',
-  'JSM-105',
-] as const;
-
-/** Deterministico: so os 5 demos JSM-101..105 (id tkt-jsm-101..105 ou chave JSM-101..105). */
-export function isLegacyDemoServiceTicket(t: { id?: string | null; key?: string | null }): boolean {
-  const id = String(t.id || '').trim().toLowerCase();
-  if ((SETADESK_LEGACY_DEMO_TICKET_IDS as readonly string[]).includes(id)) return true;
-  const key = String(t.key || '').trim().toUpperCase();
-  return (SETADESK_LEGACY_DEMO_TICKET_KEYS as readonly string[]).includes(key);
 }
 
 export function fingerprintTicket(t: ServiceTicket): string {
@@ -460,10 +447,20 @@ export async function alignSequenceToAtLeast(client: PoolClient, minNextValue: n
   );
 }
 
-/** Le todos os chamados (com comentarios) das tabelas SetaDesk. */
+export type LoadSetaDeskTicketsOptions = {
+  /** Padrao true. No bootstrap da fila, false evita trazer o historico de cada chamado. */
+  includeComments?: boolean;
+  /** Padrao true. No bootstrap da fila, false evita gravar legado/seed nesta leitura. */
+  reconcileLegacy?: boolean;
+};
+
+/** Le os chamados das tabelas SetaDesk. */
 export async function loadSetaDeskTickets(
-  legacyTickets: ServiceTicket[] = []
+  legacyTickets: ServiceTicket[] = [],
+  options?: LoadSetaDeskTicketsOptions
 ): Promise<{ tickets: ServiceTicket[]; baseline: SetaDeskBaseline } | null> {
+  const includeComments = options?.includeComments !== false;
+  const reconcileLegacy = options?.reconcileLegacy !== false;
   const pool = getPostgresPool();
   if (!pool) return null;
   await ensureSetaDeskSchema(pool);
@@ -472,13 +469,15 @@ export async function loadSetaDeskTickets(
     await client.query('BEGIN');
     const readAll = async () => ({
       t: await client.query(`SELECT * FROM setadesk_tickets ORDER BY created_at DESC, key DESC`),
-      c: await client.query(`SELECT * FROM setadesk_ticket_comments ORDER BY created_at ASC, id ASC`),
+      c: includeComments
+        ? await client.query(`SELECT * FROM setadesk_ticket_comments ORDER BY created_at ASC, id ASC`)
+        : { rows: [] as Record<string, unknown>[] },
     });
     let { t: tRes, c: cRes } = await readAll();
     const current = new Map<string, string>(
       tRes.rows.map((r) => [String(r.id), iso(r.updated_at) || ''])
     );
-    if (await reconcileFromLegacyState(client, legacyTickets, current)) {
+    if (reconcileLegacy && (await reconcileFromLegacyState(client, legacyTickets, current))) {
       ({ t: tRes, c: cRes } = await readAll());
     }
     await client.query('COMMIT');

@@ -27,6 +27,7 @@ import { ClientDurableJournal } from '../../db/repository';
 import { EnrichedCompanyItem, EnrichedContactItem } from '../components/ContactsCompaniesTab';
 import { EnrichedDeal } from '../components/DealsKanbanTab';
 import { EnrichedServiceTicket } from '../components/ServiceDeskTab';
+import { isLegacyDemoServiceTicket } from '../../db/setadesk-demo';
 
 const JOURNAL_STORAGE_KEY = 'seta_crm_durable_journal_v3';
 
@@ -569,6 +570,7 @@ export function mergeTicketsWithJournal(
   const map = new Map<string, EnrichedServiceTicket>();
 
   for (const st of serverTickets) {
+    if (isLegacyDemoServiceTicket(st)) continue;
     if (!deletedSet.has(st.id) && !deletedSet.has(st.key)) {
       map.set(st.id, st);
     }
@@ -576,6 +578,7 @@ export function mergeTicketsWithJournal(
 
   const missingAtTop: EnrichedServiceTicket[] = [];
   for (const ut of j.upsertedTickets) {
+    if (isLegacyDemoServiceTicket(ut)) continue;
     if (deletedSet.has(ut.id) || deletedSet.has(ut.key)) continue;
     const existing = map.get(ut.id);
     if (!existing) {
