@@ -1634,6 +1634,18 @@ export interface ErpServiceOrder {
   serialNumber?: string;
   technicalReport?: string;
   priority?: 'BAIXA' | 'NORMAL' | 'ALTA' | 'CRITICA';
+  /** Historico dos PDFs da OS (gerados e enviados), com o link de acesso. */
+  documentHistory?: ErpServiceOrderDocumentEntry[];
+}
+
+export interface ErpServiceOrderDocumentEntry {
+  id: string;
+  kind: 'GERADA' | 'ENVIADA';
+  at: string;
+  by: string;
+  fileName: string;
+  accessPath: string;
+  sentTo?: string[];
 }
 
 export interface ErpSupplierRecord {

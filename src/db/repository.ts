@@ -13,6 +13,7 @@ import {
 import { RecordIdConflictError, assertNewRecordId, formatProposalCode, nextFreeCode, occupiedRefs, refKey } from './record-id-guard';
 import { stripLeanMarker } from '../modules/bootstrap/lean-payload';
 import { parseBillingRecipientEmails } from '../modules/erp/billing-recipient-emails';
+import { appendServiceOrderDocumentEntry } from '../modules/erp/service-order-document';
 import { isLegacyProposalCode, migrateLegacyProposalCodes, nextGcProposalNumber } from '../app/lib/proposal-number';
 import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
@@ -60,6 +61,7 @@ import {
   ErpInvoiceEmailHistoryEntry,
   GestaoClickConfig,
   ErpServiceOrder,
+  ErpServiceOrderDocumentEntry,
   ErpSaleOrder,
   ErpSupplierRecord,
   ErpEmployeeRecord,
@@ -5957,6 +5959,23 @@ export class CrmRepository {
       return true;
     }
     return false;
+  }
+
+  /** OS pelo id ou pelo numero (somente leitura). */
+  findServiceOrderByRef(ref: string): ErpServiceOrder | undefined {
+    const key = String(ref || '').trim();
+    if (!key) return undefined;
+    const erp = this.ensureErp();
+    return (erp.serviceOrders || []).find((os) => os && (os.id === key || String(os.code) === key));
+  }
+
+  /** Acrescenta um registro ao historico de documentos da OS (ultimos 50). */
+  appendServiceOrderDocument(ref: string, entry: ErpServiceOrderDocumentEntry): ErpServiceOrder | undefined {
+    const os = this.findServiceOrderByRef(ref);
+    if (!os) return undefined;
+    os.documentHistory = appendServiceOrderDocumentEntry(os.documentHistory, entry);
+    this.save();
+    return os;
   }
 
   upsertErpCollectionRecord(

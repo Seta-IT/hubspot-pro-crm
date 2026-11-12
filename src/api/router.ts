@@ -219,6 +219,7 @@ import {
 } from '../modules/erp/fiscal-settings';
 import { ErpImportDeclarationInfo } from '../db/types';
 import type { ErpCommercialProposal } from '../db/types';
+import type { ErpServiceOrder, ErpServiceOrderDocumentEntry } from '../db/types';
 import {
   GESTAOCLICK_ALL_76_ENDPOINTS,
   GESTAOCLICK_FULL_RESOURCE_SCHEMAS,
@@ -269,6 +270,15 @@ import {
 } from './email-template-routes';
 import { getAccessToken, handleMailboxRoute, isMailboxRoute, newMailboxSendLimiter, userFacingClientSendFailure } from './mailbox-routes';
 import { deliverClientEmail, publicClientEmailRelay } from '../modules/email/deliver-client-email';
+import {
+  buildServiceOrderDocumentModel,
+  findTicketForServiceOrder,
+  serviceOrderInternalPath,
+  serviceOrderIssuerFromEmitter,
+  serviceOrderPdfBase64,
+  serviceOrderPdfFileName,
+  type ServiceOrderDocumentModel,
+} from '../modules/erp/service-order-document';
 import { getDefaultMailboxStore, MemoryMailboxStore, type MailboxStore } from '../modules/email/mailbox-store';
 import { createOutlookFollowupSendDeps } from '../modules/deals/proposal-followup-send';
 import {
@@ -3007,6 +3017,94 @@ export class CrmApiRouter {
     if (!e) return undefined;
     const rec = this.repo.findRbacUserRecord('', e);
     return rec && String(rec.email || '').toLowerCase() === e ? rec.id : undefined;
+  }
+
+  /** Sessao MFA com acesso ao ERP (ou chamada interna confiavel). */
+  private hasErpSessionAccess(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal?: boolean; serviceAccount?: boolean }
+  ): boolean {
+    if (ctx.trustedInternal) return true;
+    if (ctx.serviceAccount) return false;
+    const token = query._sessionToken;
+    if (!token) return false;
+    const sess = this.repo.resolveSessionFromToken(token);
+    return Boolean(sess.authenticated && sess.mfaVerified && sess.moduleAccess?.erp);
+  }
+
+  /**
+   * Monta o documento da OS. Dados do chamado (defeito, interacoes publicas, solucao)
+   * so entram para quem tambem tem acesso a Chamados. Emissor = cadastro do emitente.
+   * CNPJ do cliente: empresa do chamado; sem chamado, so se o nome bater com UMA empresa.
+   */
+  buildServiceOrderDocument(
+    ref: string,
+    opts: { includeTicket: boolean; origin?: string }
+  ): { model: ServiceOrderDocumentModel; serviceOrder: ErpServiceOrder; fileName: string } | null {
+    const os = this.repo.findServiceOrderByRef(ref);
+    if (!os) return null;
+    const ticket = opts.includeTicket ? findTicketForServiceOrder(os, this.repo.listServiceTickets()) : undefined;
+    let customerCnpj = '';
+    const company = ticket?.companyId ? this.repo.getCompanyById(ticket.companyId) : undefined;
+    if (company) {
+      customerCnpj = String((company as { cnpj?: string | null }).cnpj || '');
+    } else {
+      const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const target = norm(String(os.companyName || ''));
+      const sameName = target
+        ? this.repo.listCompanies().filter((c) => norm(String(c.name || '')) === target)
+        : [];
+      const cnpjs = new Set(sameName.map((c) => String((c as { cnpj?: string | null }).cnpj || '').replace(/\D+/g, '')).filter(Boolean));
+      // Trava Fiscal: nomes iguais com CNPJs diferentes => nao escolhe nenhum.
+      if (cnpjs.size === 1) customerCnpj = String((sameName.find((c) => (c as { cnpj?: string | null }).cnpj) as { cnpj?: string | null }).cnpj || '');
+    }
+    const model = buildServiceOrderDocumentModel({
+      serviceOrder: os,
+      ticket: ticket || null,
+      issuer: serviceOrderIssuerFromEmitter(this.companyEmitter),
+      customerCnpj,
+      origin: opts.origin,
+    });
+    return { model, serviceOrder: os, fileName: serviceOrderPdfFileName(model.osCode, model.customerName) };
+  }
+
+  /** GET /api/erp/service-orders/:ref/document e POST /api/erp/service-orders/:ref/pdf. */
+  private serviceOrderDocumentRoute(
+    ref: string,
+    generatePdf: boolean,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ApiResponse {
+    if (!this.hasErpSessionAccess(query, ctx)) {
+      if (!query._sessionToken) {
+        return {
+          status: 401,
+          body: { error: 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.', code: 'MFA_AUTH_REQUIRED' },
+        };
+      }
+      return { status: 403, body: { error: 'Sem acesso ao ERP.', code: 'ERP_ACCESS_FORBIDDEN' } };
+    }
+    const origin = typeof query._origin === 'string' && query._origin.trim() ? query._origin : undefined;
+    const built = this.buildServiceOrderDocument(ref, { includeTicket: this.hasChamadosTicketAccess(query, ctx), origin });
+    if (!built) return { status: 404, body: { error: 'Ordem de serviço não encontrada.' } };
+    const { model, serviceOrder, fileName } = built;
+    if (!generatePdf) {
+      return { status: 200, body: { data: model, fileName, history: serviceOrder.documentHistory || [] } };
+    }
+    const contentBase64 = serviceOrderPdfBase64(model);
+    const entry: ErpServiceOrderDocumentEntry = {
+      id: `osdoc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      kind: 'GERADA',
+      at: new Date().toISOString(),
+      by: this.sessionActorName(query),
+      fileName,
+      accessPath: serviceOrderInternalPath(serviceOrder.id),
+    };
+    const updated = this.repo.appendServiceOrderDocument(serviceOrder.id, entry);
+    return {
+      status: 200,
+      body: { fileName, contentBase64, accessUrl: model.accessUrl, entry, history: updated?.documentHistory || [] },
+    };
   }
 
   /**
@@ -7846,6 +7944,18 @@ export class CrmApiRouter {
         }
       }
 
+      // OS: documento (PDF A4), historico e link de acesso interno (/interno/os/:id).
+      const serviceOrderDocMatch = cleanPath.match(/^\/api\/erp\/service-orders\/([^/]+)\/(document|pdf)$/);
+      if (serviceOrderDocMatch && ((serviceOrderDocMatch[2] === 'document' && method === 'GET') || (serviceOrderDocMatch[2] === 'pdf' && method === 'POST'))) {
+        await this.ensureCompanyEmitterHydrated();
+        return this.serviceOrderDocumentRoute(
+          decodeURIComponent(serviceOrderDocMatch[1]).trim(),
+          serviceOrderDocMatch[2] === 'pdf',
+          query,
+          ctx
+        );
+      }
+
       const erpRecordsMatch = cleanPath.match(
         /^\/api\/erp\/records\/(bankAccounts|salesOrders|serviceOrders|suppliers|employees|purchaseOrders)(?:\/([^/]+))?$/
       );
@@ -7872,6 +7982,10 @@ export class CrmApiRouter {
               };
             }
             body.cnpj = check.formatted;
+          }
+          if (col === 'serviceOrders') {
+            // Historico de documentos da OS e so do servidor (gerar/enviar PDF).
+            delete (body as Record<string, unknown>).documentHistory;
           }
           const saved = this.repo.upsertErpCollectionRecord(col, {
             ...body,
@@ -8393,6 +8507,26 @@ export class CrmApiRouter {
           });
         }
 
+        // OS: anexo opcional do PDF, montado no servidor (o cliente so manda o id da OS).
+        const attachServiceOrderRef = typeof body.attachServiceOrderId === 'string' ? body.attachServiceOrderId.trim() : '';
+        let attachedServiceOrder: { id: string; fileName: string } | null = null;
+        if (attachServiceOrderRef) {
+          if (!this.hasErpSessionAccess(query, ctx)) {
+            return { status: 403, body: { error: 'Sem acesso ao ERP para anexar a OS.', code: 'ERP_ACCESS_FORBIDDEN' } };
+          }
+          await this.ensureCompanyEmitterHydrated();
+          const osDoc = this.buildServiceOrderDocument(attachServiceOrderRef, {
+            includeTicket: this.hasChamadosTicketAccess(query, ctx),
+            origin: typeof query._origin === 'string' && query._origin.trim() ? query._origin : undefined,
+          });
+          if (!osDoc) return { status: 404, body: { error: 'Ordem de serviço não encontrada.' } };
+          serverInvoiceAttachments = [
+            { filename: osDoc.fileName, content: serviceOrderPdfBase64(osDoc.model), content_type: 'application/pdf' },
+            ...serverInvoiceAttachments,
+          ];
+          attachedServiceOrder = { id: osDoc.serviceOrder.id, fileName: osDoc.fileName };
+        }
+
         const protocol = `STI-MAIL-${Date.now().toString(36).toUpperCase()}`;
         const nowIso = new Date().toISOString();
         const serverHtml = buildEmailHtmlFromText(rawEmailBody);
@@ -8510,6 +8644,18 @@ export class CrmApiRouter {
             externalRelay,
           },
         });
+
+        if (attachedServiceOrder) {
+          this.repo.appendServiceOrderDocument(attachedServiceOrder.id, {
+            id: `osdoc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+            kind: 'ENVIADA',
+            at: nowIso,
+            by: this.sessionActorName(query),
+            fileName: attachedServiceOrder.fileName,
+            accessPath: serviceOrderInternalPath(attachedServiceOrder.id),
+            sentTo: [...recipients.to, ...recipients.cc],
+          });
+        }
 
         // If linked to a ticket, also append comment to ticket
         if (body.ticketId) {

@@ -87,6 +87,9 @@ export interface ClientEmailInitialPayload {
   contractNumber?: string | null;
   invoiceChoices?: ContractEmailInvoiceChoice[];
   emailHistory?: ErpInvoiceEmailHistoryEntry[];
+  /** OS vinculada: mostra a opcao de anexar o PDF da OS (montado no servidor). */
+  serviceOrderId?: string | null;
+  serviceOrderCode?: string | null;
 }
 
 const DOC_TYPE_META: Record<
@@ -324,6 +327,7 @@ export default function ClientEmailComposerModal({
   const [body, setBody] = useState<string>(() => buildDefaultBody(payload, payload.docType));
   const [subjectDirty, setSubjectDirty] = useState(false);
   const [bodyDirty, setBodyDirty] = useState(false);
+  const [attachServiceOrder, setAttachServiceOrder] = useState<boolean>(Boolean(payload.serviceOrderId));
   const invoiceAvailInitial = payload.invoiceAttachments;
   const isInvoiceSend = Boolean(payload.invoiceId && invoiceAvailInitial) && !isContractSend;
   const [selectedAttach, setSelectedAttach] = useState<Record<InvoiceSendAttachmentKind, boolean>>(() =>
@@ -593,6 +597,7 @@ export default function ClientEmailComposerModal({
           invoiceId: sendInvoiceId || undefined,
           contractId: isContractSend ? payload.contractId || undefined : undefined,
           selectedAttachments,
+          attachServiceOrderId: payload.serviceOrderId && attachServiceOrder ? payload.serviceOrderId : undefined,
         }),
       });
       if (!res.ok) {
@@ -800,6 +805,22 @@ export default function ClientEmailComposerModal({
                 />
               </div>
             </div>
+
+            {payload.serviceOrderId && (
+              <label
+                data-testid="service-order-attach-option"
+                className="flex items-center gap-2 p-3 rounded-md border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={attachServiceOrder}
+                  onChange={(e) => setAttachServiceOrder(e.target.checked)}
+                  aria-label="Anexar a OS em PDF"
+                />
+                <Paperclip className="w-4 h-4 text-[#1e3a6e] shrink-0" />
+                Anexar a OS {payload.serviceOrderCode ? `nº ${payload.serviceOrderCode} ` : ''}em PDF
+              </label>
+            )}
 
             {isContractSend ? (
               <div data-testid="contract-send-attachments" className="p-3 rounded-md border border-slate-200 bg-slate-50 space-y-2">

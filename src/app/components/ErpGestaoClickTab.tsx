@@ -156,6 +156,7 @@ import {
 } from './ErpEditModals';
 import { Edit3, Mail } from 'lucide-react';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
+import { downloadServiceOrderPdfFromModel, fetchServiceOrderDocument } from '../lib/service-order-pdf-client';
 import { copySignedProposalLink, copySignedProposalVersionLink, openWithSignedProposalLink } from '../lib/proposal-link-client';
 import { copyInternalProposalLink } from '../lib/internal-proposal-summary';
 import { copySignedInvoiceLink } from '../lib/invoice-link-client';
@@ -556,6 +557,7 @@ export default function ErpGestaoClickTab({
   >([]);
   const [osViewMode, setOsViewMode] = useState<"LISTA" | "PAINEL">("LISTA");
   const [osSearch, setOsSearch] = useState<string>("");
+  const [osHistoryOpenId, setOsHistoryOpenId] = useState<string | null>(null);
   const [osTechFilter, setOsTechFilter] = useState<string>("TODOS");
   const [osStatusFilter, setOsStatusFilter] = useState<string>("TODOS");
   const [kardexFilter, setKardexFilter] = useState<"TODOS" | "ENTRADA" | "REMESSA" | "SAIDA">("TODOS");
@@ -6437,6 +6439,47 @@ export default function ErpGestaoClickTab({
               { status: 'Cancelada', title: 'Cancelada' },
             ];
 
+            // OS: PDF (guardado no historico), link de acesso interno e envio ao cliente com anexo.
+            const serviceOrderAccessUrl = (os: ErpServiceOrder) =>
+              `${typeof window !== 'undefined' ? window.location.origin : ''}/interno/os/${encodeURIComponent(os.id)}`;
+            const handleServiceOrderPdf = async (os: ErpServiceOrder) => {
+              const res = await fetch(`/api/erp/service-orders/${encodeURIComponent(os.id)}/pdf`, { method: 'POST' }).catch(() => null);
+              const json = res ? await res.json().catch(() => null) : null;
+              if (!res || !res.ok || !json?.contentBase64) {
+                onShowToast(json?.error || 'Não foi possível gerar o PDF da OS.');
+                return;
+              }
+              const bin = atob(String(json.contentBase64));
+              const bytes = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+              const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = String(json.fileName || `OS-${os.code}.pdf`);
+              a.click();
+              setTimeout(() => URL.revokeObjectURL(url), 2000);
+              recordUpsertedServiceOrder({ ...os, documentHistory: Array.isArray(json.history) ? json.history : os.documentHistory });
+              onShowToast(`PDF da OS ${os.code} gerado e guardado no histórico.`);
+            };
+            const handleCopyServiceOrderLink = async (os: ErpServiceOrder) => {
+              const url = serviceOrderAccessUrl(os);
+              try {
+                await navigator.clipboard.writeText(url);
+                onShowToast(`Link da OS ${os.code} copiado: ${url}`);
+              } catch {
+                onShowToast(`Link da OS ${os.code}: ${url}`);
+              }
+            };
+            const handleEmailServiceOrder = (os: ErpServiceOrder) =>
+              setEmailModalPayload({
+                docType: 'TICKET_REPLY',
+                companyName: os.companyName,
+                documentCode: os.code,
+                serviceOrderId: os.id,
+                serviceOrderCode: os.code,
+                customSubject: `Ordem de Serviço nº ${os.code} - Seta Telecom`,
+              });
+
             const osEditorFields: GenericFieldSpec[] = [
               { key: 'code', label: 'Nº da O.S.' },
               { key: 'companyName', label: 'Cliente' },
@@ -6663,7 +6706,8 @@ export default function ErpGestaoClickTab({
                     </thead>
                     <tbody className="divide-y">
                       {filteredOs.map((os) => (
-                        <tr key={os.id} className="hover:bg-slate-50">
+                        <React.Fragment key={os.id}>
+                        <tr className="hover:bg-slate-50">
                           <td className="py-2 px-3 font-mono font-semibold">#{os.code}</td>
                           <td className="py-2 px-3 font-semibold">{os.companyName}</td>
                           <td className="py-2 px-3">
@@ -6694,6 +6738,38 @@ export default function ErpGestaoClickTab({
                             </button>
                             <button
                               type="button"
+                              data-testid="os-pdf"
+                              onClick={() => handleServiceOrderPdf(os)}
+                              className="px-2.5 py-1 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-[11px] font-semibold cursor-pointer"
+                            >
+                              PDF
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="os-link"
+                              onClick={() => handleCopyServiceOrderLink(os)}
+                              className="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer"
+                            >
+                              Link
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="os-email"
+                              onClick={() => handleEmailServiceOrder(os)}
+                              className="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer"
+                            >
+                              E-mail
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="os-historico"
+                              onClick={() => setOsHistoryOpenId(osHistoryOpenId === os.id ? null : os.id)}
+                              className="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer"
+                            >
+                              Histórico ({(os.documentHistory || []).length})
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleDeleteCollectionRecord('serviceOrders', os.id, `O.S. #${os.code}`)}
                               className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-semibold cursor-pointer"
                             >
@@ -6701,6 +6777,44 @@ export default function ErpGestaoClickTab({
                             </button>
                           </td>
                         </tr>
+                        {osHistoryOpenId === os.id && (
+                          <tr data-testid="os-historico-linhas" className="bg-slate-50">
+                            <td colSpan={8} className="py-2 px-3">
+                              {(os.documentHistory || []).length === 0 ? (
+                                <span className="text-[11px] text-slate-500">Nenhum PDF gerado ainda. Use o botão PDF para gerar e guardar no histórico.</span>
+                              ) : (
+                                <ul className="space-y-1">
+                                  {[...(os.documentHistory || [])].reverse().map((h) => (
+                                    <li key={h.id} className="flex flex-wrap items-center gap-2 text-[11px] text-slate-700">
+                                      <span className="font-semibold text-[#1e3a6e]">{h.kind === 'ENVIADA' ? 'Enviada ao cliente' : 'Gerada'}</span>
+                                      <span>{new Date(h.at).toLocaleString('pt-BR')}</span>
+                                      <span>por {h.by}</span>
+                                      {h.sentTo && h.sentTo.length > 0 && <span>para {h.sentTo.join(', ')}</span>}
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          const doc = await fetchServiceOrderDocument(os.id);
+                                          if (!doc.ok) {
+                                            onShowToast(doc.error);
+                                            return;
+                                          }
+                                          downloadServiceOrderPdfFromModel(doc.model, doc.fileName);
+                                        }}
+                                        className="underline font-semibold text-[#1e3a6e] cursor-pointer"
+                                      >
+                                        Baixar {h.fileName}
+                                      </button>
+                                      <a href={h.accessPath} target="_blank" rel="noreferrer" className="underline font-semibold text-[#1e3a6e]">
+                                        Link de acesso
+                                      </a>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                        </React.Fragment>
                       ))}
                     </tbody>
                   </table>
