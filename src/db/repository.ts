@@ -19,6 +19,13 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import {
+  applyServiceOrderStatusChange,
+  duplicateServiceOrder,
+  nextServiceOrderCode,
+  normalizeServiceOrderStatus,
+  type DuplicateServiceOrderInput,
+} from '../modules/erp/service-order-workflow';
+import {
   Company,
   Contact,
   CrmDatabaseState,
@@ -6164,13 +6171,21 @@ export class CrmRepository {
 
   upsertErpCollectionRecord(
     collection: 'bankAccounts' | 'salesOrders' | 'serviceOrders' | 'suppliers' | 'employees' | 'purchaseOrders',
-    record: Record<string, unknown>
+    record: Record<string, unknown>,
+    actor?: string
   ): Record<string, unknown> {
     const erp = this.ensureErp();
     const list = (erp[collection] || []) as unknown as Array<Record<string, unknown>>;
     const id = String(record.id || `${collection}-${Date.now()}`);
     const idx = list.findIndex((r) => String(r.id) === id);
-    const item = { ...(idx >= 0 ? list[idx] : {}), ...record, id };
+    let item: Record<string, unknown> = { ...(idx >= 0 ? list[idx] : {}), ...record, id };
+    if (collection === 'serviceOrders') {
+      item = this.withServiceOrderStatusHistory(
+        idx >= 0 ? (list[idx] as unknown as ErpServiceOrder) : undefined,
+        item as unknown as ErpServiceOrder,
+        actor
+      ) as unknown as Record<string, unknown>;
+    }
     if (idx >= 0) {
       list[idx] = item;
     } else {
@@ -6179,6 +6194,81 @@ export class CrmRepository {
     (erp as unknown as Record<string, unknown>)[collection] = list;
     this.save();
     return item;
+  }
+
+  /**
+   * OS: o historico de situacao e so do servidor (o corpo do cliente nunca o reescreve) e
+   * toda troca de situacao vira um registro. OS nova entra com o registro de criacao.
+   */
+  private withServiceOrderStatusHistory(
+    previous: ErpServiceOrder | undefined,
+    incoming: ErpServiceOrder,
+    actor?: string
+  ): ErpServiceOrder {
+    const by = actor || 'Sistema STI-hub';
+    const base: ErpServiceOrder = {
+      ...incoming,
+      statusHistory: Array.isArray(previous?.statusHistory) ? previous!.statusHistory : [],
+    };
+    if (!previous) {
+      const status = normalizeServiceOrderStatus(incoming.status);
+      return applyServiceOrderStatusChange({ ...base, status: '' }, status, { by, note: 'O.S. criada' }).order;
+    }
+    const { order } = applyServiceOrderStatusChange({ ...base, status: previous.status }, incoming.status, { by });
+    // applyServiceOrderStatusChange so preenche a saida ao concluir; mantem a saida enviada pelo cliente.
+    return incoming.exitDate && incoming.exitDate.trim() && incoming.exitDate.trim() !== '—'
+      ? { ...order, exitDate: incoming.exitDate }
+      : order;
+  }
+
+  /** OS pelo id ou pelo numero. */
+  getServiceOrderByRef(ref: string): ErpServiceOrder | undefined {
+    const key = String(ref || '').trim();
+    if (!key) return undefined;
+    return (this.ensureErp().serviceOrders || []).find((os) => os && (os.id === key || String(os.code) === key));
+  }
+
+  /** Troca a situacao da OS e registra no historico. null => OS inexistente. */
+  changeServiceOrderStatus(
+    ref: string,
+    status: string,
+    actor: string,
+    note?: string
+  ): { changed: boolean; order: ErpServiceOrder } | null {
+    const erp = this.ensureErp();
+    const list = erp.serviceOrders || [];
+    const idx = list.findIndex((os) => os && (os.id === ref || String(os.code) === ref));
+    if (idx < 0) return null;
+    const res = applyServiceOrderStatusChange(list[idx], status, { by: actor, note });
+    if (res.changed) {
+      list[idx] = res.order;
+      erp.serviceOrders = list;
+      this.save();
+    }
+    return res;
+  }
+
+  /** Duplica a OS (uso mensal): numero novo, situacao inicial, sem historicos. */
+  duplicateServiceOrderRecord(
+    ref: string,
+    input: DuplicateServiceOrderInput,
+    actor: string
+  ): ErpServiceOrder | null {
+    const erp = this.ensureErp();
+    if (!erp.serviceOrders) erp.serviceOrders = [];
+    const source = this.getServiceOrderByRef(ref);
+    if (!source) return null;
+    let id = `os-${Date.now()}`;
+    while (erp.serviceOrders.some((o) => o.id === id)) id = `os-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const created = duplicateServiceOrder(source, {
+      ...input,
+      id,
+      code: nextServiceOrderCode(erp.serviceOrders),
+      by: actor,
+    });
+    erp.serviceOrders.unshift(created);
+    this.save();
+    return created;
   }
 
   deleteErpCollectionRecord(

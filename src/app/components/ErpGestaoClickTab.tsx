@@ -2,6 +2,17 @@
 
 import React, { useMemo, useState } from 'react';
 import { RowKebabMenu } from './FixedPortalMenu';
+import { ServiceOrderDuplicateModal, ServiceOrderEditorModal } from './ServiceOrderModals';
+import {
+  SERVICE_ORDER_STATUSES,
+  groupServiceOrdersByColumn,
+  kanbanQuickAction,
+  mergeServiceOrderOverrides,
+  nextServiceOrderCode,
+  normalizeServiceOrderStatus,
+  serviceOrderStatusOptions,
+  todayBr,
+} from '../../modules/erp/service-order-workflow';
 import {
   FileText,
   FileCheck2,
@@ -637,6 +648,12 @@ export default function ErpGestaoClickTab({
     isNew: boolean;
   } | null>(null);
   const [customerSearchQuery, setCustomerSearchQuery] = useState<string>("");
+  // OS: editor (cliente por combobox), duplicacao e gravacoes locais recentes (Painel/lista).
+  const [osEditor, setOsEditor] = useState<{ order: ErpServiceOrder; isNew: boolean } | null>(null);
+  const [osDuplicateSource, setOsDuplicateSource] = useState<ErpServiceOrder | null>(null);
+  const [osOverrides, setOsOverrides] = useState<Record<string, ErpServiceOrder>>({});
+  const [osDragId, setOsDragId] = useState<string | null>(null);
+  const [osDragOverCol, setOsDragOverCol] = useState<string | null>(null);
   const [customerStatusFilter, setCustomerStatusFilter] = useState<string>("TODOS");
   const [contractsSearchQuery, setContractsSearchQuery] = useState<string>("");
   const [contractsStatusFilter, setContractsStatusFilter] = useState<string>("TODOS");
@@ -939,11 +956,12 @@ export default function ErpGestaoClickTab({
     bankAccounts = [],
     dashboardSummary,
     salesOrders = [],
-    serviceOrders = [],
+    serviceOrders: serviceOrdersFromServer = [],
     suppliers = [],
     employees = [],
     purchaseOrders = [],
   } = erpData;
+  const serviceOrders: ErpServiceOrder[] = mergeServiceOrderOverrides(serviceOrdersFromServer, osOverrides);
   // Modo tabela: a lista e a pagina vinda do servidor; senao, as do bootstrap (como antes).
   const proposals: ErpCommercialProposal[] = proposalsTableMode ? proposalsPage?.data || [] : bootstrapProposals;
 
@@ -6491,7 +6509,7 @@ export default function ErpGestaoClickTab({
               if (osTechFilter !== 'TODOS' && !(os.technicianName || '').toLowerCase().includes(osTechFilter.toLowerCase())) {
                 return false;
               }
-              if (osStatusFilter !== 'TODOS' && os.status !== osStatusFilter) {
+              if (osStatusFilter !== 'TODOS' && normalizeServiceOrderStatus(os.status) !== osStatusFilter) {
                 return false;
               }
               if (osSearch.trim()) {
@@ -6519,14 +6537,89 @@ export default function ErpGestaoClickTab({
               return { ...t, total: all.length, active };
             });
 
+            // OS: situacao (lista, Painel e editor), salvar com historico, duplicar (uso mensal).
+            const osStatusOptions = serviceOrderStatusOptions(serviceOrders);
+            const rememberServiceOrder = (saved: ErpServiceOrder) => {
+              setOsOverrides((prev) => ({ ...prev, [saved.id]: saved }));
+              recordUpsertedServiceOrder(saved);
+            };
+            const postServiceOrder = async (
+              url: string,
+              payload: unknown
+            ): Promise<{ ok: true; data: ErpServiceOrder } | { ok: false; error: string }> => {
+              const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              }).catch(() => null);
+              const json = res ? await res.json().catch(() => null) : null;
+              if (!res || !res.ok || !json?.data) {
+                return { ok: false, error: (json && json.error) || 'Não foi possível gravar a O.S. Tente de novo.' };
+              }
+              return { ok: true, data: json.data as ErpServiceOrder };
+            };
+            const handleChangeServiceOrderStatus = async (os: ErpServiceOrder, status: string) => {
+              if (!status || os.status === status) return;
+              const r = await postServiceOrder(`/api/erp/service-orders/${encodeURIComponent(os.id)}/status`, { status });
+              if (!r.ok) {
+                onShowToast(r.error);
+                return;
+              }
+              rememberServiceOrder(r.data);
+              onShowToast(`O.S. #${os.code}: situação alterada para ${r.data.status}.`);
+              await onRefresh();
+            };
+            const handleSaveServiceOrder = async (values: ErpServiceOrder, isNew: boolean): Promise<string | null> => {
+              const r = await postServiceOrder('/api/erp/service-orders', values);
+              if (!r.ok) return r.error;
+              rememberServiceOrder(r.data);
+              setOsEditor(null);
+              onShowToast(isNew ? `O.S. #${r.data.code} criada.` : `O.S. #${r.data.code} salva.`);
+              await onRefresh();
+              return null;
+            };
+            const handleDuplicateServiceOrder = async (
+              source: ErpServiceOrder,
+              input: { entryDate: string; measurementPeriodStart: string; measurementPeriodEnd: string }
+            ): Promise<string | null> => {
+              const r = await postServiceOrder(`/api/erp/service-orders/${encodeURIComponent(source.id)}/duplicate`, input);
+              if (!r.ok) return r.error;
+              rememberServiceOrder(r.data);
+              setOsDuplicateSource(null);
+              onShowToast(`O.S. #${r.data.code} criada a partir da O.S. #${source.code}.`);
+              await onRefresh();
+              return null;
+            };
+            const openNewServiceOrder = () =>
+              setOsEditor({
+                isNew: true,
+                order: {
+                  id: `os-${Date.now()}`,
+                  code: nextServiceOrderCode(serviceOrders),
+                  companyName: '',
+                  sellerName: '',
+                  technicianName: '',
+                  equipmentName: '',
+                  serialNumber: '',
+                  priority: 'NORMAL',
+                  entryDate: todayBr(),
+                  exitDate: '',
+                  status: 'Em aberto',
+                  totalAmount: 0,
+                  description: '',
+                  technicalReport: '',
+                },
+              });
+            const openEditServiceOrder = (os: ErpServiceOrder) => setOsEditor({ isNew: false, order: os });
+            const osColumns = groupServiceOrdersByColumn(filteredOs);
+
             const kanbanCols: Array<{
-              status: 'Em andamento' | 'Aguardando peça' | 'Concluída' | 'Cancelada';
+              status: (typeof SERVICE_ORDER_STATUSES)[number];
               title: string;
-              nextStatus?: 'Aguardando peça' | 'Concluída' | 'Em andamento';
-              nextLabel?: string;
             }> = [
-              { status: 'Em andamento', title: 'Em andamento', nextStatus: 'Concluída', nextLabel: 'Concluir' },
-              { status: 'Aguardando peça', title: 'Aguardando peça', nextStatus: 'Em andamento', nextLabel: 'Retomar' },
+              { status: 'Em aberto', title: 'Em aberto' },
+              { status: 'Em andamento', title: 'Em andamento' },
+              { status: 'Aguardando peça', title: 'Aguardando peça' },
               { status: 'Concluída', title: 'Concluída' },
               { status: 'Cancelada', title: 'Cancelada' },
             ];
@@ -6580,29 +6673,8 @@ export default function ErpGestaoClickTab({
                     </button>
                     <button
                       type="button"
-                      onClick={() =>
-                        openCollectionEditor(
-                          'serviceOrders',
-                          'Nova Ordem de Serviço (O.S.)',
-                          {
-                            id: `os-${Date.now()}`,
-                            code: String(1519 + serviceOrders.length),
-                            companyName: '',
-                            sellerName: '',
-                            technicianName: '',
-                            equipmentName: '',
-                            serialNumber: '',
-                            priority: 'NORMAL',
-                            entryDate: new Date().toLocaleDateString('pt-BR'),
-                            exitDate: '',
-                            status: 'Aberta',
-                            totalAmount: 0,
-                            description: '',
-                            technicalReport: '',
-                          },
-                          osEditorFields
-                        )
-                      }
+                      data-testid="os-nova"
+                      onClick={openNewServiceOrder}
                       className="px-3.5 py-2 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer"
                     >
                       + Nova O.S.
@@ -6638,11 +6710,11 @@ export default function ErpGestaoClickTab({
                       className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs text-slate-700"
                     >
                       <option value="TODOS">Situação: Todas</option>
-                      <option value="Aberta">Aberta</option>
-                      <option value="Em andamento">Em andamento</option>
-                      <option value="Aguardando peça">Aguardando peça</option>
-                      <option value="Concluída">Concluída</option>
-                      <option value="Cancelada">Cancelada</option>
+                      {osStatusOptions.map((st) => (
+                        <option key={st} value={st}>
+                          {st}
+                        </option>
+                      ))}
                     </select>
                     {(osSearch.trim() !== '' || osStatusFilter !== 'TODOS' || osTechFilter !== 'TODOS') && (
                       <button
@@ -6660,24 +6732,58 @@ export default function ErpGestaoClickTab({
                 </div>
 
                 {isKanban ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3" data-testid="os-kanban">
                     {kanbanCols.map((col) => {
-                      const cards = filteredOs.filter((o) =>
-                        col.status === 'Em andamento'
-                          ? o.status === 'Em andamento' || o.status === 'Aberta'
-                          : o.status === col.status
-                      );
+                      const cards = osColumns[col.status];
                       return (
-                        <div key={col.status} className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2.5">
+                        <div
+                          key={col.status}
+                          data-testid={`os-kanban-col-${col.status}`}
+                          onDragOver={(e) => {
+                            if (!osDragId) return;
+                            e.preventDefault();
+                            if (osDragOverCol !== col.status) setOsDragOverCol(col.status);
+                          }}
+                          onDragLeave={() => setOsDragOverCol((c) => (c === col.status ? null : c))}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const id = osDragId || e.dataTransfer.getData('text/plain');
+                            setOsDragId(null);
+                            setOsDragOverCol(null);
+                            const dragged = serviceOrders.find((o) => o.id === id);
+                            if (dragged && normalizeServiceOrderStatus(dragged.status) !== col.status) {
+                              void handleChangeServiceOrderStatus(dragged, col.status);
+                            }
+                          }}
+                          className={`rounded-md border p-3 space-y-2.5 ${
+                            osDragOverCol === col.status ? 'border-[#1e3a6e] bg-blue-50' : 'border-slate-200 bg-slate-50'
+                          }`}
+                        >
                           <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                             <span className="text-xs font-semibold text-slate-900">{col.title}</span>
                             <span className="px-2 py-0.5 rounded bg-white border text-[10px] font-semibold text-slate-700">
                               {cards.length}
                             </span>
                           </div>
-                          <div className="space-y-2.5">
-                            {cards.map((os) => (
-                              <div key={os.id} className="bg-white rounded border border-slate-200 p-3 shadow-2xs space-y-2 text-xs">
+                          <div className="space-y-2.5 min-h-[40px]">
+                            {cards.map((os) => {
+                              const quick = kanbanQuickAction(os.status);
+                              return (
+                              <div
+                                key={os.id}
+                                draggable
+                                data-testid={`os-card-${os.code}`}
+                                onDragStart={(e) => {
+                                  setOsDragId(os.id);
+                                  e.dataTransfer.setData('text/plain', os.id);
+                                  e.dataTransfer.effectAllowed = 'move';
+                                }}
+                                onDragEnd={() => {
+                                  setOsDragId(null);
+                                  setOsDragOverCol(null);
+                                }}
+                                className="bg-white rounded border border-slate-200 p-3 shadow-2xs space-y-2 text-xs cursor-grab"
+                              >
                                 <div className="flex items-center justify-between">
                                   <span className="font-mono font-semibold text-[#1e3a6e]">O.S. #{os.code}</span>
                                   <span className="text-[10px] text-slate-500">
@@ -6703,48 +6809,52 @@ export default function ErpGestaoClickTab({
                                   <span>Técnico: {os.technicianName}</span>
                                   <strong className="text-slate-900">{formatBRL(os.totalAmount)}</strong>
                                 </div>
+                                <select
+                                  aria-label={`Situação da O.S. ${os.code}`}
+                                  data-testid={`os-card-status-${os.code}`}
+                                  value={normalizeServiceOrderStatus(os.status)}
+                                  onChange={(e) => void handleChangeServiceOrderStatus(os, e.target.value)}
+                                  className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[11px] text-slate-700"
+                                >
+                                  {osStatusOptions.map((st) => (
+                                    <option key={st} value={st}>
+                                      {st}
+                                    </option>
+                                  ))}
+                                </select>
                                 <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-100">
-                                  {col.nextStatus ? (
+                                  {quick ? (
                                     <button
                                       type="button"
-                                      onClick={async () => {
-                                        const updated: ErpServiceOrder = { ...os, status: col.nextStatus! };
-                                        await fetch('/api/erp/records/serviceOrders', {
-                                          method: 'POST',
-                                          headers: { 'Content-Type': 'application/json' },
-                                          body: JSON.stringify(updated),
-                                        });
-                                        recordUpsertedServiceOrder(updated);
-                                        onShowToast(`O.S. #${os.code} avançada para ${col.nextStatus}!`);
-                                        await onRefresh();
-                                      }}
+                                      data-testid={`os-card-quick-${os.code}`}
+                                      onClick={() => void handleChangeServiceOrderStatus(os, quick.nextStatus)}
                                       className="px-2 py-1 rounded bg-[#1e3a6e] hover:bg-accent-hover text-white text-[10px] font-semibold cursor-pointer"
                                     >
-                                      {col.nextLabel}
+                                      {quick.label}
                                     </button>
                                   ) : (
                                     <span className="text-[10px] text-slate-400">Entrada: {os.entryDate}</span>
                                   )}
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      openCollectionEditor(
-                                        'serviceOrders',
-                                        `Editar O.S. #${os.code}`,
-                                        {
-                                          priority: 'NORMAL',
-                                          ...os,
-                                        } as unknown as Record<string, unknown>,
-                                        osEditorFields
-                                      )
-                                    }
-                                    className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[10px] font-semibold cursor-pointer"
-                                  >
-                                    Editar
-                                  </button>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => setOsDuplicateSource(os)}
+                                      className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[10px] font-semibold cursor-pointer"
+                                    >
+                                      Duplicar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditServiceOrder(os)}
+                                      className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[10px] font-semibold cursor-pointer"
+                                    >
+                                      Editar
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       );
@@ -6766,22 +6876,34 @@ export default function ErpGestaoClickTab({
                           </td>
                           <td className="py-2 px-3">{os.technicianName}</td>
                           <td className="py-2 px-3">{os.entryDate}</td>
-                          <td className="py-2 px-3"><span className="px-2 py-0.5 rounded bg-slate-50 text-slate-800 text-[10px] font-semibold">{os.status}</span></td>
+                          <td className="py-2 px-3">
+                            <select
+                              aria-label={`Situação da O.S. ${os.code}`}
+                              data-testid={`os-row-status-${os.code}`}
+                              value={normalizeServiceOrderStatus(os.status)}
+                              onChange={(e) => void handleChangeServiceOrderStatus(os, e.target.value)}
+                              className="px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-800 text-[11px] font-semibold"
+                            >
+                              {osStatusOptions.map((st) => (
+                                <option key={st} value={st}>
+                                  {st}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
                           <td className="py-2 px-3 text-right font-semibold">{formatBRL(os.totalAmount)}</td>
                           <td className="py-2 px-3 text-right space-x-1">
                             <button
                               type="button"
-                              onClick={() =>
-                                openCollectionEditor(
-                                  'serviceOrders',
-                                  `Editar O.S. #${os.code}`,
-                                  {
-                                    priority: 'NORMAL',
-                                    ...os,
-                                  } as unknown as Record<string, unknown>,
-                                  osEditorFields
-                                )
-                              }
+                              data-testid={`os-row-duplicar-${os.code}`}
+                              onClick={() => setOsDuplicateSource(os)}
+                              className="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer"
+                            >
+                              Duplicar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditServiceOrder(os)}
                               className="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer"
                             >
                               Editar
@@ -6798,6 +6920,26 @@ export default function ErpGestaoClickTab({
                       ))}
                     </tbody>
                   </table>
+                )}
+                {osEditor && (
+                  <ServiceOrderEditorModal
+                    key={osEditor.order.id}
+                    title={osEditor.isNew ? 'Nova Ordem de Serviço (O.S.)' : `Editar O.S. #${osEditor.order.code}`}
+                    order={osEditor.order}
+                    isNew={osEditor.isNew}
+                    companies={companies}
+                    statusOptions={osStatusOptions}
+                    onClose={() => setOsEditor(null)}
+                    onSave={(values) => handleSaveServiceOrder(values, osEditor.isNew)}
+                  />
+                )}
+                {osDuplicateSource && (
+                  <ServiceOrderDuplicateModal
+                    key={osDuplicateSource.id}
+                    source={osDuplicateSource}
+                    onClose={() => setOsDuplicateSource(null)}
+                    onConfirm={(input) => handleDuplicateServiceOrder(osDuplicateSource, input)}
+                  />
                 )}
               </div>
             );

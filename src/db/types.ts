@@ -1623,6 +1623,15 @@ export interface ErpSaleOrder {
   commissionAmount?: number;
 }
 
+export interface ErpServiceOrderStatusEntry {
+  id: string;
+  at: string;
+  by: string;
+  from: string;
+  to: string;
+  note?: string;
+}
+
 export interface ErpServiceOrder {
   id: string;
   code: string;
@@ -1634,6 +1643,17 @@ export interface ErpServiceOrder {
   status: string;
   totalAmount: number;
   description: string;
+  /** Cliente cadastrado escolhido na OS (mesma lista de Vendas/Orcamentos). */
+  companyId?: string;
+  companyCnpj?: string;
+  /** Periodo da medicao (uso mensal, como no GestaoClick), DD/MM/AAAA. */
+  measurementPeriodStart?: string;
+  measurementPeriodEnd?: string;
+  /** OS de origem quando criada por "Duplicar". */
+  duplicatedFromId?: string;
+  duplicatedFromCode?: string;
+  /** Historico de situacao (so o servidor grava). */
+  statusHistory?: ErpServiceOrderStatusEntry[];
   equipmentName?: string;
   serialNumber?: string;
   technicalReport?: string;

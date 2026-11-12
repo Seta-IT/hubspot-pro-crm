@@ -342,6 +342,7 @@ export function buildClearSessionCookie(): string {
 // tambem lido pelo teto de corpo do bridge/dispatch). Reexportada aqui para os chamadores antigos.
 export { isSessionTokenRevoked, revokeSessionTokenBestEffort } from '../app/lib/session-revocation';
 import { isSessionTokenRevoked, revokeSessionTokenBestEffort } from '../app/lib/session-revocation';
+import { normalizeServiceOrderStatus, validateDuplicateServiceOrderInput } from '../modules/erp/service-order-workflow';
 
 type StiHubUserRecordLike = { id: string; email: string };
 let resendKeyFormatWarned = false;
@@ -8247,6 +8248,46 @@ export class CrmApiRouter {
           if (!deleted) return { status: 404, body: { error: 'Registro não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: recId } };
         }
+      }
+
+      // OS: salvar (com historico de situacao), trocar situacao e duplicar (uso mensal).
+      if (cleanPath === '/api/erp/service-orders' && method === 'POST') {
+        const rec = { ...(body as Record<string, unknown>) };
+        delete rec.statusHistory;
+        delete rec.documentHistory;
+        if (typeof rec.status !== 'string' || !rec.status.trim() || rec.status.length > 60) {
+          return { status: 400, body: { error: 'Situação da O.S. inválida.' } };
+        }
+        if (typeof rec.companyName !== 'string' || !rec.companyName.trim()) {
+          return { status: 400, body: { error: 'Selecione o cliente da O.S.' } };
+        }
+        rec.status = normalizeServiceOrderStatus(rec.status);
+        const savedOs = this.repo.upsertErpCollectionRecord('serviceOrders', rec, this.sessionActorName(query));
+        return { status: 200, body: { data: savedOs } };
+      }
+      const serviceOrderActionMatch = cleanPath.match(/^\/api\/erp\/service-orders\/([^/]+)\/(status|duplicate)$/);
+      if (serviceOrderActionMatch && method === 'POST') {
+        const osRef = decodeURIComponent(serviceOrderActionMatch[1]).trim();
+        if (serviceOrderActionMatch[2] === 'status') {
+          const nextStatus = typeof body.status === 'string' ? body.status.trim() : '';
+          if (!nextStatus || nextStatus.length > 60) {
+            return { status: 400, body: { error: 'Situação da O.S. inválida.' } };
+          }
+          const note = typeof body.note === 'string' ? body.note : undefined;
+          const res = this.repo.changeServiceOrderStatus(osRef, nextStatus, this.sessionActorName(query), note);
+          if (!res) return { status: 404, body: { error: 'Ordem de serviço não encontrada.' } };
+          return { status: 200, body: { data: res.order, changed: res.changed } };
+        }
+        const dupInput = {
+          entryDate: typeof body.entryDate === 'string' ? body.entryDate.trim() : '',
+          measurementPeriodStart: typeof body.measurementPeriodStart === 'string' ? body.measurementPeriodStart.trim() : '',
+          measurementPeriodEnd: typeof body.measurementPeriodEnd === 'string' ? body.measurementPeriodEnd.trim() : '',
+        };
+        const dupError = validateDuplicateServiceOrderInput(dupInput);
+        if (dupError) return { status: 400, body: { error: dupError } };
+        const created = this.repo.duplicateServiceOrderRecord(osRef, dupInput, this.sessionActorName(query));
+        if (!created) return { status: 404, body: { error: 'Ordem de serviço não encontrada.' } };
+        return { status: 200, body: { data: created } };
       }
 
       const payFinMatch = cleanPath.match(/^\/api\/erp\/financial\/([^/]+)\/pay$/);
