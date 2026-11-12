@@ -4,6 +4,8 @@ import { signStiHubSessionToken } from '../src/app/lib/auth';
 import { CrmApiRouter } from '../src/api/router';
 import { createInMemoryRepository, type CrmRepository } from '../src/db/repository';
 import {
+  CRM_DEAL_COMPANY_HIDDEN_WARNING,
+  CRM_DEAL_CONTACT_HIDDEN_WARNING,
   findCompanyForProposal,
   findContactForProposal,
   funnelLabelForBudgetType,
@@ -116,6 +118,7 @@ describe('t226u proposta cria negócio no CRM', () => {
     assert.equal(result.created, true);
     assert.equal(result.companyCreated, false);
     assert.equal(result.contactCreated, false);
+    assert.ok(result.company);
     assert.equal(result.company.id, company.id);
     assert.equal(result.contact?.id, contact.id);
     assert.equal(result.deal.companyId, company.id);
@@ -682,5 +685,128 @@ describe('t226u CISO B1-B4 escopo e validação no vínculo proposta-negócio', 
     );
     assert.notEqual(direct.proposal.companyCnpj, secretCnpj);
     assert.notEqual(String(direct.proposal.contactEmail || '').toLowerCase(), secretEmail);
+    assert.notEqual(direct.deal.companyId, hiddenCompany.id);
+    assert.notEqual(direct.deal.contactId, hiddenContact.id);
+    assert.equal(direct.company, null);
+    assert.equal(direct.contact, null);
+    assert.ok(direct.warnings.includes(CRM_DEAL_COMPANY_HIDDEN_WARNING));
+    assert.ok(direct.warnings.includes(CRM_DEAL_CONTACT_HIDDEN_WARNING));
+  });
+
+  it('B4: usuário PROPRIOS que digita o nome de empresa e contato de outro dono não recebe PII, não vincula e não duplica', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const secretCnpj = uniqueCnpj(821);
+    const secretEmail = 'naira.alheia@empresa-alheia.example';
+    const hiddenCompany = repo.createCompany({
+      name: 'Empresa Alheia B4 Nome LTDA',
+      cnpj: secretCnpj,
+    });
+    const hiddenContact = repo.createContact({
+      firstName: 'Naira',
+      lastName: 'Contato Alheio',
+      email: secretEmail,
+      companyId: hiddenCompany.id,
+      ownerId: 'usr-seta-01',
+    });
+    const companiesBefore = repo.listCompanies().length;
+    const contactsBefore = repo.listContacts().length;
+
+    const res = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/proposals',
+      query: commercial(repo),
+      body: {
+        title: 'Orçamento com nomes de outro responsável',
+        companyName: 'Empresa Alheia B4 Nome LTDA',
+        contactName: 'Naira Contato Alheio',
+        createCrmDeal: true,
+      },
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const body = res.body as {
+      data: ErpCommercialProposal;
+      crmDeal: { id: string; companyId?: string | null; contactId?: string | null };
+      crmDealCreated: boolean;
+      warning?: string;
+    };
+    assert.equal(body.crmDealCreated, true);
+    assert.ok(body.crmDeal.id);
+    assert.notEqual(body.crmDeal.companyId, hiddenCompany.id);
+    assert.notEqual(body.crmDeal.contactId, hiddenContact.id);
+    assert.equal(body.crmDeal.companyId || null, null);
+    assert.equal(body.crmDeal.contactId || null, null);
+    assert.notEqual(body.data.companyId, hiddenCompany.id);
+    assert.notEqual(body.data.contactId, hiddenContact.id);
+    assert.notEqual(body.data.companyCnpj, secretCnpj);
+    assert.equal(String(body.data.companyCnpj || '').includes(secretCnpj.replace(/\D+/g, '')), false);
+    assert.notEqual(String(body.data.contactEmail || '').toLowerCase(), secretEmail);
+
+    const raw = JSON.stringify(res.body);
+    assert.equal(raw.includes(secretCnpj), false, raw);
+    assert.equal(raw.includes(secretCnpj.replace(/\D+/g, '')), false, raw);
+    assert.equal(raw.toLowerCase().includes(secretEmail), false, raw);
+    // O nome do contato alheio não pode vir do registro (só o que o usuário digitou na proposta).
+    assert.equal(Object.prototype.hasOwnProperty.call(body.crmDeal, 'firstName'), false);
+    assert.equal((body as { contact?: { email?: string } }).contact, undefined);
+
+    assert.ok(body.warning);
+    assert.match(String(body.warning), /Empresa já cadastrada para outro responsável/);
+    assert.match(String(body.warning), /Contato já cadastrado para outro responsável/);
+    assert.equal(body.warning?.includes(secretCnpj), false);
+    assert.equal(String(body.warning || '').toLowerCase().includes(secretEmail), false);
+
+    assert.equal(repo.listCompanies().length, companiesBefore);
+    assert.equal(repo.listContacts().length, contactsBefore);
+    const deal = repo.getDealById(body.crmDeal.id);
+    assert.ok(deal);
+    assert.notEqual(deal?.companyId, hiddenCompany.id);
+    assert.notEqual(deal?.contactId, hiddenContact.id);
+  });
+
+  it('B4 controle: usuário com escopo TODOS reaproveita empresa e contato normalmente', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const secretCnpj = uniqueCnpj(822);
+    const hiddenCompany = repo.createCompany({
+      name: 'Empresa Visível TODOS B4 LTDA',
+      cnpj: secretCnpj,
+    });
+    const hiddenContact = repo.createContact({
+      firstName: 'Naira',
+      lastName: 'Contato Todos',
+      email: 'naira.todos@empresa-todos.example',
+      companyId: hiddenCompany.id,
+      ownerId: 'usr-seta-01',
+    });
+    const companiesBefore = repo.listCompanies().length;
+    const contactsBefore = repo.listContacts().length;
+
+    const res = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/proposals',
+      query: session(repo),
+      body: {
+        title: 'Orçamento TODOS reaproveita nomes',
+        companyName: 'Empresa Visível TODOS B4 LTDA',
+        contactName: 'Naira Contato Todos',
+        createCrmDeal: true,
+      },
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    const body = res.body as {
+      data: ErpCommercialProposal;
+      crmDeal: { id: string; companyId?: string | null; contactId?: string | null };
+      crmDealCreated: boolean;
+      warning?: string;
+    };
+    assert.equal(body.crmDealCreated, true);
+    assert.equal(body.crmDeal.companyId, hiddenCompany.id);
+    assert.equal(body.crmDeal.contactId, hiddenContact.id);
+    assert.equal(body.data.companyId, hiddenCompany.id);
+    assert.equal(body.data.contactId, hiddenContact.id);
+    assert.equal(body.warning || '', '');
+    assert.equal(repo.listCompanies().length, companiesBefore);
+    assert.equal(repo.listContacts().length, contactsBefore);
   });
 });

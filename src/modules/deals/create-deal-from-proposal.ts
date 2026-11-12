@@ -32,14 +32,24 @@ export {
 export type LinkProposalToCrmDealResult = {
   proposal: ErpCommercialProposal;
   deal: Deal;
-  company: Company;
+  company: Company | null;
   contact: Contact | null;
   created: boolean;
   companyCreated: boolean;
   contactCreated: boolean;
+  warnings: string[];
 };
 
-/** Visibilidade no mesmo escopo das rotas de empresa e contato. Sem predicado, assume visível. */
+export const CRM_DEAL_COMPANY_HIDDEN_WARNING =
+  'Empresa já cadastrada para outro responsável; negócio criado sem vínculo de empresa.';
+export const CRM_DEAL_CONTACT_HIDDEN_WARNING =
+  'Contato já cadastrado para outro responsável; negócio criado sem vínculo de contato.';
+
+/**
+ * Visibilidade no mesmo escopo das rotas de empresa e contato.
+ * Sem predicado (chamada interna / testes sem sessão), o padrão é o mesmo do roteador
+ * para contexto interno e para quem tem escopo TODOS: tudo visível.
+ */
 export type CrmRecordVisibility = {
   canSeeCompany?: (companyId: string) => boolean;
   canSeeContact?: (contactId: string) => boolean;
@@ -53,45 +63,79 @@ function isVisible(
   return !check || check(id);
 }
 
+
+function stripPiiMatchingHiddenRecords(
+  proposal: ErpCommercialProposal,
+  repo: CrmRepository,
+  hiddenCompanyId?: string,
+  hiddenContactId?: string
+): ErpCommercialProposal {
+  const next: ErpCommercialProposal = { ...proposal };
+  const digits = (v: unknown) => String(v || '').replace(/\D+/g, '');
+  if (hiddenCompanyId) {
+    next.companyId = null;
+    const hidden = repo.getCompanyById(hiddenCompanyId);
+    if (hidden && digits(next.companyCnpj) && digits(next.companyCnpj) === digits(hidden.cnpj)) {
+      next.companyCnpj = '';
+    }
+  }
+  if (hiddenContactId) {
+    next.contactId = null;
+    const hidden = repo.getContactById(hiddenContactId);
+    const left = String(next.contactEmail || '').trim().toLowerCase();
+    const right = String(hidden?.email || '').trim().toLowerCase();
+    if (left && left === right) next.contactEmail = '';
+  }
+  return next;
+}
+
+type ResolveCompanyForProposalResult = {
+  company: Company | null;
+  created: boolean;
+  warning?: string;
+  /** Só para detectar contato correspondente; nunca vai para a resposta nem para o deal. */
+  matchedHiddenId?: string;
+};
+
+type ResolveContactForProposalResult = {
+  contact: Contact | null;
+  created: boolean;
+  warning?: string;
+  /** Só para redigir PII; nunca vai para a resposta nem para o deal. */
+  matchedHiddenId?: string;
+};
+
 function attachmentFieldsForProposal(
   proposal: ErpCommercialProposal,
-  company: Company,
+  company: Company | null,
   contact: Contact | null,
   visibility?: CrmRecordVisibility
 ): {
-  companyId: string;
-  contactId: string | undefined;
-  companyName: string;
+  companyId: string | null;
+  contactId: string | null;
+  companyName: string | undefined;
   companyCnpj: string | null | undefined;
   contactName: string | undefined;
   contactEmail: string | undefined;
 } {
-  const seeCompany = isVisible(visibility?.canSeeCompany, company.id);
+  const seeCompany = Boolean(company) && isVisible(visibility?.canSeeCompany, company?.id);
   const seeContact = Boolean(contact) && isVisible(visibility?.canSeeContact, contact?.id);
-  const sameCnpj =
-    Boolean(documentDigits(proposal.companyCnpj)) &&
-    documentDigits(proposal.companyCnpj) === documentDigits(company.cnpj);
-  const sameEmail =
-    Boolean(contact) &&
-    String(proposal.contactEmail || '').trim().toLowerCase() !== '' &&
-    String(proposal.contactEmail || '').trim().toLowerCase() === String(contact?.email || '').trim().toLowerCase();
   return {
-    companyId: company.id,
-    contactId: contact?.id || proposal.contactId || undefined,
-    companyName: company.name,
-    companyCnpj: seeCompany
-      ? company.cnpj || proposal.companyCnpj || undefined
-      : sameCnpj
-        ? ''
-        : proposal.companyCnpj || undefined,
-    contactName: contact
-      ? `${contact.firstName} ${contact.lastName}`.trim()
-      : proposal.contactName,
-    contactEmail: seeContact
-      ? contact?.email || proposal.contactEmail || undefined
-      : sameEmail
-        ? ''
-        : proposal.contactEmail || undefined,
+    companyId: seeCompany && company ? company.id : null,
+    contactId: seeContact && contact ? contact.id : null,
+    companyName: seeCompany && company ? company.name : proposal.companyName,
+    companyCnpj:
+      seeCompany && company
+        ? company.cnpj || proposal.companyCnpj || undefined
+        : proposal.companyCnpj ?? '',
+    contactName:
+      seeContact && contact
+        ? `${contact.firstName} ${contact.lastName}`.trim()
+        : proposal.contactName,
+    contactEmail:
+      seeContact && contact
+        ? contact.email || proposal.contactEmail || undefined
+        : proposal.contactEmail ?? '',
   };
 }
 
@@ -115,14 +159,27 @@ function resolveOwner(
 
 export function resolveOrCreateCompanyForProposal(
   repo: CrmRepository,
-  proposal: ErpCommercialProposal
-): { company: Company; created: boolean } {
+  proposal: ErpCommercialProposal,
+  visibility?: CrmRecordVisibility
+): ResolveCompanyForProposalResult {
+  const placeholderCnpj = documentDigits('18.236.120/0001-58');
+  const providedDigits = documentDigits(proposal.companyCnpj);
   const existing = findCompanyForProposal(repo.listCompanies(), {
     companyId: proposal.companyId,
-    companyCnpj: proposal.companyCnpj,
+    companyCnpj: providedDigits && providedDigits !== placeholderCnpj ? proposal.companyCnpj : undefined,
     companyName: proposal.companyName,
   });
-  if (existing) return { company: existing, created: false };
+  if (existing) {
+    if (isVisible(visibility?.canSeeCompany, existing.id)) {
+      return { company: existing, created: false };
+    }
+    return {
+      company: null,
+      created: false,
+      warning: CRM_DEAL_COMPANY_HIDDEN_WARNING,
+      matchedHiddenId: existing.id,
+    };
+  }
   const name = String(proposal.companyName || '').trim() || 'Empresa Cliente B2B';
   const company = repo.createCompany({
     name,
@@ -134,24 +191,38 @@ export function resolveOrCreateCompanyForProposal(
 export function resolveOrCreateContactForProposal(
   repo: CrmRepository,
   proposal: ErpCommercialProposal,
-  company: Company
-): { contact: Contact | null; created: boolean } {
+  company: Company | null,
+  visibility?: CrmRecordVisibility,
+  hiddenCompanyId?: string
+): ResolveContactForProposalResult {
   const name = String(proposal.contactName || proposal.careOf || '').trim();
   const email = String(proposal.contactEmail || '').trim();
-  const existing = findContactForProposal(repo.listContacts(), {
+  const contacts = repo.listContacts();
+  let existing = findContactForProposal(contacts, {
     contactId: proposal.contactId,
     contactEmail: email,
     contactName: name,
-    companyId: company.id,
+    companyId: company?.id,
   });
+  if (!existing && hiddenCompanyId) {
+    existing = findContactForProposal(contacts, {
+      contactEmail: email,
+      contactName: name,
+      companyId: hiddenCompanyId,
+    });
+  }
   if (existing) {
-    if (!existing.companyId) {
-      const updated = repo.updateContact(existing.id, { companyId: company.id });
-      return { contact: updated || existing, created: false };
+    if (isVisible(visibility?.canSeeContact, existing.id)) {
+      if (company && !existing.companyId) {
+        const updated = repo.updateContact(existing.id, { companyId: company.id });
+        return { contact: updated || existing, created: false };
+      }
+      return { contact: existing, created: false };
     }
-    return { contact: existing, created: false };
+    return { contact: null, created: false, warning: CRM_DEAL_CONTACT_HIDDEN_WARNING, matchedHiddenId: existing.id };
   }
   if (!name && !email) return { contact: null, created: false };
+  if (!company) return { contact: null, created: false };
   const parts = splitPersonName(name || email.split('@')[0]);
   const contact = repo.createContact({
     firstName: parts.firstName,
@@ -172,16 +243,26 @@ export function linkProposalToCrmDeal(
   proposal: ErpCommercialProposal,
   options?: { actorName?: string; visibility?: CrmRecordVisibility }
 ): LinkProposalToCrmDealResult {
-  const reusedCompanyId = String(proposal.companyId || '').trim();
-  const reusedContactId = String(proposal.contactId || '').trim();
-  const sawReusedCompany = !reusedCompanyId || isVisible(options?.visibility?.canSeeCompany, reusedCompanyId);
-  const sawReusedContact = !reusedContactId || isVisible(options?.visibility?.canSeeContact, reusedContactId);
+  // Para todo id: a mesma regra do roteador (canSee*). Sem função, tudo visível (interno / TODOS).
   const visibility: CrmRecordVisibility = {
-    canSeeCompany: (id) => (reusedCompanyId && id === reusedCompanyId ? sawReusedCompany : true),
-    canSeeContact: (id) => (reusedContactId && id === reusedContactId ? sawReusedContact : true),
+    canSeeCompany: (id) => isVisible(options?.visibility?.canSeeCompany, id),
+    canSeeContact: (id) => isVisible(options?.visibility?.canSeeContact, id),
   };
-  const companyRes = resolveOrCreateCompanyForProposal(repo, proposal);
-  const contactRes = resolveOrCreateContactForProposal(repo, proposal, companyRes.company);
+  const companyRes = resolveOrCreateCompanyForProposal(repo, proposal, visibility);
+  const contactRes = resolveOrCreateContactForProposal(
+    repo,
+    proposal,
+    companyRes.company,
+    visibility,
+    companyRes.matchedHiddenId
+  );
+  const warnings = [companyRes.warning, contactRes.warning].filter((w): w is string => Boolean(w));
+  const proposalForLink = stripPiiMatchingHiddenRecords(
+    proposal,
+    repo,
+    companyRes.matchedHiddenId,
+    contactRes.matchedHiddenId
+  );
   const existingDeal = findExistingDeal(repo, proposal);
 
   if (existingDeal) {
@@ -192,13 +273,13 @@ export function linkProposalToCrmDeal(
         proposalId: proposal.id,
       },
     };
-    if (!existingDeal.companyId) patch.companyId = companyRes.company.id;
+    if (!existingDeal.companyId && companyRes.company) patch.companyId = companyRes.company.id;
     if (!existingDeal.contactId && contactRes.contact) patch.contactId = contactRes.contact.id;
     const deal = repo.updateDeal(existingDeal.id, patch) || existingDeal;
     const linked =
       repo.attachCrmDealToProposal(proposal.id, {
         dealId: deal.id,
-        ...attachmentFieldsForProposal(proposal, companyRes.company, contactRes.contact, visibility),
+        ...attachmentFieldsForProposal(proposalForLink, companyRes.company, contactRes.contact, visibility),
       }) || proposal;
     return {
       proposal: linked,
@@ -208,6 +289,7 @@ export function linkProposalToCrmDeal(
       created: false,
       companyCreated: companyRes.created,
       contactCreated: contactRes.created,
+      warnings,
     };
   }
 
@@ -224,7 +306,7 @@ export function linkProposalToCrmDeal(
     tcv: value,
     pipelineId: placement.pipelineId,
     stageId: placement.stageId,
-    companyId: companyRes.company.id,
+    companyId: companyRes.company?.id || null,
     contactId: contactRes.contact?.id || null,
     ownerId: owner.ownerId,
     ownerName: owner.ownerName,
@@ -244,7 +326,7 @@ export function linkProposalToCrmDeal(
         title: 'Negócio criado a partir da proposta do ERP',
         body: `Proposta ${proposal.code || proposal.id} vinculada automaticamente ao CRM.`,
         contactId: contactRes.contact?.id || null,
-        companyId: companyRes.company.id,
+        companyId: companyRes.company?.id || null,
         dealId: deal.id,
         actor: options.actorName,
         metadata: { proposalId: proposal.id, proposalCode: proposal.code },
@@ -257,7 +339,7 @@ export function linkProposalToCrmDeal(
   const linked =
     repo.attachCrmDealToProposal(proposal.id, {
       dealId: deal.id,
-      ...attachmentFieldsForProposal(proposal, companyRes.company, contactRes.contact, visibility),
+      ...attachmentFieldsForProposal(proposalForLink, companyRes.company, contactRes.contact, visibility),
     }) || proposal;
 
   return {
@@ -268,5 +350,6 @@ export function linkProposalToCrmDeal(
     created: true,
     companyCreated: companyRes.created,
     contactCreated: contactRes.created,
+    warnings,
   };
 }

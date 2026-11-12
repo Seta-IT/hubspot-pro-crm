@@ -687,6 +687,7 @@ export default function ErpGestaoClickTab({
     publicUrl: string;
     printUrl: string;
     crmDeal?: Deal | null;
+    crmDealWarning?: string;
   } | null>(null);
 
   const [propTitle, setPropTitle] = useState("");
@@ -1437,6 +1438,10 @@ export default function ErpGestaoClickTab({
     const payload = (await res.json().catch(() => null)) || {};
     const saved: ErpCommercialProposal = payload.data || updated;
     const crmDeal = (payload.crmDeal || null) as Deal | null;
+    const crmDealWarning =
+      typeof (payload as { warning?: unknown }).warning === 'string'
+        ? String((payload as { warning: string }).warning).trim()
+        : '';
     recordUpsertedProposal(saved);
     if (crmDeal) recordUpsertedDeal(crmDeal);
     const publicUrl = buildInternalProposalUrl(saved);
@@ -1446,6 +1451,7 @@ export default function ErpGestaoClickTab({
       publicUrl,
       printUrl,
       crmDeal,
+      ...(crmDealWarning ? { crmDealWarning } : {}),
     });
     setEditingProposal(null);
     setIsCreatingProposalModal(false);
@@ -5271,6 +5277,11 @@ export default function ErpGestaoClickTab({
                 {' — '}
                 {createdProposalBanner.proposal.companyName}. O link para o cliente está pronto.
               </span>
+              {createdProposalBanner.crmDealWarning ? (
+                <span className="basis-full font-semibold text-slate-700" data-testid="banner-crm-deal-warning">
+                  {createdProposalBanner.crmDealWarning}
+                </span>
+              ) : null}
               <div className="flex flex-wrap items-center gap-3 shrink-0">
                 <button
                   type="button"

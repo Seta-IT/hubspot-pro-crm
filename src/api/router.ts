@@ -2608,7 +2608,7 @@ export class CrmApiRouter {
     query: Record<string, string | undefined>,
     proposal: ErpCommercialProposal,
     ctx: { trustedInternal: boolean; serviceAccount?: boolean }
-  ): { proposal: ErpCommercialProposal; crmDeal: unknown; crmDealCreated: boolean } {
+  ): { proposal: ErpCommercialProposal; crmDeal: unknown; crmDealCreated: boolean; warning?: string } {
     const result = linkProposalToCrmDeal(this.repo, proposal, {
       actorName: this.sessionActorName(query),
       visibility: {
@@ -2616,7 +2616,13 @@ export class CrmApiRouter {
         canSeeContact: (contactId) => this.sessionCanSeeCrmRecord(query, ctx, { contactId }),
       },
     });
-    return { proposal: result.proposal, crmDeal: result.deal, crmDealCreated: result.created };
+    const warning = result.warnings.filter(Boolean).join(' ');
+    return {
+      proposal: result.proposal,
+      crmDeal: result.deal,
+      crmDealCreated: result.created,
+      ...(warning ? { warning } : {}),
+    };
   }
 
   /**
@@ -6954,7 +6960,7 @@ export class CrmApiRouter {
           );
           if (createDealRequested) {
             const linked = this.applyCreateCrmDeal(query, finalCreated, ctx);
-            return { status: 201, body: { data: linked.proposal, crmDeal: linked.crmDeal, crmDealCreated: linked.crmDealCreated } };
+            return { status: 201, body: { data: linked.proposal, crmDeal: linked.crmDeal, crmDealCreated: linked.crmDealCreated, ...(linked.warning ? { warning: linked.warning } : {}) } };
           }
           return { status: 201, body: { data: finalCreated } };
         }
@@ -7194,7 +7200,7 @@ export class CrmApiRouter {
           );
           if (updateDealRequested) {
             const linked = this.applyCreateCrmDeal(query, updated, ctx);
-            return { status: 200, body: { data: linked.proposal, crmDeal: linked.crmDeal, crmDealCreated: linked.crmDealCreated } };
+            return { status: 200, body: { data: linked.proposal, crmDeal: linked.crmDeal, crmDealCreated: linked.crmDealCreated, ...(linked.warning ? { warning: linked.warning } : {}) } };
           }
           return { status: 200, body: { data: updated } };
         }
