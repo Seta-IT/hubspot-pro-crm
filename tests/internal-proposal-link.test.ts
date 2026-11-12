@@ -264,6 +264,26 @@ describe('Link interno: locação, serviço, produtos e URL estável', () => {
     assert.notEqual(after.versionLabel, before.versionLabel);
     assert.equal(after.title, 'Locação corrigida');
     assert.equal(after.internalNotes, 'depois');
+
+    const blank = (first.body as { data: { sheet: { contractNumber: string; issuerCnpj: string } } }).data.sheet;
+    assert.equal(blank.contractNumber, '');
+    assert.equal(blank.issuerCnpj, '14.806.925/0001-32');
+    repo.createRentalContract({
+      title: 'Locação estável',
+      companyName: 'Via Itália',
+      monthlyValue: 4500,
+      proposalId: created.id,
+      contractNumber: 'LOC-INTERNO',
+      externalContractNumber: 'GC-8841',
+    });
+    const linked = await router.dispatch({
+      method: 'GET',
+      path: `/api/interno/proposta/${created.id}`,
+      query: { ...HTTP, _sessionToken: adminToken() },
+    });
+    const sheet = (linked.body as { data: { sheet: { contractNumber: string; issuerCnpj: string } } }).data.sheet;
+    assert.equal(sheet.contractNumber, 'GC-8841');
+    assert.doesNotMatch(sheet.issuerCnpj, /09\.449\.088/);
   });
 });
 
@@ -388,22 +408,57 @@ describe('Visão interna: sem observações e com PDF', () => {
     }), { origin: 'https://sti-hub.vercel.app' });
     assert.equal(internalProposalPdfFileName(model.codeLabel, model.companyName), 'Proposta-4711-ViaItalia.pdf');
     const html = buildInternalProposalPrintHtml(model).replace(/\u00A0/g, ' ');
-    assert.doesNotMatch(html, /Observações internas/);
+    assert.doesNotMatch(html, /Observações internas|Visão interna do orçamento|LINK INTERNO ESTÁVEL|STI-HUB/);
     assert.doesNotMatch(html, /Empresa não encontrada/);
-    assert.match(html, /Visão interna do orçamento/);
+    assert.doesNotMatch(html, /09\.449\.088\/0001-06/);
+    assert.match(html, /ORÇAMENTO Nº 4711/);
     assert.match(html, /Locação/);
     assert.match(html, /Via Itália/);
     assert.match(html, /R\$ 4\.490,00/);
-    const pdfBytes = buildInternalProposalPdf(model);
-    const extracted = extractPdfText(Buffer.from(pdfBytes));
-    assert.match(extracted, /Visão interna do orçamento/);
+    assert.match(html, /14\.806\.925\/0001-32/);
+    const tainted = toInternalProposalSummary(baseProposal({
+      id: 'prop-via-italia-loc-20261106',
+      code: '4711',
+      title: 'Locação FortiGate — Via Itália',
+      budgetType: 'LOCACAO',
+      companyName: 'Via Itália',
+      companyCnpj: '07.638.845/0001-56',
+      proposalDate: '2026-11-06',
+      validUntil: '2026-11-13',
+      monthlyRecurringTotal: 4490,
+      contractMonths: 36,
+      shippingCost: 650,
+      commercialNotes: 'Locação de bens móveis — 36 meses (IPCA).',
+      internalNotes: 'NOTA_INTERNA_SECRETA_4711',
+      items: [
+        { id: 'a', sku: 'FG-40F', description: 'FortiGate 40F', fiscalNature: 'LOCACAO_BENS_MOVEIS', ncmOrServiceCode: 'Com Licença UTP', quantity: 2, unitPrice: 780, discountPercent: 0, isRecurring: true, totalMonthly: 1560 },
+        { id: 'b', sku: 'FAP-231F', description: 'FortiAP 231F', fiscalNature: 'LOCACAO_BENS_MOVEIS', ncmOrServiceCode: '', quantity: 6, unitPrice: 215, discountPercent: 0, isRecurring: true, totalMonthly: 1290 },
+        { id: 'c', sku: 'WS-C3850-48P', description: 'Switch Cisco Catalyst', fiscalNature: 'LOCACAO_BENS_MOVEIS', ncmOrServiceCode: '', quantity: 4, unitPrice: 410, discountPercent: 0, isRecurring: true, totalMonthly: 1640 },
+      ],
+    }), { origin: 'https://sti-hub.vercel.app', issuer: { legalName: 'TEMPLATE', cnpj: '09.449.088/0001-06', city: 'São Paulo', state: 'SP' } });
+    const pdfBytes = buildInternalProposalPdf(tainted);
+    const rawPdf = Buffer.from(pdfBytes).toString('latin1');
+    const extracted = extractPdfText(Buffer.from(pdfBytes)).replace(/\u00A0/g, ' ');
+    const pageCount = (rawPdf.match(/\/Type \/Page(?!s)/g) || []).length;
+    assert.equal(pageCount, 1);
     assert.match(extracted, /Locação/);
     assert.match(extracted, /Via Itália/);
     assert.match(extracted, /R\$ 4\.490,00/);
-    assert.doesNotMatch(extracted, /Observações internas/);
-    assert.doesNotMatch(extracted, /Empresa não encontrada/);
-    assert.match(Buffer.from(pdfBytes).toString('latin1'), /\/Encoding \/WinAnsiEncoding/);
-    assert.match(Buffer.from(pdfBytes).toString('latin1'), / re S/);
+    assert.match(extracted, /14\.806\.925\/0001-32/);
+    assert.doesNotMatch(extracted, /09\.449\.088/);
+    assert.doesNotMatch(extracted, /NOTA_INTERNA_SECRETA_4711/);
+    assert.doesNotMatch(extracted, /Visão interna do orçamento|LINK INTERNO/);
+    assert.match(rawPdf, /\/Encoding \/WinAnsiEncoding/);
+    const service = toInternalProposalSummary(baseProposal({
+      code: '4713',
+      budgetType: 'SERVICOS',
+      serviceType: 'Suporte N1/N2',
+      companyName: 'GOLDEN LAND LTDA',
+      monthlyRecurringTotal: 1100,
+      contractMonths: 36,
+    }));
+    assert.match(service.sheet.headline, /Proposta de Serviço/);
+    assert.equal((Buffer.from(buildInternalProposalPdf(service)).toString('latin1').match(/\/Type \/Page(?!s)/g) || []).length, 1);
   });
 });
 

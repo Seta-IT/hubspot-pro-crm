@@ -3041,7 +3041,29 @@ export class CrmApiRouter {
       return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
     }
     const origin = typeof query._origin === 'string' && query._origin.trim() ? query._origin : undefined;
-    return { status: 200, body: { data: toInternalProposalSummary(found, { origin }) } };
+    const company = found.companyId ? this.repo.getCompanyById(found.companyId) : undefined;
+    return {
+      status: 200,
+      body: {
+        data: toInternalProposalSummary(found, {
+          origin,
+          issuer: this.companyEmitter,
+          contractNumber: this.contractNumberForProposal(found),
+          clientCity: company?.city,
+          clientState: company?.state,
+        }),
+      },
+    };
+  }
+
+  private contractNumberForProposal(proposal: ErpCommercialProposal): string {
+    const list = this.repo.listRentalContracts();
+    const linked = proposal.convertedContractId
+      ? list.find((contract) => contract.id === proposal.convertedContractId)
+      : undefined;
+    const match = linked || list.find((contract) => contract.proposalId === proposal.id);
+    if (!match) return '';
+    return String(match.externalContractNumber || match.contractNumber || '').trim();
   }
 
   private proposalScopeForbidden(code: 'PROPOSAL_SCOPE_FORBIDDEN' | 'PROPOSAL_OWNER_IMMUTABLE', fields?: string[]): ApiResponse {
