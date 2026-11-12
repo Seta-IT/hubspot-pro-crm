@@ -449,10 +449,16 @@ async function upsertMirrorBatch(
 ): Promise<number> {
   if (batch.length === 0) return 0;
   const ins = buildMirrorInsert(spec, batch);
+  // CISO: no Postgres um erro aborta a transacao inteira; o SAVEPOINT permite
+  // desfazer so este INSERT e seguir ate o COMMIT (sem ROLLBACK do estado todo).
+  await client.query('SAVEPOINT mirror_upsert');
   try {
     await client.query(ins.text, ins.params);
+    await client.query('RELEASE SAVEPOINT mirror_upsert');
     return 0;
   } catch (err) {
+    await client.query('ROLLBACK TO SAVEPOINT mirror_upsert');
+    await client.query('RELEASE SAVEPOINT mirror_upsert');
     if (!isPgUniqueViolation(err)) throw err;
     if (batch.length === 1) return 1;
     let skipped = 0;

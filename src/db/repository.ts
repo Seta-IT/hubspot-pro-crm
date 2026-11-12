@@ -2359,7 +2359,10 @@ export class CrmRepository {
     ).trim();
     if (incomingProposalId) {
       const existing = this.findDealByProposalId(incomingProposalId);
-      if (existing) return existing;
+      // CISO: nunca devolve o negocio de outra pessoa (POST /api/deals); 409 neutro.
+      if (existing) {
+        throw new RecordIdConflictError("PROPOSAL_DEAL_CONFLICT", "Esta proposta já está vinculada a outro negócio.");
+      }
     }
     assertNewRecordId(this.state.deals, input.id, 'DEAL_ID_CONFLICT', 'um negócio'); // Pacote J (A1)
     const now = new Date().toISOString();

@@ -152,15 +152,32 @@ function findExistingDeal(repo: CrmRepository, proposal: ErpCommercialProposal):
   return repo.listDeals().find((d) => dealLinkedProposalId(d) === proposal.id);
 }
 
+/** CISO: resposta neutra para negocio fora do escopo (nada de titulo, valor, etapa ou datas). */
 function redactHiddenDeal(deal: Deal): Deal {
   return {
-    ...deal,
-    companyId: null,
+    id: deal.id,
+    title: 'Negócio vinculado',
+    value: 0,
+    currency: 'BRL',
+    pipelineId: '',
+    stageId: '',
+    probability: 0,
+    expectedCloseDate: null,
     contactId: null,
+    companyId: null,
+    proposalId: deal.proposalId ?? null,
     ownerId: null,
     ownerName: undefined,
+    status: 'OPEN',
+    stageEnteredAt: '',
+    lastActivityAt: null,
+    closedAt: null,
+    lostReason: null,
+    nextBestAction: null,
     customProperties: deal.proposalId ? { proposalId: deal.proposalId } : {},
-  };
+    createdAt: '',
+    updatedAt: '',
+  } as Deal;
 }
 
 function bindExistingDealToProposal(

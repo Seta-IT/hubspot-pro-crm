@@ -813,19 +813,22 @@ describe('t226u CISO B1-B4 escopo e validação no vínculo proposta-negócio', 
     assert.equal(repo.listContacts().length, contactsBefore);
   });
 
-  it('createDeal com o mesmo proposalId devolve o negócio já existente', () => {
+  it('createDeal com o mesmo proposalId recusa com PROPOSAL_DEAL_CONFLICT sem devolver o negócio existente', () => {
     const repo = createInMemoryRepository();
-    const first = repo.createDeal({
+    repo.createDeal({
       title: 'Primeiro negócio da proposta',
       value: 1000,
       proposalId: 'prop-lock-create-1',
     });
-    const second = repo.createDeal({
-      title: 'Tentativa duplicada',
-      value: 2000,
-      proposalId: 'prop-lock-create-1',
-    });
-    assert.equal(second.id, first.id);
+    assert.throws(
+      () =>
+        repo.createDeal({
+          title: 'Tentativa duplicada',
+          value: 2000,
+          proposalId: 'prop-lock-create-1',
+        }),
+      (err: unknown) => (err as { code?: string }).code === 'PROPOSAL_DEAL_CONFLICT' && !String((err as Error).message).includes('Primeiro')
+    );
     assert.equal(
       repo.listDeals().filter((d) => dealLinkedProposalId(d) === 'prop-lock-create-1').length,
       1
