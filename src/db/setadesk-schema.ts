@@ -503,6 +503,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS setadesk_pipelines_mailbox_uidx
   WHERE mailbox IS NOT NULL AND BTRIM(mailbox) <> '';
 `,
   },
+  {
+    id: '0006_email_intake',
+    description:
+      'Entrada de e-mail: first_viewed_at/by nos chamados; corpo e metadados de anexos em setadesk_email_messages; caixa de envio e reivindicacao na outbox; inicio da leitura e erro por caixa no cursor delta.',
+    sql: `
+ALTER TABLE IF EXISTS setadesk_tickets
+  ADD COLUMN IF NOT EXISTS first_viewed_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS first_viewed_by TEXT;
+
+ALTER TABLE IF EXISTS setadesk_email_messages
+  ADD COLUMN IF NOT EXISTS body_text TEXT,
+  ADD COLUMN IF NOT EXISTS body_html TEXT,
+  ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb;
+CREATE INDEX IF NOT EXISTS setadesk_email_ticket_origin_idx
+  ON setadesk_email_messages (ticket_id, linked_by) WHERE direction = 'INBOUND';
+
+ALTER TABLE IF EXISTS setadesk_email_outbox
+  ADD COLUMN IF NOT EXISTS from_mailbox TEXT,
+  ADD COLUMN IF NOT EXISTS reply_to_provider_message_id TEXT,
+  ADD COLUMN IF NOT EXISTS sending_started_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS setadesk_outbox_ticket_idx ON setadesk_email_outbox (ticket_id);
+
+ALTER TABLE IF EXISTS setadesk_mail_sync_state
+  ADD COLUMN IF NOT EXISTS intake_started_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS last_error_code TEXT,
+  ADD COLUMN IF NOT EXISTS last_success_at TIMESTAMPTZ;
+`,
+  },
 ];
 
 /**

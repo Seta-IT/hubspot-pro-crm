@@ -491,6 +491,18 @@ export default function ServiceDeskTab({
         }
       : listedTicket;
 
+  // SetaDesk: registra a primeira abertura do chamado (aviso "estamos analisando" nos chamados
+  // abertos por e-mail). POST explicito ao abrir o modal, uma vez por chamado nesta sessao da tela;
+  // o servidor garante o "uma unica vez" e ignora quando a flag da entrada de e-mail esta desligada.
+  const markedViewedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!selectedTicketId || markedViewedRef.current.has(selectedTicketId)) return;
+    markedViewedRef.current.add(selectedTicketId);
+    fetch(`/api/tickets/${encodeURIComponent(selectedTicketId)}/mark-viewed`, { method: 'POST' }).catch(() => {
+      // sem efeito visivel: e apenas registro
+    });
+  }, [selectedTicketId]);
+
   useEffect(() => {
     if (!selectedTicketId) {
       setTicketDetail(null);
@@ -1793,6 +1805,11 @@ export default function ServiceDeskTab({
                   <span className="px-2.5 py-1 rounded-lg bg-accent text-white font-mono text-xs font-semibold">
                     {activeTicket.key}
                   </span>
+                  {activeTicket.channel === 'EMAIL' && (
+                    <span className="px-2 py-0.5 rounded-md border border-sky-200 bg-sky-50 text-sky-700 text-xs font-semibold">
+                      E-mail
+                    </span>
+                  )}
                   {getPriorityBadge(activeTicket.priority)}
                   {renderRealtimeSlaBadge(activeTicket)}
                 </div>
