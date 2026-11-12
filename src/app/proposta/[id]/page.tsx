@@ -36,6 +36,7 @@ import {
   buildSnapshotFromProposal,
   proposalFromVersionSnapshot,
   computeProposalTotals,
+  resolveProposalCommercialFigures,
   decodeProposalFromQueryParam,
   inferProposalItemType,
   cleanProposalPaymentCondition,
@@ -59,6 +60,7 @@ import {
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
 import { copySignedProposalVersionLink } from '../../lib/proposal-link-client';
+import { lookupServerProposal } from '../../lib/proposal-approval-lookup';
 import { copyInternalProposalLink, openInternalProposalLink } from '../../lib/internal-proposal-summary';
 import { ProposalLinkOverrideContext } from '../../lib/proposal-link-override';
 import { formatProposalDisplayCode, isLegacyProposalCode } from '../../lib/proposal-number';
@@ -158,7 +160,7 @@ function PublicProposalPrintContent() {
           if (!activePublic) return;
           const dto = ok && json?.data && !Array.isArray(json.data) ? (json.data as PublicProposalDto) : null;
           if (dto) {
-            setProposal(publicDtoToRenderableProposal(dto, rawId));
+            setProposal(computeProposalTotals(publicDtoToRenderableProposal(dto, rawId)));
             setPublicLinkInvalid(false);
           } else {
             setProposal(null);
@@ -621,6 +623,14 @@ function PublicProposalPrintContent() {
     }
     setApprovingContract(true);
     try {
+      let current = proposal;
+      if (!linkToken && isInternalUser) {
+        const fresh = await lookupServerProposal(proposal);
+        if (fresh) {
+          current = computeProposalTotals(fresh);
+          setProposal(current);
+        }
+      }
       // Aceite do cliente sem login: todos os dados da assinatura seguem no proprio POST /approve.
       // Nenhuma edicao (PATCH) da proposta e feita pelo cliente.
       // Link assinado: o token do link vai no header X-Proposal-Token (nunca na URL) e uma
@@ -636,7 +646,7 @@ function PublicProposalPrintContent() {
         'Idempotency-Key': approveIdempotencyKeyRef.current,
       };
       if (linkToken) approveHeaders['X-Proposal-Token'] = linkToken;
-      const res = await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}/approve`, {
+      const res = await fetch(`/api/erp/proposals/${encodeURIComponent(current.id)}/approve`, {
         method: 'POST',
         headers: approveHeaders,
         credentials: linkToken ? 'omit' : 'same-origin',
@@ -661,7 +671,11 @@ function PublicProposalPrintContent() {
             "Não foi possível registrar o aceite neste momento. Atualize a página e tente novamente; se o problema continuar, fale com o seu consultor Seta Telecom."
           );
         } else if (res.status === 404) {
-          setApprovalError("Este link de proposta é inválido ou expirou. Solicite um novo link ao seu consultor Seta Telecom.");
+          setApprovalError(
+            linkToken
+              ? "Este link de proposta é inválido ou expirou. Solicite um novo link ao seu consultor Seta Telecom."
+              : "Não foi possível localizar este orçamento no servidor. Recarregue a página e tente de novo."
+          );
         } else if (res.status === 429) {
           setApprovalError("Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente.");
         } else {
@@ -677,7 +691,7 @@ function PublicProposalPrintContent() {
         // Resposta publica: { proposal: DTO publico, contractNumber, invoiceNumber } (sem ids internos).
         const dto = json?.data?.proposal as PublicProposalDto | undefined;
         const nextProp: ErpCommercialProposal = dto
-          ? publicDtoToRenderableProposal(dto, proposal.id)
+          ? publicDtoToRenderableProposal(dto, current.id)
           : { ...proposal, status: 'CONVERTIDA_CONTRATO' };
         const sig: ErpProposalDigitalSignature | undefined = nextProp.digitalSignature || undefined;
         setProposal(nextProp);
@@ -929,6 +943,7 @@ function PublicProposalPrintContent() {
   const sellerContact = resolveProposalSellerContact(proposal);
   const displayPaymentCondition =
     cleanProposalPaymentCondition(proposal.paymentCondition) || "Conforme condições acordadas";
+  const commercialFigures = resolveProposalCommercialFigures(proposal);
   const commercialTotalAmount = isProductsOnly
     ? // Venda: subtotal (itens ja liquidos do desconto do item) - desconto global + frete; sem setup.
       Math.round((productsSubtotal + servicesSubtotal - globalDiscountVal + shippingCost) * 100) / 100
@@ -1091,9 +1106,13 @@ function PublicProposalPrintContent() {
             <button
               type="button"
               disabled={approvingContract}
-              onClick={() => {
+              onClick={async () => {
                 if (!signerName.trim()) {
                   setSignerName(proposal.careOf || proposal.contactName || "Representante Legal");
+                }
+                if (!linkToken && isInternalUser) {
+                  const fresh = await lookupServerProposal(proposal);
+                  if (fresh) setProposal(computeProposalTotals(fresh));
                 }
                 setShowIcpSignatureModal(true);
               }}
@@ -1504,8 +1523,8 @@ function PublicProposalPrintContent() {
                   ) : (
                     <>
                       Valor Mensal:{" "}
-                      <strong className="text-emerald-700">{formatBRL(proposal.monthlyRecurringTotal)}/mês</strong> • Tempo de Contrato:{" "}
-                      <strong>{proposal.contractMonths} meses</strong>
+                      <strong className="text-emerald-700">{formatBRL(commercialFigures.monthly)}/mês</strong> • Tempo de Contrato:{" "}
+                      <strong>{commercialFigures.months} {commercialFigures.months === 1 ? "mês" : "meses"}</strong>
                     </>
                   )}
                 </div>
