@@ -8525,6 +8525,37 @@ export class CrmApiRouter {
             };
           }
         }
+        const ticketId = String(body.ticketId || rawMail.ticketId || '').trim();
+        if (!invoiceId && !contractId && !ticketId && !ctx.trustedInternal && !ctx.serviceAccount) {
+          const sess = this.repo.resolveSessionFromToken(query._sessionToken);
+          const hasCrm = Boolean(sess.authenticated && sess.moduleAccess.crm);
+          const hasErp = Boolean(sess.authenticated && sess.moduleAccess.erp);
+          if (!hasCrm && !hasErp) {
+            if (sess.authenticated) {
+              this.repo.appendSecurityAuditLog({
+                actorEmail: sess.user.email,
+                actorName: sess.user.name,
+                actorRole: sess.role.id,
+                action: 'IAM_MODULE_CRM_OR_ERP_BLOCKED',
+                module: 'IAM_RBAC',
+                resource: `${method} ${cleanPath}`,
+                status: 'BLOCKED',
+                details: `Acesso negado ao envio de e-mail sem fatura para ${sess.user.email} (módulos habilitados: [${sess.enabledModules.join(', ')}]).`,
+              });
+            }
+            return {
+              status: sess.authenticated ? 403 : 401,
+              body: {
+                error: sess.authenticated
+                  ? `Acesso bloqueado pela política IAM: o usuário ${sess.user.email} não possui o módulo CRM ou ERP habilitado.`
+                  : 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.',
+                code: sess.authenticated ? 'MODULE_CRM_OR_ERP_FORBIDDEN' : 'MFA_AUTH_REQUIRED',
+                requiredModule: 'CRM_OR_ERP',
+                enabledModules: sess.authenticated ? sess.enabledModules : [],
+              },
+            };
+          }
+        }
         let serverInvoiceAttachments: Array<{ filename: string; content: string; content_type: string }> = [];
         if (invoiceId) {
           if (clientProvidedAttachmentPayload(rawMail) || clientProvidedAttachmentPayload(body)) {
@@ -8960,6 +8991,36 @@ export class CrmApiRouter {
       }
 
       if (cleanPath === '/api/emails/send' && method === 'POST') {
+        if (!ctx.trustedInternal && !ctx.serviceAccount) {
+          const sessMail = this.repo.resolveSessionFromToken(query._sessionToken);
+          const hasCrm = Boolean(sessMail.authenticated && sessMail.moduleAccess.crm);
+          const hasErp = Boolean(sessMail.authenticated && sessMail.moduleAccess.erp);
+          if (!hasCrm && !hasErp) {
+            if (sessMail.authenticated) {
+              this.repo.appendSecurityAuditLog({
+                actorEmail: sessMail.user.email,
+                actorName: sessMail.user.name,
+                actorRole: sessMail.role.id,
+                action: 'IAM_MODULE_CRM_OR_ERP_BLOCKED',
+                module: 'IAM_RBAC',
+                resource: `${method} ${cleanPath}`,
+                status: 'BLOCKED',
+                details: `Acesso negado ao envio avulso de e-mail para ${sessMail.user.email} (módulos habilitados: [${sessMail.enabledModules.join(', ')}]).`,
+              });
+            }
+            return {
+              status: sessMail.authenticated ? 403 : 401,
+              body: {
+                error: sessMail.authenticated
+                  ? `Acesso bloqueado pela política IAM: o usuário ${sessMail.user.email} não possui o módulo CRM ou ERP habilitado.`
+                  : 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.',
+                code: sessMail.authenticated ? 'MODULE_CRM_OR_ERP_FORBIDDEN' : 'MFA_AUTH_REQUIRED',
+                requiredModule: 'CRM_OR_ERP',
+                enabledModules: sessMail.authenticated ? sessMail.enabledModules : [],
+              },
+            };
+          }
+        }
         const to = body.to as string | string[] | undefined;
         const subject = String(body.subject || '').trim();
         const emailBody = String(body.body || '').trim();
