@@ -589,6 +589,84 @@ export function normalizeProposalItemUnit(
   return String(rawUnit).trim();
 }
 
+function lineNetAmount(it: {
+  quantity?: number;
+  unitPrice?: number;
+  subtotal?: number;
+  totalMonthly?: number;
+  discountPercent?: number;
+  discountAmount?: number;
+}): number {
+  const stored = Number(it.subtotal ?? it.totalMonthly);
+  if (Number.isFinite(stored) && stored > 0) return stored;
+  const qty = Math.max(1, Number(it.quantity || 1));
+  const unit = Math.max(0, Number(it.unitPrice || 0));
+  const discPct = Math.max(0, Math.min(100, Number(it.discountPercent || 0)));
+  const discAmt = Math.max(0, Number(it.discountAmount || 0));
+  return Math.max(0, Math.round((qty * unit * (1 - discPct / 100) - discAmt) * 100) / 100);
+}
+
+function monthsMentionedInText(texts: Array<string | null | undefined>): number | null {
+  for (const text of texts) {
+    const m = String(text || '').match(/(\d+)\s*m[eê]s(?:es)?/i);
+    if (!m) continue;
+    const n = Number(m[1]);
+    if (n >= 1 && n <= 120) return n;
+  }
+  return null;
+}
+
+/**
+ * Valor mensal e prazo exibidos no modal de assinatura e na folha interna.
+ * O campo gravado vale quando é positivo. Se o mensal ficou 0 (rascunho ou
+ * resposta incompleta) e os itens têm preço, usa a soma das linhas. Se o
+ * prazo gravado é 1 e o texto da proposta diz outro número de meses, usa o texto.
+ */
+export function resolveProposalCommercialFigures(proposal: {
+  items?: Array<{
+    quantity?: number;
+    unitPrice?: number;
+    subtotal?: number;
+    totalMonthly?: number;
+    isRecurring?: boolean;
+    discountPercent?: number;
+    discountAmount?: number;
+    fiscalNature?: string;
+  }>;
+  monthlyRecurringTotal?: number | null;
+  contractMonths?: number | null;
+  budgetType?: string | null;
+  modality?: string | null;
+  commercialNotes?: string | null;
+  introductionText?: string | null;
+  title?: string | null;
+  paymentCondition?: string | null;
+}): { monthly: number; months: number } {
+  const items = proposal.items || [];
+  const rental =
+    proposal.budgetType === 'LOCACAO' ||
+    proposal.modality === 'RENTAL' ||
+    items.some((it) => it.fiscalNature === 'LOCACAO_BENS_MOVEIS');
+  const recurring = items.filter((it) => it.isRecurring !== false);
+  const recurringSum = recurring.reduce((sum, it) => sum + lineNetAmount(it), 0);
+  const allSum = items.reduce((sum, it) => sum + lineNetAmount(it), 0);
+  const storedMonthly = Number(proposal.monthlyRecurringTotal || 0);
+  const monthly = storedMonthly > 0 ? storedMonthly : rental ? allSum : recurringSum;
+  const storedMonths = Number(proposal.contractMonths || 0);
+  const fromText = monthsMentionedInText([
+    proposal.commercialNotes,
+    proposal.introductionText,
+    proposal.paymentCondition,
+    proposal.title,
+  ]);
+  let months = storedMonths >= 1 ? storedMonths : fromText || (rental ? 36 : 1);
+  if (months === 1 && fromText && fromText > 1) months = fromText;
+  return {
+    monthly: Math.round((Number.isFinite(monthly) ? monthly : 0) * 100) / 100,
+    months,
+  };
+}
+
 export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercialProposal {
   const items: ErpProposalItem[] = (next.items || []).map((it) => {
     const itemType = inferProposalItemType(it);

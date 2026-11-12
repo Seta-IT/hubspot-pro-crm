@@ -1,6 +1,7 @@
 import type { ErpCommercialProposal } from '../../db/types';
 import { DEFAULT_COMPANY_EMITTER_SETTINGS } from '../../modules/erp/daily-sync-service';
 import { formatIssuerAddress, type IssuerAddressInput } from './company-issuer-address';
+import { resolveProposalCommercialFigures } from './proposal-share';
 import {
   FORBIDDEN_TEMPLATE_CNPJ,
   SETA_INTERNAL_BRAND_TITLE,
@@ -188,13 +189,14 @@ export function buildInternalProposalSheet(
   }
 ): InternalProposalSheet {
   const issuer = resolveInternalIssuer(options?.issuer);
-  const months = Number(proposal.contractMonths || 0);
+  const figures = resolveProposalCommercialFigures(proposal);
+  const months = figures.months;
   const monthLabel = months > 0 ? `${months} ${months === 1 ? 'mês' : 'meses'}` : '';
   const service = kind === 'SERVICO' || kind === 'SPARE_PARTS';
   const headline = service
     ? `Proposta de Serviço${monthLabel ? ` - ${monthLabel}` : ''}`
     : `Proposta de Locação${monthLabel ? ` - ${monthLabel}` : ''}`;
-  const monthly = Number(proposal.monthlyRecurringTotal || 0);
+  const monthly = figures.monthly;
   const freight = Number(proposal.shippingCost || 0);
   const delivery = String(proposal.deliveryLeadTime || proposal.deliveryForecast || '').trim();
   const code = String(proposal.code || '').replace(/^#/, '').trim();
