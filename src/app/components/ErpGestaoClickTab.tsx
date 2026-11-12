@@ -156,8 +156,8 @@ import {
 } from './ErpEditModals';
 import { Edit3, Mail } from 'lucide-react';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
-import { copySignedProposalLink, copySignedProposalVersionLink, openWithSignedProposalLink } from '../lib/proposal-link-client';
-import { copyInternalProposalLink } from '../lib/internal-proposal-summary';
+import { copySignedProposalLink, copySignedProposalVersionLink, openSignedProposalLink, openWithSignedProposalLink } from '../lib/proposal-link-client';
+import { copyInternalProposalLink, openInternalProposalLink } from '../lib/internal-proposal-summary';
 import { copySignedInvoiceLink } from '../lib/invoice-link-client';
 import { buildIssuedInvoiceEmailPayload, findLinkedRentalContract } from '../lib/invoice-email-payload';
 import { buildContractEmailPayload } from '../lib/contract-email-payload';
@@ -1735,8 +1735,8 @@ export default function ErpGestaoClickTab({
               setExpandedProposalSubmenu(null);
             }
           }}
-          width={224}
-          estimatedHeight={420}
+          width={280}
+          estimatedHeight={460}
           className="max-h-[70vh]"
           testId="proposal-gestao-click-menu"
           title="Mais opções do orçamento (GestãoClick)"
@@ -1759,6 +1759,66 @@ export default function ErpGestaoClickTab({
             </button>
           )}
         >
+            <div className="flex items-center gap-0.5 pr-1">
+              <button
+                type="button"
+                data-testid="menu-open-client-link"
+                title="Abre o link curto do cliente em uma nova aba"
+                onClick={async () => {
+                  setOpenProposalMenuId(null);
+                  const r = await openSignedProposalLink(prop.id);
+                  if (!r.ok) onShowToast(r.error);
+                }}
+                className="min-w-0 flex-1 px-3.5 py-2 hover:bg-slate-50 flex items-center gap-2.5 text-[#1e3a6e] font-semibold cursor-pointer text-left text-xs"
+              >
+                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                <span>Abrir Link do cliente</span>
+              </button>
+              <button
+                type="button"
+                data-testid="menu-copy-client-link"
+                title="Copiar link do cliente"
+                aria-label="Copiar link do cliente"
+                onClick={async () => {
+                  setOpenProposalMenuId(null);
+                  const r = await copySignedProposalLink(prop.id);
+                  onShowToast(r.ok ? "Link do cliente copiado." : r.error);
+                }}
+                className="p-1.5 rounded hover:bg-slate-100 text-[#1e3a6e] cursor-pointer"
+              >
+                <Copy className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex items-center gap-0.5 pr-1">
+              <button
+                type="button"
+                data-testid="menu-open-internal-link"
+                title="Abre o link interno desta proposta em uma nova aba"
+                onClick={() => {
+                  setOpenProposalMenuId(null);
+                  openInternalProposalLink(prop.id);
+                }}
+                className="min-w-0 flex-1 px-3.5 py-2 hover:bg-slate-50 flex items-center gap-2.5 text-[#1e3a6e] font-semibold cursor-pointer text-left text-xs"
+              >
+                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                <span>Abrir Link interno</span>
+              </button>
+              <button
+                type="button"
+                data-testid="menu-copy-internal-link"
+                title="Copiar link interno"
+                aria-label="Copiar link interno"
+                onClick={async () => {
+                  setOpenProposalMenuId(null);
+                  const url = await copyInternalProposalLink(prop.id);
+                  onShowToast(`Link interno copiado: ${url}`);
+                }}
+                className="p-1.5 rounded hover:bg-slate-100 text-[#1e3a6e] cursor-pointer"
+              >
+                <Copy className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
             {/* Ver proposta */}
             <a
               href={publicUrl}
@@ -1847,31 +1907,6 @@ export default function ErpGestaoClickTab({
               </button>
               {expandedProposalSubmenu === "COMPARTILHAR" && (
                 <div className="border-l border-slate-200 ml-5 pl-3 py-1 space-y-0.5 bg-slate-50/50">
-                  <button
-                    type="button"
-                    data-testid="menu-copy-client-link"
-                    onClick={async () => {
-                      // t33u: link curto assinado (/p/<codigo>) da versao atual.
-                      setOpenProposalMenuId(null);
-                      const r = await copySignedProposalLink(prop.id);
-                      onShowToast(r.ok ? `Link do cliente copiado: ${r.url}` : r.error);
-                    }}
-                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-[#1e3a6e] font-semibold cursor-pointer"
-                  >
-                    Copiar link do cliente
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="menu-copy-internal-link"
-                    onClick={async () => {
-                      setOpenProposalMenuId(null);
-                      const url = await copyInternalProposalLink(prop.id);
-                      onShowToast(`Link interno copiado: ${url}`);
-                    }}
-                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-[#1e3a6e] font-semibold cursor-pointer"
-                  >
-                    Copiar link interno
-                  </button>
                   <button
                     type="button"
                     data-testid="menu-share-email"

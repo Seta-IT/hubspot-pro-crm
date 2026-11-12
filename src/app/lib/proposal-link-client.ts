@@ -64,6 +64,31 @@ export async function copySignedProposalLink(proposalId: string): Promise<Signed
 }
 
 /**
+ * Gera ou reusa o link curto /p/ (mesma emissão de copySignedProposalLink) e abre numa nova aba.
+ * A janela nasce no clique, antes do await, para o navegador não bloquear o pop-up.
+ * Não copia a URL: isso fica no ícone ao lado.
+ */
+export async function openSignedProposalLink(proposalId: string): Promise<SignedProposalLinkResult> {
+  const popup = typeof window !== 'undefined' ? window.open('about:blank', '_blank') : null;
+  const r = await requestSignedProposalLink(proposalId);
+  if (!r.ok) {
+    popup?.close();
+    return r;
+  }
+  if (popup) {
+    try {
+      popup.opener = null;
+    } catch {
+      // ignore
+    }
+    popup.location.href = r.url;
+  } else if (typeof window !== 'undefined') {
+    window.open(r.url, '_blank', 'noopener,noreferrer');
+  }
+  return r;
+}
+
+/**
  * Abre um app externo (WhatsApp/SMS) com o link assinado. A janela e aberta de imediato
  * (evita bloqueio de pop-up) e redirecionada quando o link chega.
  */

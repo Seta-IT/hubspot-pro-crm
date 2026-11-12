@@ -99,6 +99,23 @@ export function buildStableInternalProposalUrl(proposalId: string, origin?: stri
   return `${base}${buildStableInternalProposalPath(proposalId)}`;
 }
 
+/** Abre a visão interna estável numa nova aba. Não emite o link do cliente. */
+export function openInternalProposalLink(proposalId: string): string {
+  const origin = typeof window !== 'undefined' ? window.location.origin : undefined;
+  const url = buildStableInternalProposalUrl(proposalId, origin);
+  if (typeof window !== 'undefined') {
+    const popup = window.open(url, '_blank', 'noopener,noreferrer');
+    if (popup) {
+      try {
+        popup.opener = null;
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return url;
+}
+
 /** Copia a URL interna estável (sem token e sem versão). Não emite o link do cliente. */
 export async function copyInternalProposalLink(proposalId: string): Promise<string> {
   const origin = typeof window !== 'undefined' ? window.location.origin : undefined;
