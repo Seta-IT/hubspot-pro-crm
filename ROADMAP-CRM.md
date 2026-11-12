@@ -455,6 +455,33 @@ Inclui suporte planejado e auditado para: Formulários de captura, Landing pages
 - [ ] Responsáveis: campanhas e listas com **CRM - Marketing & Leads**; revisão de segurança e LGPD obrigatória com o **CISO** antes de iniciar.
 - [ ] Plano de saída do HubSpot (Portal `#4369067`): migração de contatos, listas, consentimentos e histórico de envios.
 
+## 11. Lacunas em relação ao HubSpot (registrado em 12/11/2026, pedido do Marcéllo)
+
+Contexto: na reorganização do menu e das configurações no padrão HubSpot (commit bc64740), cada tela existente do sti-hub (CRM e ERP) foi mapeada para o item equivalente do HubSpot. Nenhuma tela existente ficou sem acesso e as permissões (RBAC) não mudaram. Os itens abaixo existem no HubSpot, mas ainda não têm tela no sti-hub, por isso ficaram fora do menu. Status de todos: **Backlog**, cada um depende de pedido do Marcéllo para virar frente de trabalho.
+
+| Área (menu "Mais") | Item do HubSpot | Status |
+|---|---|---|
+| CRM | Chamadas | Backlog |
+| CRM | Reuniões | Backlog |
+| CRM | Caixa de entrada (operacional) | Backlog |
+| CRM | Snippets | Backlog |
+| CRM | Manuais de atividades | Backlog |
+| Marketing | Anúncios | Backlog |
+| Marketing | Eventos | Backlog |
+| Marketing | Marca | Backlog |
+| Marketing | Redes sociais | Backlog |
+| Conteúdo | Páginas, landing pages, blog e demais itens | Backlog |
+| Vendas | Calendar | Backlog |
+| Vendas | Agendador de reuniões | Backlog |
+| Vendas | Documentos | Backlog |
+| Receita | Links de pagamento | Backlog |
+| Serviço | Pesquisas de feedback | Backlog |
+| Gerenciamento de dados | Modelo de dados | Backlog |
+| Desenvolvimento | Desenvolvimento | Backlog |
+| Configurações | Privacidade e consentimento, Objetos, Importar e exportar | Backlog |
+
+Já cobertos por telas existentes (não são lacunas): Pontuação de leads (em Segmentos & Lead Scoring), Análise de marketing (em Campanhas), Atividades (em Tarefas).
+
 ## Próxima Etapa Planejada (Backlog de Integração ERP -> CRM)
 
 - [ ] **[AGUARDANDO DEFINIÇÃO DE REGRAS COM O MARCÉLLO ANTES DE IMPLEMENTAR] — Opção de criar/espelhar Negócio (Deal) no CRM ao criar uma Proposta Comercial no ERP:**
