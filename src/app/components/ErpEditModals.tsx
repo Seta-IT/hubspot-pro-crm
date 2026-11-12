@@ -2,7 +2,7 @@
 
 import { CannotDeleteModal } from './CannotDeleteModal';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Plus,
   Trash2,
@@ -2242,6 +2242,24 @@ export function ContractEditModal({
   const [recipientEmailsText, setRecipientEmailsText] = useState<string>(
     billingRecipientEmailsText(contract.billingRecipientEmails)
   );
+  useEffect(() => {
+    setDraft((prev) => {
+      if (prev.id !== contract.id) return prev;
+      if (
+        prev.lastEmailSentAt === contract.lastEmailSentAt &&
+        prev.lastEmailRecipient === contract.lastEmailRecipient &&
+        JSON.stringify(prev.emailHistory || []) === JSON.stringify(contract.emailHistory || [])
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        lastEmailSentAt: contract.lastEmailSentAt,
+        lastEmailRecipient: contract.lastEmailRecipient,
+        emailHistory: contract.emailHistory,
+      };
+    });
+  }, [contract.id, contract.lastEmailSentAt, contract.lastEmailRecipient, contract.emailHistory]);
   const draftWithRecipientEmails = (base: ErpRentalContract = draft): ErpRentalContract => ({
     ...base,
     billingRecipientEmails: parseBillingRecipientEmails(recipientEmailsText),

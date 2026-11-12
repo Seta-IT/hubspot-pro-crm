@@ -2122,7 +2122,10 @@ export default function HubSpotProCrmApp() {
           <ClientEmailComposerModal
             payload={globalEmailModal}
             onClose={() => setGlobalEmailModal(null)}
-            onSentSuccess={(msg) => showToast(msg)}
+            onSentSuccess={(msg) => {
+              showToast(msg);
+              void fetchAllCrmData();
+            }}
           />
         )}
         {/* TOAST NOTIFICATION */}

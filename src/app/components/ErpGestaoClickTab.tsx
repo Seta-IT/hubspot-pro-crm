@@ -721,6 +721,29 @@ export default function ErpGestaoClickTab({
   }, [activeSection]);
 
   React.useEffect(() => {
+    if (!editingContract) return;
+    const id = editingContract.id;
+    const fresh = (erpData?.rentalContracts || []).find((c) => c.id === id);
+    if (!fresh) return;
+    setEditingContract((prev) => {
+      if (!prev || prev.id !== id) return prev;
+      if (
+        prev.lastEmailSentAt === fresh.lastEmailSentAt &&
+        prev.lastEmailRecipient === fresh.lastEmailRecipient &&
+        JSON.stringify(prev.emailHistory || []) === JSON.stringify(fresh.emailHistory || [])
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        lastEmailSentAt: fresh.lastEmailSentAt,
+        lastEmailRecipient: fresh.lastEmailRecipient,
+        emailHistory: fresh.emailHistory,
+      };
+    });
+  }, [erpData?.rentalContracts, editingContract?.id]);
+
+  React.useEffect(() => {
     if (!targetEntity || !erpData) return;
     const { type, id, query } = targetEntity;
     const forgetSendReturn = () => {
@@ -6792,7 +6815,7 @@ export default function ErpGestaoClickTab({
           onClose={() => setEmailModalPayload(null)}
           onSentSuccess={(msg) => {
             onShowToast(msg);
-            if (emailModalPayload.invoiceId) void onRefresh();
+            void onRefresh();
           }}
         />
       )}

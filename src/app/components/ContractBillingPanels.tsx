@@ -14,6 +14,7 @@ import {
 import { isIssuedInvoiceStatus } from "../../modules/erp/invoice-send-attachments";
 import { ContractAuxiliaryOptions, ContractBillingRunOptions, RECEIPT_DRAFT_BANNER_TEXT, buildDraftReceiptHtml, computeCustomDueDateClient, computeUpcomingRecurringCycles, downloadContractBillingHistoryReportOnDemand, downloadContractInvoicesCsvOnDemand, downloadContractVersionPdfOnDemand, downloadInvoicePdfOnDemand, loadContractAuxiliaryOptions, loadReceiptTemplateStyle, saveReceiptTemplateStyle, matchInvoicesForContract, saveContractAuxiliaryOptions } from "../lib/contract-billing-utils";
 import { ProposalTemplateSelect } from "./ProposalTemplateSelect";
+import { EmailSendHistoryPanel } from "./EmailSendHistoryPanel";
 
 type Weekday = 'NONE' | 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY';
 
@@ -554,6 +555,7 @@ export function ContractBillingHistoryPanel({
           )}
         </div>
       )}
+      <EmailSendHistoryPanel contract={contract} invoices={list} compact />
     </div>
   );
 }
@@ -787,6 +789,7 @@ export function InvoiceExtraFieldsPanel({ draft, setDraft }: { draft: ErpFiscalI
         </div>
       </div>
       <div><label className="block font-semibold text-slate-700 mb-1">Observações impressas na fatura</label><textarea rows={2} value={draft.contractNotes || ''} onChange={(e) => set({ contractNotes: e.target.value })} className="w-full px-3 py-2 rounded border" /></div>
+      <EmailSendHistoryPanel entries={draft.emailHistory} compact />
     </div>
   );
 }

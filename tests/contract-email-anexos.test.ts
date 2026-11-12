@@ -582,6 +582,55 @@ describe('CISO — anexos do e-mail do contrato sem IDOR', () => {
       assert.equal(last.cc, 'copia@exemplo.invalid');
       assert.equal('bcc' in last, false);
       assert.equal(JSON.stringify(last).includes('oculto@exemplo.invalid'), false);
+      const storedCtr = repo.listRentalContracts().find((c) => c.id === contractA.id)!;
+      const lastCtr = (storedCtr.emailHistory || [])[(storedCtr.emailHistory || []).length - 1];
+      assert.ok(lastCtr);
+      assert.equal(lastCtr.protocol, last.protocol);
+      assert.equal(storedCtr.lastEmailRecipient, 'cliente@exemplo.invalid');
+      const returned = (sent.body as { data?: { emailHistoryEntry?: { protocol?: string } } }).data?.emailHistoryEntry;
+      assert.equal(returned?.protocol, last.protocol);
+    });
+  });
+
+  it('grava o histórico no contrato mesmo sem fatura e devolve a entrada na resposta', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const suffix = `ctr-hist-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const contract = repo.createRentalContract({
+      id: `ctr-hist-${suffix}`,
+      contractNumber: `LOC-HIST-${suffix}`,
+      title: 'Contrato Histórico',
+      companyName: 'Cliente Histórico LTDA',
+      companyCnpj: '33.333.333/0001-33',
+      monthlyValue: 200,
+    });
+    await withResend(async () => {
+      const sent = await router.dispatch({
+        method: 'POST',
+        path: '/api/communications/send-email',
+        query: {
+          ...HTTP,
+          _clientIp: '198.51.100.95',
+          _sessionToken: tokFor(repo),
+        },
+        body: {
+          to: 'financeiro@exemplo.invalid',
+          subject: 'Contrato sem fatura',
+          body: 'Segue o contrato.',
+          docType: 'RENTAL_RECEIPT',
+          contractId: contract.id,
+        },
+      });
+      assert.equal(sent.status, 200, JSON.stringify(sent.body));
+      const stored = repo.listRentalContracts().find((c) => c.id === contract.id)!;
+      const last = (stored.emailHistory || [])[(stored.emailHistory || []).length - 1];
+      assert.ok(last);
+      assert.equal(last.to, 'financeiro@exemplo.invalid');
+      assert.equal(stored.lastEmailRecipient, 'financeiro@exemplo.invalid');
+      assert.ok(stored.lastEmailSentAt);
+      const returned = (sent.body as { data?: { emailHistoryEntry?: { to?: string; protocol?: string } } }).data?.emailHistoryEntry;
+      assert.equal(returned?.to, 'financeiro@exemplo.invalid');
+      assert.equal(returned?.protocol, last.protocol);
     });
   });
 });

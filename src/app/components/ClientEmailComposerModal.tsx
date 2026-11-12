@@ -29,6 +29,9 @@ import {
   type EmailRecipientChip,
 } from '../../modules/erp/email-recipients';
 import EmailRecipientField from './email/EmailRecipientField';
+import { EmailSendHistoryPanel } from './EmailSendHistoryPanel';
+import { mergeEmailHistoryEntries } from '../lib/email-send-history';
+import type { ErpInvoiceEmailHistoryEntry } from '../../db/types';
 import {
   Mail,
   Send,
@@ -83,6 +86,7 @@ export interface ClientEmailInitialPayload {
   contractId?: string | null;
   contractNumber?: string | null;
   invoiceChoices?: ContractEmailInvoiceChoice[];
+  emailHistory?: ErpInvoiceEmailHistoryEntry[];
 }
 
 const DOC_TYPE_META: Record<
@@ -301,9 +305,13 @@ export default function ClientEmailComposerModal({
 }: {
   payload: ClientEmailInitialPayload;
   onClose: () => void;
-  onSentSuccess?: (summary: string) => void;
+  onSentSuccess?: (
+    summary: string,
+    details?: { contractId?: string; invoiceId?: string; emailHistoryEntry?: ErpInvoiceEmailHistoryEntry }
+  ) => void;
 }) {
   const isContractSend = Boolean(payload.contractId);
+  const [emailHistory, setEmailHistory] = useState<ErpInvoiceEmailHistoryEntry[]>(() => payload.emailHistory || []);
   const [docType, setDocType] = useState<StiHubEmailDocType>(payload.docType);
   const [toChips, setToChips] = useState<EmailRecipientChip[]>(() => parseRecipientList(payload.recipientEmail));
   const [ccChips, setCcChips] = useState<EmailRecipientChip[]>(() =>
@@ -617,8 +625,23 @@ export default function ClientEmailComposerModal({
         createdAt: new Date().toISOString(),
       });
 
+      const historyEntry: ErpInvoiceEmailHistoryEntry = json?.data?.emailHistoryEntry || {
+        sentAt: json?.data?.sentAt || new Date().toISOString(),
+        to: toEmail,
+        cc: ccEmail || null,
+        subject: subject.trim(),
+        protocol,
+        attachments: Array.isArray(selectedAttachments) ? selectedAttachments.map((x) => String(x)) : [],
+      };
+      setEmailHistory((prev) => mergeEmailHistoryEntries(prev, historyEntry));
+
       onSentSuccess?.(
-        `E-mail (${DOC_TYPE_META[docType].badge}) enviado para ${toEmail} com protocolo ${protocol}!`
+        `E-mail (${DOC_TYPE_META[docType].badge}) enviado para ${toEmail} com protocolo ${protocol}!`,
+        {
+          contractId: payload.contractId || undefined,
+          invoiceId: sendInvoiceId || payload.invoiceId || undefined,
+          emailHistoryEntry: historyEntry,
+        }
       );
     } finally {
       setSending(false);
@@ -680,6 +703,9 @@ export default function ClientEmailComposerModal({
                 {fallbackNotice}
               </p>
             ) : null}
+            <div className="max-w-lg mx-auto text-left">
+              <EmailSendHistoryPanel entries={emailHistory} compact />
+            </div>
             <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
               <a
                 href={mailtoHref}
@@ -886,6 +912,8 @@ export default function ClientEmailComposerModal({
               </span>
             </div>
             )}
+
+            <EmailSendHistoryPanel entries={emailHistory} compact />
 
             <div>
               <label className="block font-semibold text-slate-700 mb-1">

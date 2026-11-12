@@ -4388,6 +4388,26 @@ export class CrmRepository {
     return next;
   }
 
+  appendContractEmailHistory(idOrNumber: string, entry: ErpInvoiceEmailHistoryEntry): ErpRentalContract | null {
+    const erp = this.ensureErp();
+    const key = String(idOrNumber || '').trim().toLowerCase();
+    const idx = erp.rentalContracts.findIndex(
+      (c) => c.id === idOrNumber || String(c.contractNumber || '').toLowerCase() === key
+    );
+    if (idx === -1) return null;
+    const current = erp.rentalContracts[idx];
+    const next: ErpRentalContract = {
+      ...current,
+      lastEmailSentAt: entry.sentAt,
+      lastEmailRecipient: entry.to,
+      emailHistory: [...(current.emailHistory || []), entry],
+      updatedAt: new Date().toISOString(),
+    };
+    erp.rentalContracts[idx] = next;
+    this.save();
+    return next;
+  }
+
   getErpState(): ErpDatabaseState {
     return this.ensureErp();
   }

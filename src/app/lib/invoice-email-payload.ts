@@ -85,5 +85,6 @@ export function buildIssuedInvoiceEmailPayload(
     invoiceAttachments: bundle.availability,
     receiptHtml: bundle.receiptHtml,
     remessaXml: bundle.remessaXml,
+    emailHistory: invoice.emailHistory || [],
   };
 }

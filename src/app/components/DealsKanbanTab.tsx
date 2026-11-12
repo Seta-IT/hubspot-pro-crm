@@ -644,7 +644,10 @@ export default function DealsKanbanTab({
         <ClientEmailComposerModal
           payload={emailModalPayload}
           onClose={() => setEmailModalPayload(null)}
-          onSentSuccess={(msg) => onShowToast?.(msg)}
+          onSentSuccess={(msg) => {
+            onShowToast?.(msg);
+            if (onRefreshAll) void onRefreshAll();
+          }}
         />
       )}
       {createdProposalBanner && (

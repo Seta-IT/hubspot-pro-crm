@@ -8555,21 +8555,30 @@ export class CrmApiRouter {
           });
         }
 
+        const historyAttachments = Array.isArray(body.selectedAttachments)
+          ? (body.selectedAttachments as unknown[]).map((x) => String(x)).slice(0, 4)
+          : [];
+        const historyEntry = {
+          sentAt: nowIso,
+          to,
+          cc: ccJoined || null,
+          subject: storedSubject,
+          protocol,
+          actor: this.sessionActorName(query),
+          attachments: historyAttachments,
+        };
         if (body.invoiceId) {
           try {
-            this.repo.appendInvoiceEmailHistory(String(body.invoiceId), {
-              sentAt: nowIso,
-              to,
-              cc: ccJoined || null,
-              subject: storedSubject,
-              protocol,
-              actor: this.sessionActorName(query),
-              attachments: Array.isArray(body.selectedAttachments)
-                ? (body.selectedAttachments as unknown[]).map((x) => String(x)).slice(0, 4)
-                : [],
-            });
+            this.repo.appendInvoiceEmailHistory(String(body.invoiceId), historyEntry);
           } catch {
             /* historico da fatura nao derruba o envio ja realizado */
+          }
+        }
+        if (requestedContract) {
+          try {
+            this.repo.appendContractEmailHistory(requestedContract.id, historyEntry);
+          } catch {
+            /* historico do contrato nao derruba o envio ja realizado */
           }
         }
 
@@ -8589,6 +8598,7 @@ export class CrmApiRouter {
               fallback: usedFallback,
               timelineEventId: evt.id,
               followUpTask,
+              emailHistoryEntry: historyEntry,
             },
           },
         };

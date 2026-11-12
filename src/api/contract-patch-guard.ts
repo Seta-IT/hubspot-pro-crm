@@ -3,7 +3,7 @@
 // do contrato (ErpRentalContract). Chaves desconhecidas (SavedBy, saved_by, __proto__...) sao
 // DESCARTADAS em vez de gravadas (mass-assign generico). Autoria/trilhas continuam fora:
 // id, version, versionLabel, versionHistory, statusHistory, savedBy, updatedBy, createdAt,
-// updatedAt nunca vem do corpo (a versao e o autor sao definidos pelo servidor/sessao).
+// updatedAt, emailHistory nunca vem do corpo (a versao e o autor sao definidos pelo servidor/sessao).
 // O teste de regressao confere esta lista contra a interface em src/db/types.ts.
 // ============================================================================
 import type { ErpRentalContract } from '../db/types';
@@ -15,6 +15,7 @@ export const RENTAL_CONTRACT_SERVER_ONLY_KEYS = Object.freeze([
   'versionHistory',
   'createdAt',
   'updatedAt',
+  'emailHistory',
 ] as const satisfies ReadonlyArray<keyof ErpRentalContract>);
 
 export const RENTAL_CONTRACT_PATCH_KEYS = Object.freeze([

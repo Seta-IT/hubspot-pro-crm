@@ -13,6 +13,7 @@ import {
   type ContractEmailInvoiceChoice,
 } from '../../modules/erp/contract-email-compose';
 import type { ClientEmailInitialPayload } from '../components/ClientEmailComposerModal';
+import { collectContractEmailHistory } from './email-send-history';
 
 function fmtBrDate(value?: string | null): string {
   if (!value) return '';
@@ -180,6 +181,7 @@ export function buildContractEmailPayload(
     invoiceId: latest?.id,
     invoiceAttachments: latest?.invoiceAttachments,
     invoiceChoices: choices,
+    emailHistory: collectContractEmailHistory(contract, invoices),
     proposalId: linkedProposalId || null,
     boletoLine: latest?.boletoLine,
     pixCode: latest?.pixCode,

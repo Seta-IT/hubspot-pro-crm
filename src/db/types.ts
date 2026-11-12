@@ -1158,6 +1158,7 @@ export interface ErpRentalContract {
   partialReturns?: ErpContractPartialReturnEntry[];
   lastEmailSentAt?: string | null;
   lastEmailRecipient?: string | null;
+  emailHistory?: ErpInvoiceEmailHistoryEntry[];
   status: ErpRentalContractStatus;
   equipments: ErpRentalEquipmentItem[];
   remessaNfeNumber: string;
