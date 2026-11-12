@@ -7787,6 +7787,22 @@ export class CrmApiRouter {
       }
 
       if (isAuxListsRoute(cleanPath)) {
+        // CISO: escrita nas listas auxiliares = mesma alcada das configuracoes do ERP
+        // (2FA + administrador ou controle TOTAL do ERP). Leitura segue o gate do modulo ERP.
+        if (method !== 'GET') {
+          const auxPriv = this.gestaoClickPrivilege(query, ctx);
+          if (!auxPriv.allowed) {
+            return {
+              status: auxPriv.authenticated ? 403 : 401,
+              body: {
+                error: auxPriv.authenticated
+                  ? 'Só administradores ou quem tem controle total do ERP podem alterar centros de custo e planos de contas.'
+                  : 'Sessão obrigatória.',
+                code: auxPriv.authenticated ? 'ERP_AUX_LISTS_FORBIDDEN' : 'MFA_AUTH_REQUIRED',
+              },
+            };
+          }
+        }
         return handleAuxListsRoute(this.repo, method, cleanPath, query, body, ctx);
       }
 
@@ -8526,7 +8542,16 @@ export class CrmApiRouter {
           }
         }
         const ticketId = String(body.ticketId || rawMail.ticketId || '').trim();
-        if (!invoiceId && !contractId && !ticketId && !ctx.trustedInternal && !ctx.serviceAccount) {
+        // CISO: ticketId so dispensa o gate CRM/ERP se o chamado existir e a sessao tiver o modulo Chamados.
+        const ticketSess = ticketId ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+        const ticketExempt = Boolean(
+          ticketId &&
+            ticketSess &&
+            ticketSess.authenticated &&
+            ticketSess.moduleAccess.chamados &&
+            this.repo.getServiceTicketById(ticketId)
+        );
+        if (!invoiceId && !contractId && !ticketExempt && !ctx.trustedInternal && !ctx.serviceAccount) {
           const sess = this.repo.resolveSessionFromToken(query._sessionToken);
           const hasCrm = Boolean(sess.authenticated && sess.moduleAccess.crm);
           const hasErp = Boolean(sess.authenticated && sess.moduleAccess.erp);

@@ -19,6 +19,8 @@ import {
 } from '../modules/erp/aux-lists-store';
 
 export const AUX_LISTS_PATH = '/api/erp/aux-lists';
+/** CISO: teto de itens por lista (evita inflar a tabela). */
+export const AUX_LIST_MAX_ITEMS = 300;
 
 type Query = Record<string, string | undefined>;
 type Ctx = { trustedInternal?: boolean; serviceAccount?: boolean };
@@ -41,9 +43,10 @@ export function collectAuxUsageSources(repo: CrmRepository): AuxUsageSources {
 
 function storeError(err: unknown): ApiResponse {
   const code = (err as { code?: string }).code || 'AUX_LIST_ERROR';
-  const error = err instanceof Error ? err.message : 'Não foi possível atualizar a lista.';
   const status = code === 'AUX_LIST_DUPLICATE' ? 409 : code === 'AUX_LIST_LABEL_REQUIRED' || code === 'AUX_LIST_LABEL_INVALID' ? 400 : 500;
-  return { status, body: { error, code } };
+  // CISO: erro interno (ex.: Postgres) nao vaza a mensagem crua.
+  const error = status !== 500 && err instanceof Error ? err.message : 'Não foi possível atualizar a lista.';
+  return { status, body: { error, code: status === 500 ? 'AUX_LIST_ERROR' : code } };
 }
 
 function itemPayload(item: AuxListItem) {
@@ -81,8 +84,15 @@ export async function handleAuxListsRoute(
     if (!isAuxListKind(kindRaw)) {
       return { status: 400, body: { error: 'Informe o tipo da lista (costCenters ou chartOfAccountsList).', code: 'AUX_LIST_KIND_INVALID' } };
     }
+    if (typeof label !== 'string') {
+      return { status: 400, body: { error: 'Informe o nome do item.', code: 'AUX_LIST_LABEL_REQUIRED' } };
+    }
     try {
-      const created = await store.create(kindRaw, String(label ?? ''));
+      const existingOfKind = await store.list(kindRaw);
+      if (existingOfKind.length >= AUX_LIST_MAX_ITEMS) {
+        return { status: 409, body: { error: `A lista pode ter no máximo ${AUX_LIST_MAX_ITEMS} itens.`, code: 'AUX_LIST_LIMIT' } };
+      }
+      const created = await store.create(kindRaw, label);
       return { status: 201, body: { data: itemPayload(created) } };
     } catch (err) {
       return storeError(err);
