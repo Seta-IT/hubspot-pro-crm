@@ -595,7 +595,7 @@ export const HUBSPOT_NAV_ITEMS: HubspotNavItem[] = [
     category: 'DADOS',
     icon: 'settings',
     module: 'any',
-    target: { type: 'settings', itemId: 'sync-logs' },
+    target: { type: 'settings', itemId: 'account-audit' },
     screenKey: 'settings:DAILY_SYNC_LOGS',
   },
   {
@@ -1305,7 +1305,7 @@ export function canSeeNavItem(item: HubspotNavItem, ctx: NavAccessContext): bool
   const target = item.target;
   if (target.type === 'settings') {
     const settingsItem = SETTINGS_NAV_ITEMS.find((s) => s.id === target.itemId);
-    if (settingsItem && !canSeeSettingsItem(settingsItem, ctx)) return false;
+    if (!settingsItem || !canSeeSettingsItem(settingsItem, ctx)) return false;
   }
   return true;
 }

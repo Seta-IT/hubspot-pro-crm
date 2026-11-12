@@ -1319,7 +1319,7 @@ export default function HubSpotProCrmApp() {
 
   const navAccess: NavAccessContext = useMemo(
     () => ({
-      moduleAccess: userModuleAccess,
+      moduleAccess: activeRbacUser ? userModuleAccess : { crm: false, erp: false, chamados: false },
       erpConfig: adminCentralAccess,
       itemView: {
         ...(activeRbacUser?.itemPermissions || {}),
@@ -2375,7 +2375,7 @@ export default function HubSpotProCrmApp() {
                         openSettingsHub('account-users');
                       },
                     },
-                  ].filter((pill) => pill.id !== 'ADMIN_RBAC' || canOpenAdminCentralUi).map((pill) => (
+                  ].filter((pill) => pill.id !== 'ADMIN_RBAC' || canOpenAdminCentralUi).filter(() => isCrmActive && Boolean(userModuleAccess.crm)).map((pill) => (
                     <button
                       key={pill.id}
                       type="button"
