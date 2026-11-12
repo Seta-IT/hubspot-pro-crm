@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Ticket,
   AlertTriangle,
@@ -316,8 +316,11 @@ export default function ServiceDeskTab({
   const [pipelineFormError, setPipelineFormError] = useState('');
   const [newPipelineId, setNewPipelineId] = useState<string>('pl-tec');
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(
-    initialSelectedTicketId || tickets[0]?.id || null
+    initialSelectedTicketId || null
   );
+  const ticketDialogRef = useRef<HTMLDivElement>(null);
+  const emailModalOpenRef = useRef(false);
+  const closeTicketDialog = () => setSelectedTicketId(null);
 
   useEffect(() => {
     if (initialSelectedTicketId) {
@@ -354,6 +357,65 @@ export default function ServiceDeskTab({
   const [newAssignee, setNewAssignee] = useState<string>(SETA_NOC_QUEUES[1]);
   const [newContractId, setNewContractId] = useState<string>('');
   const [newEquipmentSerial, setNewEquipmentSerial] = useState<string>('');
+
+  emailModalOpenRef.current = Boolean(emailModalPayload);
+
+  useEffect(() => {
+    if (!selectedTicketId) return;
+    const dialog = ticketDialogRef.current;
+    if (!dialog) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const getFocusable = () =>
+      Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector)).filter(
+        (el) => !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true'
+      );
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        if (emailModalOpenRef.current) {
+          setEmailModalPayload(null);
+          return;
+        }
+        closeTicketDialog();
+        return;
+      }
+      if (event.key !== 'Tab' || emailModalOpenRef.current) return;
+      const focusable = getFocusable();
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey) {
+        if (active === first || !dialog.contains(active)) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !dialog.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus?.();
+    };
+  }, [selectedTicketId]);
+
 
 
   useEffect(() => {
@@ -944,13 +1006,6 @@ export default function ServiceDeskTab({
         </div>
       </div>
 
-      {emailModalPayload && (
-        <ClientEmailComposerModal
-          payload={emailModalPayload}
-          onClose={() => setEmailModalPayload(null)}
-        />
-      )}
-
       {chamadosMobileDrawerOpen && (
         <div className="fixed inset-0 z-50 md:hidden flex">
           <div
@@ -1240,9 +1295,9 @@ export default function ServiceDeskTab({
         </div>
       </div>
 
-      {/* MAIN WORKSPACE: 5 VIEW MODES + RIGHT TICKET AGENT DRAWER */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        <div className={activeTicket ? 'xl:col-span-7' : 'xl:col-span-12'}>
+      {/* MAIN WORKSPACE: 5 VIEW MODES (detalhe do chamado abre em janela flutuante) */}
+      <div>
+        <div>
           {/* MODO 1: KANBAN POR STATUS DO CHAMADO */}
           {viewMode === 'KANBAN' && (
             <div className="space-y-3">
@@ -1655,11 +1710,25 @@ export default function ServiceDeskTab({
           )}
         </div>
 
-        {/* RIGHT CONSOLE: JIRA SERVICE DESK TICKET CONVERSATION, NOC ROUTING, ERP O.S. & SLA CONTROL */}
-        {activeTicket && (
-          <div className="xl:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+      {/* Detalhe do chamado: janela flutuante sobre o quadro */}
+      {activeTicket && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="setadesk-ticket-dialog-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeTicketDialog();
+          }}
+        >
+          <div
+            ref={ticketDialogRef}
+            tabIndex={-1}
+            className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-[960px] max-h-[90vh] flex flex-col overflow-hidden outline-none"
+            onClick={(event) => event.stopPropagation()}
+          >
             {/* Ticket Header */}
-            <div className="p-5 bg-slate-900 text-white space-y-3">
+            <div className="p-5 bg-slate-900 text-white space-y-3 shrink-0">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="px-2.5 py-1 rounded-lg bg-accent text-white font-mono text-xs font-semibold">
@@ -1710,7 +1779,8 @@ export default function ServiceDeskTab({
                   )}
                   <button
                     type="button"
-                    onClick={() => setSelectedTicketId(null)}
+                    onClick={closeTicketDialog}
+                    aria-label="Fechar"
                     className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
                   >
                     <X className="w-4 h-4" />
@@ -1718,7 +1788,7 @@ export default function ServiceDeskTab({
                 </div>
               </div>
 
-              <h3 className="text-base font-semibold leading-snug">{activeTicket.subject}</h3>
+              <h3 id="setadesk-ticket-dialog-title" className="text-base font-semibold leading-snug">{activeTicket.subject}</h3>
 
               <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300 pt-1">
                 {activeTicket.company && (
@@ -1769,6 +1839,7 @@ export default function ServiceDeskTab({
             </div>
 
             {/* NOC Routing, Priority, Equipment Serial & ERP Contract/OS Integration Panel */}
+            <div className="flex-1 min-h-0 overflow-y-auto">
             <div className="p-4 bg-slate-50 border-b border-slate-200 space-y-3 text-xs">
               <p className="text-slate-700 leading-relaxed">{activeTicket.description}</p>
 
@@ -1930,7 +2001,7 @@ export default function ServiceDeskTab({
             </div>
 
             {/* Thread of Public Customer Replies & Internal Team Notes */}
-            <div className="p-4 space-y-3 max-h-80 overflow-y-auto flex-1">
+            <div className="p-4 space-y-3">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                 Histórico de Atendimento &amp; Notas Internas NOC ({activeTicket.comments.length})
               </div>
@@ -1966,7 +2037,8 @@ export default function ServiceDeskTab({
             </div>
 
             {/* Agent Composer: Public Reply vs Internal Note */}
-            <div className="p-4 border-t border-slate-200 bg-white space-y-3">
+            </div>
+            <div className="p-4 border-t border-slate-200 bg-white space-y-3 shrink-0">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -2032,7 +2104,8 @@ export default function ServiceDeskTab({
               </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
       </div>
 
         </div>
@@ -2040,6 +2113,13 @@ export default function ServiceDeskTab({
 
         </div>
       </div>
+
+      {emailModalPayload && (
+        <ClientEmailComposerModal
+          payload={emailModalPayload}
+          onClose={() => setEmailModalPayload(null)}
+        />
+      )}
 
       {/* NEW TICKET MODAL */}
       {showNewModal && (
