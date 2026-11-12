@@ -15,6 +15,7 @@ export const BRIDGE_LARGE_BODY_BYTES = 4 * 1024 * 1024; // 4 MiB (abaixo dos ~4,
  * - /api/bootstrap: envia o journal local do navegador (reconcileJournal), sem limite de tamanho no cliente;
  * - /api/erp/purchases/import-xml e /api/erp/nfe-importacao/emit: XML/TXT de NF-e (NF-e com muitos itens passa de 1 MiB);
  * - /api/erp/financial/reconcile-ofx: extrato OFX (um ano de movimento pode passar de 1 MiB);
+ * - /api/erp/financial/import-document: PDF (base64) ou XML de fatura/boleto/NF-e da conciliação (até 3 MB);
  * - /api/mailbox/send: anexos do e-mail do CRM (base64 no JSON). O teto maior só vale com sessão.
  */
 export const BRIDGE_LARGE_BODY_ROUTES: ReadonlyArray<{ method: string; path: string }> = Object.freeze([
@@ -22,6 +23,7 @@ export const BRIDGE_LARGE_BODY_ROUTES: ReadonlyArray<{ method: string; path: str
   { method: 'POST', path: '/api/erp/purchases/import-xml' },
   { method: 'POST', path: '/api/erp/nfe-importacao/emit' },
   { method: 'POST', path: '/api/erp/financial/reconcile-ofx' },
+  { method: 'POST', path: '/api/erp/financial/import-document' },
   { method: 'POST', path: '/api/mailbox/send' },
 ]);
 

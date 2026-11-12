@@ -1693,6 +1693,29 @@ export interface ErpOfxReconciliationResult {
   transactions: ErpOfxTransactionItem[];
 }
 
+/** Metadados de um PDF/XML importado na conciliação (o arquivo em si nunca é gravado). */
+export interface ErpFinancialDocumentImport {
+  id: string;
+  fileName: string;
+  fileType: 'pdf' | 'xml';
+  /** SHA-256 do conteúdo do arquivo. */
+  sha256: string;
+  kind: string;
+  importedAt: string;
+  importedBy?: string;
+  items: Array<{
+    ref: string;
+    role: string;
+    action: 'MATCH' | 'CREATE' | 'IGNORE';
+    description: string;
+    companyName: string;
+    amount: number;
+    dueDate: string;
+    documentNumber?: string;
+    entryId?: string | null;
+  }>;
+}
+
 export interface ErpDreLineItem {
   code: string;
   label: string;
@@ -1846,6 +1869,8 @@ export interface ErpDatabaseState {
    * `proposals` aqui guarda so as hidratadas pela requisicao (no JSON persistido fica []).
    */
   proposalsStorage?: 'table';
+  /** Conciliação bancária: histórico de PDFs/XMLs importados (só metadados). */
+  financialDocumentImports?: ErpFinancialDocumentImport[];
 }
 
 export interface ErpProposalShortLink {

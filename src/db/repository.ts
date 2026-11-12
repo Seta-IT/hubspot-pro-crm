@@ -43,6 +43,7 @@ import {
   ErpProposalDigitalSignature,
   ErpOfxTransactionItem,
   ErpOfxReconciliationResult,
+  ErpFinancialDocumentImport,
   ErpDreLineItem,
   ErpDreReport,
   ErpNfeXmlParsedItem,
@@ -6120,6 +6121,20 @@ export class CrmRepository {
     erp.financialEntries.unshift(entry);
     this.save();
     return entry;
+  }
+
+  listFinancialDocumentImports(): ErpFinancialDocumentImport[] {
+    const erp = this.ensureErp();
+    return Array.isArray(erp.financialDocumentImports) ? erp.financialDocumentImports : [];
+  }
+
+  /** Grava só os metadados da importação (teto de 500 registros, mais recentes primeiro). */
+  addFinancialDocumentImport(rec: ErpFinancialDocumentImport): ErpFinancialDocumentImport {
+    const erp = this.ensureErp();
+    const list = Array.isArray(erp.financialDocumentImports) ? erp.financialDocumentImports : [];
+    erp.financialDocumentImports = [rec, ...list].slice(0, 500);
+    this.save();
+    return rec;
   }
 
   updateFinancialEntry(id: string, patch: Partial<ErpFinancialEntry>): ErpFinancialEntry | null {

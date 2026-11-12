@@ -189,6 +189,7 @@ describe('Pacote M (3): teto de corpo no bridge', () => {
     assert.equal(BRIDGE_LARGE_BODY_BYTES, 4 * 1024 * 1024);
     assert.deepEqual(BRIDGE_LARGE_BODY_ROUTES.map((r) => `${r.method} ${r.path}`).sort(), [
       'POST /api/bootstrap',
+      'POST /api/erp/financial/import-document',
       'POST /api/erp/financial/reconcile-ofx',
       'POST /api/erp/nfe-importacao/emit',
       'POST /api/erp/purchases/import-xml',

@@ -24,7 +24,15 @@ import {
   signMfaChallengeToken,
   verifyMfaChallengeToken,
 } from '../app/lib/auth';
-import type { ErpFinancialEntry, ErpRentalContract } from "../db/types";
+import type { ErpFinancialDocumentImport, ErpFinancialEntry, ErpRentalContract } from "../db/types";
+import {
+  MAX_IMPORT_ITEMS,
+  parseFinancialPdfText,
+  parseFinancialXml,
+  suggestPayableMatches,
+  type FinancialDocumentParseResult,
+} from '../modules/erp/financial-document-import';
+import { MAX_PDF_BYTES, extractPdfText } from '../modules/erp/pdf-text-extract';
 import { countValidContractProducts } from '../modules/erp/contract-form-validation';
 // ============================================================================
 // HubSpot Pro CRM - Unified REST API Router & Controller
@@ -7955,6 +7963,149 @@ export class CrmApiRouter {
               totalDebits: totalDebits || -repoOfxResult.totalDebitsBrl,
               autoPayApplied: autoPayMatched,
             },
+          },
+        };
+      }
+
+      // Conciliação bancária: PDF (fatura de cartão, boleto) e XML (NF-e) => sugestões de Contas a Pagar.
+      // Prévia não grava nada; a confirmação grava os títulos escolhidos e só os metadados do arquivo.
+      if (cleanPath === '/api/erp/financial/import-document' && method === 'POST') {
+        const fileName = String(body.fileName || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 200) || 'documento';
+        const fileType = String(body.fileType || '').toLowerCase();
+        if (fileType !== 'pdf' && fileType !== 'xml') {
+          return { status: 400, body: { error: 'Tipo de arquivo não suportado. Use PDF ou XML (OFX segue pela conciliação OFX).' } };
+        }
+        let sha256 = '';
+        let parsed: FinancialDocumentParseResult;
+        try {
+          if (fileType === 'xml') {
+            const xml = typeof body.content === 'string' ? body.content : '';
+            if (!xml.trim()) return { status: 400, body: { error: 'Arquivo XML vazio.' } };
+            if (xml.length > 3 * 1024 * 1024) return { status: 413, body: { error: 'XML acima de 3 MB.' } };
+            sha256 = createHash('sha256').update(xml, 'utf8').digest('hex');
+            parsed = parseFinancialXml(xml);
+          } else {
+            const b64 = typeof body.contentBase64 === 'string' ? body.contentBase64.replace(/^data:[^,]*,/, '') : '';
+            if (!b64) return { status: 400, body: { error: 'Arquivo PDF vazio.' } };
+            const buf = Buffer.from(b64, 'base64');
+            if (buf.byteLength > MAX_PDF_BYTES) return { status: 413, body: { error: 'PDF acima de 3 MB.' } };
+            sha256 = createHash('sha256').update(buf).digest('hex');
+            const { text } = await extractPdfText(new Uint8Array(buf));
+            parsed = parseFinancialPdfText(text);
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : '';
+          const safe = /^(XML|PDF|Arquivo)/.test(msg) ? msg : 'Não foi possível ler o arquivo.';
+          return { status: 422, body: { error: safe } };
+        }
+        const entries = (this.repo.getErpOverview().financialEntries || []) as ErpFinancialEntry[];
+        const suggestions = suggestPayableMatches(parsed.items.slice(0, MAX_IMPORT_ITEMS), entries);
+        const previous = this.repo.listFinancialDocumentImports().find((r) => r.sha256 === sha256);
+        return {
+          status: 200,
+          body: {
+            data: {
+              fileName,
+              fileType,
+              sha256,
+              kind: parsed.kind,
+              issuerName: parsed.issuerName || null,
+              issuerCnpj: parsed.issuerCnpj || null,
+              documentNumber: parsed.documentNumber || null,
+              issueDate: parsed.issueDate || null,
+              dueDate: parsed.dueDate || null,
+              totalAmount: parsed.totalAmount ?? null,
+              warnings: parsed.warnings,
+              alreadyImportedAt: previous ? previous.importedAt : null,
+              items: suggestions,
+            },
+          },
+        };
+      }
+
+      if (cleanPath === '/api/erp/financial/import-document/confirm' && method === 'POST') {
+        const fileName = String(body.fileName || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 200) || 'documento';
+        const fileType = String(body.fileType || '').toLowerCase();
+        const sha256 = String(body.sha256 || '').toLowerCase();
+        const kind = String(body.kind || 'DESCONHECIDO').replace(/[^A-Z_]/g, '').slice(0, 40) || 'DESCONHECIDO';
+        if ((fileType !== 'pdf' && fileType !== 'xml') || !/^[a-f0-9]{64}$/.test(sha256)) {
+          return { status: 400, body: { error: 'Importação inválida: refaça a leitura do arquivo.' } };
+        }
+        const previous = this.repo.listFinancialDocumentImports().find((r) => r.sha256 === sha256);
+        if (previous) {
+          return { status: 409, body: { error: `Este arquivo já foi importado em ${previous.importedAt.slice(0, 10)}.` } };
+        }
+        const rawItems = Array.isArray(body.items) ? (body.items as unknown[]).slice(0, MAX_IMPORT_ITEMS) : [];
+        const clip = (v: unknown, n: number) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
+        const entries = (this.repo.getErpOverview().financialEntries || []) as ErpFinancialEntry[];
+        const usedMatch = new Set<string>();
+        const items: ErpFinancialDocumentImport['items'] = [];
+        for (const raw of rawItems) {
+          if (!raw || typeof raw !== 'object') continue;
+          const r = raw as Record<string, unknown>;
+          const action = r.action === 'MATCH' || r.action === 'CREATE' ? r.action : 'IGNORE';
+          const amount = Math.round(Number(r.amount) * 100) / 100;
+          const dueDate = typeof r.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.dueDate) ? r.dueDate : '';
+          const base = {
+            ref: clip(r.ref, 60) || `item-${items.length + 1}`,
+            role: clip(r.role, 20) || 'LINHA',
+            description: clip(r.description, 160) || 'Documento importado',
+            companyName: clip(r.companyName, 120) || 'Fornecedor',
+            amount: Number.isFinite(amount) ? amount : 0,
+            dueDate,
+            documentNumber: clip(r.documentNumber, 40) || undefined,
+          };
+          if (action !== 'IGNORE' && (!(base.amount > 0) || !dueDate)) {
+            return { status: 400, body: { error: `Item "${base.description}" sem valor ou vencimento válido.` } };
+          }
+          if (action === 'MATCH') {
+            const entryId = String(r.entryId || '');
+            const target = entries.find((e) => e.id === entryId && e.type === 'PAGAR');
+            if (!target || usedMatch.has(entryId)) {
+              return { status: 400, body: { error: `Título a pagar para "${base.description}" não encontrado.` } };
+            }
+            usedMatch.add(entryId);
+            items.push({ ...base, action, entryId });
+          } else {
+            items.push({ ...base, action, entryId: null });
+          }
+        }
+        if (!items.some((i) => i.action !== 'IGNORE')) {
+          return { status: 400, body: { error: 'Nenhum item selecionado para parear ou criar.' } };
+        }
+        const stamp = Date.now();
+        const created: ErpFinancialEntry[] = [];
+        items.forEach((it, idx) => {
+          if (it.action !== 'CREATE') return;
+          const entry = this.repo.createFinancialEntry({
+            id: `fin-doc-${stamp}-${idx + 1}`,
+            type: 'PAGAR',
+            category: 'OPERACIONAL',
+            description: it.description,
+            companyName: it.companyName,
+            amount: it.amount,
+            dueDate: it.dueDate,
+            status: 'ABERTO',
+            paymentMethod: kind === 'FATURA_CARTAO' ? 'Cartão de crédito' : 'Boleto',
+          });
+          it.entryId = entry.id;
+          created.push(entry);
+        });
+        const rec = this.repo.addFinancialDocumentImport({
+          id: `fdi-${stamp}`,
+          fileName,
+          fileType: fileType as 'pdf' | 'xml',
+          sha256,
+          kind,
+          importedAt: new Date().toISOString(),
+          items,
+        });
+        return {
+          status: 201,
+          body: {
+            data: rec,
+            createdCount: created.length,
+            matchedCount: items.filter((i) => i.action === 'MATCH').length,
           },
         };
       }
