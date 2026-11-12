@@ -173,13 +173,45 @@ export function buildServiceOrderDocumentModel(input: {
   };
 }
 
-/** Historico de documentos da OS: acrescenta e mantem os ultimos 50. */
+/**
+ * Diretriz 12/11: o PDF nunca e armazenado. O historico guarda so dados do evento
+ * (tipo, data, autor, nome do arquivo, rota do link e destinatarios). O PDF e gerado
+ * na hora do download, do link /interno/os/[id] e do anexo do e-mail.
+ * Qualquer outro campo (conteudo, base64, blob, URL de arquivo) e descartado.
+ */
+export function sanitizeServiceOrderDocumentEntry(raw: unknown): ServiceOrderDocumentEntry | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const str = (v: unknown, max: number) => String(v ?? '').replace(/[\r\n]+/g, ' ').trim().slice(0, max);
+  const kind = r.kind === 'ENVIADA' ? 'ENVIADA' : r.kind === 'GERADA' ? 'GERADA' : null;
+  if (!kind) return null;
+  const accessPath = str(r.accessPath, 200);
+  const fileName = str(r.fileName, 120);
+  const entry: ServiceOrderDocumentEntry = {
+    id: str(r.id, 64),
+    kind,
+    at: str(r.at, 40),
+    by: str(r.by, 120),
+    fileName: /\.pdf$/i.test(fileName) ? fileName : '',
+    // So a rota interna da OS; nunca URL de arquivo armazenado.
+    accessPath: /^\/interno\/os\/[^/?#]+$/.test(accessPath) ? accessPath : '',
+  };
+  if (Array.isArray(r.sentTo)) {
+    entry.sentTo = r.sentTo.map((x) => str(x, 254)).filter((x) => /^[^\s@]+@[^\s@]+$/.test(x)).slice(0, 20);
+  }
+  return entry;
+}
+
+/** Historico de documentos da OS: acrescenta (so dados) e mantem os ultimos 50. */
 export function appendServiceOrderDocumentEntry(
   history: ServiceOrderDocumentEntry[] | undefined,
   entry: ServiceOrderDocumentEntry
 ): ServiceOrderDocumentEntry[] {
-  const list = Array.isArray(history) ? history.filter(Boolean) : [];
-  list.push(entry);
+  const list = (Array.isArray(history) ? history : [])
+    .map((h) => sanitizeServiceOrderDocumentEntry(h))
+    .filter((h): h is ServiceOrderDocumentEntry => Boolean(h));
+  const clean = sanitizeServiceOrderDocumentEntry(entry);
+  if (clean) list.push(clean);
   return list.slice(-SERVICE_ORDER_HISTORY_MAX);
 }
 

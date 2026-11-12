@@ -242,3 +242,47 @@ describe('OS: telas', () => {
     assert.ok(desk.includes("'Gerar O.S. Técnica (ERP GestãoClick)'"));
   });
 });
+
+describe('OS: PDF nunca armazenado (diretriz 12/11)', () => {
+  it('histórico guarda só dados; conteúdo, base64, blob e URL de arquivo são descartados', () => {
+    const forged = {
+      id: 'e1', kind: 'GERADA', at: '2026-11-12T15:00:00Z', by: 'x', fileName: 'OS-1.pdf', accessPath: 'https://blob.vercel-storage.com/os.pdf',
+      contentBase64: 'JVBERi0xLjQK', content: '%PDF-1.4', blobUrl: 'https://blob/x.pdf', pdf: new Uint8Array([1]),
+    } as unknown as Parameters<typeof appendServiceOrderDocumentEntry>[1];
+    const h = appendServiceOrderDocumentEntry([forged], forged);
+    assert.equal(h.length, 2);
+    for (const e of h) {
+      assert.deepEqual(Object.keys(e).sort(), ['accessPath', 'at', 'by', 'fileName', 'id', 'kind']);
+      assert.equal(e.accessPath, '');
+    }
+  });
+
+  it('gerar PDF e enviar por e-mail não grava PDF no estado; o PDF é refeito a cada pedido', async () => {
+    const repo = createInMemoryRepository();
+    repo.upsertErpCollectionRecord('serviceOrders', OS as unknown as Record<string, unknown>);
+    const state = repo as unknown as { state: { serviceTickets?: ServiceTicket[] } };
+    state.state.serviceTickets = [ticket(), ...(state.state.serviceTickets || [])];
+    const router = new CrmApiRouter(repo);
+    const q = { ...HTTP, _sessionToken: token({ crm: true, erp: true, chamados: true }) };
+    const before = JSON.stringify(repo.getErpState()).length;
+    const a = await router.dispatch({ method: 'POST', path: `/api/erp/service-orders/${OS.id}/pdf`, query: q, body: {} });
+    const b = await router.dispatch({ method: 'POST', path: `/api/erp/service-orders/${OS.id}/pdf`, query: q, body: {} });
+    await router.dispatch({
+      method: 'POST', path: '/api/communications/send-email', query: q,
+      body: { docType: 'TICKET_REPLY', to: 'cliente@exemplo.com.br', subject: 'OS', body: 'Segue.', attachServiceOrderId: OS.id },
+    });
+    const pdfA = (a.body as { contentBase64: string }).contentBase64;
+    assert.ok(Buffer.from(pdfA, 'base64').toString('latin1').startsWith('%PDF-'));
+    assert.ok((b.body as { contentBase64: string }).contentBase64.length > 0);
+    const erpJson = JSON.stringify(repo.getErpState());
+    assert.equal(erpJson.includes(pdfA.slice(0, 40)), false);
+    assert.equal(erpJson.includes('JVBERi'), false); // "%PDF" em base64
+    assert.equal(erpJson.includes('%PDF'), false);
+    assert.ok(erpJson.length - before < 2000, `estado cresceu ${erpJson.length - before} bytes`);
+    const hist = repo.findServiceOrderByRef(OS.id)?.documentHistory || [];
+    assert.deepEqual(hist.map((h) => h.kind), ['GERADA', 'GERADA', 'ENVIADA']);
+    for (const h of hist) {
+      for (const k of Object.keys(h)) assert.ok(['id', 'kind', 'at', 'by', 'fileName', 'accessPath', 'sentTo'].includes(k), k);
+    }
+  });
+});
