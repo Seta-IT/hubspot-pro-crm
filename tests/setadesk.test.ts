@@ -755,7 +755,7 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
 
   it('aplica migracoes uma vez e reaplicar e no-op', async () => {
     const first = await store.ensureSetaDeskSchema();
-    assert.deepEqual(first, ['0001_setadesk_core', '0002_align_seq_stt', '0003_comments_internal_default', '0004_pipelines_and_history_uidx', '0005_pipeline_mailbox_unique']);
+    assert.deepEqual(first, ['0001_setadesk_core', '0002_align_seq_stt', '0003_comments_internal_default', '0004_pipelines_and_history_uidx', '0005_pipeline_mailbox_unique', '0006_email_intake']);
     store.resetSetaDeskSchemaCache();
     const second = await store.ensureSetaDeskSchema();
     assert.deepEqual(second, []);
