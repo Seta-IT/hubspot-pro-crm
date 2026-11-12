@@ -33,6 +33,10 @@ interface UserAccountModalProps {
   onOpenHomeScreenPreference?: () => void;
   onLogout: () => void;
   onShowToast: (msg: string) => void;
+  /** Renderiza o conteúdo sem o overlay, para a tela de configurações. */
+  embedded?: boolean;
+  /** Quando informado, mostra só essas seções (Perfil, E-mail, Segurança). */
+  visibleSections?: Array<'PERFIL' | 'EMAIL' | 'SEGURANCA'>;
 }
 
 export default function UserAccountModal({
@@ -45,6 +49,8 @@ export default function UserAccountModal({
   onOpenHomeScreenPreference,
   onLogout,
   onShowToast,
+  embedded = false,
+  visibleSections,
 }: UserAccountModalProps) {
   const [name, setName] = useState(user.name);
   const [phone, setPhone] = useState(user.phone || '');
@@ -322,11 +328,15 @@ export default function UserAccountModal({
       ? user.enabledModules
       : ['CRM', 'ERP', 'CHAMADOS'];
 
+  const showPerfil = !visibleSections || visibleSections.includes('PERFIL');
+  const showEmail = !visibleSections || visibleSections.includes('EMAIL');
+  const showSeguranca = !visibleSections || visibleSections.includes('SEGURANCA');
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full overflow-hidden text-xs my-6">
+    <div className={embedded ? '' : 'fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto'}>
+      <div className={embedded ? 'bg-white rounded-xl border border-slate-200 shadow-xs w-full overflow-hidden text-xs' : 'bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full overflow-hidden text-xs my-6'}>
         {/* Header */}
-        <div className="bg-[#0d2b4e] text-white px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+        {!embedded && <div className="bg-[#0d2b4e] text-white px-6 py-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-[#1e3a6e] text-white font-semibold text-sm flex items-center justify-center">
               {user.name
@@ -367,9 +377,10 @@ export default function UserAccountModal({
               Fechar
             </button>
           </div>
-        </div>
+        </div>}
 
-        <form onSubmit={handleSaveAccount} className="p-6 space-y-5 max-h-[82vh] overflow-y-auto">
+        <form onSubmit={handleSaveAccount} className={embedded ? 'p-5 space-y-5' : 'p-6 space-y-5 max-h-[82vh] overflow-y-auto'}>
+          {showPerfil && (<>
           {/* Active IAM Scope Summary */}
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2">
             <div className="space-y-0.5">
@@ -520,9 +531,11 @@ export default function UserAccountModal({
               </button>
             </div>
           )}
+          </>)}
 
-          {/* 2FA Configuration: Google Authenticator (Real ISO 18004 QR Code) vs Email OTP */}
+          {showSeguranca && (
           <div className="rounded-xl border-2 border-[#0d2b4e]/20 bg-slate-50/70 p-4 space-y-4">
+            {/* 2FA Configuration: Google Authenticator (Real ISO 18004 QR Code) vs Email OTP */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
               <div>
                 <span className="text-[10px] font-semibold uppercase text-[#1e3a6e] block">
@@ -702,18 +715,21 @@ export default function UserAccountModal({
               </div>
             )}
           </div>
+          )}
 
-          {/* Caixas Outlook 365 do proprio usuario e assinatura (e-mail individual do CRM) */}
+          {showEmail && (
           <div className="space-y-2">
+            {/* Caixas Outlook 365 do proprio usuario e assinatura (e-mail individual do CRM) */}
             <h4 className="text-sm font-semibold text-slate-900">E-mail do CRM</h4>
             <MailboxConnectionsPanel compact />
           </div>
+          )}
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg border border-slate-300 font-semibold text-slate-700 cursor-pointer"
+              className={`px-4 py-2 rounded-lg border border-slate-300 font-semibold text-slate-700 cursor-pointer ${embedded ? 'hidden' : ''}`}
             >
               Cancelar
             </button>

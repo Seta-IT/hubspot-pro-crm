@@ -225,9 +225,13 @@ interface ErpGestaoClickTabProps {
   onRefresh: () => Promise<void>;
   onShowToast: (msg: string) => void;
   initialSection?: GestaoClickMenuSection;
+  initialSubId?: string;
   navigationTrigger?: number;
+  /** Quando o menu único do sti-hub está visível, esconde a sidebar própria do ERP. */
+  hideSidebar?: boolean;
   /** Notifica a secao ativa (usado para "Definir como padrao" no header). */
   onSectionChange?: (section: GestaoClickMenuSection) => void;
+  onSubIdChange?: (subId: string) => void;
   targetEntity?: { type: string; id: string; query?: string } | null;
   onClearTargetEntity?: () => void;
   autoOpenNewProposalTrigger?: number;
@@ -376,8 +380,11 @@ export default function ErpGestaoClickTab({
   onRefresh,
   onShowToast,
   initialSection,
+  initialSubId,
   navigationTrigger,
+  hideSidebar = false,
   onSectionChange,
+  onSubIdChange,
   targetEntity,
   onClearTargetEntity,
   autoOpenNewProposalTrigger,
@@ -722,7 +729,10 @@ export default function ErpGestaoClickTab({
     if (initialSection) {
       setActiveSection(initialSection);
     }
-  }, [initialSection, navigationTrigger]);
+    if (initialSubId) {
+      setActiveSubId(initialSubId);
+    }
+  }, [initialSection, initialSubId, navigationTrigger]);
 
   React.useEffect(() => {
     onSectionChange?.(activeSection);
@@ -751,6 +761,11 @@ export default function ErpGestaoClickTab({
       };
     });
   }, [erpData?.rentalContracts, editingContract?.id]);
+
+  React.useEffect(() => {
+    onSubIdChange?.(activeSubId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSubId]);
 
   React.useEffect(() => {
     if (!targetEntity || !erpData) return;
@@ -5109,7 +5124,7 @@ export default function ErpGestaoClickTab({
           <button
             type="button"
             onClick={() => setErpMobileDrawerOpen(true)}
-            className="md:hidden inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold cursor-pointer"
+            className={`md:hidden inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold cursor-pointer ${hideSidebar ? 'hidden' : ''}`}
             title="Abrir Menu ERP Mobile"
           >
             <Menu className="w-4 h-4" />
@@ -5118,7 +5133,7 @@ export default function ErpGestaoClickTab({
           <button
             type="button"
             onClick={() => setSidebarCollapsed((v) => !v)}
-            className="hidden md:inline-flex p-1.5 rounded border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 cursor-pointer"
+            className={`hidden md:inline-flex p-1.5 rounded border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 cursor-pointer ${hideSidebar ? 'hidden' : ''}`}
             title="Recolher/Expandir menu lateral"
           >
             <Menu className="w-4 h-4" />
@@ -5154,7 +5169,7 @@ export default function ErpGestaoClickTab({
       </div>
 
       {/* BARRA RÁPIDA MOBILE DO ERP (PERMITE ABRIR QUALQUER MÓDULO E SUBMÓDULO COM 1 TOQUE NO CELULAR) */}
-      <div className="md:hidden bg-white border-b border-slate-200 px-3 py-2 space-y-1.5">
+      <div className={`md:hidden bg-white border-b border-slate-200 px-3 py-2 space-y-1.5 ${hideSidebar ? 'hidden' : ''}`}>
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
           {visibleMenuTree.map((grp) => {
             const isAct = activeSection === grp.id;
@@ -5227,7 +5242,7 @@ export default function ErpGestaoClickTab({
 
       {/* BODY: SIDEBAR ESQUERDA FIXA + ÁREA PRINCIPAL */}
       <div className="flex flex-col md:flex-row min-h-[780px]">
-        {!sidebarCollapsed && (
+        {!hideSidebar && !sidebarCollapsed && (
           <GestaoClickSidebar
             menuTree={visibleMenuTree}
             activeSection={activeSection}

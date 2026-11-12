@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Sparkles,
   Kanban,
@@ -57,6 +57,8 @@ import { proposalFlowNavigation } from './lib/proposal-validity-return';
 import { loadClientIamUsersOverride, migrateClientIamStorage } from './lib/auth';
 import { saveClientIamUserOverrideIfNewer } from './lib/iam-seal-cache';
 import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
+import SettingsHubPage from './components/SettingsHubPage';
+import type { NavAccessContext, NavTarget } from './lib/hubspot-nav';
 import type { MarketingHubSubView } from './components/MarketingAndSalesHubSuites';
 import GlobalHeaderSearch, { SearchResultEntry } from './components/GlobalHeaderSearch';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
@@ -122,7 +124,8 @@ type ActiveModule =
   | 'ERP_GESTAOCLICK'
   | 'DATA_HEALTH'
   | 'AUTOMATIONS'
-  | 'ADMIN_RBAC';
+  | 'ADMIN_RBAC'
+  | 'SETTINGS_HUB';
 
 export default function HubSpotProCrmApp() {
   const [activeModule, setActiveModule] = useState<ActiveModule>('OVERVIEW_AI');
@@ -153,7 +156,7 @@ export default function HubSpotProCrmApp() {
   const [serviceDeskNavTrigger, setServiceDeskNavTrigger] = useState<number>(0);
   const [openNewTicketTrigger, setOpenNewTicketTrigger] = useState<number>(0);
   const [openNewDealTrigger, setOpenNewDealTrigger] = useState<number>(0);
-  const [adminInitialSubView, setAdminInitialSubView] = useState<'USERS_RBAC' | 'COMPANY_EMITTER' | 'CERTIFICATE_A1' | 'ERP_GENERAL_SETTINGS' | 'CERTIFICATE_SERIES' | 'EMAIL_TEMPLATES' | 'CUSTOM_PROPERTIES' | 'DAILY_SYNC_LOGS' | 'MIGRATION_CHECKLIST' | 'SUBDOMAIN_SECURITY'>('USERS_RBAC');
+  const [adminInitialSubView, setAdminInitialSubView] = useState<'USERS_RBAC' | 'COMPANY_EMITTER' | 'CERTIFICATE_A1' | 'ERP_GENERAL_SETTINGS' | 'CERTIFICATE_SERIES' | 'EMAIL_TEMPLATES' | 'EMAIL_MAILBOXES' | 'CUSTOM_PROPERTIES' | 'DAILY_SYNC_LOGS' | 'MIGRATION_CHECKLIST' | 'SUBDOMAIN_SECURITY'>('USERS_RBAC');
   const [globalEmailModal, setGlobalEmailModal] = useState<ClientEmailInitialPayload | null>(null);
   const [rbacState, setRbacState] = useState<StiHubRbacState | null>(null);
   const [emailTemplatesState, setEmailTemplatesState] = useState<CrmEmailTemplate[]>([]);
@@ -169,6 +172,10 @@ export default function HubSpotProCrmApp() {
   const [homeScreenResolved, setHomeScreenResolved] = useState(false);
   const [erpCurrentSection, setErpCurrentSection] = useState<GestaoClickMenuSection>('INICIO');
   const [serviceDeskCurrentTab, setServiceDeskCurrentTab] = useState<'OPERATIONS' | 'DASHBOARD_CHAMADOS' | 'DATA_HEALTH_CHAMADOS'>('OPERATIONS');
+  const [erpInitialSubId, setErpInitialSubId] = useState<string>('INICIO');
+  const [erpCurrentSubId, setErpCurrentSubId] = useState<string>('INICIO');
+  const [settingsItemId, setSettingsItemId] = useState<string>('pref-geral');
+  const [settingsReturnModule, setSettingsReturnModule] = useState<ActiveModule>('OVERVIEW_AI');
 
   // Real-Time API States
   const [aiReport, setAiReport] = useState<AiInsightsReport | null>(null);
@@ -1131,11 +1138,13 @@ export default function HubSpotProCrmApp() {
 
   // Cabecalho por sistema: CRM laranja, Chamados verde, ERP azul-marinho (tokens em globals.css).
   const headerSystem: 'crm' | 'erp' | 'service' =
-    activeModule === 'SERVICE_DESK' ? 'service' : isCrmActive ? 'crm' : 'erp';
+    activeModule === 'SETTINGS_HUB'
+      ? (settingsReturnModule === 'SERVICE_DESK' ? 'service' : settingsReturnModule === 'ERP_GESTAOCLICK' ? 'erp' : 'crm')
+      : activeModule === 'SERVICE_DESK' ? 'service' : isCrmActive ? 'crm' : 'erp';
 
   useEffect(() => {
     if (!activeRbacUser) return;
-    if (activeModule === 'ADMIN_RBAC') return;
+    if (activeModule === 'ADMIN_RBAC' || activeModule === 'SETTINGS_HUB') return;
     if (isCrmActive && !userModuleAccess.crm) {
       if (userModuleAccess.erp) {
         setActiveModule('ERP_GESTAOCLICK');
@@ -1308,6 +1317,80 @@ export default function HubSpotProCrmApp() {
               : null;
   const canChooseHomeScreen = shouldOfferHomeScreenChoice(userModuleAccess);
 
+  const navAccess: NavAccessContext = useMemo(
+    () => ({
+      moduleAccess: userModuleAccess,
+      erpConfig: adminCentralAccess,
+      itemView: {
+        ...(activeRbacUser?.itemPermissions || {}),
+        ...(activeRbacUser?.erpItemPermissions || {}),
+      },
+    }),
+    [userModuleAccess, adminCentralAccess, activeRbacUser]
+  );
+
+  const openSettingsHub = useCallback(
+    (itemId?: string) => {
+      setSettingsReturnModule((current) => (activeModule === 'SETTINGS_HUB' ? current : activeModule));
+      setSettingsItemId(itemId || 'pref-geral');
+      setActiveModule('SETTINGS_HUB');
+      setUserMenuOpen(false);
+    },
+    [activeModule]
+  );
+
+  const handleNavTarget = useCallback(
+    (target: NavTarget) => {
+      if (target.type === 'external') {
+        if (typeof window !== 'undefined') window.open(target.href, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      if (target.type === 'settings') {
+        openSettingsHub(target.itemId);
+        return;
+      }
+      if (target.type === 'service') {
+        setServiceDeskInitialTab(target.tab);
+        setServiceDeskNavTrigger((n) => n + 1);
+        setActiveModule('SERVICE_DESK');
+        return;
+      }
+      if (target.type === 'erp') {
+        setErpInitialSection(target.section as GestaoClickMenuSection);
+        setErpInitialSubId(target.subId);
+        setErpNavigationTrigger((n) => n + 1);
+        setActiveModule('ERP_GESTAOCLICK');
+        return;
+      }
+      if (target.type !== 'crm') return;
+      if (target.contactsSub) {
+        setContactsInitialSubView(target.contactsSub);
+        setContactsNavTrigger((n) => n + 1);
+      }
+      if (target.marketingSub) setMarketingSubView(target.marketingSub);
+      if (target.dataHealthScope) setDataHealthScope(target.dataHealthScope);
+      if (target.module === 'ADMIN_RBAC') {
+        openSettingsHub('account-users');
+        return;
+      }
+      setLastCrmSubModule(target.module as CrmModuleId);
+      setActiveModule(target.module);
+    },
+    [openSettingsHub]
+  );
+
+  const navLocation = {
+    module: activeModule,
+    contactsSub: contactsInitialSubView,
+    marketingSub: marketingSubView as import("./lib/hubspot-nav").MarketingHubSubView,
+    dataHealthScope,
+    erpSection: erpCurrentSection,
+    erpSubId: erpCurrentSubId,
+    serviceTab: serviceDeskCurrentTab,
+    settingsItemId,
+  };
+
+
   const handleSaveHomeScreen = async (screenId: HomeScreenId | null) => {
     if (!activeRbacUser?.id) return;
     if (screenId && !systemHasAccess(getHomeScreen(screenId).system, userModuleAccess)) return;
@@ -1401,8 +1484,8 @@ export default function HubSpotProCrmApp() {
         ? 'CRM'
         : activeModule === 'SERVICE_DESK'
           ? 'Chamados'
-          : activeModule === 'ADMIN_RBAC'
-            ? 'Admin & RBAC'
+          : activeModule === 'SETTINGS_HUB'
+            ? 'Configurações'
             : 'Visão Geral';
 
   const activeSubModuleBreadcrumbLabel =
@@ -1763,7 +1846,7 @@ export default function HubSpotProCrmApp() {
                       type="button"
                       onClick={() => {
                         setUserMenuOpen(false);
-                        setShowUserAccountModal(true);
+                        openSettingsHub('pref-geral');
                       }}
                       className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 font-semibold text-slate-700 flex items-center gap-2.5 cursor-pointer"
                     >
@@ -1775,7 +1858,7 @@ export default function HubSpotProCrmApp() {
                       type="button"
                       onClick={() => {
                         setUserMenuOpen(false);
-                        setActiveModule("ADMIN_RBAC");
+                        openSettingsHub('account-users');
                       }}
                       className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 font-semibold text-slate-700 flex items-center gap-2.5 cursor-pointer"
                     >
@@ -2145,58 +2228,48 @@ export default function HubSpotProCrmApp() {
             </div>
           )}
           {homeScreenResolved && (<>
-          {activeModule === 'ERP_GESTAOCLICK' && (
-            <ErpGestaoClickTab
-              erpData={erpData}
-              companies={companies}
-              contacts={contacts}
-              deals={deals}
+          {activeModule === 'SETTINGS_HUB' && activeRbacUser && (
+            <SettingsHubPage
+              access={navAccess}
+              user={activeRbacUser}
               rbacState={rbacState}
               emailTemplates={emailTemplatesState}
-              activeUser={activeRbacUser}
+              initialItemId={settingsItemId}
+              homeScreenLabel={
+                homeScreenPreference && systemHasAccess(getHomeScreen(homeScreenPreference).system, userModuleAccess)
+                  ? `${getHomeScreen(homeScreenPreference).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(homeScreenPreference).system} - ${getHomeScreen(homeScreenPreference).label}`
+                  : canChooseHomeScreen
+                    ? 'Não definida (Visão Geral do primeiro sistema)'
+                    : 'Apenas um sistema disponível'
+              }
+              canChooseHomeScreen={canChooseHomeScreen}
+              onOpenHomeScreenPreference={() => setShowHomeScreenModal(true)}
+              onBack={() => {
+                const back = settingsReturnModule === 'SETTINGS_HUB' ? 'OVERVIEW_AI' : settingsReturnModule;
+                setActiveModule(back);
+              }}
+              onUserUpdated={async (updated) => {
+                setActiveRbacUser(updated);
+                await fetchAllCrmData();
+              }}
               onSelectActiveUser={(u) => setActiveRbacUser(u)}
               onRefresh={async () => {
                 await fetchAllCrmData();
               }}
               onShowToast={showToast}
-              initialSection={erpInitialSection}
-              navigationTrigger={erpNavigationTrigger}
-              onSectionChange={setErpCurrentSection}
-              targetEntity={erpTargetEntity}
-              onClearTargetEntity={() => setErpTargetEntity(null)}
-              autoOpenNewProposalTrigger={autoOpenNewProposalTrigger}
-              prefillProposalFromDeal={prefillProposalDeal}
-              canAccessCrm={Boolean(userModuleAccess.crm)}
-              onOpenLinkedDeal={(dealId) => {
-                setActiveModule('DEALS_KANBAN');
-                setInitialDealIdForDrawer(dealId);
+              onLogout={async () => {
+                document.cookie = 'stihub_session=; path=/; max-age=0; SameSite=Lax';
+                document.cookie = 'stihub_logged_out=1; path=/; max-age=86400; SameSite=Lax';
+                try {
+                  window.localStorage.removeItem('stihub_active_session_v1');
+                } catch {}
+                await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+                window.location.href = '/login';
               }}
+              onItemChange={setSettingsItemId}
             />
           )}
-
-          {activeModule === 'SERVICE_DESK' && (
-            <ServiceDeskTab
-              tickets={tickets}
-              initialSelectedTicketId={initialTicketIdForDrawer}
-              onClearInitialTicket={() => setInitialTicketIdForDrawer(null)}
-              initialMacroTab={serviceDeskInitialTab}
-              navigationTrigger={serviceDeskNavTrigger}
-              onMacroTabChange={setServiceDeskCurrentTab}
-              openNewTicketTrigger={openNewTicketTrigger}
-              kpis={ticketKpis}
-              contacts={contacts}
-              companies={companies}
-              rentalContracts={erpData?.rentalContracts || []}
-              serviceOrders={erpData?.serviceOrders || []}
-              onCreateTicket={handleCreateTicket}
-              onUpdateTicket={handleUpdateTicket}
-              onDeleteTicket={handleDeleteTicket}
-              onCreateOsFromTicket={handleCreateOsFromTicket}
-              onAddTicketComment={handleAddTicketComment}
-            />
-          )}
-
-          {isCrmActive && (
+          {activeModule !== 'SETTINGS_HUB' && (
             <div className="rounded-lg overflow-hidden border border-slate-300 shadow-md bg-[#f3f5f8] flex flex-col md:flex-row min-h-[780px]">
               {/* MOBILE CRM NAVIGATION BAR (DRAWER TRIGGER + 1-TAP HORIZONTAL PILLS) */}
               <div className="md:hidden bg-[#213343] text-white px-3 py-2.5 border-b border-[#33475b] space-y-2">
@@ -2299,8 +2372,7 @@ export default function HubSpotProCrmApp() {
                       label: 'Admin & Config.',
                       active: activeModule === 'ADMIN_RBAC',
                       onClick: () => {
-                        setLastCrmSubModule('ADMIN_RBAC');
-                        setActiveModule('ADMIN_RBAC');
+                        openSettingsHub('account-users');
                       },
                     },
                   ].filter((pill) => pill.id !== 'ADMIN_RBAC' || canOpenAdminCentralUi).map((pill) => (
@@ -2374,9 +2446,15 @@ export default function HubSpotProCrmApp() {
                 onSelectAdminRbac={canOpenAdminCentralUi ? (sub) => {
                   if (sub) setAdminInitialSubView(sub as typeof adminInitialSubView);
                   else setAdminInitialSubView('USERS_RBAC');
-                  setLastCrmSubModule('ADMIN_RBAC');
-                  setActiveModule('ADMIN_RBAC');
+                  openSettingsHub('account-users');
                 } : undefined}
+                nav={{
+                  userId: activeRbacUser?.id,
+                  access: navAccess,
+                  location: navLocation,
+                  onNavigate: handleNavTarget,
+                  onOpenSettings: () => openSettingsHub(canOpenAdminCentralUi ? 'account-users' : 'pref-geral'),
+                }}
                 />
               )}
 
@@ -2394,6 +2472,60 @@ export default function HubSpotProCrmApp() {
                     </button>
                   </div>
                 )}
+                {activeModule === 'ERP_GESTAOCLICK' && (
+                  <ErpGestaoClickTab
+                    hideSidebar
+                    erpData={erpData}
+                    companies={companies}
+                    contacts={contacts}
+                    deals={deals}
+                    rbacState={rbacState}
+                    emailTemplates={emailTemplatesState}
+                    activeUser={activeRbacUser}
+                    onSelectActiveUser={(u) => setActiveRbacUser(u)}
+                    onRefresh={async () => {
+                      await fetchAllCrmData();
+                    }}
+                    onShowToast={showToast}
+                    initialSection={erpInitialSection}
+                    initialSubId={erpInitialSubId}
+                    navigationTrigger={erpNavigationTrigger}
+                    onSectionChange={setErpCurrentSection}
+                    onSubIdChange={setErpCurrentSubId}
+                    targetEntity={erpTargetEntity}
+                    onClearTargetEntity={() => setErpTargetEntity(null)}
+                    autoOpenNewProposalTrigger={autoOpenNewProposalTrigger}
+                    prefillProposalFromDeal={prefillProposalDeal}
+                    canAccessCrm={Boolean(userModuleAccess.crm)}
+                    onOpenLinkedDeal={(dealId) => {
+                      setActiveModule('DEALS_KANBAN');
+                      setInitialDealIdForDrawer(dealId);
+                    }}
+                  />
+                )}
+
+                {activeModule === 'SERVICE_DESK' && (
+                  <ServiceDeskTab
+                    tickets={tickets}
+                    initialSelectedTicketId={initialTicketIdForDrawer}
+                    onClearInitialTicket={() => setInitialTicketIdForDrawer(null)}
+                    initialMacroTab={serviceDeskInitialTab}
+                    navigationTrigger={serviceDeskNavTrigger}
+                    onMacroTabChange={setServiceDeskCurrentTab}
+                    openNewTicketTrigger={openNewTicketTrigger}
+                    kpis={ticketKpis}
+                    contacts={contacts}
+                    companies={companies}
+                    rentalContracts={erpData?.rentalContracts || []}
+                    serviceOrders={erpData?.serviceOrders || []}
+                    onCreateTicket={handleCreateTicket}
+                    onUpdateTicket={handleUpdateTicket}
+                    onDeleteTicket={handleDeleteTicket}
+                    onCreateOsFromTicket={handleCreateOsFromTicket}
+                    onAddTicketComment={handleAddTicketComment}
+                  />
+                )}
+
                 {activeModule === 'OVERVIEW_AI' && (
                   <OverviewAiCopilotTab
                     report={aiReport}

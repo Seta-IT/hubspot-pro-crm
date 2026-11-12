@@ -2,30 +2,62 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  BarChart3,
+  Boxes,
   Building2,
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  ClipboardList,
+  FileSignature,
+  FileText,
+  Filter,
+  FormInput,
+  Headset,
   LayoutDashboard,
   Kanban,
-  Users,
+  LineChart,
+  Mail,
   Megaphone,
-  Workflow,
-  ShieldCheck,
-  Settings,
+  MoreHorizontal,
+  Package,
   PanelLeftClose,
   Pin,
   PinOff,
-  MoreHorizontal,
+  Receipt,
+  Settings,
+  ShieldCheck,
+  ShoppingBasket,
+  Ticket,
+  Truck,
+  Users,
+  Wallet,
+  Warehouse,
+  Workflow,
   X,
-  Filter,
-  FileText,
-  TrendingUp,
-  FormInput,
-  Mail,
+  ExternalLink,
 } from 'lucide-react';
 import { EnrichedPipeline } from './DealsKanbanTab';
 import type { MarketingHubSubView } from './MarketingAndSalesHubSuites';
+import type { GestaoClickMenuSection } from './ErpGestaoClickTab';
+import type { AdminSubView } from './StiHubAdminRbacPanel';
+import {
+  CATEGORY_LABELS,
+  CATEGORY_ORDER,
+  DEFAULT_PIN_IDS,
+  RAIL_GROUPS,
+  loadPinnedIds,
+  persistPinnedIds,
+  resolveHomeTarget,
+  visibleNavItems,
+  type CurrentNavLocation,
+  type HubspotNavCategory,
+  type HubspotNavItem,
+  type NavAccessContext,
+  type NavIconId,
+  type NavTarget,
+  isTargetActive,
+} from '../lib/hubspot-nav';
 
 export const CRM_MARKETING_SUBITEMS: Array<{ id: MarketingHubSubView; label: string }> = [
   { id: 'MARKETING_EMAILS', label: 'E-mails de Marketing' },
@@ -50,26 +82,58 @@ export const CRM_CORPORATE_BLOCKS = [
   'GOVERNANÇA CRM',
 ] as const;
 
-type ShortcutId =
-  | 'HOME'
-  | 'DEALS'
-  | 'TASKS'
-  | 'CONTACTS'
-  | 'COMPANIES'
-  | 'SEGMENTS'
-  | 'MARKETING_EMAILS'
-  | 'CAMPAIGNS'
-  | 'FORMS'
-  | 'AUTOMATIONS'
-  | 'DATA_HEALTH'
-  | 'ADMIN'
-  | 'FORECAST';
+const ICONS: Record<NavIconId, React.ReactNode> = {
+  home: <LayoutDashboard className="w-4 h-4 shrink-0" />,
+  deals: <Kanban className="w-4 h-4 shrink-0" />,
+  tasks: <CheckSquare className="w-4 h-4 shrink-0" />,
+  contacts: <Users className="w-4 h-4 shrink-0" />,
+  companies: <Building2 className="w-4 h-4 shrink-0" />,
+  segments: <Filter className="w-4 h-4 shrink-0" />,
+  mail: <Mail className="w-4 h-4 shrink-0" />,
+  campaigns: <Megaphone className="w-4 h-4 shrink-0" />,
+  forms: <FormInput className="w-4 h-4 shrink-0" />,
+  workflow: <Workflow className="w-4 h-4 shrink-0" />,
+  forecast: <BarChart3 className="w-4 h-4 shrink-0" />,
+  health: <ShieldCheck className="w-4 h-4 shrink-0" />,
+  settings: <Settings className="w-4 h-4 shrink-0" />,
+  tickets: <Ticket className="w-4 h-4 shrink-0" />,
+  products: <Package className="w-4 h-4 shrink-0" />,
+  orders: <ShoppingBasket className="w-4 h-4 shrink-0" />,
+  services: <ClipboardList className="w-4 h-4 shrink-0" />,
+  quotes: <FileText className="w-4 h-4 shrink-0" />,
+  contracts: <FileSignature className="w-4 h-4 shrink-0" />,
+  invoices: <Receipt className="w-4 h-4 shrink-0" />,
+  payments: <Wallet className="w-4 h-4 shrink-0" />,
+  subscriptions: <FileSignature className="w-4 h-4 shrink-0" />,
+  helpdesk: <Headset className="w-4 h-4 shrink-0" />,
+  portal: <ExternalLink className="w-4 h-4 shrink-0" />,
+  os: <WrenchIcon />,
+  stock: <Warehouse className="w-4 h-4 shrink-0" />,
+  finance: <Wallet className="w-4 h-4 shrink-0" />,
+  fiscal: <Receipt className="w-4 h-4 shrink-0" />,
+  reports: <LineChart className="w-4 h-4 shrink-0" />,
+  users: <Users className="w-4 h-4 shrink-0" />,
+  building: <Building2 className="w-4 h-4 shrink-0" />,
+  truck: <Truck className="w-4 h-4 shrink-0" />,
+  inbox: <Mail className="w-4 h-4 shrink-0" />,
+  templates: <FileText className="w-4 h-4 shrink-0" />,
+  dashboard: <LayoutDashboard className="w-4 h-4 shrink-0" />,
+};
 
-const PIN_STORAGE_KEY = 'stihub_crm_sidebar_pins_v1';
-const DEFAULT_PINS: ShortcutId[] = ['HOME', 'DEALS', 'TASKS', 'CONTACTS', 'COMPANIES', 'SEGMENTS'];
+function WrenchIcon() {
+  return <Boxes className="w-4 h-4 shrink-0" />;
+}
+
+export interface CrmSidebarNavHandlers {
+  userId?: string | null;
+  access: NavAccessContext;
+  location: CurrentNavLocation;
+  onNavigate: (target: NavTarget) => void;
+  onOpenSettings?: (itemId?: string) => void;
+}
 
 interface CrmSidebarProps {
-  activeModule: CrmModuleId;
+  activeModule: CrmModuleId | string;
   pipelines: EnrichedPipeline[];
   selectedPipelineId: string;
   contactsSubView: 'CONTACTS' | 'COMPANIES' | 'TASKS';
@@ -94,27 +158,18 @@ interface CrmSidebarProps {
   onSelectDataHealth: (scope: 'CRM' | 'ERP') => void;
   onSelectAdminRbac?: (subView?: string) => void;
   activeAdminSubView?: string;
-}
-
-function loadPins(): ShortcutId[] {
-  if (typeof window === 'undefined') return DEFAULT_PINS;
-  try {
-    const raw = window.localStorage.getItem(PIN_STORAGE_KEY);
-    if (!raw) return DEFAULT_PINS;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length) return parsed as ShortcutId[];
-  } catch {}
-  return DEFAULT_PINS;
+  nav?: CrmSidebarNavHandlers;
+  erpSection?: GestaoClickMenuSection;
+  erpSubId?: string;
+  serviceTab?: 'OPERATIONS' | 'DASHBOARD_CHAMADOS' | 'DATA_HEALTH_CHAMADOS';
 }
 
 export default function CrmSidebar({
   activeModule,
-  pipelines,
   selectedPipelineId,
+  pipelines,
   contactsSubView,
-  contactsCount,
-  companiesCount,
-  dealsCount,
+  dataHealthScope,
   formsCount,
   marketingEmailsCount,
   activeMarketingSubView,
@@ -131,171 +186,77 @@ export default function CrmSidebar({
   onSelectAutomations,
   onSelectDataHealth,
   onSelectAdminRbac,
-  activeAdminSubView = 'USERS_RBAC',
+  nav,
 }: CrmSidebarProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     MARKETING: true,
     VENDAS: true,
     PLATAFORMA: true,
   });
-  const [pins, setPins] = useState<ShortcutId[]>(DEFAULT_PINS);
+  const [pins, setPins] = useState<string[]>(DEFAULT_PIN_IDS);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [moreArea, setMoreArea] = useState<'CRM' | 'MARKETING' | 'VENDAS' | 'SERVICO' | 'DADOS' | 'AUTOMACAO' | 'RELATORIOS'>('CRM');
+  const [moreArea, setMoreArea] = useState<HubspotNavCategory>('CRM');
+
+  const access: NavAccessContext = nav?.access || {
+    moduleAccess: { crm: true, erp: false, chamados: false },
+    erpConfig: null,
+  };
+
+  const items = useMemo(() => visibleNavItems(access), [access]);
+  const allowedIds = useMemo(() => items.map((item) => item.id), [items]);
 
   useEffect(() => {
-    setPins(loadPins());
-  }, []);
+    setPins(loadPinnedIds(nav?.userId, allowedIds));
+  }, [nav?.userId, allowedIds.join('|')]);
 
   const closeMobileIfOpen = () => onCloseMobileDrawer?.();
 
-  const persistPins = (next: ShortcutId[]) => {
+  const persistPins = (next: string[]) => {
     setPins(next);
-    try {
-      window.localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify(next));
-    } catch {}
+    persistPinnedIds(nav?.userId, next);
   };
 
-  const togglePin = (id: ShortcutId) => {
+  const togglePin = (id: string) => {
     if (pins.includes(id)) persistPins(pins.filter((p) => p !== id));
     else persistPins([...pins, id]);
   };
 
-  const goHome = () => {
-    if (onSelectOverview) onSelectOverview();
-    else onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b');
+  const location: CurrentNavLocation = nav?.location || {
+    module: String(activeModule),
+    contactsSub: contactsSubView,
+    marketingSub: activeMarketingSubView,
+    dataHealthScope,
+  };
+
+  const runTarget = (target: NavTarget) => {
+    if (nav?.onNavigate) {
+      nav.onNavigate(target);
+      closeMobileIfOpen();
+      return;
+    }
+    // Fallback legado (só CRM), para não quebrar usos antigos.
+    if (target.type === 'crm') {
+      if (target.module === 'OVERVIEW_AI') onSelectOverview?.();
+      else if (target.module === 'DEALS_KANBAN') onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b');
+      else if (target.module === 'CONTACTS_COMPANIES' && target.contactsSub) onSelectContactsSubView(target.contactsSub);
+      else if (target.module === 'MARKETING_FORMS') {
+        if (target.marketingSub && onSelectMarketingSubView) onSelectMarketingSubView(target.marketingSub);
+        else onSelectForms();
+      } else if (target.module === 'AUTOMATIONS') onSelectAutomations();
+      else if (target.module === 'DATA_HEALTH') onSelectDataHealth(target.dataHealthScope || 'CRM');
+      else if (target.module === 'ADMIN_RBAC') onSelectAdminRbac?.(target.adminSubView);
+    }
     closeMobileIfOpen();
   };
 
-  const catalog: Record<ShortcutId, { label: string; icon: React.ReactNode; active: boolean; run: () => void }> = {
-    HOME: {
-      label: 'Início',
-      icon: <LayoutDashboard className="w-4 h-4 shrink-0" />,
-      active: activeModule === 'OVERVIEW_AI',
-      run: goHome,
-    },
-    DEALS: {
-      label: 'Negócios',
-      icon: <Kanban className="w-4 h-4 shrink-0" />,
-      active: activeModule === 'DEALS_KANBAN',
-      run: () => {
-        onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b');
-        closeMobileIfOpen();
-      },
-    },
-    TASKS: {
-      label: 'Tarefas',
-      icon: <CheckSquare className="w-4 h-4 shrink-0" />,
-      active: activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'TASKS',
-      run: () => {
-        onSelectContactsSubView('TASKS');
-        closeMobileIfOpen();
-      },
-    },
-    CONTACTS: {
-      label: 'Contatos',
-      icon: <Users className="w-4 h-4 shrink-0" />,
-      active: activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'CONTACTS',
-      run: () => {
-        onSelectContactsSubView('CONTACTS');
-        closeMobileIfOpen();
-      },
-    },
-    COMPANIES: {
-      label: 'Empresas',
-      icon: <Building2 className="w-4 h-4 shrink-0" />,
-      active: activeModule === 'CONTACTS_COMPANIES' && contactsSubView === 'COMPANIES',
-      run: () => {
-        onSelectContactsSubView('COMPANIES');
-        closeMobileIfOpen();
-      },
-    },
-    SEGMENTS: {
-      label: 'Segmentos',
-      icon: <Filter className="w-4 h-4 shrink-0" />,
-      active: activeModule === 'MARKETING_FORMS' && activeMarketingSubView === 'SEGMENTS_SCORING',
-      run: () => {
-        if (onSelectMarketingSubView) onSelectMarketingSubView('SEGMENTS_SCORING');
-        else onSelectForms();
-        closeMobileIfOpen();
-      },
-    },
-    MARKETING_EMAILS: {
-      label: 'E-mails de marketing',
-      icon: <Mail className="w-4 h-4 shrink-0" />,
-      active: activeModule === 'MARKETING_FORMS' && activeMarketingSubView === 'MARKETING_EMAILS',
-      run: () => {
-        if (onSelectMarketingSubView) onSelectMarketingSubView('MARKETING_EMAILS');
-        else onSelectForms();
-        closeMobileIfOpen();
-      },
-    },
-    CAMPAIGNS: {
-      label: 'Campanhas & ROI',
-      icon: <Megaphone className="w-4 h-4 shrink-0" />,
-      active: activeModule === 'MARKETING_FORMS' && activeMarketingSubView === 'CAMPAIGNS_ROI',
-      run: () => {
-        if (onSelectMarketingSubView) onSelectMarketingSubView('CAMPAIGNS_ROI');
-        else onSelectForms();
-        closeMobileIfOpen();
-      },
-    },
-    FORMS: {
-      label: 'Formulários',
-      icon: <FormInput className="w-4 h-4 shrink-0" />,
-      active: activeModule === 'MARKETING_FORMS' && activeMarketingSubView === 'FORMS_LANDING_PAGES',
-      run: () => {
-        if (onSelectMarketingSubView) onSelectMarketingSubView('FORMS_LANDING_PAGES');
-        else onSelectForms();
-        closeMobileIfOpen();
-      },
-    },
-    AUTOMATIONS: {
-      label: 'Fluxos de trabalho',
-      icon: <Workflow className="w-4 h-4 shrink-0" />,
-      active: activeModule === 'AUTOMATIONS',
-      run: () => {
-        onSelectAutomations();
-        closeMobileIfOpen();
-      },
-    },
-    DATA_HEALTH: {
-      label: 'Saúde da base',
-      icon: <ShieldCheck className="w-4 h-4 shrink-0" />,
-      active: activeModule === 'DATA_HEALTH',
-      run: () => {
-        onSelectDataHealth('CRM');
-        closeMobileIfOpen();
-      },
-    },
-    ADMIN: {
-      label: 'Configurações',
-      icon: <Settings className="w-4 h-4 shrink-0" />,
-      active: activeModule === 'ADMIN_RBAC',
-      run: () => {
-        onSelectAdminRbac?.('USERS_RBAC');
-        closeMobileIfOpen();
-      },
-    },
-    FORECAST: {
-      label: 'Previsão',
-      icon: <TrendingUp className="w-4 h-4 shrink-0" />,
-      active: activeModule === 'OVERVIEW_AI',
-      run: goHome,
-    },
-  };
+  const byId = useMemo(() => {
+    const map = new Map<string, HubspotNavItem>();
+    for (const item of items) map.set(item.id, item);
+    return map;
+  }, [items]);
 
-  const moreAreas = useMemo(
-    () => [
-      { id: 'CRM' as const, label: 'CRM', items: ['HOME', 'DEALS', 'TASKS', 'CONTACTS', 'COMPANIES'] as ShortcutId[] },
-      { id: 'MARKETING' as const, label: 'Marketing', items: ['MARKETING_EMAILS', 'CAMPAIGNS', 'SEGMENTS', 'FORMS'] as ShortcutId[] },
-      { id: 'VENDAS' as const, label: 'Vendas', items: ['DEALS', 'FORECAST', 'TASKS'] as ShortcutId[] },
-      { id: 'SERVICO' as const, label: 'Serviço/Chamados', items: [] as ShortcutId[] },
-      { id: 'DADOS' as const, label: 'Gerenciamento de dados', items: ['DATA_HEALTH'] as ShortcutId[] },
-      { id: 'AUTOMACAO' as const, label: 'Automação', items: ['AUTOMATIONS'] as ShortcutId[] },
-      { id: 'RELATORIOS' as const, label: 'Relatórios', items: (onSelectAdminRbac ? ['ADMIN'] : []) as ShortcutId[] },
-    ],
-    [onSelectAdminRbac]
-  );
+  const homeItem = byId.get('home');
+  const homeTarget = resolveHomeTarget(access);
 
   const itemClass = (active: boolean) =>
     `w-full px-2.5 py-2 rounded-md flex items-center gap-2.5 text-[12px] transition cursor-pointer ${
@@ -312,6 +273,30 @@ export default function CrmSidebar({
       {expanded[id] ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
     </button>
   );
+
+  const renderItemButton = (item: HubspotNavItem, opts?: { count?: React.ReactNode }) => {
+    const target = item.alwaysOnTop ? homeTarget : item.target;
+    const active = Boolean(isTargetActive(item.target, location) || (item.alwaysOnTop && isTargetActive(homeTarget, location) && location.module !== 'SETTINGS_HUB'));
+    return (
+      <button key={item.id} type="button" onClick={() => runTarget(target)} className={itemClass(active)} data-nav-id={item.id}>
+        {ICONS[item.icon]}
+        <span className="truncate">{item.label}</span>
+        {opts?.count}
+      </button>
+    );
+  };
+
+  const railItemsFor = (group: string) => items.filter((item) => item.railGroup === group);
+  const pinnedItems = pins.map((id) => byId.get(id)).filter((item): item is HubspotNavItem => Boolean(item) && !item!.alwaysOnTop);
+
+  const moreCategories = CATEGORY_ORDER.filter((id) => items.some((item) => item.category === id && !item.alwaysOnTop));
+  const moreItems = items.filter((item) => item.category === moreArea && !item.alwaysOnTop);
+
+  useEffect(() => {
+    if (moreCategories.length && !moreCategories.includes(moreArea)) {
+      setMoreArea(moreCategories[0]);
+    }
+  }, [moreCategories.join(','), moreArea]);
 
   const renderSidebarContent = (isMobileDrawer = false) => (
     <>
@@ -339,152 +324,119 @@ export default function CrmSidebar({
         <span className="sr-only">Fluxos de Automação</span>
         <span className="sr-only">Data Health (CRM)</span>
         <span className="sr-only">Auditoria Base CRM</span>
+        <span className="sr-only">
+          <span className="truncate">Marketing</span>
+        </span>
 
-        <nav className="px-2 pb-3 space-y-2">
+        <nav className="px-2 pb-3 space-y-2" data-testid="hubspot-app-nav">
           <div className="space-y-0.5">
-            {pins.map((id) => {
-              const item = catalog[id];
-              if (!item) return null;
-              return (
-                <button key={id} type="button" onClick={item.run} className={itemClass(item.active)}>
-                  {item.icon}
-                  <span className="truncate">{item.label}</span>
-                </button>
-              );
-            })}
+            {homeItem && renderItemButton(homeItem)}
+            {pinnedItems.map((item) => renderItemButton(item))}
           </div>
 
           <div className="border-t border-white/15 my-1" />
 
-          <div>
-            <GroupHeader id="MARKETING" label="Marketing" />
-            {expanded.MARKETING && (
-              <div className="space-y-0.5">
-                {/* Um único atalho Marketing (sem duplicar com "E-mails de marketing") — Segmentos já nos pins */}
-                <button type="button" onClick={catalog.MARKETING_EMAILS.run} className={itemClass(catalog.MARKETING_EMAILS.active)}>
-                  {catalog.MARKETING_EMAILS.icon}
-                  <span className="truncate">Marketing</span>
-                  {marketingEmailsCount !== undefined && <span className="ml-auto text-[10px] text-white/60">({marketingEmailsCount})</span>}
-                </button>
-                <button type="button" onClick={catalog.CAMPAIGNS.run} className={itemClass(catalog.CAMPAIGNS.active)}>
-                  <Megaphone className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Campanhas &amp; ROI</span>
-                </button>
-                <button type="button" onClick={catalog.FORMS.run} className={itemClass(catalog.FORMS.active)}>
-                  <FormInput className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Formulários &amp; Leads</span>
-                  <span className="ml-auto text-[10px] text-white/60">({formsCount})</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="border-t border-white/15 my-1" />
-
-          <div>
-            <GroupHeader id="VENDAS" label="Vendas" />
-            {expanded.VENDAS && (
-              <div className="space-y-0.5">
-                <button type="button" onClick={catalog.FORECAST.run} className={itemClass(catalog.FORECAST.active && activeModule === 'OVERVIEW_AI')}>
-                  <TrendingUp className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Previsão</span>
-                </button>
-                {/* Propostas: atalho visual — abre o funil (rota CRM existente) */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectPipeline(selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b');
-                    closeMobileIfOpen();
-                  }}
-                  className={itemClass(false)}
-                >
-                  <FileText className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Propostas / Orçamentos</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="border-t border-white/15 my-1" />
-
-          <div>
-            <GroupHeader id="PLATAFORMA" label="Plataforma" />
-            {expanded.PLATAFORMA && (
-              <div className="space-y-0.5">
-                <button type="button" onClick={catalog.AUTOMATIONS.run} className={itemClass(catalog.AUTOMATIONS.active)}>
-                  <Workflow className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Fluxos de trabalho</span>
-                  <span className="ml-auto text-[10px] text-white/60">{automationsCount}</span>
-                </button>
-                <button type="button" onClick={catalog.DATA_HEALTH.run} className={itemClass(catalog.DATA_HEALTH.active)}>
-                  <ShieldCheck className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Saúde da base</span>
-                  <span className="ml-auto text-[10px] text-white/60">{healthScore}%</span>
-                </button>
-                {activeModule === 'DATA_HEALTH' && (
-                  <button type="button" onClick={catalog.DATA_HEALTH.run} className="w-full pl-9 pr-2.5 py-1.5 rounded text-xs font-semibold text-white/90 hover:bg-white/10 text-left cursor-pointer">
-                    Auditoria Base CRM
-                  </button>
+          {RAIL_GROUPS.map((group) => {
+            const groupItems = railItemsFor(group.id);
+            if (groupItems.length === 0) return null;
+            return (
+              <div key={group.id}>
+                <GroupHeader id={group.id} label={group.label} />
+                {expanded[group.id] && (
+                  <div className="space-y-0.5">
+                    {groupItems.map((item) =>
+                      renderItemButton(item, {
+                        count:
+                          item.id === 'marketing-emails' && marketingEmailsCount !== undefined ? (
+                            <span className="ml-auto text-[10px] text-white/60">({marketingEmailsCount})</span>
+                          ) : item.id === 'forms' ? (
+                            <span className="ml-auto text-[10px] text-white/60">({formsCount})</span>
+                          ) : item.id === 'workflows' ? (
+                            <span className="ml-auto text-[10px] text-white/60">{automationsCount}</span>
+                          ) : item.id === 'data-health-crm' ? (
+                            <span className="ml-auto text-[10px] text-white/60">{healthScore}%</span>
+                          ) : undefined,
+                      })
+                    )}
+                  </div>
                 )}
-                {onSelectAdminRbac && (
-                  <button type="button" onClick={catalog.ADMIN.run} className={itemClass(catalog.ADMIN.active)}>
-                    <Settings className="w-4 h-4 shrink-0" />
-                    <span className="truncate">Configurações</span>
-                  </button>
-                )}
+                <div className="border-t border-white/15 my-1" />
               </div>
-            )}
-          </div>
+            );
+          })}
         </nav>
       </div>
 
-      <div className="relative p-2.5 border-t border-white/15">
+      <div className="relative p-2.5 border-t border-white/15 space-y-1">
+        {nav?.onOpenSettings && (
+          <button
+            type="button"
+            onClick={() => {
+              nav.onOpenSettings?.();
+              closeMobileIfOpen();
+            }}
+            className={itemClass(location.module === 'SETTINGS_HUB')}
+            data-testid="nav-open-settings"
+          >
+            <Settings className="w-4 h-4 shrink-0" />
+            <span className="truncate">Configurações</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setMoreOpen((v) => !v)}
           className="w-full px-2.5 py-2 rounded-md flex items-center gap-2 text-[12px] font-semibold text-white/90 hover:bg-white/10 cursor-pointer"
+          data-testid="nav-more-button"
         >
           <MoreHorizontal className="w-4 h-4" />
           <span className="flex-1 text-left">Mais</span>
           <ChevronRight className="w-4 h-4 opacity-80" />
         </button>
         {moreOpen && (
-          <div className="absolute left-full bottom-0 ml-2 z-50 w-[420px] max-w-[80vw] rounded-xl border border-slate-200 bg-white shadow-2xl overflow-hidden text-slate-800 flex">
-            <div className="w-44 border-r border-slate-100 bg-slate-50 p-2 space-y-0.5">
-              {moreAreas.map((area) => (
+          <div
+            className="absolute left-full bottom-0 ml-2 z-50 w-[460px] max-w-[80vw] rounded-xl border border-slate-200 bg-white shadow-2xl overflow-hidden text-slate-800 flex"
+            data-testid="nav-more-flyout"
+          >
+            <div className="w-48 border-r border-slate-100 bg-slate-50 p-2 space-y-0.5 overflow-y-auto max-h-80">
+              {moreCategories.map((id) => (
                 <button
-                  key={area.id}
+                  key={id}
                   type="button"
-                  onClick={() => setMoreArea(area.id)}
+                  onClick={() => setMoreArea(id)}
                   className={`w-full text-left px-2 py-1.5 rounded-md text-xs font-semibold cursor-pointer ${
-                    moreArea === area.id ? 'bg-accent text-white' : 'text-slate-700 hover:bg-white'
+                    moreArea === id ? 'bg-accent text-white' : 'text-slate-700 hover:bg-white'
                   }`}
                 >
-                  {area.label}
+                  {CATEGORY_LABELS[id]}
                 </button>
               ))}
             </div>
-            <div className="flex-1 p-2 max-h-72 overflow-y-auto space-y-0.5">
-              {(moreAreas.find((a) => a.id === moreArea)?.items || []).length === 0 ? (
-                <p className="px-2 py-3 text-xs font-semibold text-slate-500">Nenhum item nesta área no CRM.</p>
+            <div className="flex-1 p-2 max-h-80 overflow-y-auto space-y-0.5">
+              {moreItems.length === 0 ? (
+                <p className="px-2 py-3 text-xs font-semibold text-slate-500">Nenhum item nesta área.</p>
               ) : (
-                (moreAreas.find((a) => a.id === moreArea)?.items || []).map((id) => {
-                  const item = catalog[id];
-                  const pinned = pins.includes(id);
+                moreItems.map((item) => {
+                  const pinned = pins.includes(item.id);
                   return (
-                    <div key={id} className="flex items-center gap-1">
+                    <div key={item.id} className="flex items-center gap-1">
                       <button
                         type="button"
                         onClick={() => {
-                          item.run();
+                          runTarget(item.alwaysOnTop ? homeTarget : item.target);
                           setMoreOpen(false);
                         }}
                         className="flex-1 text-left px-2 py-1.5 rounded-md text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer flex items-center gap-2"
                       >
-                        {item.icon}
+                        {ICONS[item.icon]}
                         {item.label}
                       </button>
-                      <button type="button" onClick={() => togglePin(id)} className="p-1.5 rounded hover:bg-slate-100 text-slate-500 cursor-pointer" title={pinned ? 'Desafixar' : 'Fixar'} aria-label={pinned ? 'Desafixar' : 'Fixar'}>
+                      <button
+                        type="button"
+                        onClick={() => togglePin(item.id)}
+                        className="p-1.5 rounded hover:bg-slate-100 text-slate-500 cursor-pointer"
+                        title={pinned ? 'Desafixar' : 'Fixar'}
+                        aria-label={pinned ? 'Desafixar' : 'Fixar'}
+                      >
                         {pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
                       </button>
                     </div>
