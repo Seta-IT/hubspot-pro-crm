@@ -876,6 +876,13 @@ export function pickEditableTicketFields(patch: unknown): Partial<ServiceTicket>
 const SUPERSEDED_INVITE_MESSAGE =
   "Este link de convite foi substituído por um convite mais recente. Use o link do último e-mail recebido.";
 
+
+/** Teto do histórico de e-mail por contrato/fatura (só as mais recentes ficam na linha do banco). */
+export const EMAIL_HISTORY_MAX = 50;
+export function capEmailHistory<T>(list: T[]): T[] {
+  return list.length > EMAIL_HISTORY_MAX ? list.slice(-EMAIL_HISTORY_MAX) : list;
+}
+
 export class CrmRepository {
   private state: CrmDatabaseState;
   private persistPath: string | null;
@@ -4380,7 +4387,7 @@ export class CrmRepository {
     const next: ErpFiscalInvoice = {
       ...current,
       lastEmailSentAt: entry.sentAt,
-      emailHistory: [...(current.emailHistory || []), entry],
+      emailHistory: capEmailHistory([...(current.emailHistory || []), entry]),
       updatedAt: new Date().toISOString(),
     };
     erp.invoices[idx] = next;
@@ -4400,7 +4407,7 @@ export class CrmRepository {
       ...current,
       lastEmailSentAt: entry.sentAt,
       lastEmailRecipient: entry.to,
-      emailHistory: [...(current.emailHistory || []), entry],
+      emailHistory: capEmailHistory([...(current.emailHistory || []), entry]),
       updatedAt: new Date().toISOString(),
     };
     erp.rentalContracts[idx] = next;

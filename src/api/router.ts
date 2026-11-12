@@ -8556,7 +8556,7 @@ export class CrmApiRouter {
         }
 
         const historyAttachments = Array.isArray(body.selectedAttachments)
-          ? (body.selectedAttachments as unknown[]).map((x) => String(x)).slice(0, 4)
+          ? (body.selectedAttachments as unknown[]).map((x) => String(x).slice(0, 200)).slice(0, 4)
           : [];
         const historyEntry = {
           sentAt: nowIso,

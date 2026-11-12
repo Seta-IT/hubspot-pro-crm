@@ -84,3 +84,22 @@ describe('histórico de envios de e-mail após o envio', () => {
     assert.match(page, /void fetchAllCrmData\(\);/);
   });
 });
+
+describe('teto do histórico de e-mail', () => {
+  it('capEmailHistory mantém só as 50 entradas mais recentes', async () => {
+    const { capEmailHistory, EMAIL_HISTORY_MAX } = await import('../src/db/repository');
+    assert.equal(EMAIL_HISTORY_MAX, 50);
+    const list = Array.from({ length: 60 }, (_, i) => entry({ protocol: `P${i}`, to: 'a@exemplo.invalid' }));
+    const capped = capEmailHistory(list);
+    assert.equal(capped.length, 50);
+    assert.equal(capped[0].protocol, 'P10');
+    assert.equal(capped[49].protocol, 'P59');
+    assert.equal(capEmailHistory(list.slice(0, 3)).length, 3);
+  });
+
+  it('contrato e fatura aplicam o teto, e o nome do anexo é cortado em 200 caracteres', () => {
+    const repo = src('src/db/repository.ts');
+    assert.equal((repo.match(/emailHistory: capEmailHistory\(/g) || []).length, 2);
+    assert.match(src('src/api/router.ts'), /String\(x\)\.slice\(0, 200\)\)\.slice\(0, 4\)/);
+  });
+});
