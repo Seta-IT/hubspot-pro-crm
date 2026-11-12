@@ -10,6 +10,7 @@ import {
   findCompanyForProposal,
   findContactForProposal,
   proposalDealValue,
+  resolveDealPlacementForProposal,
   splitPersonName,
 } from './proposal-deal-link';
 
@@ -22,6 +23,9 @@ export {
   splitPersonName,
   proposalDealValue,
   resolveDealLinkedProposal,
+  preferredDealPlacementForBudgetType,
+  resolveDealPlacementForProposal,
+  funnelLabelForBudgetType,
 } from './proposal-deal-link';
 
 export type LinkProposalToCrmDealResult = {
@@ -151,12 +155,17 @@ export function linkProposalToCrmDeal(
 
   const owner = resolveOwner(repo, proposal);
   const value = proposalDealValue(proposal);
+  // Confere o funil/etapa em listPipelines. Não chama updateDeal com troca de etapa
+  // para não inscrever o follow-up automático: a proposta ainda não foi enviada.
+  const placement = resolveDealPlacementForProposal(repo.listPipelines(), proposal.budgetType);
   const deal = repo.createDeal({
     title: String(proposal.title || proposal.code || 'Proposta comercial').trim(),
     value,
     mrr: Number(proposal.monthlyRecurringTotal || 0) || undefined,
     contractMonths: Number(proposal.contractMonths || 24),
     tcv: value,
+    pipelineId: placement.pipelineId,
+    stageId: placement.stageId,
     companyId: companyRes.company.id,
     contactId: contactRes.contact?.id || null,
     ownerId: owner.ownerId,

@@ -1,8 +1,9 @@
 /**
- * Helpers puros do vínculo proposta (ERP) ↔ negócio (CRM).
+ * Helpers puros do vínculo proposta (ERP) e negócio (CRM).
  * Sem dependência do repositório, para poder ser usado também na interface.
  */
-import type { Company, Contact, Deal, ErpCommercialProposal } from '../../db/types';
+import type { Company, Contact, Deal, ErpCommercialProposal, Pipeline } from '../../db/types';
+import { FOLLOWUP_TRIGGER_STAGES } from './proposal-followup-config';
 
 export function normalizeLinkText(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -106,4 +107,93 @@ export function resolveDealLinkedProposal(
 ): ErpCommercialProposal | undefined {
   const pid = dealLinkedProposalId(deal);
   return proposals.find((p) => p.dealId === deal.id || (pid && (p.id === pid || p.code === pid)));
+}
+
+export type DealPlacementFallback = 'preferred-stage' | 'pipeline-first-stage' | 'default-pipeline';
+
+export interface DealPlacement {
+  pipelineId: string;
+  pipelineName: string;
+  stageId: string;
+  stageName: string;
+  usedFallback: DealPlacementFallback;
+}
+
+const RENTAL_OR_SERVICE_BUDGET_TYPES = new Set(['LOCACAO', 'SERVICOS']);
+
+/** Destino preferido: PRODUTOS/CONJUNTO (ou sem tipo) = Pipeline 2; LOCACAO/SERVICOS = Pipeline 1. */
+export function preferredDealPlacementForBudgetType(
+  budgetType?: string | null
+): Omit<DealPlacement, 'usedFallback'> {
+  const type = String(budgetType || '').trim().toUpperCase();
+  const sale = FOLLOWUP_TRIGGER_STAGES.find((s) => s.pipelineId === 'pipe-enterprise-b2b');
+  const rental = FOLLOWUP_TRIGGER_STAGES.find((s) => s.pipelineId === 'pipeline-locacao-equipamentos');
+  const chosen = RENTAL_OR_SERVICE_BUDGET_TYPES.has(type) ? rental : sale;
+  return {
+    pipelineId: chosen?.pipelineId || 'pipe-enterprise-b2b',
+    pipelineName: chosen?.pipelineName || 'Pipeline 2: Venda de Equipamentos',
+    stageId: chosen?.stageId || 'stage-proposal',
+    stageName: chosen?.stageName || 'Proposta Enviada',
+  };
+}
+
+function stagesInOrder(pipeline: Pipeline | undefined) {
+  return [...(pipeline?.stages || [])].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+}
+
+/**
+ * Confere o funil e a etapa em listPipelines.
+ * Se a etapa não existir, usa a etapa inicial do funil indicado.
+ * Se o funil não existir, usa o funil padrão (isDefault ou o primeiro).
+ */
+export function resolveDealPlacementForProposal(
+  pipelines: readonly Pipeline[] | null | undefined,
+  budgetType?: string | null
+): DealPlacement {
+  const preferred = preferredDealPlacementForBudgetType(budgetType);
+  const list = Array.isArray(pipelines) ? [...pipelines] : [];
+  const preferredPipe = list.find((p) => p.id === preferred.pipelineId);
+  if (preferredPipe) {
+    const stages = stagesInOrder(preferredPipe);
+    const preferredStage = stages.find((s) => s.id === preferred.stageId);
+    if (preferredStage) {
+      return {
+        pipelineId: preferredPipe.id,
+        pipelineName: preferredPipe.name || preferred.pipelineName,
+        stageId: preferredStage.id,
+        stageName: preferredStage.name || preferred.stageName,
+        usedFallback: 'preferred-stage',
+      };
+    }
+    const first = stages[0];
+    if (first) {
+      return {
+        pipelineId: preferredPipe.id,
+        pipelineName: preferredPipe.name || preferred.pipelineName,
+        stageId: first.id,
+        stageName: first.name,
+        usedFallback: 'pipeline-first-stage',
+      };
+    }
+  }
+  const fallbackPipe = list.find((p) => p.isDefault) || list[0];
+  const first = stagesInOrder(fallbackPipe)[0];
+  return {
+    pipelineId: fallbackPipe?.id || preferred.pipelineId,
+    pipelineName: fallbackPipe?.name || preferred.pipelineName,
+    stageId: first?.id || preferred.stageId,
+    stageName: first?.name || preferred.stageName,
+    usedFallback: 'default-pipeline',
+  };
+}
+
+export function funnelLabelForBudgetType(
+  budgetType?: string | null,
+  pipelines?: readonly Pipeline[] | null
+): string {
+  const placement =
+    pipelines && pipelines.length > 0
+      ? resolveDealPlacementForProposal(pipelines, budgetType)
+      : preferredDealPlacementForBudgetType(budgetType);
+  return `Funil: ${placement.pipelineName}`;
 }

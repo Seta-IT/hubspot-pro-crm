@@ -74,6 +74,7 @@ import {
 } from '../lib/contract-billing-utils';
 import { billingRecipientEmailsText, parseBillingRecipientEmails } from '../../modules/erp/billing-recipient-emails';
 import { focusProposalValidityField } from '../lib/proposal-validity-return';
+import { funnelLabelForBudgetType } from '../../modules/deals/proposal-deal-link';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
 export function ProposalEditModal({
@@ -1889,6 +1890,9 @@ export function ProposalEditModal({
                 {!canAccessCrm && (
                   <span className="font-semibold text-slate-500">Sem acesso ao CRM</span>
                 )}
+                <span className="basis-full text-[11px] font-semibold text-slate-600" data-testid="proposal-crm-deal-funnel">
+                  {funnelLabelForBudgetType(draft.budgetType)}
+                </span>
               </label>
             )}
           </div>

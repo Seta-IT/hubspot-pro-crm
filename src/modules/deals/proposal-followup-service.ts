@@ -423,8 +423,51 @@ export function isContactEligibleForFollowup(repo: CrmRepository, contact: Conta
   return { ok: true };
 }
 
-export function syncProposalFollowupOnDealChange(repo: CrmRepository, previous: Deal, updated: Deal, now = new Date()): void {
+/**
+ * Inscreve o negócio na sequência automática se ele já está numa etapa-gatilho
+ * e ainda não tem inscrição ativa. Usado no envio da proposta por e-mail.
+ * Não deve ser chamado na criação do deal a partir do orçamento (a proposta ainda não foi enviada).
+ */
+export function enrollProposalFollowupIfNeeded(
+  repo: CrmRepository,
+  deal: Deal,
+  now = new Date()
+): ProposalFollowupEnrollment | null {
+  if (!isProposalFollowupEnabled()) return null;
+  const pipelines = repo.listPipelines?.() || [];
+  if (!isFollowupTriggerStage(deal.pipelineId, deal.stageId, pipelines)) return null;
+  const existing = repo.getActiveProposalFollowup?.(deal.id) || repo.getLatestProposalFollowup?.(deal.id);
+  if (existing && (existing.status === 'ACTIVE' || existing.status === 'PAUSED')) return existing;
+
   const nowIso = now.toISOString();
+  const contact = deal.contactId ? repo.getContactById(deal.contactId) || null : null;
+  const eligibility = isContactEligibleForFollowup(repo, contact);
+  ensureFollowupTemplates(repo, nowIso);
+  const enrollment: ProposalFollowupEnrollment = {
+    id: newId(),
+    dealId: deal.id,
+    contactId: deal.contactId,
+    companyId: deal.companyId,
+    pipelineId: deal.pipelineId,
+    triggerStageId: deal.stageId,
+    enteredAt: deal.stageEnteredAt || nowIso,
+    status: eligibility.ok ? 'ACTIVE' : 'STOPPED',
+    sentCount: 0,
+    nextStepIndex: 0,
+    nextSendAt: eligibility.ok ? scheduleFollowupStep(new Date(deal.stageEnteredAt || nowIso), 0, now).toISOString() : null,
+    stopReason: eligibility.ok ? null : eligibility.reason || 'NO_VALID_EMAIL',
+    stopDetail: eligibility.ok ? null : eligibility.detail || null,
+    stoppedAt: eligibility.ok ? null : nowIso,
+    lastError: null,
+    sentSteps: [],
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+  repo.saveProposalFollowupEnrollment(enrollment);
+  return enrollment;
+}
+
+export function syncProposalFollowupOnDealChange(repo: CrmRepository, previous: Deal, updated: Deal, now = new Date()): void {
   const pipelines = repo.listPipelines?.() || [];
   const enteredTrigger = isFollowupTriggerStage(updated.pipelineId, updated.stageId, pipelines);
   const stillActive = isFollowupActiveStage(updated.pipelineId, updated.stageId, pipelines);
@@ -440,37 +483,9 @@ export function syncProposalFollowupOnDealChange(repo: CrmRepository, previous: 
     stopFollowupForDeal(repo, updated.id, reason, undefined, now);
   }
 
-  if (!isProposalFollowupEnabled()) return;
   if (!enteredTrigger) return;
   if (previous.stageId === updated.stageId && previous.status === updated.status) return;
-
-  const existing = repo.getActiveProposalFollowup?.(updated.id);
-  if (existing && existing.triggerStageId === updated.stageId && existing.status === 'ACTIVE') return;
-
-  const contact = updated.contactId ? repo.getContactById(updated.contactId) || null : null;
-  const eligibility = isContactEligibleForFollowup(repo, contact);
-  ensureFollowupTemplates(repo, nowIso);
-  const enrollment: ProposalFollowupEnrollment = {
-    id: newId(),
-    dealId: updated.id,
-    contactId: updated.contactId,
-    companyId: updated.companyId,
-    pipelineId: updated.pipelineId,
-    triggerStageId: updated.stageId,
-    enteredAt: updated.stageEnteredAt || nowIso,
-    status: eligibility.ok ? 'ACTIVE' : 'STOPPED',
-    sentCount: 0,
-    nextStepIndex: 0,
-    nextSendAt: eligibility.ok ? scheduleFollowupStep(new Date(updated.stageEnteredAt || nowIso), 0, now).toISOString() : null,
-    stopReason: eligibility.ok ? null : eligibility.reason || 'NO_VALID_EMAIL',
-    stopDetail: eligibility.ok ? null : eligibility.detail || null,
-    stoppedAt: eligibility.ok ? null : nowIso,
-    lastError: null,
-    sentSteps: [],
-    createdAt: nowIso,
-    updatedAt: nowIso,
-  };
-  repo.saveProposalFollowupEnrollment(enrollment);
+  enrollProposalFollowupIfNeeded(repo, updated, now);
 }
 
 export function stopFollowupForDeal(

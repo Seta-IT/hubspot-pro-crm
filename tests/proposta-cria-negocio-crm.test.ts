@@ -6,10 +6,13 @@ import { createInMemoryRepository, type CrmRepository } from '../src/db/reposito
 import {
   findCompanyForProposal,
   findContactForProposal,
+  funnelLabelForBudgetType,
   linkProposalToCrmDeal,
+  resolveDealPlacementForProposal,
   wantsCreateCrmDeal,
 } from '../src/modules/deals/create-deal-from-proposal';
-import type { ErpCommercialProposal } from '../src/db/types';
+import { isFollowupEnrollStage } from '../src/modules/deals/sales-pipeline-stages';
+import type { ErpCommercialProposal, Pipeline } from '../src/db/types';
 
 const HTTP = { _fromHttpBridge: '1' };
 const saved: Record<string, string | undefined> = {};
@@ -237,5 +240,153 @@ describe('t226u proposta cria negócio no CRM', () => {
     assert.match(String(err.error || ''), /não possui o módulo CRM/i);
     assert.equal(repo.listDeals().length, dealsBefore);
     assert.equal(repo.listProposals().length, proposalsBefore);
+  });
+});
+
+describe('t226u funil do negócio conforme o tipo da proposta', () => {
+  const sale = { pipelineId: 'pipe-enterprise-b2b', stageId: 'stage-proposal', pipelineName: 'Pipeline 2: Venda de Equipamentos' };
+  const rental = { pipelineId: 'pipeline-locacao-equipamentos', stageId: 'stage-loc-simulacao', pipelineName: 'Pipeline 1: Locação & Serviços' };
+
+  it('resolve o funil e a etapa dos 4 tipos e, sem budgetType, usa o Pipeline 2', () => {
+    const repo = createInMemoryRepository();
+    const pipelines = repo.listPipelines();
+    const cases: Array<[string | undefined, typeof sale]> = [
+      ['PRODUTOS', sale],
+      ['CONJUNTO', sale],
+      ['LOCACAO', rental],
+      ['SERVICOS', rental],
+      [undefined, sale],
+    ];
+    for (const [budgetType, expected] of cases) {
+      const placement = resolveDealPlacementForProposal(pipelines, budgetType);
+      assert.equal(placement.pipelineId, expected.pipelineId, String(budgetType));
+      assert.equal(placement.stageId, expected.stageId, String(budgetType));
+      assert.equal(placement.usedFallback, 'preferred-stage', String(budgetType));
+      assert.equal(funnelLabelForBudgetType(budgetType), `Funil: ${expected.pipelineName}`);
+    }
+  });
+
+  it('se a etapa preferida não existir, usa a etapa inicial do funil indicado; se o funil não existir, usa o padrão', () => {
+    const salePipe: Pipeline = {
+      id: 'pipe-enterprise-b2b',
+      name: 'Pipeline 2: Venda de Equipamentos',
+      isDefault: false,
+      currency: 'BRL',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      stages: [
+        { id: 'stage-discovery', pipelineId: 'pipe-enterprise-b2b', name: 'Lead Gerado', order: 1, defaultProbability: 15, dealRottingDays: 10, isClosed: false, isWon: false },
+      ],
+    };
+    const missingStage = resolveDealPlacementForProposal([salePipe], 'PRODUTOS');
+    assert.equal(missingStage.pipelineId, 'pipe-enterprise-b2b');
+    assert.equal(missingStage.stageId, 'stage-discovery');
+    assert.equal(missingStage.usedFallback, 'pipeline-first-stage');
+
+    const defaultPipe: Pipeline = {
+      id: 'pipe-fallback-default',
+      name: 'Funil padrão de testes',
+      isDefault: true,
+      currency: 'BRL',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      stages: [
+        { id: 'stage-fallback-first', pipelineId: 'pipe-fallback-default', name: 'Primeira etapa', order: 1, defaultProbability: 10, dealRottingDays: 10, isClosed: false, isWon: false },
+      ],
+    };
+    const missingPipe = resolveDealPlacementForProposal([defaultPipe], 'LOCACAO');
+    assert.equal(missingPipe.pipelineId, 'pipe-fallback-default');
+    assert.equal(missingPipe.stageId, 'stage-fallback-first');
+    assert.equal(missingPipe.usedFallback, 'default-pipeline');
+  });
+
+  it('POST cria o negócio no funil certo para cada tipo de proposta', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const cases: Array<[string, string, string]> = [
+      ['PRODUTOS', sale.pipelineId, sale.stageId],
+      ['CONJUNTO', sale.pipelineId, sale.stageId],
+      ['LOCACAO', rental.pipelineId, rental.stageId],
+      ['SERVICOS', rental.pipelineId, rental.stageId],
+    ];
+    for (const [index, [budgetType, pipelineId, stageId]] of cases.entries()) {
+      const res = await router.dispatch({
+        method: 'POST',
+        path: '/api/erp/proposals',
+        query: session(repo),
+        body: {
+          title: `Orçamento tipo ${budgetType}`,
+          budgetType,
+          companyName: `Cliente ${budgetType}`,
+          companyCnpj: uniqueCnpj(510 + index),
+          contactName: 'Dana Costa',
+          contactEmail: `dana.${budgetType.toLowerCase()}@teste.example`,
+          totalContractValue: 18000,
+          createCrmDeal: true,
+        },
+      });
+      assert.equal(res.status, 201, `${budgetType}: ${JSON.stringify(res.body)}`);
+      const deal = (res.body as { crmDeal: { pipelineId: string; stageId: string } }).crmDeal;
+      assert.equal(deal.pipelineId, pipelineId, budgetType);
+      assert.equal(deal.stageId, stageId, budgetType);
+    }
+  });
+
+  it('nascer em etapa de proposta não inscreve o follow-up; o envio por e-mail inscreve quando a flag está ligada', async () => {
+    assert.equal(isFollowupEnrollStage('pipe-enterprise-b2b', 'stage-proposal'), true);
+    assert.equal(isFollowupEnrollStage('pipeline-locacao-equipamentos', 'stage-loc-simulacao'), true);
+
+    const prevFlag = process.env.FOLLOWUP_SEQUENCE_ENABLED;
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.FOLLOWUP_SEQUENCE_ENABLED = 'true';
+    process.env.NODE_ENV = 'test';
+    try {
+      const repo = createInMemoryRepository();
+      const router = new CrmApiRouter(repo);
+      const res = await router.dispatch({
+        method: 'POST',
+        path: '/api/erp/proposals',
+        query: session(repo),
+        body: {
+          title: 'Orçamento sem follow-up na criação',
+          budgetType: 'PRODUTOS',
+          companyName: 'Cliente Follow-up',
+          companyCnpj: uniqueCnpj(808),
+          contactName: 'Eva Followup',
+          contactEmail: 'eva.followup@teste.example',
+          totalContractValue: 9000,
+          createCrmDeal: true,
+        },
+      });
+      assert.equal(res.status, 201, JSON.stringify(res.body));
+      const created = res.body as { data: ErpCommercialProposal; crmDeal: { id: string } };
+      assert.equal(repo.getActiveProposalFollowup(created.crmDeal.id) || null, null);
+
+      const send = await router.dispatch({
+        method: 'POST',
+        path: '/api/communications/send-email',
+        query: session(repo),
+        body: {
+          docType: 'PROPOSAL',
+          to: 'eva.followup@teste.example',
+          subject: 'Proposta comercial',
+          body: 'Segue a proposta.',
+          dealId: created.crmDeal.id,
+          proposalId: created.data.id,
+          contactId: created.data.contactId,
+          companyId: created.data.companyId,
+        },
+      });
+      assert.equal(send.status, 200, JSON.stringify(send.body));
+      const enrolled = repo.getActiveProposalFollowup(created.crmDeal.id);
+      assert.ok(enrolled, 'o envio por e-mail deve inscrever o follow-up');
+      assert.equal(enrolled?.status, 'ACTIVE');
+      assert.equal(enrolled?.dealId, created.crmDeal.id);
+    } finally {
+      if (prevFlag === undefined) delete process.env.FOLLOWUP_SEQUENCE_ENABLED;
+      else process.env.FOLLOWUP_SEQUENCE_ENABLED = prevFlag;
+      if (prevNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prevNodeEnv;
+    }
   });
 });

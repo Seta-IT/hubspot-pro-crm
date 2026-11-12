@@ -272,6 +272,7 @@ import { deliverClientEmail, publicClientEmailRelay } from '../modules/email/del
 import { getDefaultMailboxStore, MemoryMailboxStore, type MailboxStore } from '../modules/email/mailbox-store';
 import { createOutlookFollowupSendDeps } from '../modules/deals/proposal-followup-send';
 import {
+  enrollProposalFollowupIfNeeded,
   getFollowupStatus,
   pauseFollowup,
   processDueFollowups,
@@ -8667,6 +8668,16 @@ export class CrmApiRouter {
             });
           } catch {
             /* historico da proposta nao derruba o envio ja realizado */
+          }
+        }
+        // A inscrição do follow-up automático acontece no envio da proposta, não na criação do deal.
+        const dealIdForFollowup = String(body.dealId || rawMail.dealId || '').trim();
+        if (dealIdForFollowup && (String(docType).toUpperCase() === 'PROPOSAL' || proposalIdForHistory)) {
+          try {
+            const followupDeal = this.repo.getDealById(dealIdForFollowup);
+            if (followupDeal) enrollProposalFollowupIfNeeded(this.repo, followupDeal);
+          } catch {
+            /* a inscrição não derruba o envio já realizado */
           }
         }
         if (body.invoiceId) {
