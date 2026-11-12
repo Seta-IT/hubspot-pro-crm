@@ -2269,7 +2269,61 @@ export default function HubSpotProCrmApp() {
               onItemChange={setSettingsItemId}
             />
           )}
-          {activeModule !== 'SETTINGS_HUB' && (
+
+          {activeModule === 'ERP_GESTAOCLICK' && (
+            <ErpGestaoClickTab
+              erpData={erpData}
+              companies={companies}
+              contacts={contacts}
+              deals={deals}
+              rbacState={rbacState}
+              emailTemplates={emailTemplatesState}
+              activeUser={activeRbacUser}
+              onSelectActiveUser={(u) => setActiveRbacUser(u)}
+              onRefresh={async () => {
+                await fetchAllCrmData();
+              }}
+              onShowToast={showToast}
+              initialSection={erpInitialSection}
+              initialSubId={erpInitialSubId}
+              navigationTrigger={erpNavigationTrigger}
+              onSectionChange={setErpCurrentSection}
+              onSubIdChange={setErpCurrentSubId}
+              targetEntity={erpTargetEntity}
+              onClearTargetEntity={() => setErpTargetEntity(null)}
+              autoOpenNewProposalTrigger={autoOpenNewProposalTrigger}
+              prefillProposalFromDeal={prefillProposalDeal}
+              canAccessCrm={Boolean(userModuleAccess.crm)}
+              onOpenLinkedDeal={(dealId) => {
+                setActiveModule('DEALS_KANBAN');
+                setInitialDealIdForDrawer(dealId);
+              }}
+            />
+          )}
+
+          {activeModule === 'SERVICE_DESK' && (
+            <ServiceDeskTab
+              tickets={tickets}
+              initialSelectedTicketId={initialTicketIdForDrawer}
+              onClearInitialTicket={() => setInitialTicketIdForDrawer(null)}
+              initialMacroTab={serviceDeskInitialTab}
+              navigationTrigger={serviceDeskNavTrigger}
+              onMacroTabChange={setServiceDeskCurrentTab}
+              openNewTicketTrigger={openNewTicketTrigger}
+              kpis={ticketKpis}
+              contacts={contacts}
+              companies={companies}
+              rentalContracts={erpData?.rentalContracts || []}
+              serviceOrders={erpData?.serviceOrders || []}
+              onCreateTicket={handleCreateTicket}
+              onUpdateTicket={handleUpdateTicket}
+              onDeleteTicket={handleDeleteTicket}
+              onCreateOsFromTicket={handleCreateOsFromTicket}
+              onAddTicketComment={handleAddTicketComment}
+            />
+          )}
+
+          {isCrmActive && (
             <div className="rounded-lg overflow-hidden border border-slate-300 shadow-md bg-[#f3f5f8] flex flex-col md:flex-row min-h-[780px]">
               {/* MOBILE CRM NAVIGATION BAR (DRAWER TRIGGER + 1-TAP HORIZONTAL PILLS) */}
               <div className="md:hidden bg-[#213343] text-white px-3 py-2.5 border-b border-[#33475b] space-y-2">
@@ -2472,60 +2526,6 @@ export default function HubSpotProCrmApp() {
                     </button>
                   </div>
                 )}
-                {activeModule === 'ERP_GESTAOCLICK' && (
-                  <ErpGestaoClickTab
-                    hideSidebar
-                    erpData={erpData}
-                    companies={companies}
-                    contacts={contacts}
-                    deals={deals}
-                    rbacState={rbacState}
-                    emailTemplates={emailTemplatesState}
-                    activeUser={activeRbacUser}
-                    onSelectActiveUser={(u) => setActiveRbacUser(u)}
-                    onRefresh={async () => {
-                      await fetchAllCrmData();
-                    }}
-                    onShowToast={showToast}
-                    initialSection={erpInitialSection}
-                    initialSubId={erpInitialSubId}
-                    navigationTrigger={erpNavigationTrigger}
-                    onSectionChange={setErpCurrentSection}
-                    onSubIdChange={setErpCurrentSubId}
-                    targetEntity={erpTargetEntity}
-                    onClearTargetEntity={() => setErpTargetEntity(null)}
-                    autoOpenNewProposalTrigger={autoOpenNewProposalTrigger}
-                    prefillProposalFromDeal={prefillProposalDeal}
-                    canAccessCrm={Boolean(userModuleAccess.crm)}
-                    onOpenLinkedDeal={(dealId) => {
-                      setActiveModule('DEALS_KANBAN');
-                      setInitialDealIdForDrawer(dealId);
-                    }}
-                  />
-                )}
-
-                {activeModule === 'SERVICE_DESK' && (
-                  <ServiceDeskTab
-                    tickets={tickets}
-                    initialSelectedTicketId={initialTicketIdForDrawer}
-                    onClearInitialTicket={() => setInitialTicketIdForDrawer(null)}
-                    initialMacroTab={serviceDeskInitialTab}
-                    navigationTrigger={serviceDeskNavTrigger}
-                    onMacroTabChange={setServiceDeskCurrentTab}
-                    openNewTicketTrigger={openNewTicketTrigger}
-                    kpis={ticketKpis}
-                    contacts={contacts}
-                    companies={companies}
-                    rentalContracts={erpData?.rentalContracts || []}
-                    serviceOrders={erpData?.serviceOrders || []}
-                    onCreateTicket={handleCreateTicket}
-                    onUpdateTicket={handleUpdateTicket}
-                    onDeleteTicket={handleDeleteTicket}
-                    onCreateOsFromTicket={handleCreateOsFromTicket}
-                    onAddTicketComment={handleAddTicketComment}
-                  />
-                )}
-
                 {activeModule === 'OVERVIEW_AI' && (
                   <OverviewAiCopilotTab
                     report={aiReport}
