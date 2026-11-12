@@ -59,7 +59,7 @@ import {
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
 import { copySignedProposalVersionLink } from '../../lib/proposal-link-client';
-import { copyInternalProposalLink } from '../../lib/internal-proposal-summary';
+import { copyInternalProposalLink, openInternalProposalLink } from '../../lib/internal-proposal-summary';
 import { ProposalLinkOverrideContext } from '../../lib/proposal-link-override';
 import { formatProposalDisplayCode, isLegacyProposalCode } from '../../lib/proposal-number';
 
@@ -696,54 +696,93 @@ function PublicProposalPrintContent() {
   };
 
   const [copyLinkBusy, setCopyLinkBusy] = useState(false);
+  const [linkToast, setLinkToast] = useState<string | null>(null);
+  const showLinkToast = (message: string) => {
+    setLinkToast(message);
+    setTimeout(() => setLinkToast((current) => (current === message ? null : current)), 3000);
+  };
   /**
-   * "Copiar link para o cliente": pede ao servidor (sessao MFA) o link ASSINADO da versao atual
-   * (POST /api/erp/proposals/:id/public-link). Links antigos (?d= ou /proposta/<id>) nao abrem
-   * mais para o cliente. Se a proposta ainda nao estiver no servidor, sincroniza (PATCH) antes.
+   * Link curto do cliente: POST /api/erp/proposals/:id/public-link (sessão MFA).
+   * A emissão só muda RASCUNHO para ENVIADA; um /p/ já emitido continua válido.
+   * Se a proposta ainda não estiver no servidor, sincroniza (PATCH) antes.
    */
+  const issueClientShortUrl = async (): Promise<string | null> => {
+    if (!proposal) return null;
+    const issue = () =>
+      fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}/public-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        cache: "no-store",
+        body: "{}",
+      }).catch(() => null);
+    let res = await issue();
+    if (res && res.status === 404 && !viewingVersionNum) {
+      await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(proposal),
+      }).catch(() => null);
+      res = await issue();
+    }
+    const json = res ? await res.json().catch(() => null) : null;
+    const url =
+      res && res.ok && typeof json?.data?.shortUrl === "string" && json.data.shortUrl
+        ? (json.data.shortUrl as string)
+        : res && res.ok && typeof json?.data?.url === "string"
+          ? (json.data.url as string)
+          : null;
+    if (!url) {
+      if (!reportProtectedFailure(res)) {
+        setAuthNotice(
+          (typeof json?.error === "string" && json.error) ||
+            "Não foi possível gerar o link para o cliente. Tente novamente em instantes."
+        );
+        setTimeout(() => setAuthNotice(null), 7000);
+      }
+      return null;
+    }
+    return url;
+  };
+  const handleOpenClientLink = async () => {
+    if (!proposal || !isInternalUser || copyLinkBusy) return;
+    const popup = window.open("about:blank", "_blank");
+    setCopyLinkBusy(true);
+    try {
+      const url = await issueClientShortUrl();
+      if (!url) {
+        popup?.close();
+        return;
+      }
+      if (popup) {
+        try {
+          popup.opener = null;
+        } catch {
+          // ignore
+        }
+        popup.location.href = url;
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    } finally {
+      setCopyLinkBusy(false);
+    }
+  };
   const handleCopyPublicLink = async () => {
     if (!proposal || !isInternalUser || copyLinkBusy) return;
     setCopyLinkBusy(true);
     try {
-      const issue = () =>
-        fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}/public-link`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          cache: "no-store",
-          body: "{}",
-        }).catch(() => null);
-      let res = await issue();
-      if (res && res.status === 404 && !viewingVersionNum) {
-        await fetch(`/api/erp/proposals/${encodeURIComponent(proposal.id)}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify(proposal),
-        }).catch(() => null);
-        res = await issue();
+      const url = await issueClientShortUrl();
+      if (!url) return;
+      try {
+        await navigator.clipboard?.writeText(url);
+      } catch {
+        // sem permissão de área de transferência: o toast ainda confirma a tentativa
       }
-      const json = res ? await res.json().catch(() => null) : null;
-      // t33u: o cliente recebe o short link opaco /p/<codigo> (o #t= longo fica de reserva).
-      const url =
-        res && res.ok && typeof json?.data?.shortUrl === "string" && json.data.shortUrl
-          ? (json.data.shortUrl as string)
-          : res && res.ok && typeof json?.data?.url === "string"
-            ? (json.data.url as string)
-            : null;
-      if (!url) {
-        if (!reportProtectedFailure(res)) {
-          setAuthNotice(
-            (typeof json?.error === "string" && json.error) ||
-              "Não foi possível gerar o link para o cliente. Tente novamente em instantes."
-          );
-          setTimeout(() => setAuthNotice(null), 7000);
-        }
-        return;
-      }
-      await navigator.clipboard?.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 3000);
+      showLinkToast("Link do cliente copiado.");
     } finally {
       setCopyLinkBusy(false);
     }
@@ -777,7 +816,7 @@ function PublicProposalPrintContent() {
           </p>
           {!linkToken && !isInternalUser && (
             <p data-testid="login-to-generate-link" className="font-semibold text-xs text-[#1e3a6e] bg-[#eef2fa] border border-[#c7d2e8] rounded-md px-3 py-2">
-              Entre no STI-hub para gerar o link do cliente. Depois, use o botão “Copiar link do cliente” na barra da proposta.
+              Entre no STI-hub para gerar o link do cliente. Depois, use o botão “Abrir Link do cliente” na barra da proposta.
             </p>
           )}
           <a
@@ -975,40 +1014,56 @@ function PublicProposalPrintContent() {
             Editar
           </button>
 
-          <button
-            type="button"
-            onClick={handleCopyPublicLink}
-            data-testid="copy-client-link"
-            title="Gera o link curto assinado da versão atual e copia para enviar ao cliente"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#1e3a6e] bg-[#eef2fa] hover:bg-[#e0e7f5] text-[#1e3a6e] text-xs font-semibold transition cursor-pointer"
-          >
-            {copied ? (
-              <>
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                Link copiado
-              </>
-            ) : (
-              <>
-                <Copy className="w-3.5 h-3.5" />
-                {copyLinkBusy ? "Gerando link..." : "Copiar link do cliente"}
-              </>
-            )}
-          </button>
+          <span className="inline-flex items-stretch overflow-hidden rounded-md border border-[#1e3a6e]">
+            <button
+              type="button"
+              onClick={handleOpenClientLink}
+              data-testid="open-client-link"
+              title="Abre o link curto do cliente em uma nova aba"
+              className="inline-flex items-center gap-1.5 bg-[#eef2fa] px-3 py-1.5 text-xs font-semibold text-[#1e3a6e] transition hover:bg-[#e0e7f5] cursor-pointer"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              {copyLinkBusy ? "Gerando link..." : "Abrir Link do cliente"}
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyPublicLink}
+              data-testid="copy-client-link"
+              title="Copiar link do cliente"
+              aria-label="Copiar link do cliente"
+              className="inline-flex items-center border-l border-[#1e3a6e] bg-[#eef2fa] px-2 text-[#1e3a6e] transition hover:bg-[#e0e7f5] cursor-pointer"
+            >
+              {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+          </span>
 
-          <button
-            type="button"
-            data-testid="copy-internal-link"
-            title="Copia o link interno estável desta proposta, para colar no contrato"
-            onClick={async () => {
-              await copyInternalProposalLink(proposal.id);
-              setInternalCopied(true);
-              setTimeout(() => setInternalCopied(false), 3000);
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#1e3a6e] bg-white hover:bg-[#eef2fa] text-[#1e3a6e] text-xs font-semibold transition cursor-pointer"
-          >
-            <Copy className="w-3.5 h-3.5" />
-            {internalCopied ? "Link interno copiado" : "Copiar link interno"}
-          </button>
+          <span className="inline-flex items-stretch overflow-hidden rounded-md border border-[#1e3a6e]">
+            <button
+              type="button"
+              data-testid="open-internal-link"
+              title="Abre o link interno desta proposta em uma nova aba"
+              onClick={() => openInternalProposalLink(proposal.id)}
+              className="inline-flex items-center gap-1.5 bg-white px-3 py-1.5 text-xs font-semibold text-[#1e3a6e] transition hover:bg-[#eef2fa] cursor-pointer"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Abrir Link interno
+            </button>
+            <button
+              type="button"
+              data-testid="copy-internal-link"
+              title="Copiar link interno"
+              aria-label="Copiar link interno"
+              onClick={async () => {
+                await copyInternalProposalLink(proposal.id);
+                setInternalCopied(true);
+                setTimeout(() => setInternalCopied(false), 3000);
+                showLinkToast("Link interno copiado.");
+              }}
+              className="inline-flex items-center border-l border-[#1e3a6e] bg-white px-2 text-[#1e3a6e] transition hover:bg-[#eef2fa] cursor-pointer"
+            >
+              {internalCopied ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+          </span>
 
           <button
             type="button"
@@ -1163,6 +1218,16 @@ function PublicProposalPrintContent() {
       )}
 
       {/* FULL GESTÃOCLICK PROPOSAL EDITOR MODAL (HIDDEN ON PRINT) */}
+      {linkToast && (
+        <div
+          role="status"
+          data-testid="proposal-link-toast"
+          className="fixed bottom-4 right-4 z-50 rounded-md bg-[#1e3a6e] px-3 py-2 text-xs font-semibold text-white shadow-lg print:hidden"
+        >
+          {linkToast}
+        </div>
+      )}
+
       {authNotice && (
         <div className="max-w-4xl mx-auto mb-4 p-3.5 rounded-lg bg-amber-50 text-amber-950 border border-amber-300 flex items-center justify-between gap-3 text-xs shadow-sm print:hidden">
           <span className="font-semibold">{authNotice}</span>
