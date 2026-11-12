@@ -51,6 +51,7 @@ import {
   type SetaDeskBaseline,
 } from '../db/setadesk-store';
 import { canManageSetaDeskPipelines, parseSetaDeskPipelineWrite } from './setadesk-pipeline-guards';
+import { introducedMaskedFinanceArtifacts, maskTicketForResponse, omitMaskedTicketOverwrite, ticketMatchesSearchServer } from '../app/lib/setadesk-ticket-search';
 import {
   countProposals,
   diffHydratedProposals,
@@ -564,7 +565,7 @@ export function resolveBootstrapServiceTickets(
   const list = access.postgresEnabled
     ? tickets.filter((t) => !isLegacyDemoServiceTicket(t))
     : tickets;
-  return list.map((t) => ({ ...t, comments: [] }));
+  return list.map((t) => maskTicketForResponse({ ...t, comments: [] }));
 }
 
 export interface ApiResponse<T = unknown> {
@@ -6133,7 +6134,6 @@ export class CrmApiRouter {
             contactId: query.contactId,
             companyId: query.companyId,
             pipelineId: query.pipelineId,
-            search: query.search,
           });
           const { tickets: evaluatedFiltered } = computeRealtimeTicketsAndKpis(filteredRaw);
 
@@ -6144,14 +6144,18 @@ export class CrmApiRouter {
           const contracts = new Map((erpState.rentalContracts || []).map((c) => [c.id, c]));
           const serviceOrders = new Map((erpState.serviceOrders || []).map((os) => [os.id, os]));
 
-          const enrichedTickets = evaluatedFiltered.map((t) => ({
-            ...t,
-            contact: t.contactId ? contacts.get(t.contactId) || null : null,
-            company: t.companyId ? companies.get(t.companyId) || null : null,
-            deal: t.dealId ? deals.get(t.dealId) || null : null,
-            contract: t.contractId ? contracts.get(t.contractId) || null : null,
-            serviceOrder: t.serviceOrderId ? serviceOrders.get(t.serviceOrderId) || null : null,
-          }));
+          const searchQ = typeof query.search === 'string' ? query.search : '';
+          const enrichedTickets = evaluatedFiltered
+            .map((t) => ({
+              ...t,
+              contact: t.contactId ? contacts.get(t.contactId) || null : null,
+              company: t.companyId ? companies.get(t.companyId) || null : null,
+              deal: t.dealId ? deals.get(t.dealId) || null : null,
+              contract: t.contractId ? contracts.get(t.contractId) || null : null,
+              serviceOrder: t.serviceOrderId ? serviceOrders.get(t.serviceOrderId) || null : null,
+            }))
+            .filter((t) => !searchQ || ticketMatchesSearchServer(t, searchQ))
+            .map((t) => maskTicketForResponse(t));
 
           return {
             status: 200,
@@ -6197,7 +6201,7 @@ export class CrmApiRouter {
           });
           const sla = computeRealtimeTicketSla(created);
           created.slaStatus = sla.slaStatus;
-          return { status: 201, body: { data: created } };
+          return { status: 201, body: { data: maskTicketForResponse(created) } };
         }
       }
 
@@ -6219,7 +6223,7 @@ export class CrmApiRouter {
         }
         const sla = computeRealtimeTicketSla(updated);
         updated.slaStatus = sla.slaStatus;
-        return { status: 201, body: { data: updated } };
+        return { status: 201, body: { data: maskTicketForResponse(updated) } };
       }
 
       const ticketCreateOsMatch = cleanPath.match(
@@ -6320,7 +6324,7 @@ export class CrmApiRouter {
           const deal = ticket.dealId ? this.repo.getDealById(ticket.dealId) || null : null;
           return {
             status: 200,
-            body: { data: { ...ticket, ...sla, contact, company, deal } },
+            body: { data: maskTicketForResponse({ ...ticket, ...sla, contact, company, deal }) },
           };
         }
 
@@ -6336,7 +6340,7 @@ export class CrmApiRouter {
             if (!withComment) return { status: 404, body: { error: 'Chamado não encontrado.' } };
             const sla = computeRealtimeTicketSla(withComment);
             withComment.slaStatus = sla.slaStatus;
-            return { status: 200, body: { data: withComment } };
+            return { status: 200, body: { data: maskTicketForResponse(withComment) } };
           }
 
           if (body.action === 'CREATE_OS') {
@@ -6361,13 +6365,29 @@ export class CrmApiRouter {
               },
             };
           }
-          const updated = this.repo.updateServiceTicket(idOrKey, parsedPatch.data as Partial<ServiceTicket>);
+          const currentTicket = this.repo.getServiceTicketById(idOrKey);
+          if (!currentTicket) {
+            return { status: 404, body: { error: 'Chamado não encontrado.' } };
+          }
+          const cleanedPatch = omitMaskedTicketOverwrite(currentTicket, parsedPatch.data);
+          const maskFields = introducedMaskedFinanceArtifacts(currentTicket, cleanedPatch);
+          if (maskFields.length) {
+            return {
+              status: 400,
+              body: {
+                error: 'O texto enviado contém máscara de CNPJ ou conta (***/**** ou ****-n) que não existia no original. Edite o valor real ou deixe o campo inalterado.',
+                code: 'TICKET_PATCH_MASKED_VALUE',
+                fields: maskFields,
+              },
+            };
+          }
+          const updated = this.repo.updateServiceTicket(idOrKey, cleanedPatch as Partial<ServiceTicket>);
           if (!updated) {
             return { status: 404, body: { error: 'Chamado não encontrado.' } };
           }
           const sla = computeRealtimeTicketSla(updated);
           updated.slaStatus = sla.slaStatus;
-          return { status: 200, body: { data: updated } };
+          return { status: 200, body: { data: maskTicketForResponse(updated) } };
         }
 
         if (method === 'DELETE') {

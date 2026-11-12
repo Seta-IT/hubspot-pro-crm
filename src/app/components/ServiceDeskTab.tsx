@@ -46,6 +46,7 @@ import {
   TicketStatus,
 } from '../../db/types';
 import { formatDateTimeBR, formatRelativeDays } from './ui-helpers';
+import { displayTicketCommentBody, displayTicketCompanyCnpj, displayTicketDescription, displayTicketSubject, looksLikeCnpjOrAccountQuery, normalizeTicketSearchText, ticketMatchesSearch } from '../lib/setadesk-ticket-search';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import DataHealthTab from './DataHealthTab';
 import { ShieldCheck } from 'lucide-react';
@@ -298,6 +299,8 @@ export default function ServiceDeskTab({
     }
   };
   const [searchQuery, setSearchQuery] = useState('');
+  const [serverSearchHits, setServerSearchHits] = useState<EnrichedServiceTicket[] | null>(null);
+  const [serverSearchPending, setServerSearchPending] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState<string>('ALL');
   const [slaFilter, setSlaFilter] = useState<string>('ALL');
   const [queueFilter, setQueueFilter] = useState<string>('ALL');
@@ -446,14 +449,12 @@ export default function ServiceDeskTab({
     new Set([...SETA_NOC_QUEUES, ...tickets.map((t) => t.assignee).filter(Boolean)])
   );
 
-  const normTicketStr = (v: unknown) =>
-    String(v ?? '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .trim();
+  const normTicketStr = (v: unknown) => normalizeTicketSearchText(v);
 
-  const filteredTickets = tickets.filter((t) => {
+  const sensitiveSearch = looksLikeCnpjOrAccountQuery(searchQuery);
+  const ticketsForSearch = sensitiveSearch && serverSearchHits ? serverSearchHits : tickets;
+  const filteredTickets = ticketsForSearch.filter((t) => {
+
     if (linkedOsOnlyFilter && !t.serviceOrderId && !t.serviceOrder) return false;
     const liveSla = computeLiveSlaCountdown(t, nowMs);
     if (priorityFilter !== 'ALL' && t.priority !== priorityFilter) return false;
@@ -468,11 +469,11 @@ export default function ServiceDeskTab({
     if (categoryFilter !== 'ALL' && t.category !== categoryFilter) return false;
     if (pipelineFilter !== 'ALL' && t.pipelineId !== pipelineFilter) return false;
     if (searchQuery.trim()) {
-      const q = normTicketStr(searchQuery);
-      const hay = normTicketStr(
-        `${t.key} ${t.subject} ${t.company?.name || ''} ${t.company?.cnpj || ''} ${t.equipmentSerial || ''} ${t.assignee || ''} ${t.contact?.firstName || ''} ${t.contact?.lastName || ''}`
-      );
-      if (!hay.includes(q)) return false;
+      if (sensitiveSearch) {
+        if (!serverSearchHits) return false;
+      } else if (!ticketMatchesSearch(t, searchQuery)) {
+        return false;
+      }
     }
     return true;
   });
@@ -510,6 +511,31 @@ export default function ServiceDeskTab({
       cancelled = true;
     };
   }, [selectedTicketId, tickets]);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!looksLikeCnpjOrAccountQuery(q)) {
+      setServerSearchHits(null);
+      setServerSearchPending(false);
+      return;
+    }
+    const ac = new AbortController();
+    setServerSearchPending(true);
+    fetch(`/api/tickets?search=${encodeURIComponent(q)}`, { signal: ac.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('search failed');
+        const json = (await res.json()) as { data?: EnrichedServiceTicket[] };
+        if (!ac.signal.aborted) setServerSearchHits(Array.isArray(json.data) ? json.data : []);
+      })
+      .catch((err) => {
+        if (err?.name === 'AbortError') return;
+        if (!ac.signal.aborted) setServerSearchHits([]);
+      })
+      .finally(() => {
+        if (!ac.signal.aborted) setServerSearchPending(false);
+      });
+    return () => ac.abort();
+  }, [searchQuery]);
 
   useEffect(() => {
     if (activeTicket && editingSerialForId !== activeTicket.id) {
@@ -1220,6 +1246,7 @@ export default function ServiceDeskTab({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Buscar TEC-123, FIN-45, S/N, empresa..."
+              aria-busy={serverSearchPending}
               className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:border-accent"
             />
           </div>
@@ -1411,7 +1438,7 @@ export default function ServiceDeskTab({
                               </div>
 
                               <h4 className="text-xs font-semibold text-slate-900 leading-snug">
-                                {t.subject}
+                                {displayTicketSubject(t.subject)}
                               </h4>
 
                               {t.company && (
@@ -1501,11 +1528,11 @@ export default function ServiceDeskTab({
                             {t.company?.name || 'Cliente Seta Telecom'}
                           </div>
                           <div className="text-[10px] font-mono text-slate-500">
-                            {t.company?.cnpj || 'CNPJ vinculado'}
+                            {displayTicketCompanyCnpj(t.company?.cnpj)}
                           </div>
                         </td>
                         <td className="py-3 px-3">
-                          <div className="font-semibold text-slate-900">{t.subject}</div>
+                          <div className="font-semibold text-slate-900">{displayTicketSubject(t.subject)}</div>
                           {t.equipmentSerial && (
                             <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
                               S/N: {t.equipmentSerial}
@@ -1566,7 +1593,7 @@ export default function ServiceDeskTab({
                       </span>
                       {getPriorityBadge(t.priority)}
                     </div>
-                    <h4 className="text-xs font-semibold text-slate-900">{t.subject}</h4>
+                    <h4 className="text-xs font-semibold text-slate-900">{displayTicketSubject(t.subject)}</h4>
                     <div className="text-[11px] text-slate-600 font-semibold">
                       {t.company?.name || 'Cliente Seta Telecom'}
                       {t.equipmentSerial ? ` • S/N ${t.equipmentSerial}` : ''}
@@ -1652,7 +1679,7 @@ export default function ServiceDeskTab({
                           <div className="flex items-center gap-2">
                             <span className="font-mono font-semibold text-indigo-700">{t.key}</span>
                             {getPriorityBadge(t.priority)}
-                            <strong className="text-slate-900">{t.subject}</strong>
+                            <strong className="text-slate-900">{displayTicketSubject(t.subject)}</strong>
                           </div>
                           <div className="text-[11px] text-slate-500 mt-0.5">
                             {t.company?.name || 'Cliente Seta'} • Fila: {t.assignee}
@@ -1718,7 +1745,7 @@ export default function ServiceDeskTab({
                           <div className="min-w-0">
                             <div className="font-semibold text-slate-900 truncate">
                               <span className="font-mono text-indigo-700 mr-1.5">{t.key}</span>
-                              {t.subject}
+                              {displayTicketSubject(t.subject)}
                             </div>
                             <span className="text-[10px] text-slate-500">
                               {t.company?.name || 'Cliente Seta Telecom'} • Status: {t.status}
@@ -1820,7 +1847,7 @@ export default function ServiceDeskTab({
                 </div>
               </div>
 
-              <h3 id="setadesk-ticket-dialog-title" className="text-base font-semibold leading-snug">{activeTicket.subject}</h3>
+              <h3 id="setadesk-ticket-dialog-title" className="text-base font-semibold leading-snug">{displayTicketSubject(activeTicket.subject)}</h3>
 
               <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-700 pt-1">
                 {activeTicket.company && (
@@ -1873,7 +1900,7 @@ export default function ServiceDeskTab({
             {/* NOC Routing, Priority, Equipment Serial & ERP Contract/OS Integration Panel */}
             <div className="flex-1 min-h-0 overflow-y-auto">
             <div className="p-4 bg-slate-50 border-b border-slate-200 space-y-3 text-xs">
-              <p className="text-slate-700 leading-relaxed">{activeTicket.description}</p>
+              <p className="text-slate-700 leading-relaxed">{displayTicketDescription(activeTicket.description)}</p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                 <div>
@@ -2063,7 +2090,7 @@ export default function ServiceDeskTab({
                       {formatDateTimeBR(c.createdAt)}
                     </span>
                   </div>
-                  <p className="leading-relaxed">{c.body}</p>
+                  <p className="leading-relaxed">{displayTicketCommentBody(c.body)}</p>
                 </div>
               ))}
             </div>

@@ -37,6 +37,16 @@ import {
   SETADESK_TICKET_SEQUENCE,
 } from './setadesk-schema';
 import type { SetaDeskPipeline } from './types';
+import { assertUniquePipelineMailbox, PIPELINE_MAILBOX_DUPLICATE_ERROR } from '../api/setadesk-pipeline-guards';
+import {
+  planSetaDeskTicketPurge,
+  SETADESK_PURGE_DELETE_TICKETS_SQL,
+  SETADESK_PURGE_DELETE_TOMBSTONES_SQL,
+  SETADESK_PURGE_LOCK_PROTECTED_SQL,
+  SETADESK_PURGE_PROTECTED_TABLES,
+  SETADESK_PURGE_PROTECTED_TICKET_IDS_SQL,
+} from './setadesk-purge';
+
 import {
   JIRA_IMPORT_SOURCE,
   planJiraImport,
@@ -852,6 +862,8 @@ export async function createSetaDeskPipeline(input: SetaDeskPipelineInput): Prom
   try {
     await client.query('BEGIN');
     await client.query(`CREATE SEQUENCE IF NOT EXISTS ${sanitizeSequenceName(sequenceName)} AS BIGINT START WITH 1 INCREMENT BY 1 MINVALUE 1`);
+    const existing = await loadPipelineRows(client);
+    assertUniquePipelineMailbox(mailbox, existing);
     const r = await client.query(
       `INSERT INTO setadesk_pipelines (id, name, prefix, mailbox, jira_project_key, sequence_name, is_active, sort_order)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -868,6 +880,9 @@ export async function createSetaDeskPipeline(input: SetaDeskPipelineInput): Prom
     }
     if (/setadesk_pipelines_name_uidx|duplicate key.*name/i.test(msg)) {
       throw new Error('Ja existe uma fila com este nome.');
+    }
+    if (/setadesk_pipelines_mailbox_uidx|duplicate key.*mailbox/i.test(msg)) {
+      throw new Error(PIPELINE_MAILBOX_DUPLICATE_ERROR);
     }
     if (/setadesk_pipelines_pkey|duplicate key/i.test(msg)) {
       throw new Error('Ja existe uma fila com este identificador.');
@@ -910,6 +925,7 @@ export async function updateSetaDeskPipeline(
     }
     const name = patch.name != null ? String(patch.name).trim() : String(row.name);
     if (!name) throw new Error('O nome da fila e obrigatorio.');
+    // undefined = nao alterar; null ou string vazia = limpar a caixa.
     const mailbox =
       patch.mailbox !== undefined
         ? (patch.mailbox ? String(patch.mailbox).trim().toLowerCase() : null)
@@ -920,6 +936,8 @@ export async function updateSetaDeskPipeline(
         : ((row.jira_project_key as string | null) ?? null);
     const isActive = patch.isActive !== undefined ? Boolean(patch.isActive) : row.is_active !== false;
     const sortOrder = patch.sortOrder !== undefined ? Number(patch.sortOrder) : Number(row.sort_order ?? 0);
+    const others = (await loadPipelineRows(client)).filter((p) => p.id !== id);
+    assertUniquePipelineMailbox(mailbox, others, id);
     const r = await client.query(
       `UPDATE setadesk_pipelines
        SET name = $2, prefix = $3, mailbox = $4, jira_project_key = $5, is_active = $6, sort_order = $7, updated_at = NOW()
@@ -934,6 +952,7 @@ export async function updateSetaDeskPipeline(
     const msg = String((err as Error)?.message || err);
     if (/setadesk_pipelines_prefix_uidx/i.test(msg)) throw new Error('Ja existe uma fila com este prefixo.');
     if (/setadesk_pipelines_name_uidx/i.test(msg)) throw new Error('Ja existe uma fila com este nome.');
+    if (/setadesk_pipelines_mailbox_uidx/i.test(msg)) throw new Error(PIPELINE_MAILBOX_DUPLICATE_ERROR);
     throw err;
   } finally {
     client.release();
@@ -986,25 +1005,116 @@ export async function countSetaDeskTicketDependents(client?: PoolClient | Pool):
   };
 }
 
+export interface SetaDeskPurgeReport {
+  deleted: SetaDeskPurgeCounts;
+  skippedTickets: Array<{ id: string; key: string }>;
+  skippedReason: string;
+  preserved: {
+    emailMessages: number;
+    emailOutbox: number;
+    integrationOutbox: number;
+    tables: readonly string[];
+  };
+}
+
+async function loadSetaDeskPurgePlan(client: PoolClient) {
+  const tickets = await client.query<{ id: string; key: string }>(`SELECT id, key FROM setadesk_tickets`);
+  const protectedRows = await client.query<{ id: string }>(SETADESK_PURGE_PROTECTED_TICKET_IDS_SQL);
+  const plan = planSetaDeskTicketPurge({
+    tickets: tickets.rows,
+    protectedTicketIds: protectedRows.rows.map((r) => r.id),
+  });
+  return plan;
+}
+
+function emptyPurgeCounts(): SetaDeskPurgeCounts {
+  return {
+    tickets: 0,
+    comments: 0,
+    attachments: 0,
+    history: 0,
+    related: 0,
+    notifications: 0,
+    emailMessages: 0,
+    emailOutbox: 0,
+    integrationOutbox: 0,
+    tombstones: 0,
+  };
+}
+
+function diffPurgeCounts(before: SetaDeskPurgeCounts, after: SetaDeskPurgeCounts): SetaDeskPurgeCounts {
+  return {
+    tickets: Math.max(0, before.tickets - after.tickets),
+    comments: Math.max(0, before.comments - after.comments),
+    attachments: Math.max(0, before.attachments - after.attachments),
+    history: Math.max(0, before.history - after.history),
+    related: Math.max(0, before.related - after.related),
+    notifications: Math.max(0, before.notifications - after.notifications),
+    emailMessages: 0,
+    emailOutbox: 0,
+    integrationOutbox: 0,
+    tombstones: Math.max(0, before.tombstones - after.tombstones),
+  };
+}
+
+export async function previewSetaDeskTicketPurge(): Promise<SetaDeskPurgeReport> {
+  const pool = getPostgresPool();
+  if (!pool) throw new Error('A previa da limpeza exige DATABASE_URL.');
+  await ensureSetaDeskSchema(pool);
+  const client = await pool.connect();
+  try {
+    const plan = await loadSetaDeskPurgePlan(client);
+    const counts = await countSetaDeskTicketDependents(client);
+    return {
+      deleted: emptyPurgeCounts(),
+      skippedTickets: plan.skipped,
+      skippedReason: plan.skippedReason,
+      preserved: {
+        emailMessages: counts.emailMessages,
+        emailOutbox: counts.emailOutbox,
+        integrationOutbox: counts.integrationOutbox,
+        tables: SETADESK_PURGE_PROTECTED_TABLES,
+      },
+    };
+  } finally {
+    client.release();
+  }
+}
+
 /**
- * Apaga somente chamados SetaDesk e dependentes. Nao toca em tabelas que nao sejam setadesk_*.
+ * Apaga somente chamados SetaDesk e dependentes em cascata (comentarios, anexos,
+ * historico, relacionados, notificacoes). Nao toca em tabelas que nao sejam setadesk_*.
  * Nao apaga pipelines, filas NOC, meta, mail_sync_state nem o registro de migracoes.
+ * Nunca apaga setadesk_email_messages, setadesk_email_outbox ou setadesk_integration_outbox.
+ * Chamados com linha vinculada nessas tabelas sao pulados e relatados.
  */
-export async function purgeSetaDeskTickets(): Promise<SetaDeskPurgeCounts> {
+export async function purgeSetaDeskTickets(): Promise<SetaDeskPurgeReport> {
   const pool = getPostgresPool();
   if (!pool) throw new Error('A limpeza exige DATABASE_URL. Nada foi apagado.');
   await ensureSetaDeskSchema(pool);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query(SETADESK_PURGE_LOCK_PROTECTED_SQL);
     const before = await countSetaDeskTicketDependents(client);
-    await client.query(`DELETE FROM setadesk_email_outbox WHERE ticket_id IS NOT NULL`);
-    await client.query(`DELETE FROM setadesk_integration_outbox WHERE ticket_id IS NOT NULL`);
-    await client.query(`DELETE FROM setadesk_email_messages WHERE ticket_id IS NOT NULL`);
-    await client.query(`DELETE FROM setadesk_tickets`);
-    await client.query(`DELETE FROM setadesk_ticket_tombstones`);
+    const plan = await loadSetaDeskPurgePlan(client);
+    if (plan.purgeIds.length) {
+      await client.query(SETADESK_PURGE_DELETE_TICKETS_SQL, [plan.purgeIds]);
+      await client.query(SETADESK_PURGE_DELETE_TOMBSTONES_SQL, [plan.purgeIds, plan.purgeKeys]);
+    }
+    const after = await countSetaDeskTicketDependents(client);
     await client.query('COMMIT');
-    return before;
+    return {
+      deleted: diffPurgeCounts(before, after),
+      skippedTickets: plan.skipped,
+      skippedReason: plan.skippedReason,
+      preserved: {
+        emailMessages: after.emailMessages,
+        emailOutbox: after.emailOutbox,
+        integrationOutbox: after.integrationOutbox,
+        tables: SETADESK_PURGE_PROTECTED_TABLES,
+      },
+    };
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch { /* ignora */ }
     throw err;

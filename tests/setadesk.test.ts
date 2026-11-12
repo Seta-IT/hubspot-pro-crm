@@ -37,8 +37,35 @@ import {
   SETADESK_LEGACY_DEMO_TICKET_KEYS,
   ticketKeysNeededForRoute,
 } from '../src/db/setadesk-store';
-import { canManageSetaDeskPipelines } from '../src/api/setadesk-pipeline-guards';
-import { setaDeskPurgeApplyDenial } from '../src/db/cli-purge-tickets';
+import {
+  assertUniquePipelineMailbox,
+  canManageSetaDeskPipelines,
+  parseSetaDeskPipelineWrite,
+  PIPELINE_MAILBOX_DUPLICATE_ERROR,
+} from '../src/api/setadesk-pipeline-guards';
+import {
+  planSetaDeskTicketPurge,
+  SETADESK_PURGE_DELETE_STATEMENTS,
+  SETADESK_PURGE_LOCK_PROTECTED_SQL,
+  SETADESK_PURGE_PROTECTED_TABLES,
+  setaDeskPurgeSqlTouchesProtectedTables,
+} from '../src/db/setadesk-purge';
+import { formatSetaDeskPurgeReport, setaDeskPurgeApplyDenial } from '../src/db/cli-purge-tickets';
+import { assertSetaDeskAttachmentStorage, isSetaDeskFinancePipeline } from '../src/db/setadesk-attachment-storage';
+import {
+  displayTicketCompanyCnpj,
+  displayTicketSubject,
+  formatMaskedAccountNumber,
+  formatMaskedCnpj,
+  looksLikeCnpjOrAccountQuery,
+  maskSensitiveFinanceText,
+  maskTicketForResponse,
+  buildTicketSearchHaystack,
+  ticketMatchesSearch,
+  ticketMatchesSearchServer,
+} from '../src/app/lib/setadesk-ticket-search';
+import { filterGlobalSearchEntries } from '../src/app/components/GlobalHeaderSearch';
+
 
 describe('SetaDesk - geracao de chave TEC-/FIN- (fallback sem Postgres)', () => {
   it('a numeracao TEC acompanha o STT importado; JSM- e DEV- nao entram na sequencia', () => {
@@ -245,6 +272,10 @@ describe('SetaDesk - esquema e diff (sem banco)', () => {
     assert.match(m4!.sql, /DROP INDEX IF EXISTS setadesk_history_external_uidx/);
     assert.match(m4!.sql, /ON setadesk_ticket_history \(ticket_id, source, external_id\)/);
     assert.equal(SETADESK_SEED_PIPELINES.map((s) => s.prefix).join(','), 'TEC,FIN');
+    const m5 = SETADESK_MIGRATIONS.find((m) => m.id === '0005_pipeline_mailbox_unique');
+    assert.ok(m5);
+    assert.match(m5!.sql, /CREATE UNIQUE INDEX IF NOT EXISTS setadesk_pipelines_mailbox_uidx/);
+    assert.match(m5!.sql, /LOWER\(mailbox\)/);
   });
 
   it('tem indices unicos de idempotencia (jira_key, jira_id, message_id, ids externos)', () => {
@@ -256,6 +287,7 @@ describe('SetaDesk - esquema e diff (sem banco)', () => {
       'setadesk_email_message_id_uidx',
       'setadesk_attachments_external_uidx',
       'setadesk_outbox_dedupe_uidx',
+      'setadesk_pipelines_mailbox_uidx',
     ]) {
       assert.match(sql, new RegExp(`CREATE UNIQUE INDEX IF NOT EXISTS ${idx}`));
     }
@@ -723,7 +755,7 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
 
   it('aplica migracoes uma vez e reaplicar e no-op', async () => {
     const first = await store.ensureSetaDeskSchema();
-    assert.deepEqual(first, ['0001_setadesk_core', '0002_align_seq_stt', '0003_comments_internal_default', '0004_pipelines_and_history_uidx']);
+    assert.deepEqual(first, ['0001_setadesk_core', '0002_align_seq_stt', '0003_comments_internal_default', '0004_pipelines_and_history_uidx', '0005_pipeline_mailbox_unique']);
     store.resetSetaDeskSchemaCache();
     const second = await store.ensureSetaDeskSchema();
     assert.deepEqual(second, []);
@@ -958,5 +990,588 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     );
     assert.equal(row.rows.find((r) => r.body === 'publico').is_internal, false);
     assert.equal(row.rows.find((r) => r.body === 'interno').is_internal, true);
+  });
+});
+
+
+describe('SetaDesk - purge nao apaga e-mail nem outbox', () => {
+  it('o SQL de exclusao nunca toca nas tabelas protegidas', () => {
+    assert.deepEqual([...SETADESK_PURGE_PROTECTED_TABLES], [
+      'setadesk_email_messages',
+      'setadesk_email_outbox',
+      'setadesk_integration_outbox',
+    ]);
+    for (const sql of SETADESK_PURGE_DELETE_STATEMENTS) {
+      assert.equal(setaDeskPurgeSqlTouchesProtectedTables(sql), false, sql);
+    }
+    assert.equal(
+      setaDeskPurgeSqlTouchesProtectedTables('DELETE FROM setadesk_email_messages WHERE ticket_id IS NOT NULL'),
+      true
+    );
+    assert.equal(
+      setaDeskPurgeSqlTouchesProtectedTables('DELETE FROM setadesk_email_outbox WHERE ticket_id IS NOT NULL'),
+      true
+    );
+    assert.equal(
+      setaDeskPurgeSqlTouchesProtectedTables('DELETE FROM setadesk_integration_outbox WHERE ticket_id IS NOT NULL'),
+      true
+    );
+  });
+
+  it('pula chamados com e-mail ou outbox vinculado e relata', () => {
+    const plan = planSetaDeskTicketPurge({
+      tickets: [
+        { id: 't-free', key: 'TEC-10' },
+        { id: 't-mail', key: 'FIN-20' },
+        { id: 't-out', key: 'TEC-21' },
+        { id: 't-int', key: 'FIN-22' },
+      ],
+      protectedTicketIds: ['t-mail', 't-out', 't-int'],
+    });
+    assert.deepEqual(plan.purgeIds, ['t-free']);
+    assert.deepEqual(plan.purgeKeys, ['TEC-10']);
+    assert.deepEqual(plan.skipped.map((s) => s.key).sort(), ['FIN-20', 'FIN-22', 'TEC-21']);
+    assert.match(plan.skippedReason, /setadesk_email_messages/);
+    assert.match(plan.skippedReason, /setadesk_email_outbox/);
+    assert.match(plan.skippedReason, /setadesk_integration_outbox/);
+    const report = formatSetaDeskPurgeReport(
+      {
+        deleted: {
+          tickets: 1,
+          comments: 0,
+          attachments: 0,
+          history: 0,
+          related: 0,
+          notifications: 0,
+          emailMessages: 0,
+          emailOutbox: 0,
+          integrationOutbox: 0,
+          tombstones: 0,
+        },
+        skippedTickets: plan.skipped,
+        skippedReason: plan.skippedReason,
+        preserved: {
+          emailMessages: 2,
+          emailOutbox: 1,
+          integrationOutbox: 1,
+          tables: SETADESK_PURGE_PROTECTED_TABLES,
+        },
+      },
+      'applied'
+    );
+    assert.match(report, /FIN-20 \(t-mail\)/);
+    assert.match(report, /nao sao apagadas|nao apag/i);
+    assert.doesNotMatch(report, /DELETE FROM setadesk_email/);
+  });
+
+  it('sem vinculo, todos os chamados entram no plano de exclusao', () => {
+    const plan = planSetaDeskTicketPurge({
+      tickets: [{ id: 'a', key: 'TEC-1' }, { id: 'b', key: 'FIN-1' }],
+      protectedTicketIds: [],
+    });
+    assert.deepEqual(plan.purgeIds, ['a', 'b']);
+    assert.equal(plan.skipped.length, 0);
+    assert.equal(plan.skippedReason, '');
+  });
+
+  it('trava as tabelas protegidas em SHARE MODE antes de montar o plano', () => {
+    assert.equal(
+      SETADESK_PURGE_LOCK_PROTECTED_SQL,
+      'LOCK TABLE setadesk_email_messages, setadesk_email_outbox, setadesk_integration_outbox IN SHARE MODE'
+    );
+    const fs = require('fs') as typeof import('fs');
+    const path = require('path') as typeof import('path');
+    const store = fs.readFileSync(path.join(process.cwd(), 'src/db/setadesk-store.ts'), 'utf8');
+    const body = store.slice(store.indexOf('export async function purgeSetaDeskTickets'));
+    const beginAt = body.indexOf("await client.query('BEGIN')");
+    const lockAt = body.indexOf('await client.query(SETADESK_PURGE_LOCK_PROTECTED_SQL)');
+    const planAt = body.indexOf('await loadSetaDeskPurgePlan(client)');
+    assert.ok(beginAt >= 0 && lockAt > beginAt && planAt > lockAt);
+  });
+});
+
+describe('SetaDesk - mailbox da fila', () => {
+  it('valida e-mail, normaliza minusculas e aceita vazio', () => {
+    const ok = parseSetaDeskPipelineWrite({ mailbox: '  Suporte-STI@SetaTelecom.com.br ' });
+    assert.equal(ok.ok, true);
+    if (ok.ok) assert.equal(ok.data.mailbox, 'suporte-sti@setatelecom.com.br');
+    const empty = parseSetaDeskPipelineWrite({ mailbox: '   ' });
+    assert.equal(empty.ok, true);
+    if (empty.ok) assert.equal(empty.data.mailbox, null);
+    const none = parseSetaDeskPipelineWrite({ mailbox: null });
+    assert.equal(none.ok, true);
+    if (none.ok) assert.equal(none.data.mailbox, null);
+    const bad = parseSetaDeskPipelineWrite({ mailbox: 'nao-e-email' });
+    assert.equal(bad.ok, false);
+    if (!bad.ok) assert.match(bad.error, /e-mail valido/);
+    const bad2 = parseSetaDeskPipelineWrite({ mailbox: 'caixa@' });
+    assert.equal(bad2.ok, false);
+  });
+
+  it('rejeita caixa duplicada entre filas, na criacao e na edicao', async () => {
+    const repo = createInMemoryRepository();
+    assert.throws(
+      () => repo.createSetaDeskPipeline({ name: 'Copia', prefix: 'CPY', mailbox: 'SUPORTE-STI@setatelecom.com.br' }),
+      /caixa de e-mail/
+    );
+    const created = repo.createSetaDeskPipeline({ name: 'Qualidade', prefix: 'QLD', mailbox: 'qualidade@setatelecom.com.br' });
+    assert.equal(created.mailbox, 'qualidade@setatelecom.com.br');
+    assert.throws(
+      () => repo.updateSetaDeskPipeline('pl-fin', { mailbox: 'qualidade@SETATELECOM.com.br' }),
+      /caixa de e-mail/
+    );
+    const same = repo.updateSetaDeskPipeline('pl-tec', { mailbox: 'SUPORTE-STI@setatelecom.com.br' });
+    assert.equal(same?.mailbox, 'suporte-sti@setatelecom.com.br');
+    const router = new CrmApiRouter(createInMemoryRepository());
+    const dup = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'POST',
+      path: '/api/tickets/pipelines',
+      query: {},
+      body: { name: 'Outra', prefix: 'OTR', mailbox: 'financeiro-sti@setatelecom.com.br' },
+    });
+    assert.equal(dup.status, 409);
+    const invalid = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'PATCH',
+      path: '/api/tickets/pipelines/pl-tec',
+      query: {},
+      body: { mailbox: 'texto-sem-arroba' },
+    });
+    assert.equal(invalid.status, 400);
+    const okEdit = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'PATCH',
+      path: '/api/tickets/pipelines/pl-tec',
+      query: {},
+      body: { mailbox: '  suporte-sti@SETATELECOM.com.br ' },
+    });
+    assert.equal(okEdit.status, 200);
+    assert.equal((okEdit.body as { data: { mailbox: string } }).data.mailbox, 'suporte-sti@setatelecom.com.br');
+    assert.equal(PIPELINE_MAILBOX_DUPLICATE_ERROR.includes('caixa de e-mail'), true);
+    assert.doesNotThrow(() =>
+      assertUniquePipelineMailbox('novo@setatelecom.com.br', [
+        { id: 'pl-tec', mailbox: 'suporte-sti@setatelecom.com.br' },
+      ])
+    );
+  });
+
+  it('PATCH so com name nao apaga a caixa; mailbox null limpa', async () => {
+    const omitted = parseSetaDeskPipelineWrite({ name: 'Suporte STI' });
+    assert.equal(omitted.ok, true);
+    if (omitted.ok) assert.equal(omitted.data.mailbox, undefined);
+
+    const repo = createInMemoryRepository();
+    const before = repo.getSetaDeskPipeline('pl-tec');
+    assert.equal(before?.mailbox, 'suporte-sti@setatelecom.com.br');
+    const kept = repo.updateSetaDeskPipeline('pl-tec', { name: 'Suporte STI (novo nome)' });
+    assert.equal(kept?.name, 'Suporte STI (novo nome)');
+    assert.equal(kept?.mailbox, 'suporte-sti@setatelecom.com.br');
+
+    const router = new CrmApiRouter(createInMemoryRepository());
+    const nameOnly = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'PATCH',
+      path: '/api/tickets/pipelines/pl-tec',
+      query: {},
+      body: { name: 'Fila TEC renomeada' },
+    });
+    assert.equal(nameOnly.status, 200);
+    const named = (nameOnly.body as { data: { name: string; mailbox: string | null } }).data;
+    assert.equal(named.name, 'Fila TEC renomeada');
+    assert.equal(named.mailbox, 'suporte-sti@setatelecom.com.br');
+
+    const cleared = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'PATCH',
+      path: '/api/tickets/pipelines/pl-tec',
+      query: {},
+      body: { mailbox: null },
+    });
+    assert.equal(cleared.status, 200);
+    assert.equal((cleared.body as { data: { mailbox: string | null } }).data.mailbox, null);
+  });
+});
+
+describe('SetaDesk - anexos fora de Blob publico', () => {
+  it('recusa Blob publico ou ausente, inclusive na fila FIN e em caminho futuro de e-mail', () => {
+    assert.equal(isSetaDeskFinancePipeline({ pipelinePrefix: 'FIN' }), true);
+    assert.equal(isSetaDeskFinancePipeline({ pipelineId: 'pl-fin' }), true);
+    assert.equal(isSetaDeskFinancePipeline({ pipelinePrefix: 'TEC' }), false);
+    const jira = assertSetaDeskAttachmentStorage({ storage: 'JIRA_REF', pipelinePrefix: 'FIN' });
+    assert.equal(jira.ok, true);
+    const priv = assertSetaDeskAttachmentStorage({
+      storage: 'BLOB',
+      blobAccess: 'private',
+      pipelinePrefix: 'FIN',
+    });
+    assert.equal(priv.ok, true);
+    const pubFin = assertSetaDeskAttachmentStorage({
+      storage: 'BLOB',
+      blobAccess: 'public',
+      pipelinePrefix: 'FIN',
+    });
+    assert.equal(pubFin.ok, false);
+    if (!pubFin.ok) {
+      assert.equal(pubFin.code, 'BLOB_PUBLIC_FORBIDDEN');
+      assert.match(pubFin.error, /Financeiro/i);
+    }
+    const missing = assertSetaDeskAttachmentStorage({ storage: 'BLOB', pipelineId: 'pl-fin' });
+    assert.equal(missing.ok, false);
+    if (!missing.ok) assert.equal(missing.code, 'BLOB_PRIVATE_REQUIRED');
+    const pubTec = assertSetaDeskAttachmentStorage({
+      storage: 'BLOB',
+      blobAccess: 'public',
+      pipelinePrefix: 'TEC',
+    });
+    assert.equal(pubTec.ok, false);
+    const inbound = assertSetaDeskAttachmentStorage({
+      storage: 'BLOB',
+      blobAccess: null,
+      pipelinePrefix: 'FIN',
+    });
+    assert.equal(inbound.ok, false);
+  });
+
+  it('o codigo atual nao envia anexos SetaDesk para Blob publico nem cria loja paga', () => {
+    const fs = require('fs') as typeof import('fs');
+    const path = require('path') as typeof import('path');
+    const root = process.cwd();
+    const store = fs.readFileSync(path.join(root, 'src/db/setadesk-store.ts'), 'utf8');
+    const schema = fs.readFileSync(path.join(root, 'src/db/setadesk-schema.ts'), 'utf8');
+    const policy = fs.readFileSync(path.join(root, 'src/db/setadesk-attachment-storage.ts'), 'utf8');
+    assert.match(store, /JIRA_REF/);
+    assert.doesNotMatch(store, /@vercel\/blob/);
+    assert.doesNotMatch(store, /access:\s*['"]public['"]/);
+    assert.doesNotMatch(schema, /@vercel\/blob/);
+    assert.match(policy, /assertSetaDeskAttachmentStorage/);
+    assert.match(policy, /Nao cria nem configura/);
+  });
+});
+
+describe('SetaDesk - mascara de CNPJ e conta na busca (dados de bootstrap)', () => {
+  const bootstrapTicket = {
+    key: 'FIN-120',
+    subject: 'TED conta 71924-5 CNPJ 14.806.235/0001-32',
+    description: 'Repasse para agencia 1234 conta 12345-6 do favorecido 14806235000132',
+    equipmentSerial: null as string | null,
+    assignee: 'Financeiro',
+    company: { name: 'Cliente Bootstrap', cnpj: '14.806.235/0001-32' },
+    contact: { firstName: 'Ana', lastName: 'Silva' },
+  };
+
+  it('mascara CNPJ e numero de conta; no cliente a busca usa o texto mascarado', () => {
+    assert.equal(formatMaskedCnpj('14.806.235/0001-32'), '14.806.***/****-32');
+    assert.equal(formatMaskedCnpj('14806235000132'), '14.806.***/****-32');
+    assert.match(formatMaskedAccountNumber('71924-5'), /\*\-5$/);
+    assert.equal(displayTicketCompanyCnpj(bootstrapTicket.company.cnpj), '14.806.***/****-32');
+    assert.doesNotMatch(displayTicketCompanyCnpj(bootstrapTicket.company.cnpj), /235\/0001/);
+    const subject = displayTicketSubject(bootstrapTicket.subject);
+    assert.doesNotMatch(subject, /14\.806\.235\/0001-32/);
+    assert.doesNotMatch(subject, /71924-5/);
+    assert.match(subject, /14\.806\.\*\*\*\/\*\*\*\*-32/);
+    const desc = maskSensitiveFinanceText(bootstrapTicket.description);
+    assert.doesNotMatch(desc, /12345-6/);
+    const masked = maskTicketForResponse(bootstrapTicket);
+    assert.ok(ticketMatchesSearch(masked, 'FIN-120'));
+    assert.ok(ticketMatchesSearch(masked, 'Cliente Bootstrap'));
+    assert.equal(ticketMatchesSearch(masked, '14806235000132'), false);
+    assert.equal(ticketMatchesSearch(masked, '1480'), false);
+    assert.equal(ticketMatchesSearch(masked, '71924'), false);
+    assert.equal(ticketMatchesSearch(masked, 'inexistente-xyz'), false);
+  });
+
+  it('a busca global de chamados mascara o assunto e nao expoe digitos brutos no haystack', () => {
+    const entries = [
+      {
+        id: 'TICKETS:t-fin-120',
+        entityId: 't-fin-120',
+        category: 'TICKETS' as const,
+        system: 'CHAMADOS' as const,
+        title: `${bootstrapTicket.key} - ${displayTicketSubject(bootstrapTicket.subject)}`,
+        subtitle: `Chamado • CHAMADOS • ${bootstrapTicket.company.name} • Fila: ${bootstrapTicket.assignee}`,
+        searchHaystack: buildTicketSearchHaystack(maskTicketForResponse(bootstrapTicket)),
+      },
+    ];
+    assert.doesNotMatch(entries[0].title, /14\.806\.235\/0001-32/);
+    assert.doesNotMatch(entries[0].searchHaystack || '', /14806235000132/);
+    assert.doesNotMatch(entries[0].searchHaystack || '', /71924-5/);
+    const byKey = filterGlobalSearchEntries({
+      allEntries: entries,
+      query: 'FIN-120',
+      systemFilter: 'CHAMADOS',
+      selectedCategories: [],
+    });
+    assert.equal(byKey.length, 1);
+    const byName = filterGlobalSearchEntries({
+      allEntries: entries,
+      query: 'Cliente Bootstrap',
+      systemFilter: 'CHAMADOS',
+      selectedCategories: [],
+    });
+    assert.equal(byName.length, 1);
+    const byDigits = filterGlobalSearchEntries({
+      allEntries: entries,
+      query: '14806235000132',
+      systemFilter: 'CHAMADOS',
+      selectedCategories: [],
+    });
+    assert.equal(byDigits.length, 0);
+  });
+});
+
+describe('SetaDesk - mascara no servidor e busca por CNPJ/conta', () => {
+  const RAW_CNPJ = '14.806.235/0001-32';
+  const MASK_CNPJ = '14.806.***/****-32';
+  const RAW_SUBJECT = 'TED conta 71924-5 CNPJ 14.806.235/0001-32';
+  const RAW_DESC = 'Repasse para agencia 1234 conta 12345-6 do favorecido 14806235000132';
+  const RAW_COMMENT = 'Compensar CNPJ 14.806.235/0001-32 na conta 71924-5';
+
+  function seedSensitiveTicket(repo: ReturnType<typeof createInMemoryRepository>) {
+    const company = repo.createCompany({ name: 'Cliente Mascara Servidor', cnpj: RAW_CNPJ });
+    const ticket = repo.createServiceTicket({
+      subject: RAW_SUBJECT,
+      description: RAW_DESC,
+      companyId: company.id,
+      category: 'BILLING',
+    });
+    repo.addTicketComment(ticket.id, { author: 'Agente', body: RAW_COMMENT });
+    return { company, ticket: repo.getServiceTicketById(ticket.id)! };
+  }
+
+  it('formatMaskedCnpj e idempotente e looksLikeCnpjOrAccountQuery reconhece o termo', () => {
+    assert.equal(formatMaskedCnpj(MASK_CNPJ), MASK_CNPJ);
+    assert.equal(looksLikeCnpjOrAccountQuery(RAW_CNPJ), true);
+    assert.equal(looksLikeCnpjOrAccountQuery('14806235000132'), true);
+    assert.equal(looksLikeCnpjOrAccountQuery('71924-5'), true);
+    assert.equal(looksLikeCnpjOrAccountQuery('conta 12345-6'), true);
+    assert.equal(looksLikeCnpjOrAccountQuery('TEC-120'), false);
+    assert.equal(looksLikeCnpjOrAccountQuery('Cliente Bootstrap'), false);
+    const masked = maskTicketForResponse({
+      subject: RAW_SUBJECT,
+      description: RAW_DESC,
+      comments: [{ id: 'c1', body: RAW_COMMENT }],
+      company: { name: 'X', cnpj: RAW_CNPJ },
+    });
+    assert.doesNotMatch(masked.subject, /71924-5/);
+    assert.doesNotMatch(masked.description || '', /12345-6/);
+    assert.doesNotMatch(masked.comments![0].body || '', /14\.806\.235\/0001-32/);
+    assert.equal(masked.company!.cnpj, MASK_CNPJ);
+    assert.equal(formatMaskedCnpj(masked.company!.cnpj), MASK_CNPJ);
+  });
+
+  it('as tres saidas (bootstrap, GET lista e GET por id) devolvem texto mascarado', async () => {
+    const repo = createInMemoryRepository();
+    const { ticket } = seedSensitiveTicket(repo);
+    const boot = resolveBootstrapServiceTickets([ticket], {
+      hasChamadosAccess: true,
+      postgresEnabled: true,
+      setaDeskLoaded: true,
+    });
+    assert.equal(boot.length, 1);
+    assert.doesNotMatch(boot[0].subject, /14\.806\.235\/0001-32/);
+    assert.doesNotMatch(boot[0].subject, /71924-5/);
+    assert.equal((boot[0].comments || []).length, 0);
+
+    const router = new CrmApiRouter(repo);
+    const list = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'GET',
+      path: '/api/tickets',
+      query: {},
+      body: undefined,
+    });
+    assert.equal(list.status, 200);
+    const rows = (list.body as { data: Array<{ id: string; subject: string; description?: string; company?: { cnpj?: string }; comments?: Array<{ body?: string }> }> }).data;
+    const listed = rows.find((t) => t.id === ticket.id);
+    assert.ok(listed);
+    assert.doesNotMatch(listed!.subject, /14\.806\.235\/0001-32/);
+    assert.doesNotMatch(listed!.subject, /71924-5/);
+    assert.doesNotMatch(listed!.description || '', /12345-6/);
+    assert.equal(listed!.company?.cnpj, MASK_CNPJ);
+    if (listed!.comments?.length) {
+      assert.doesNotMatch(listed!.comments.map((c) => c.body || '').join(' '), /14\.806\.235\/0001-32/);
+    }
+
+    const one = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'GET',
+      path: `/api/tickets/${ticket.id}`,
+      query: {},
+      body: undefined,
+    });
+    assert.equal(one.status, 200);
+    const detail = (one.body as { data: { subject: string; description?: string; company?: { cnpj?: string }; comments?: Array<{ body?: string }> } }).data;
+    assert.doesNotMatch(detail.subject, /14\.806\.235\/0001-32/);
+    assert.doesNotMatch(detail.description || '', /12345-6/);
+    assert.equal(detail.company?.cnpj, MASK_CNPJ);
+    const commentBodies = (detail.comments || []).map((c) => c.body || '').join(' ');
+    assert.match(commentBodies, /14\.806\.\*\*\*\/\*\*\*\*-32/);
+    assert.doesNotMatch(commentBodies, /14\.806\.235\/0001-32/);
+    assert.doesNotMatch(commentBodies, /71924-5/);
+  });
+
+  it('GET /api/tickets?search= compara com o dado bruto e devolve o resultado mascarado', async () => {
+    const repo = createInMemoryRepository();
+    const { ticket } = seedSensitiveTicket(repo);
+    const router = new CrmApiRouter(repo);
+    const byCnpj = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'GET',
+      path: '/api/tickets',
+      query: { search: RAW_CNPJ },
+      body: undefined,
+    });
+    assert.equal(byCnpj.status, 200);
+    const cnpjRows = (byCnpj.body as { data: Array<{ id: string; subject: string; company?: { cnpj?: string } }> }).data;
+    assert.ok(cnpjRows.some((t) => t.id === ticket.id));
+    for (const row of cnpjRows) {
+      assert.doesNotMatch(row.subject, /14\.806\.235\/0001-32/);
+      if (row.company?.cnpj) assert.doesNotMatch(row.company.cnpj, /235\/0001/);
+    }
+
+    const byAccount = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'GET',
+      path: '/api/tickets',
+      query: { search: '71924-5' },
+      body: undefined,
+    });
+    assert.equal(byAccount.status, 200);
+    const accRows = (byAccount.body as { data: Array<{ id: string; subject: string }> }).data;
+    const hit = accRows.find((t) => t.id === ticket.id);
+    assert.ok(hit);
+    assert.doesNotMatch(hit!.subject, /71924-5/);
+  });
+
+  it('PATCH com assunto e descricao mascarados nao sobrescreve o original no repositorio', async () => {
+    const repo = createInMemoryRepository();
+    const { ticket } = seedSensitiveTicket(repo);
+    const router = new CrmApiRouter(repo);
+    const one = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'GET',
+      path: `/api/tickets/${ticket.id}`,
+      query: {},
+      body: undefined,
+    });
+    const masked = (one.body as { data: { subject: string; description: string } }).data;
+    assert.notEqual(masked.subject, RAW_SUBJECT);
+    const patched = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'PATCH',
+      path: `/api/tickets/${ticket.id}`,
+      query: {},
+      body: { subject: masked.subject, description: masked.description },
+    });
+    assert.equal(patched.status, 200);
+    const stored = repo.getServiceTicketById(ticket.id);
+    assert.equal(stored?.subject, RAW_SUBJECT);
+    assert.equal(stored?.description, RAW_DESC);
+    const response = (patched.body as { data: { subject: string } }).data;
+    assert.doesNotMatch(response.subject, /71924-5/);
+  });
+
+  it('GET /api/tickets?search= nao e oraculo: trecho devolve 0 e valor completo devolve 1', async () => {
+    const repo = createInMemoryRepository();
+    const company = repo.createCompany({ name: 'Cliente Oraculo CISO', cnpj: '98.765.432/0001-10' });
+    const ticket = repo.createServiceTicket({
+      subject: 'Repasse CNPJ 98.765.432/0001-10 conta 88877-6',
+      description: 'Pagamento ao favorecido',
+      companyId: company.id,
+      category: 'BILLING',
+    });
+    const raw = {
+      ...repo.getServiceTicketById(ticket.id)!,
+      company: { name: company.name, cnpj: company.cnpj },
+    };
+    assert.equal(ticketMatchesSearchServer(raw, '98765432'), false);
+    assert.equal(ticketMatchesSearchServer(raw, '98765432000110'), true);
+    assert.equal(ticketMatchesSearchServer(raw, '88877'), false);
+    assert.equal(ticketMatchesSearchServer(raw, '88877-6'), true);
+
+    const router = new CrmApiRouter(repo);
+    const partialCnpj = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'GET',
+      path: '/api/tickets',
+      query: { search: '98765432' },
+      body: undefined,
+    });
+    assert.equal(partialCnpj.status, 200);
+    assert.equal((partialCnpj.body as { data: unknown[] }).data.length, 0);
+
+    const fullCnpj = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'GET',
+      path: '/api/tickets',
+      query: { search: '98765432000110' },
+      body: undefined,
+    });
+    assert.equal(fullCnpj.status, 200);
+    const fullCnpjRows = (fullCnpj.body as { data: Array<{ id: string; subject: string; company?: { cnpj?: string } }> }).data;
+    assert.equal(fullCnpjRows.length, 1);
+    assert.equal(fullCnpjRows[0].id, ticket.id);
+    assert.doesNotMatch(fullCnpjRows[0].subject, /98\.765\.432\/0001-10/);
+    assert.doesNotMatch(fullCnpjRows[0].company?.cnpj || '', /765\.432/);
+
+    const partialAcc = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'GET',
+      path: '/api/tickets',
+      query: { search: '88877' },
+      body: undefined,
+    });
+    assert.equal(partialAcc.status, 200);
+    assert.equal((partialAcc.body as { data: unknown[] }).data.length, 0);
+
+    const fullAcc = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'GET',
+      path: '/api/tickets',
+      query: { search: '88877-6' },
+      body: undefined,
+    });
+    assert.equal(fullAcc.status, 200);
+    const fullAccRows = (fullAcc.body as { data: Array<{ id: string; subject: string }> }).data;
+    assert.equal(fullAccRows.length, 1);
+    assert.equal(fullAccRows[0].id, ticket.id);
+    assert.doesNotMatch(fullAccRows[0].subject, /88877-6/);
+  });
+
+  it('PATCH devolve 400 se subject, description ou resolution trouxerem mascara que nao existia no original', async () => {
+    const repo = createInMemoryRepository();
+    const { ticket } = seedSensitiveTicket(repo);
+    const router = new CrmApiRouter(repo);
+    const bad = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'PATCH',
+      path: `/api/tickets/${ticket.id}`,
+      query: {},
+      body: { subject: 'Texto editado com ***/**** no meio' },
+    });
+    assert.equal(bad.status, 400);
+    assert.equal((bad.body as { code?: string }).code, 'TICKET_PATCH_MASKED_VALUE');
+    assert.equal(repo.getServiceTicketById(ticket.id)?.subject, RAW_SUBJECT);
+
+    const badAcc = await router.dispatch({
+      context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'PATCH',
+      path: `/api/tickets/${ticket.id}`,
+      query: {},
+      body: { description: 'Valor alterado ****-5' },
+    });
+    assert.equal(badAcc.status, 400);
+    assert.equal(repo.getServiceTicketById(ticket.id)?.description, RAW_DESC);
+  });
+
+  it('a UI mascara descricao e comentario e usa a busca do servidor para CNPJ ou conta', () => {
+    const fs = require('fs') as typeof import('fs');
+    const path = require('path') as typeof import('path');
+    const ui = fs.readFileSync(path.join(process.cwd(), 'src/app/components/ServiceDeskTab.tsx'), 'utf8');
+    assert.match(ui, /looksLikeCnpjOrAccountQuery/);
+    assert.match(ui, /\/api\/tickets\?search=/);
+    assert.match(ui, /displayTicketDescription\(activeTicket\.description\)/);
+    assert.match(ui, /displayTicketCommentBody\(c\.body\)/);
   });
 });
