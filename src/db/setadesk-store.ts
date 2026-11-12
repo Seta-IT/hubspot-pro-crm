@@ -42,6 +42,7 @@ import {
   planSetaDeskTicketPurge,
   SETADESK_PURGE_DELETE_TICKETS_SQL,
   SETADESK_PURGE_DELETE_TOMBSTONES_SQL,
+  SETADESK_PURGE_LOCK_PROTECTED_SQL,
   SETADESK_PURGE_PROTECTED_TABLES,
   SETADESK_PURGE_PROTECTED_TICKET_IDS_SQL,
 } from './setadesk-purge';
@@ -924,6 +925,7 @@ export async function updateSetaDeskPipeline(
     }
     const name = patch.name != null ? String(patch.name).trim() : String(row.name);
     if (!name) throw new Error('O nome da fila e obrigatorio.');
+    // undefined = nao alterar; null ou string vazia = limpar a caixa.
     const mailbox =
       patch.mailbox !== undefined
         ? (patch.mailbox ? String(patch.mailbox).trim().toLowerCase() : null)
@@ -1093,6 +1095,7 @@ export async function purgeSetaDeskTickets(): Promise<SetaDeskPurgeReport> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query(SETADESK_PURGE_LOCK_PROTECTED_SQL);
     const before = await countSetaDeskTicketDependents(client);
     const plan = await loadSetaDeskPurgePlan(client);
     if (plan.purgeIds.length) {

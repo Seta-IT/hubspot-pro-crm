@@ -22,6 +22,9 @@ FROM (
 ) s
 `.trim();
 
+export const SETADESK_PURGE_LOCK_PROTECTED_SQL =
+  'LOCK TABLE setadesk_email_messages, setadesk_email_outbox, setadesk_integration_outbox IN SHARE MODE';
+
 export const SETADESK_PURGE_DELETE_TICKETS_SQL =
   'DELETE FROM setadesk_tickets WHERE id = ANY($1::text[])';
 

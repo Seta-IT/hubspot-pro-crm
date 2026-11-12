@@ -46,7 +46,7 @@ import {
   TicketStatus,
 } from '../../db/types';
 import { formatDateTimeBR, formatRelativeDays } from './ui-helpers';
-import { displayTicketCompanyCnpj, displayTicketSubject, normalizeTicketSearchText, ticketMatchesSearch } from '../lib/setadesk-ticket-search';
+import { displayTicketCommentBody, displayTicketCompanyCnpj, displayTicketDescription, displayTicketSubject, looksLikeCnpjOrAccountQuery, normalizeTicketSearchText, ticketMatchesSearch } from '../lib/setadesk-ticket-search';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import DataHealthTab from './DataHealthTab';
 import { ShieldCheck } from 'lucide-react';
@@ -299,6 +299,8 @@ export default function ServiceDeskTab({
     }
   };
   const [searchQuery, setSearchQuery] = useState('');
+  const [serverSearchHits, setServerSearchHits] = useState<EnrichedServiceTicket[] | null>(null);
+  const [serverSearchPending, setServerSearchPending] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState<string>('ALL');
   const [slaFilter, setSlaFilter] = useState<string>('ALL');
   const [queueFilter, setQueueFilter] = useState<string>('ALL');
@@ -449,7 +451,10 @@ export default function ServiceDeskTab({
 
   const normTicketStr = (v: unknown) => normalizeTicketSearchText(v);
 
-  const filteredTickets = tickets.filter((t) => {
+  const sensitiveSearch = looksLikeCnpjOrAccountQuery(searchQuery);
+  const ticketsForSearch = sensitiveSearch && serverSearchHits ? serverSearchHits : tickets;
+  const filteredTickets = ticketsForSearch.filter((t) => {
+
     if (linkedOsOnlyFilter && !t.serviceOrderId && !t.serviceOrder) return false;
     const liveSla = computeLiveSlaCountdown(t, nowMs);
     if (priorityFilter !== 'ALL' && t.priority !== priorityFilter) return false;
@@ -463,7 +468,13 @@ export default function ServiceDeskTab({
     }
     if (categoryFilter !== 'ALL' && t.category !== categoryFilter) return false;
     if (pipelineFilter !== 'ALL' && t.pipelineId !== pipelineFilter) return false;
-    if (searchQuery.trim() && !ticketMatchesSearch(t, searchQuery)) return false;
+    if (searchQuery.trim()) {
+      if (sensitiveSearch) {
+        if (!serverSearchHits) return false;
+      } else if (!ticketMatchesSearch(t, searchQuery)) {
+        return false;
+      }
+    }
     return true;
   });
 
@@ -500,6 +511,31 @@ export default function ServiceDeskTab({
       cancelled = true;
     };
   }, [selectedTicketId, tickets]);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!looksLikeCnpjOrAccountQuery(q)) {
+      setServerSearchHits(null);
+      setServerSearchPending(false);
+      return;
+    }
+    const ac = new AbortController();
+    setServerSearchPending(true);
+    fetch(`/api/tickets?search=${encodeURIComponent(q)}`, { signal: ac.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('search failed');
+        const json = (await res.json()) as { data?: EnrichedServiceTicket[] };
+        if (!ac.signal.aborted) setServerSearchHits(Array.isArray(json.data) ? json.data : []);
+      })
+      .catch((err) => {
+        if (err?.name === 'AbortError') return;
+        if (!ac.signal.aborted) setServerSearchHits([]);
+      })
+      .finally(() => {
+        if (!ac.signal.aborted) setServerSearchPending(false);
+      });
+    return () => ac.abort();
+  }, [searchQuery]);
 
   useEffect(() => {
     if (activeTicket && editingSerialForId !== activeTicket.id) {
@@ -1210,6 +1246,7 @@ export default function ServiceDeskTab({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Buscar TEC-123, FIN-45, S/N, empresa..."
+              aria-busy={serverSearchPending}
               className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:border-accent"
             />
           </div>
@@ -1863,7 +1900,7 @@ export default function ServiceDeskTab({
             {/* NOC Routing, Priority, Equipment Serial & ERP Contract/OS Integration Panel */}
             <div className="flex-1 min-h-0 overflow-y-auto">
             <div className="p-4 bg-slate-50 border-b border-slate-200 space-y-3 text-xs">
-              <p className="text-slate-700 leading-relaxed">{activeTicket.description}</p>
+              <p className="text-slate-700 leading-relaxed">{displayTicketDescription(activeTicket.description)}</p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                 <div>
@@ -2053,7 +2090,7 @@ export default function ServiceDeskTab({
                       {formatDateTimeBR(c.createdAt)}
                     </span>
                   </div>
-                  <p className="leading-relaxed">{c.body}</p>
+                  <p className="leading-relaxed">{displayTicketCommentBody(c.body)}</p>
                 </div>
               ))}
             </div>

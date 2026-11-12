@@ -144,6 +144,7 @@ import {
   SETADESK_TICKET_KEY_PREFIX,
 } from './setadesk-schema';
 import { assertUniquePipelineMailbox } from '../api/setadesk-pipeline-guards';
+import { omitMaskedTicketOverwrite } from '../app/lib/setadesk-ticket-search';
 import type { SetaDeskPipeline } from './types';
 import { applySalesPipelineStageMigration } from '../modules/deals/sales-pipeline-stages';
 import { deriveServerTotpSecret, isTotpPairingPinnedByServer, unsealIamRecord } from './iam-security';
@@ -3748,6 +3749,7 @@ export class CrmRepository {
       }
       current.name = name;
     }
+    // undefined = nao alterar; null ou string vazia = limpar a caixa.
     if (patch.mailbox !== undefined) {
       const mailbox = patch.mailbox ? String(patch.mailbox).trim().toLowerCase() : null;
       assertUniquePipelineMailbox(mailbox, all, id);
@@ -3977,6 +3979,7 @@ export class CrmRepository {
     if (idx === -1) return null;
 
     const existing = this.state.serviceTickets[idx];
+    patch = omitMaskedTicketOverwrite(existing, patch);
     const now = new Date();
     const nowIso = now.toISOString();
 

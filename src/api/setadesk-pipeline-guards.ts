@@ -52,7 +52,7 @@ export const SetaDeskPipelineWriteSchema = z
     mailbox: z
       .union([z.string().max(200), z.null()])
       .optional()
-      .transform((v) => normalizePipelineMailbox(v))
+      .transform((v) => (v === undefined ? undefined : normalizePipelineMailbox(v)))
       .refine((v) => v == null || isValidPipelineMailbox(v), { message: 'mailbox' }),
     jiraProjectKey: str(20).nullable().optional(),
     isActive: z.boolean().optional(),

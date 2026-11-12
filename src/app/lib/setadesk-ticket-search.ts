@@ -13,6 +13,8 @@ export function onlyDigits(value: string): string {
 export function formatMaskedCnpj(cnpj: string | null | undefined): string {
   const raw = String(cnpj || '').trim();
   if (!raw) return '';
+  // Idempotente: valor ja mascarado nao deve ser remascarado (perderia o meio).
+  if (/\*/.test(raw)) return raw;
   const d = onlyDigits(raw);
   if (d.length !== 14) {
     if (d.length < 4) return raw.replace(/\d/g, '*');
@@ -61,6 +63,7 @@ export interface SetaDeskSearchableTicket {
   assignee?: string | null;
   company?: { name?: string | null; cnpj?: string | null } | null;
   contact?: { firstName?: string | null; lastName?: string | null } | null;
+  comments?: Array<{ body?: string | null }>;
 }
 
 /**
@@ -80,6 +83,7 @@ export function buildTicketSearchHaystack(ticket: SetaDeskSearchableTicket): str
     ticket.assignee || '',
     ticket.contact?.firstName || '',
     ticket.contact?.lastName || '',
+    ...(ticket.comments || []).map((c) => c.body || ''),
   ];
   return normalizeTicketSearchText(parts.join(' '));
 }
@@ -101,4 +105,78 @@ export function displayTicketCompanyCnpj(cnpj: string | null | undefined, emptyL
 
 export function displayTicketSubject(subject: string | null | undefined): string {
   return maskSensitiveFinanceText(subject || '');
+}
+
+export function looksLikeCnpjOrAccountQuery(query: string): boolean {
+  const q = String(query || '').trim();
+  if (!q) return false;
+  const d = onlyDigits(q);
+  if (d.length === 14) return true;
+  const compact = q.replace(/\s+/g, '');
+  if (/^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$/.test(compact)) return true;
+  if (/^\d{4,12}-\d$/.test(compact)) return true;
+  const accountHint = /\b(?:conta(?:\s*corrente)?|c\/c|cc|ag(?:encia|ência)?\.?|ag)\b/i;
+  if (accountHint.test(q) && d.length >= 4) return true;
+  return false;
+}
+
+export function maskTicketForResponse<T extends {
+  subject?: string | null;
+  description?: string | null;
+  comments?: Array<{ body?: string | null }>;
+  company?: { cnpj?: string | null } | null;
+}>(ticket: T): T {
+  const next = { ...ticket };
+  if (typeof next.subject === 'string') next.subject = maskSensitiveFinanceText(next.subject);
+  if (typeof next.description === 'string') next.description = maskSensitiveFinanceText(next.description);
+  if (Array.isArray(next.comments)) {
+    next.comments = next.comments.map((c) => ({
+      ...c,
+      body: typeof c.body === 'string' ? maskSensitiveFinanceText(c.body) : c.body,
+    })) as T['comments'];
+  }
+  if (next.company && typeof next.company === 'object') {
+    next.company = {
+      ...next.company,
+      cnpj: next.company.cnpj ? formatMaskedCnpj(next.company.cnpj) : next.company.cnpj,
+    };
+  }
+  return next;
+}
+
+function isMaskedEchoOf(original: string | null | undefined, incoming: unknown): boolean {
+  if (incoming === undefined) return false;
+  const prev = String(original ?? '');
+  const next = incoming === null ? '' : String(incoming);
+  return next === maskSensitiveFinanceText(prev);
+}
+
+/** Remove do patch assunto/descricao/resolucao que so repetem o texto mascarado ja enviado ao cliente. */
+export function omitMaskedTicketOverwrite<T extends {
+  subject?: unknown;
+  description?: unknown;
+  resolution?: unknown;
+}>(
+  existing: { subject?: string | null; description?: string | null; resolution?: string | null },
+  patch: T
+): T {
+  const out: T = { ...patch };
+  if (out.subject !== undefined && isMaskedEchoOf(existing.subject, out.subject)) {
+    delete (out as { subject?: unknown }).subject;
+  }
+  if (out.description !== undefined && isMaskedEchoOf(existing.description, out.description)) {
+    delete (out as { description?: unknown }).description;
+  }
+  if (out.resolution !== undefined && isMaskedEchoOf(existing.resolution, out.resolution)) {
+    delete (out as { resolution?: unknown }).resolution;
+  }
+  return out;
+}
+
+export function displayTicketDescription(description: string | null | undefined): string {
+  return maskSensitiveFinanceText(description || '');
+}
+
+export function displayTicketCommentBody(body: string | null | undefined): string {
+  return maskSensitiveFinanceText(body || '');
 }
