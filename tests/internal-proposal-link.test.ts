@@ -11,9 +11,11 @@ import { CrmApiRouter } from '../src/api/router';
 import {
   buildStableInternalProposalUrl,
   copyInternalProposalLink,
+  openInternalProposalLink,
   resolveInternalProposalKind,
   toInternalProposalSummary,
 } from '../src/app/lib/internal-proposal-summary';
+import { copySignedProposalLink, openSignedProposalLink } from '../src/app/lib/proposal-link-client';
 import { getProposalsByRefs, proposalRouteLookupRefs, type PgQ } from '../src/db/proposal-store';
 import {
   buildInternalProposalPdf,
@@ -521,18 +523,84 @@ function standardEncodingChar(code: number): string {
 describe('Link interno: botão ao lado de Copiar link do cliente', () => {
   it('a barra da proposta copia a URL estável e não mexe no link assinado do cliente', async () => {
     const page = src('src/app/proposta/[id]/page.tsx');
-    const clientAt = page.indexOf('data-testid="copy-client-link"');
-    const internalAt = page.indexOf('data-testid="copy-internal-link"');
+    const clientAt = page.indexOf('data-testid="open-client-link"');
+    const internalAt = page.indexOf('data-testid="open-internal-link"');
     assert.ok(clientAt > 0 && internalAt > clientAt);
-    assert.match(page.slice(internalAt, internalAt + 700), /Copiar link interno/);
-    assert.match(page.slice(internalAt, internalAt + 700), /copyInternalProposalLink\(proposal\.id\)/);
-    assert.match(page, /handleCopyPublicLink/);
-    assert.match(page, /onClick=\{handleCopyPublicLink\}/);
-    assert.match(src('src/app/components/ErpGestaoClickTab.tsx'), /data-testid="menu-copy-internal-link"[\s\S]{0,800}Copiar link interno/);
+    assert.match(page.slice(clientAt, clientAt + 900), /Abrir Link do cliente/);
+    assert.match(page.slice(clientAt, clientAt + 900), /Copiar link do cliente/);
+    assert.match(page.slice(clientAt, clientAt + 900), /handleCopyPublicLink/);
+    assert.match(page.slice(internalAt, internalAt + 900), /Abrir Link interno/);
+    assert.match(page.slice(internalAt, internalAt + 900), /Copiar link interno/);
+    assert.match(page.slice(internalAt, internalAt + 900), /openInternalProposalLink\(proposal\.id\)/);
+    assert.match(page.slice(internalAt, internalAt + 900), /copyInternalProposalLink\(proposal\.id\)/);
+    assert.match(page, /Link do cliente copiado\./);
+    assert.match(page, /Link interno copiado\./);
+    const menu = src('src/app/components/ErpGestaoClickTab.tsx');
+    assert.match(menu, /data-testid="menu-open-client-link"[\s\S]{0,800}Abrir Link do cliente/);
+    assert.match(menu, /data-testid="menu-copy-client-link"[\s\S]{0,400}Copiar link do cliente/);
+    assert.match(menu, /data-testid="menu-open-internal-link"[\s\S]{0,800}Abrir Link interno/);
+    assert.match(menu, /data-testid="menu-copy-internal-link"[\s\S]{0,500}Copiar link interno/);
     const url = buildStableInternalProposalUrl('prop-via-italia-loc-20261106', 'https://sti-hub.vercel.app');
     assert.equal(url, 'https://sti-hub.vercel.app/interno/proposta/prop-via-italia-loc-20261106');
     const copied = await copyInternalProposalLink('prop-via-italia-loc-20261106');
     assert.equal(copied, url);
     assert.match(src('src/app/interno/proposta/[id]/page.tsx'), /InternalProposalSummaryView/);
+  });
+
+  it('abrir o link do cliente pede o /p/ e abre nova aba; o ícone só copia; o interno não emite link', async () => {
+    const calls: string[] = [];
+    const opened: string[] = [];
+    const blank = { opener: {} as unknown, location: { href: '' }, close() { opened.push('closed'); } };
+    const previous = {
+      window: globalThis.window,
+      fetch: globalThis.fetch,
+      clipboard: globalThis.navigator.clipboard,
+    };
+    let copied = '';
+    (globalThis as { window: unknown }).window = {
+      open(url?: string) {
+        opened.push(url || '');
+        if (!url || url === 'about:blank') return blank;
+        return { opener: null, close() {} };
+      },
+      location: { origin: 'https://sti-hub.vercel.app' },
+    };
+    globalThis.fetch = (async (input: string) => {
+      calls.push(String(input));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            shortUrl: 'https://sti-hub.vercel.app/p/AbCdEf1234',
+            url: 'https://sti-hub.vercel.app/proposta/prop-1#t=segredo',
+            expiresAt: '2099-01-01',
+            version: 2,
+          },
+        }),
+      };
+    }) as typeof fetch;
+    (globalThis.navigator as unknown as { clipboard: { writeText: (value: string) => Promise<void> } }).clipboard = {
+      writeText: async (value: string) => { copied = value; },
+    };
+    try {
+      const openedLink = await openSignedProposalLink('prop-1');
+      assert.equal(openedLink.ok && openedLink.url, 'https://sti-hub.vercel.app/p/AbCdEf1234');
+      assert.equal(blank.location.href, 'https://sti-hub.vercel.app/p/AbCdEf1234');
+      assert.equal(copied, '');
+      assert.match(calls[0], /\/api\/erp\/proposals\/prop-1\/public-link$/);
+      const copiedLink = await copySignedProposalLink('prop-1');
+      assert.equal(copiedLink.ok && copiedLink.url, 'https://sti-hub.vercel.app/p/AbCdEf1234');
+      assert.equal(copied, 'https://sti-hub.vercel.app/p/AbCdEf1234');
+      assert.doesNotMatch(copied, /#t=/);
+      const internal = openInternalProposalLink('prop-1');
+      assert.equal(internal, 'https://sti-hub.vercel.app/interno/proposta/prop-1');
+      assert.equal(opened.at(-1), internal);
+      assert.equal(calls.length, 2);
+    } finally {
+      globalThis.window = previous.window;
+      globalThis.fetch = previous.fetch;
+      (globalThis.navigator as unknown as { clipboard: Clipboard | undefined }).clipboard = previous.clipboard;
+    }
   });
 });
