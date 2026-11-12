@@ -62,8 +62,8 @@ import {
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
 import { buildProposalVersionShortUrl, computeProposalTotals, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
+import { useContractAuxiliaryOptions } from '../lib/use-contract-aux-options';
 import {
-  loadContractAuxiliaryOptions,
   computeCustomDueDateClient,
   matchInvoicesForContract,
   computeUpcomingRecurringCycles,
@@ -122,7 +122,7 @@ export function ProposalEditModal({
   const [expandedVersionNumber, setExpandedVersionNumber] = useState<number | null>(null);
   const [versionChangeNote, setVersionChangeNote] = useState<string>('');
   const [restoringVersionNum, setRestoringVersionNum] = useState<number | null>(null);
-  const [auxOptions] = useState(() => loadContractAuxiliaryOptions());
+  const { aux: auxOptions } = useContractAuxiliaryOptions();
   const [createCrmDeal, setCreateCrmDeal] = useState(false);
 
   const versionHistoryList: ErpProposalVersionEntry[] = React.useMemo(() => {
@@ -2289,7 +2289,7 @@ export function ContractEditModal({
     equipments.reduce((sum, eq) => sum + Number(eq.assetValueBrl || 0), 0);
 
   // ===== Faturamento do Contrato (campos GestaoClick) =====
-  const [auxOptions] = useState(() => loadContractAuxiliaryOptions());
+  const { aux: auxOptions } = useContractAuxiliaryOptions();
   const [recipientEmailsText, setRecipientEmailsText] = useState<string>(
     billingRecipientEmailsText(contract.billingRecipientEmails)
   );

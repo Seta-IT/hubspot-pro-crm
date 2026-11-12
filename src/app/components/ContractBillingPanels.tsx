@@ -12,7 +12,8 @@ import {
   type AuxUsageSources,
 } from "../../modules/erp/aux-option-usage";
 import { isIssuedInvoiceStatus } from "../../modules/erp/invoice-send-attachments";
-import { ContractAuxiliaryOptions, ContractBillingRunOptions, RECEIPT_DRAFT_BANNER_TEXT, buildDraftReceiptHtml, computeCustomDueDateClient, computeUpcomingRecurringCycles, downloadContractBillingHistoryReportOnDemand, downloadContractInvoicesCsvOnDemand, downloadContractVersionPdfOnDemand, downloadInvoicePdfOnDemand, loadContractAuxiliaryOptions, loadReceiptTemplateStyle, saveReceiptTemplateStyle, matchInvoicesForContract, saveContractAuxiliaryOptions } from "../lib/contract-billing-utils";
+import { ContractAuxiliaryOptions, ContractBillingRunOptions, RECEIPT_DRAFT_BANNER_TEXT, buildDraftReceiptHtml, computeCustomDueDateClient, computeUpcomingRecurringCycles, downloadContractBillingHistoryReportOnDemand, downloadContractInvoicesCsvOnDemand, downloadContractVersionPdfOnDemand, downloadInvoicePdfOnDemand, loadReceiptTemplateStyle, saveReceiptTemplateStyle, matchInvoicesForContract } from "../lib/contract-billing-utils";
+import { useContractAuxiliaryOptions } from "../lib/use-contract-aux-options";
 import { ProposalTemplateSelect } from "./ProposalTemplateSelect";
 import { EmailSendHistoryPanel } from "./EmailSendHistoryPanel";
 
@@ -102,7 +103,7 @@ export function ContractGestaoClickDataPanel({
   catalog?: ErpCatalogItem[];
   disabled?: boolean;
 }) {
-  const [aux, setAux] = useState<ContractAuxiliaryOptions>(() => loadContractAuxiliaryOptions());
+  const { aux, persistLocal, addDbItem } = useContractAuxiliaryOptions();
   const totals = computeContractTotals(draft);
 
   const patch = (p: Partial<ErpRentalContract>) => setDraft((prev) => {
@@ -120,9 +121,11 @@ export function ContractGestaoClickDataPanel({
   const addAuxInline = (key: 'paymentMethods' | 'costCenters' | 'chartOfAccountsList', value: string) => {
     const v = value.trim();
     if (!v || aux[key].includes(v)) return;
-    const next = { ...aux, [key]: [...aux[key], v] };
-    setAux(next);
-    saveContractAuxiliaryOptions(next);
+    if (key === 'costCenters' || key === 'chartOfAccountsList') {
+      void addDbItem(key, v).catch(() => persistLocal({ ...aux, [key]: [...aux[key], v] }));
+      return;
+    }
+    persistLocal({ ...aux, [key]: [...aux[key], v] });
   };
 
   return (
@@ -617,12 +620,11 @@ export function ContractAuxOptionsManager({
   onShowToast?: (m: string) => void;
   usageSources?: AuxUsageSources;
 }) {
-  const [aux, setAux] = useState<ContractAuxiliaryOptions>(() => loadContractAuxiliaryOptions());
+  const { aux, persistLocal: persist, dbItems, addDbItem, updateDbItem, removeDbItem } = useContractAuxiliaryOptions();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [ruleDays, setRuleDays] = useState('45');
   const [ruleWd, setRuleWd] = useState<Weekday>('WEDNESDAY');
   const [blockModal, setBlockModal] = useState<{ text: string } | null>(null);
-  const persist = (next: ContractAuxiliaryOptions) => { setAux(next); saveContractAuxiliaryOptions(next); };
 
   const lists: Array<{ key: 'paymentMethods' | 'costCenters' | 'chartOfAccountsList' | 'emailAutomationOptions'; title: string }> = [
     { key: 'paymentMethods', title: 'Formas de Pagamento' },
@@ -641,32 +643,66 @@ export function ContractAuxOptionsManager({
         {lists.map((l) => (
           <div key={l.key} data-testid={`aux-list-${l.key}`} className="rounded border border-slate-200 p-3 space-y-1.5">
             <div className="font-semibold text-slate-800">{l.title} ({aux[l.key].length})</div>
-            {aux[l.key].map((item, idx) => {
-              const usage = countAuxOptionUsage(l.key as AuxUsageKind, item, usageSources);
+            {(() => {
+              const dbKey = l.key === 'costCenters' || l.key === 'chartOfAccountsList' ? l.key : null;
+              const isDbList = dbKey !== null;
+              const dbRows = dbKey ? dbItems[dbKey] : [];
+              const rows = isDbList && dbRows.length ? dbRows : aux[l.key].map((label, idx) => ({ id: `${l.key}-${idx}`, label }));
+              return rows.map((item: { id: string; label: string }, idx: number) => {
+              const usage = countAuxOptionUsage(l.key as AuxUsageKind, item.label, usageSources);
               const inUse = auxUsageTotal(usage) > 0;
+              const isPersisted = isDbList && (item.id.startsWith('cc-') || item.id.startsWith('coa-'));
               return (
-              <div key={`${l.key}-${idx}`} className="flex items-center gap-1">
-                <input aria-label={`${l.title} ${idx + 1}`} value={item} onChange={(e) => { const arr = [...aux[l.key]]; arr[idx] = e.target.value; persist({ ...aux, [l.key]: arr }); }} className="flex-1 px-2 py-1 rounded border border-slate-300 bg-white" />
+              <div key={item.id} className="flex items-center gap-1">
+                <input
+                  aria-label={`${l.title} ${idx + 1}`}
+                  value={isDbList ? (aux[l.key][idx] ?? item.label) : aux[l.key][idx]}
+                  onChange={(e) => {
+                    const nextLabel = e.target.value;
+                    if (isDbList) {
+                      const nextItems = dbRows.map((row) => row.id === item.id ? { ...row, label: nextLabel } : row);
+                      // o valor digitado fica na lista local até o blur gravar no banco
+                      persist({ ...aux, [l.key]: nextItems.map((row) => row.label) });
+                    } else {
+                      const arr = [...aux[l.key]];
+                      arr[idx] = nextLabel;
+                      persist({ ...aux, [l.key]: arr });
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (!isPersisted) return;
+                    const nextLabel = e.target.value.trim();
+                    if (!nextLabel || nextLabel === item.label) return;
+                    void updateDbItem(item.id, nextLabel).catch((err: Error) => onShowToast?.(err.message));
+                  }}
+                  className="flex-1 px-2 py-1 rounded border border-slate-300 bg-white"
+                />
                 <button
                   type="button"
                   title={inUse ? 'Em uso' : 'Excluir'}
-                  aria-label={inUse ? 'Em uso' : `Excluir ${item}`}
+                  aria-label={inUse ? 'Em uso' : `Excluir ${item.label}`}
                   aria-disabled={inUse}
+                  disabled={inUse}
                   onClick={() => {
                     if (inUse) {
                       setBlockModal({ text: formatAuxOptionUsageText(l.key as AuxUsageKind, usage) });
                       return;
                     }
+                    if (isPersisted) {
+                      void removeDbItem(item.id).catch((err: Error) => onShowToast?.(err.message));
+                      return;
+                    }
                     persist({ ...aux, [l.key]: aux[l.key].filter((_, i) => i !== idx) });
                   }}
                   className={`px-2 py-1 rounded border font-semibold ${inUse ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-rose-50 text-rose-700 border-rose-200 cursor-pointer'}`}
-                >Excluir</button>
+                >{inUse ? 'Em uso' : 'Excluir'}</button>
               </div>
               );
-            })}
+            });
+            })()}
             <div className="flex items-center gap-1">
               <input value={drafts[l.key] || ''} onChange={(e) => setDrafts((d) => ({ ...d, [l.key]: e.target.value }))} placeholder={`Novo item em ${l.title}`} className="flex-1 px-2 py-1 rounded border border-slate-300" />
-              <button type="button" onClick={() => { const v = (drafts[l.key] || '').trim(); if (!v) return; persist({ ...aux, [l.key]: [...aux[l.key], v] }); setDrafts((d) => ({ ...d, [l.key]: '' })); onShowToast?.(`"${v}" cadastrado em ${l.title}.`); }} className="px-2 py-1 rounded font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">+ Cadastrar</button>
+              <button type="button" onClick={() => { const v = (drafts[l.key] || '').trim(); if (!v) return; if (l.key === 'costCenters' || l.key === 'chartOfAccountsList') { void addDbItem(l.key, v).then(() => { setDrafts((d) => ({ ...d, [l.key]: '' })); onShowToast?.(`"${v}" cadastrado em ${l.title}.`); }).catch((err: Error) => onShowToast?.(err.message)); return; } persist({ ...aux, [l.key]: [...aux[l.key], v] }); setDrafts((d) => ({ ...d, [l.key]: '' })); onShowToast?.(`"${v}" cadastrado em ${l.title}.`); }} className="px-2 py-1 rounded font-semibold cursor-pointer bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">+ Cadastrar</button>
             </div>
           </div>
         ))}

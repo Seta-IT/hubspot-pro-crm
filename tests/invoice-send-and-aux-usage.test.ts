@@ -119,6 +119,8 @@ describe('t198u cadastro auxiliar em uso', () => {
     const modal = src.slice(src.indexOf('aux-cannot-delete-modal'), src.indexOf('aux-cannot-delete-modal') + 900);
     assert.equal(/Inativar/.test(modal), false);
     assert.match(src, /title=\{inUse \? 'Em uso' : 'Excluir'\}/);
+    assert.match(src, /disabled=\{inUse\}/);
+    assert.match(src, /\{inUse \? 'Em uso' : 'Excluir'\}/);
   });
 });
 

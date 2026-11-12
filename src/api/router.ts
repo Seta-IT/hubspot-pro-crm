@@ -112,6 +112,7 @@ import { buildOwnerCanonicalMap, cleanOwnerName, resolveOwnerNameToStore } from 
 import { emailCommentIsPublic, findInvalidTicketCreateEnums, parseTicketCommentStatus, parseTicketTeamPatch, resolveTeamCommentVisibility, TICKET_CREATE_ENUMS } from './ticket-guards';
 import { diffGestaoClickConfig, parseGestaoClickConfigPatch, toGestaoClickConfigView } from './gestaoclick-config-guard';
 import { pickRentalContractPatch } from './contract-patch-guard';
+import { handleAuxListsRoute, isAuxListsRoute } from './aux-lists-routes';
 import { LoginIpFailureGuard } from './login-ip-guard';
 import { rateLimitIpKey } from './client-ip';
 import { sanitizeApiResponseBody } from '../db/iam-security';
@@ -7783,6 +7784,10 @@ export class CrmApiRouter {
           if (!deleted) return { status: 404, body: { error: 'Documento fiscal não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: invId } };
         }
+      }
+
+      if (isAuxListsRoute(cleanPath)) {
+        return handleAuxListsRoute(this.repo, method, cleanPath, query, body, ctx);
       }
 
       if (cleanPath === '/api/erp/catalog') {
