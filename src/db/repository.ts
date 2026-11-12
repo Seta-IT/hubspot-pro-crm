@@ -2326,6 +2326,7 @@ export class CrmRepository {
       closedAt: input.closedAt ?? null,
       lostReason: input.lostReason ?? null,
       wonReason: input.wonReason ?? null,
+      proposalId: input.proposalId ?? (typeof input.customProperties?.proposalId === 'string' ? input.customProperties.proposalId : null),
       nextBestAction: input.nextBestAction ?? {
         actionType: "FOLLOW_UP",
         title: "Qualificar escopo e cronograma da oportunidade",
@@ -2333,7 +2334,10 @@ export class CrmRepository {
         priority: "MEDIUM",
         suggestedDueInDays: 2,
       },
-      customProperties: input.customProperties || {},
+      customProperties: {
+        ...(input.customProperties || {}),
+        ...(input.proposalId ? { proposalId: input.proposalId } : {}),
+      },
       createdAt: input.createdAt || now,
       updatedAt: now,
     };
@@ -4967,6 +4971,62 @@ export class CrmRepository {
     erp.proposals[idx] = candidate;
     this.save();
     return candidate;
+  }
+
+  /**
+   * Liga o negócio do CRM à proposta sem abrir uma nova revisão comercial.
+   * Só atualiza os identificadores de vínculo (deal, empresa e contato).
+   */
+  attachCrmDealToProposal(
+    idOrCode: string,
+    link: {
+      dealId: string;
+      companyId?: string | null;
+      contactId?: string | null;
+      companyName?: string | null;
+      companyCnpj?: string | null;
+      contactName?: string | null;
+      contactEmail?: string | null;
+    }
+  ): ErpCommercialProposal | null {
+    const erp = this.ensureErp();
+    const idx = erp.proposals.findIndex(
+      (p) => p.id === idOrCode || String(p.code || '').toLowerCase() === String(idOrCode || '').toLowerCase()
+    );
+    if (idx === -1) return null;
+    const current = erp.proposals[idx];
+    const next: ErpCommercialProposal = {
+      ...current,
+      dealId: link.dealId,
+      companyId: link.companyId !== undefined ? link.companyId : current.companyId,
+      contactId: link.contactId !== undefined ? link.contactId : current.contactId,
+      companyName: link.companyName || current.companyName,
+      companyCnpj: link.companyCnpj || current.companyCnpj,
+      contactName: link.contactName || current.contactName,
+      contactEmail: link.contactEmail || current.contactEmail,
+      updatedAt: new Date().toISOString(),
+    };
+    erp.proposals[idx] = next;
+    this.save();
+    return next;
+  }
+
+  appendProposalEmailHistory(idOrCode: string, entry: ErpInvoiceEmailHistoryEntry): ErpCommercialProposal | null {
+    const erp = this.ensureErp();
+    const idx = erp.proposals.findIndex(
+      (p) => p.id === idOrCode || String(p.code || '').toLowerCase() === String(idOrCode || '').toLowerCase()
+    );
+    if (idx === -1) return null;
+    const current = erp.proposals[idx];
+    const next: ErpCommercialProposal = {
+      ...current,
+      lastEmailSentAt: entry.sentAt,
+      emailHistory: [...(current.emailHistory || []), entry].slice(-50),
+      updatedAt: new Date().toISOString(),
+    };
+    erp.proposals[idx] = next;
+    this.save();
+    return next;
   }
 
   restoreProposalVersion(

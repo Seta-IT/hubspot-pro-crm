@@ -93,6 +93,7 @@ import {
   recordUpsertedSaleOrder,
   recordUpsertedServiceOrder,
   recordUpsertedSupplier,
+  recordUpsertedDeal,
 } from '../lib/durable-storage';
 import { buildProposalDisplayCodeMap, formatProposalDisplayCode, nextGcProposalNumber } from '../lib/proposal-number';
 import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
@@ -156,6 +157,7 @@ import {
 } from './ErpEditModals';
 import { Edit3, Mail } from 'lucide-react';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
+import { buildProposalCrmEmailPayload } from '../lib/proposal-crm-email-payload';
 import { copySignedProposalLink, copySignedProposalVersionLink, openSignedProposalLink, openWithSignedProposalLink } from '../lib/proposal-link-client';
 import { copyInternalProposalLink, openInternalProposalLink } from '../lib/internal-proposal-summary';
 import { copySignedInvoiceLink } from '../lib/invoice-link-client';
@@ -233,6 +235,8 @@ interface ErpGestaoClickTabProps {
   emailTemplates?: CrmEmailTemplate[];
   activeUser?: StiHubUserRecord | null;
   onSelectActiveUser?: (user: StiHubUserRecord) => void;
+  canAccessCrm?: boolean;
+  onOpenLinkedDeal?: (dealId: string) => void;
 }
 
 export type GestaoClickMenuSection =
@@ -381,6 +385,8 @@ export default function ErpGestaoClickTab({
   emailTemplates = [],
   activeUser,
   onSelectActiveUser,
+  canAccessCrm = false,
+  onOpenLinkedDeal,
 }: ErpGestaoClickTabProps) {
   const [activeSection, setActiveSection] = useState<GestaoClickMenuSection>(
     initialSection || "INICIO"
@@ -679,6 +685,7 @@ export default function ErpGestaoClickTab({
     proposal: ErpCommercialProposal;
     publicUrl: string;
     printUrl: string;
+    crmDeal?: Deal | null;
   } | null>(null);
 
   const [propTitle, setPropTitle] = useState("");
@@ -1395,7 +1402,10 @@ export default function ErpGestaoClickTab({
     }
   };
 
-  const handleSaveEditedProposal = async (updated: ErpCommercialProposal) => {
+  const handleSaveEditedProposal = async (
+    updated: ErpCommercialProposal,
+    options?: { createCrmDeal?: boolean }
+  ) => {
     // Modo tabela: a pagina nao tem todas as propostas; "novo" = so o fluxo de criacao.
     const isNew = proposalsTableMode
       ? isCreatingProposalModal
@@ -1406,11 +1416,12 @@ export default function ErpGestaoClickTab({
         method: isNew ? 'POST' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         // Controle otimista: o servidor recusa (409) se o orcamento mudou depois de aberto.
-        body: JSON.stringify(
-          !isNew && proposalsTableMode && editingProposal?.updatedAt
+        body: JSON.stringify({
+          ...(!isNew && proposalsTableMode && editingProposal?.updatedAt
             ? { ...updated, expectedUpdatedAt: editingProposal.updatedAt }
-            : updated
-        ),
+            : updated),
+          ...(options?.createCrmDeal ? { createCrmDeal: true } : {}),
+        }),
       }
     ).catch(() => null);
     if (!res || !res.ok) {
@@ -1422,14 +1433,18 @@ export default function ErpGestaoClickTab({
       onShowToast(`Orçamento não salvo: ${msg}`);
       return;
     }
-    const saved: ErpCommercialProposal = (await res.json().catch(() => null))?.data || updated;
+    const payload = (await res.json().catch(() => null)) || {};
+    const saved: ErpCommercialProposal = payload.data || updated;
+    const crmDeal = (payload.crmDeal || null) as Deal | null;
     recordUpsertedProposal(saved);
+    if (crmDeal) recordUpsertedDeal(crmDeal);
     const publicUrl = buildInternalProposalUrl(saved);
     const printUrl = buildInternalProposalUrl(saved, { autoPrint: true });
     setCreatedProposalBanner({
       proposal: saved,
       publicUrl,
       printUrl,
+      crmDeal,
     });
     setEditingProposal(null);
     setIsCreatingProposalModal(false);
@@ -5283,6 +5298,23 @@ export default function ErpGestaoClickTab({
                 <a href={createdProposalBanner.printUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#1e3a6e] hover:underline">
                   <Printer className="w-3.5 h-3.5" /> Imprimir
                 </a>
+                {createdProposalBanner.crmDeal && createdProposalBanner.proposal.dealId && (
+                  <button
+                    type="button"
+                    data-testid="banner-send-proposal-crm-email"
+                    onClick={() =>
+                      setEmailModalPayload(
+                        buildProposalCrmEmailPayload({
+                          proposal: createdProposalBanner.proposal,
+                          deal: createdProposalBanner.crmDeal,
+                        })
+                      )
+                    }
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-accent hover:bg-accent-hover text-white font-semibold cursor-pointer"
+                  >
+                    <Mail className="w-3.5 h-3.5" /> Enviar por e-mail pelo CRM
+                  </button>
+                )}
                 <button type="button" onClick={() => setCreatedProposalBanner(null)} aria-label="Fechar aviso" className="text-slate-400 hover:text-slate-700 cursor-pointer">
                   <X className="w-4 h-4" />
                 </button>
@@ -6862,6 +6894,8 @@ export default function ErpGestaoClickTab({
             setIsCreatingProposalModal(false);
           }}
           onSave={handleSaveEditedProposal}
+          canAccessCrm={canAccessCrm}
+          onOpenLinkedDeal={onOpenLinkedDeal}
           onCustomerCreated={async (created) => {
             recordUpsertedCompany(created);
             await onRefresh();

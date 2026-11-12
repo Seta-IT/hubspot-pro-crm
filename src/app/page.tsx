@@ -2166,6 +2166,11 @@ export default function HubSpotProCrmApp() {
               onClearTargetEntity={() => setErpTargetEntity(null)}
               autoOpenNewProposalTrigger={autoOpenNewProposalTrigger}
               prefillProposalFromDeal={prefillProposalDeal}
+              canAccessCrm={Boolean(userModuleAccess.crm)}
+              onOpenLinkedDeal={(dealId) => {
+                setActiveModule('DEALS_KANBAN');
+                setInitialDealIdForDrawer(dealId);
+              }}
             />
           )}
 

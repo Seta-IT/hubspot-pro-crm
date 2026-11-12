@@ -280,6 +280,7 @@ import {
   toPublicEnrollment,
 } from '../modules/deals/proposal-followup-service';
 import { isProposalFollowupEnabled } from '../modules/deals/proposal-followup-config';
+import { linkProposalToCrmDeal, wantsCreateCrmDeal } from '../modules/deals/create-deal-from-proposal';
 
 import { isMailboxFeatureEnabled, type FetchLike } from '../modules/email/ms-graph';
 import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE } from '../app/lib/password-policy';
@@ -2561,6 +2562,55 @@ export class CrmApiRouter {
    * Sessao MFA valida do STI-hub para propostas (M1, parecer CISO 30/10): exige modulo ERP
    * liberado e proposalsQuotesAccess != NONE. Devolve null se nao atende (=> caminho do link).
    */
+  private sessionHasCrmModule(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): boolean {
+    if (ctx.trustedInternal || ctx.serviceAccount) return true;
+    const token = query._sessionToken;
+    if (!token) return false;
+    const sess = this.repo.resolveSessionFromToken(token);
+    return Boolean(sess.authenticated && sess.mfaVerified && sess.moduleAccess?.crm);
+  }
+
+  private forbidCreateCrmDealWithoutCrm(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ApiResponse {
+    const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+    const email = sess && sess.authenticated ? sess.user.email : '';
+    if (sess && sess.authenticated) {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: sess.user.email,
+        actorName: sess.user.name,
+        actorRole: sess.role.id,
+        action: 'IAM_MODULE_CRM_BLOCKED',
+        module: 'CRM',
+        resource: 'createCrmDeal',
+        status: 'BLOCKED',
+        details: `Criação de negócio a partir da proposta recusada para ${sess.user.email} (módulos habilitados: [${sess.enabledModules.join(', ')}]).`,
+      });
+    }
+    return {
+      status: 403,
+      body: {
+        error: email
+          ? `Acesso bloqueado pela política IAM: o usuário ${email} não possui o módulo CRM habilitado.`
+          : 'Acesso bloqueado pela política IAM: é necessário o módulo CRM para criar o negócio.',
+        code: 'MODULE_CRM_FORBIDDEN',
+        requiredModule: 'CRM',
+      },
+    };
+  }
+
+  private applyCreateCrmDeal(
+    query: Record<string, string | undefined>,
+    proposal: ErpCommercialProposal
+  ): { proposal: ErpCommercialProposal; crmDeal: unknown; crmDealCreated: boolean } {
+    const result = linkProposalToCrmDeal(this.repo, proposal, { actorName: this.sessionActorName(query) });
+    return { proposal: result.proposal, crmDeal: result.deal, crmDealCreated: result.created };
+  }
+
   private resolveProposalSessionAccess(query: Record<string, string | undefined>): {
     user: { id: string; email: string; name: string; scope: string; roleId: string };
     isAdmin: boolean;
@@ -2745,6 +2795,8 @@ export class CrmApiRouter {
     'approvalJustification',
     'approvedBy',
     'approvedAt',
+    'emailHistory',
+    'lastEmailSentAt',
   ] as const;
 
   // ==========================================================================
@@ -6799,6 +6851,10 @@ export class CrmApiRouter {
           if (!body.title) {
             return { status: 400, body: { error: 'O campo "title" da proposta é obrigatório.' } };
           }
+          const createDealRequested = wantsCreateCrmDeal(body);
+          if (createDealRequested && !this.sessionHasCrmModule(query, ctx)) {
+            return this.forbidCreateCrmDealWithoutCrm(query, ctx);
+          }
           const scope = this.proposalScope(query, ctx);
           if (scope.kind === 'denied') return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
           const { sellerUserId: _ignoredSellerUserId, ...createInput } = body as Record<string, unknown>;
@@ -6833,6 +6889,10 @@ export class CrmApiRouter {
           }
           // (c) sellerUserId pelo servidor, do usuario cujo e-mail bate.
           const finalCreated = this.finalizeProposalOwner(scope, query, null, created, 'criacao');
+          if (createDealRequested) {
+            const linked = this.applyCreateCrmDeal(query, finalCreated);
+            return { status: 201, body: { data: linked.proposal, crmDeal: linked.crmDeal, crmDealCreated: linked.crmDealCreated } };
+          }
           return { status: 201, body: { data: finalCreated } };
         }
       }
@@ -7012,6 +7072,10 @@ export class CrmApiRouter {
           // (a) Mesmo escopo do GET: PROPRIOS/EQUIPE so editam as proprias (403 nas outras).
           // (b) Dono (sellerEmail/sellerName/sellerUserId) so muda por admin ou FULL/TODOS, com
           // auditoria antes/depois. (c) sellerUserId so pelo servidor, a partir do e-mail.
+          const updateDealRequested = wantsCreateCrmDeal(body);
+          if (updateDealRequested && !this.sessionHasCrmModule(query, ctx)) {
+            return this.forbidCreateCrmDealWithoutCrm(query, ctx);
+          }
           const scope = this.proposalScope(query, ctx);
           if (scope.kind === 'denied') return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
           const current = this.findProposalByRef(propId);
@@ -7061,6 +7125,10 @@ export class CrmApiRouter {
             this.proposalStatusAudit(query, scope.kind === 'session' ? scope.access : null, updatedRaw.id, statusCheck.audit.action, 'SUCCESS', statusCheck.audit.details);
           }
           const updated = this.finalizeProposalOwner(scope, query, before, updatedRaw, method);
+          if (updateDealRequested) {
+            const linked = this.applyCreateCrmDeal(query, updated);
+            return { status: 200, body: { data: linked.proposal, crmDeal: linked.crmDeal, crmDealCreated: linked.crmDealCreated } };
+          }
           return { status: 200, body: { data: updated } };
         }
         if (method === 'DELETE') {
@@ -8589,6 +8657,18 @@ export class CrmApiRouter {
           actor: this.sessionActorName(query),
           attachments: historyAttachments,
         };
+        const proposalIdForHistory = String(body.proposalId || rawMail.proposalId || '').trim();
+        if (proposalIdForHistory) {
+          try {
+            this.repo.appendProposalEmailHistory(proposalIdForHistory, {
+              ...historyEntry,
+              bcc: recipients.bcc.length ? recipients.bcc.join(', ') : null,
+              attachments: historyAttachments.length ? historyAttachments : ['proposta'],
+            });
+          } catch {
+            /* historico da proposta nao derruba o envio ja realizado */
+          }
+        }
         if (body.invoiceId) {
           try {
             this.repo.appendInvoiceEmailHistory(String(body.invoiceId), historyEntry);

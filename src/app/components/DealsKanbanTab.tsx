@@ -42,6 +42,8 @@ import { formatBRL, formatDateTimeBR } from './ui-helpers';
 import { buildInternalProposalUrl } from '../lib/proposal-share';
 import { recordUpsertedProposal } from '../lib/durable-storage';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
+import { buildDealProposalEmailPayload, buildProposalCrmEmailPayload } from '../lib/proposal-crm-email-payload';
+import { resolveDealLinkedProposal } from '../../modules/deals/proposal-deal-link';
 import DealRecordDrawer from './DealRecordDrawer';
 import { copySignedProposalLink } from '../lib/proposal-link-client';
 import { copyInternalProposalLink } from '../lib/internal-proposal-summary';
@@ -1123,7 +1125,14 @@ export default function DealsKanbanTab({
                               <button type="button" title="Observação" aria-label={`Adicionar observação em ${deal.title}`} onClick={() => { setNoteType('NOTE'); openDealDetail(deal); }} className="p-1 rounded text-[#516f90] hover:bg-[#eaf0f6] cursor-pointer">
                                 <MessageSquarePlus className="w-3.5 h-3.5" />
                               </button>
-                              <button type="button" title="E-mail" aria-label={`Enviar e-mail sobre ${deal.title}`} onClick={() => setEmailModalPayload({ docType: 'PROPOSAL', companyName: deal.company?.name || deal.title, companyCnpj: deal.company?.cnpj || undefined, recipientName: deal.contact ? `${deal.contact.firstName} ${deal.contact.lastName}` : ownerName, recipientEmail: deal.contact?.email || undefined, amountBrl: deal.value, dealId: deal.id, contactId: deal.contactId, companyId: deal.companyId })} className="p-1 rounded text-[#516f90] hover:bg-[#eaf0f6] cursor-pointer">
+                              <button type="button" title="E-mail" aria-label={`Enviar e-mail sobre ${deal.title}`} onClick={() => {
+                                  const linked = resolveDealLinkedProposal(deal, proposals);
+                                  setEmailModalPayload(
+                                    linked
+                                      ? buildProposalCrmEmailPayload({ proposal: linked, deal, contact: deal.contact, company: deal.company })
+                                      : { docType: 'PROPOSAL', companyName: deal.company?.name || deal.title, companyCnpj: deal.company?.cnpj || undefined, recipientName: deal.contact ? `${deal.contact.firstName} ${deal.contact.lastName}` : ownerName, recipientEmail: deal.contact?.email || undefined, amountBrl: deal.value, dealId: deal.id, contactId: deal.contactId, companyId: deal.companyId }
+                                  );
+                                }} className="p-1 rounded text-[#516f90] hover:bg-[#eaf0f6] cursor-pointer">
                                 <Mail className="w-3.5 h-3.5" />
                               </button>
                               <button type="button" title="Tarefa" aria-label={`Criar tarefa em ${deal.title}`} onClick={() => { setNoteType('TASK'); openDealDetail(deal); }} className="p-1 rounded text-[#516f90] hover:bg-[#eaf0f6] cursor-pointer">
@@ -1139,6 +1148,19 @@ export default function DealsKanbanTab({
                                   </summary>
                                   <div className="absolute right-0 z-20 mt-1 w-44 rounded-[6px] border border-[#cbd6e2] bg-white shadow-lg py-1 text-[11px]">
                                     <button type="button" className="w-full text-left px-3 py-1.5 hover:bg-[#f5f8fa] cursor-pointer" onClick={() => openDealDetail(deal)}>Abrir ficha</button>
+                                    {resolveDealLinkedProposal(deal, proposals) && (
+                                      <button
+                                        type="button"
+                                        data-testid="deal-card-send-proposal-email"
+                                        className="w-full text-left px-3 py-1.5 hover:bg-[#f5f8fa] cursor-pointer font-semibold"
+                                        onClick={() => {
+                                          const payload = buildDealProposalEmailPayload(deal, proposals);
+                                          if (payload) setEmailModalPayload(payload);
+                                        }}
+                                      >
+                                        Enviar proposta por e-mail
+                                      </button>
+                                    )}
                                     <button type="button" className="w-full text-left px-3 py-1.5 hover:bg-[#f5f8fa] cursor-pointer" onClick={() => handleQuickGenerateProposalForDeal(deal)}>Criar proposta</button>
                                     <label className="block px-3 py-1.5 text-[#516f90]">
                                       Mudar etapa
@@ -1965,6 +1987,16 @@ export default function DealsKanbanTab({
             }
             return Array.from(map.values());
           })()}
+          onOpenProposalEmail={(prop) =>
+            setEmailModalPayload(
+              buildProposalCrmEmailPayload({
+                proposal: prop,
+                deal: selectedDeal,
+                contact: selectedDeal.contact,
+                company: selectedDeal.company,
+              })
+            )
+          }
           onGenerateProposal={() => handleQuickGenerateProposalForDeal(selectedDeal)}
           onAddNote={async (title, body, type) => {
             await onAddDealNote(selectedDeal.id, title, body, type);

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { FollowupStatusView } from '../../modules/deals/proposal-followup-service';
+import { resolveDealLinkedProposal } from '../../modules/deals/proposal-deal-link';
 import {
   Building2,
   CalendarDays,
@@ -233,6 +234,7 @@ export interface DealRecordDrawerProps {
   canSendEmail?: boolean;
   ownerOptions?: DealOwnerOption[];
   onGenerateProposal: () => void;
+  onOpenProposalEmail?: (proposal: ErpCommercialProposal) => void;
   onAddNote: (title: string, body: string, type: 'NOTE' | 'CALL' | 'MEETING' | 'EMAIL' | 'TASK') => Promise<void>;
   onShowToast?: (msg: string) => void;
   onNavigateToErp?: () => void;
@@ -265,6 +267,7 @@ export default function DealRecordDrawer({
   canSendEmail = false,
   ownerOptions = [],
   onGenerateProposal,
+  onOpenProposalEmail,
   onAddNote,
   onShowToast,
   onNavigateToErp,
@@ -779,6 +782,22 @@ export default function DealRecordDrawer({
                 </button>
               ))}
             </div>
+            {(() => {
+              const linkedProposal = resolveDealLinkedProposal(deal, proposals);
+              if (!linkedProposal || !onOpenProposalEmail) return null;
+              return (
+                <button
+                  type="button"
+                  data-testid="deal-send-proposal-email"
+                  disabled={!canSendEmail}
+                  title={canSendEmail ? 'Enviar a proposta vinculada por e-mail' : 'Sem permissão para enviar e-mail do CRM.'}
+                  onClick={() => onOpenProposalEmail(linkedProposal)}
+                  className="w-full mt-2 px-3 py-2 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Enviar proposta por e-mail
+                </button>
+              );
+            })()}
 
             <div className="rounded-lg border border-slate-200 overflow-hidden">
               <button

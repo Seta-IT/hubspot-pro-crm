@@ -83,19 +83,22 @@ export function ProposalEditModal({
   onCustomerCreated,
   onGenerateContract,
   onShowToast,
+  onOpenLinkedDeal,
   catalog = [],
   companies = [],
   contacts = [],
   deals = [],
   isNew = false,
   focusField = null,
+  canAccessCrm = true,
 }: {
   proposal: ErpCommercialProposal;
   onClose: () => void;
-  onSave: (updated: ErpCommercialProposal) => Promise<void>;
+  onSave: (updated: ErpCommercialProposal, options?: { createCrmDeal?: boolean }) => Promise<void>;
   onCustomerCreated?: (created: Company) => Promise<void> | void;
   onGenerateContract?: (proposal: ErpCommercialProposal) => void;
   onShowToast?: (msg: string) => void;
+  onOpenLinkedDeal?: (dealId: string) => void;
   catalog?: ErpCatalogItem[];
   companies?: Company[];
   contacts?: Contact[];
@@ -103,6 +106,7 @@ export function ProposalEditModal({
   isNew?: boolean;
   /** Aberto a partir de "Atualizar validade": rola, foca e destaca o campo Validade. */
   focusField?: 'validUntil' | null;
+  canAccessCrm?: boolean;
 }) {
   const [draft, setDraft] = useState<ErpCommercialProposal>(() =>
     computeProposalTotals({
@@ -117,6 +121,7 @@ export function ProposalEditModal({
   const [versionChangeNote, setVersionChangeNote] = useState<string>('');
   const [restoringVersionNum, setRestoringVersionNum] = useState<number | null>(null);
   const [auxOptions] = useState(() => loadContractAuxiliaryOptions());
+  const [createCrmDeal, setCreateCrmDeal] = useState(false);
 
   const versionHistoryList: ErpProposalVersionEntry[] = React.useMemo(() => {
     if (Array.isArray(draft.versionHistory) && draft.versionHistory.length > 0) {
@@ -577,7 +582,7 @@ export function ProposalEditModal({
           : {}),
         updatedAt: new Date().toISOString(),
       });
-      await onSave(computed);
+      await onSave(computed, { createCrmDeal: Boolean(createCrmDeal && !draft.dealId) });
     } finally {
       setSaving(false);
     }
@@ -1844,6 +1849,47 @@ export function ProposalEditModal({
                   </table>
                 </div>
               </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-md border border-slate-200 p-3.5">
+            {draft.dealId ? (
+              <div className="flex flex-wrap items-center justify-between gap-2" data-testid="proposal-linked-deal">
+                <div>
+                  <span className="block text-[11px] font-semibold text-slate-800">Negócio vinculado</span>
+                  <span className="text-[11px] text-slate-600">
+                    {deals.find((d) => d.id === draft.dealId)?.title || draft.title}
+                  </span>
+                </div>
+                {onOpenLinkedDeal && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenLinkedDeal(draft.dealId as string)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-accent hover:bg-accent-hover text-white text-[11px] font-semibold cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Abrir no CRM
+                  </button>
+                )}
+              </div>
+            ) : (
+              <label
+                className={`flex flex-wrap items-center gap-2 text-[11px] ${canAccessCrm ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'}`}
+                title={canAccessCrm ? 'Ao salvar, cria o negócio no CRM e vincula a empresa e o contato' : 'Sem acesso ao CRM'}
+              >
+                <input
+                  type="checkbox"
+                  data-testid="proposal-create-crm-deal"
+                  checked={createCrmDeal}
+                  disabled={!canAccessCrm}
+                  onChange={(e) => setCreateCrmDeal(e.target.checked)}
+                  className="accent-[#1e3a6e]"
+                />
+                <span className="font-semibold text-slate-800">Criar negócio no CRM</span>
+                {!canAccessCrm && (
+                  <span className="font-semibold text-slate-500">Sem acesso ao CRM</span>
+                )}
+              </label>
             )}
           </div>
 

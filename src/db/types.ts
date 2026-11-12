@@ -307,6 +307,8 @@ export interface Deal {
   expectedCloseDate: string | null;
   contactId: string | null;
   companyId: string | null;
+  /** Proposta/orçamento do ERP vinculado a este negócio, quando houver. */
+  proposalId?: string | null;
   ownerId: string | null;
   ownerName?: string;
   status: DealStatus;
@@ -1034,6 +1036,8 @@ export interface ErpCommercialProposal {
   technicalClauses: string;
   convertedContractId?: string | null;
   convertedInvoiceId?: string | null;
+  lastEmailSentAt?: string | null;
+  emailHistory?: ErpInvoiceEmailHistoryEntry[];
   digitalSignature?: ErpProposalDigitalSignature | null;
   /** SHA-256 da Idempotency-Key do aceite pelo link (repeticao devolve o mesmo resultado). */
   approvalIdempotencyKeySha256?: string;
