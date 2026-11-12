@@ -44,7 +44,7 @@ export function buildInternalProposalPrintHtml(model: InternalProposalSummaryMod
     )
     .join('');
   const clauses = [
-    sheet.commercialNote ? `<p>${escHtml(sheet.commercialNote)}</p>` : '',
+    ...sheet.commercialNoteLines.map((line) => `<p>${escHtml(line)}</p>`),
     `<p><b>CONFIDENCIALIDADE E CONDIÇÕES GERAIS</b> — ${escHtml(sheet.confidentiality)}</p>`,
     ...sheet.clauses.map((clause) => `<p><b>${escHtml(clause.title)}</b> — ${escHtml(clause.body)}</p>`),
   ].join('');
@@ -67,8 +67,10 @@ h1{margin:0 0 1px;font-size:14px;color:#1e3a6e}
 .contract .k{font-weight:700;color:#1e3a6e;text-transform:uppercase;font-size:10px}
 .blank{width:180px;border-bottom:1px solid #1f2937;height:12px}
 .hint{color:#6b7280;font-size:10px}
-.top2{display:grid;grid-template-columns:205px 1fr;gap:12px;margin-top:7px}
-.rental b{color:#1e3a6e}
+.top2{display:grid;grid-template-columns:268px 1fr;gap:12px;margin-top:7px}
+.conds{width:100%;border-collapse:collapse;background:transparent}
+.conds th,.conds td{border:0;border-bottom:0.5px solid #e5e9f0;background:transparent;padding:1px 4px 1px 0;font-size:10px;font-weight:600;color:#1e3a6e;text-transform:none;text-align:left;vertical-align:baseline}
+.conds td{text-align:right;font-weight:500}
 .notes p{margin:0 0 2px}
 .sec{margin-top:6px}
 .t{background:#eef2f8;border:1px solid #cdd7e6;border-bottom:0;color:#1e3a6e;font-weight:700;padding:3px 7px}
@@ -94,7 +96,7 @@ th{background:#fafbfd;font-size:9.5px;text-transform:uppercase;text-align:left}
 <div class="contact">${sheet.issuerPhone ? `<div><strong>${escHtml(sheet.issuerPhone)}</strong></div>` : ''}${sheet.issuerEmail ? `<div><strong>${escHtml(sheet.issuerEmail)}</strong></div>` : ''}${sheet.sellerName ? `<div>Vendedor: <strong>${escHtml(sheet.sellerName)}</strong></div>` : ''}</div></header>
 <div class="docline"><div class="n">ORÇAMENTO Nº ${escHtml(sheet.budgetNumber)}</div><div class="d">${escHtml(sheet.proposalDateLabel)}</div></div>
 <div class="contract"><span class="k">Nº do contrato:</span>${sheet.contractNumber ? `<strong>${escHtml(sheet.contractNumber)}</strong>` : '<span class="blank"></span><span class="hint">preenchido quando a proposta for convertida em contrato de locação</span>'}</div>
-<div class="top2"><section class="rental"><div><b>${escHtml(sheet.headline)}</b></div><div>${escHtml(sheet.monthlyLine)}</div><div>${escHtml(sheet.deliveryLine)}</div>${sheet.freightLine ? `<div>${escHtml(sheet.freightLine)}</div>` : ''}${sheet.slaLine ? `<div>${escHtml(sheet.slaLine)}</div>` : ''}<div>${escHtml(sheet.readjustmentLine)}</div></section>
+<div class="top2"><section class="rental"><table class="conds">${sheet.summaryRows.map((row) => `<tr><th>${escHtml(row.label)}</th><td>${escHtml(row.value)}</td></tr>`).join('')}</table></section>
 <section class="notes">${sheet.notices.map((note) => `<p>› ${escHtml(note)}</p>`).join('')}</section></div>
 <div class="val"><div>${escHtml(sheet.validityLine)}</div><div>${escHtml(sheet.deliveryForecastLine)}</div></div>
 <section class="sec"><div class="t">DADOS DO CLIENTE</div><table><tr><td class="k">Razão social:</td><td>${escHtml(sheet.clientLegalName)}</td><td class="k">Nome fantasia:</td><td>${escHtml(sheet.clientTradeName)}</td></tr><tr><td class="k">CNPJ/CPF:</td><td>${escHtml(sheet.clientCnpj)}</td><td class="k">Endereço:</td><td>${escHtml(sheet.clientAddress)}</td></tr><tr><td class="k">CEP:</td><td>${escHtml(sheet.clientCep)}</td><td class="k">Cidade/UF:</td><td>${escHtml(sheet.clientCityUf)}</td></tr><tr><td class="k">Telefone:</td><td>${escHtml(sheet.clientPhone)}</td><td class="k">E-mail:</td><td>${escHtml(sheet.clientEmail)}</td></tr></table></section>
@@ -250,20 +252,21 @@ export function buildInternalProposalPdf(model: InternalProposalSummaryModel): U
     text(left + 240, y, 6, 'preenchido quando a proposta for convertida em contrato de locação', 'F1', SLATE);
   }
   y -= 16;
-  text(left, y, 8, sheet.headline, 'F2', NAVY);
-  gap(10);
-  text(left, y, 7, sheet.monthlyLine, 'F1', INK);
-  gap(9);
-  text(left, y, 7, sheet.deliveryLine, 'F1', INK);
-  if (sheet.freightLine) { gap(9); text(left, y, 7, sheet.freightLine, 'F1', INK); }
-  if (sheet.slaLine) { gap(9); text(left, y, 7, wrap(sheet.slaLine, 7, 190)[0], 'F1', INK); }
-  gap(9);
-  text(left, y, 7, sheet.readjustmentLine, 'F1', INK);
-  let noteY = y + 36;
+  const RULE = '0.898 0.914 0.941';
+  const tableW = 250;
+  const tableTop = y;
+  for (const row of sheet.summaryRows) {
+    ops.push(`${RULE} RG 0.5 w ${left.toFixed(2)} ${(y - 2).toFixed(2)} ${tableW.toFixed(2)} 0 re S`);
+    if (row.label) text(left + 1, y, 6.5, row.label, 'F2', NAVY);
+    const valueX = row.label ? left + 108 : left + 1;
+    text(valueX, y, 6.5, wrap(row.value, 6.5, row.label ? 140 : 240)[0], 'F1', NAVY);
+    y -= 9;
+  }
+  let noteY = tableTop;
   for (const note of sheet.notices) {
-    const bits = wrap(`› ${note}`, 6.5, 330);
+    const bits = wrap(`› ${note}`, 6.5, 250);
     for (const bit of bits) {
-      text(left + 200, noteY, 6.5, bit, 'F1', INK);
+      text(left + 258, noteY, 6.5, bit, 'F1', INK);
       noteY -= 8;
     }
   }
@@ -335,7 +338,7 @@ export function buildInternalProposalPdf(model: InternalProposalSummaryModel): U
   text(left + 4, y, 8, 'OBSERVAÇÕES', 'F2', NAVY);
   y -= 9;
   const obs: string[] = [];
-  if (sheet.commercialNote) obs.push(sheet.commercialNote);
+  for (const line of sheet.commercialNoteLines) obs.push(line);
   obs.push(`CONFIDENCIALIDADE E CONDIÇÕES GERAIS — ${sheet.confidentiality}`);
   for (const clause of sheet.clauses) obs.push(`${clause.title} — ${clause.body}`);
   const leftCol = obs.slice(0, Math.ceil(obs.length / 2));

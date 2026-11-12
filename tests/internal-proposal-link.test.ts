@@ -418,6 +418,10 @@ describe('Visão interna: sem observações e com PDF', () => {
     assert.match(html, /Via Itália/);
     assert.match(html, /R\$ 4\.490,00/);
     assert.match(html, /14\.806\.925\/0001-32/);
+    assert.match(html, /0\.5px solid #e5e9f0/);
+    assert.match(html, /class="conds"/);
+    assert.equal(model.sheet.summaryRows[0]?.label, 'Proposta');
+    assert.match(model.sheet.summaryRows[0]?.value || '', /Locação/);
     const tainted = toInternalProposalSummary(baseProposal({
       id: 'prop-via-italia-loc-20261106',
       code: '4711',
@@ -451,6 +455,33 @@ describe('Visão interna: sem observações e com PDF', () => {
     assert.doesNotMatch(extracted, /NOTA_INTERNA_SECRETA_4711/);
     assert.doesNotMatch(extracted, /Visão interna do orçamento|LINK INTERNO/);
     assert.match(rawPdf, /\/Encoding \/WinAnsiEncoding/);
+    assert.match(rawPdf, /0\.5 w/);
+    assert.match(rawPdf, /0\.898 0\.914 0\.941/);
+    assert.match(view, /#e5e9f0/);
+    assert.match(view, /borderBottomWidth: '0\.5px'/);
+    const thin = toInternalProposalSummary(baseProposal({
+      budgetType: 'LOCACAO',
+      contractMonths: 1,
+      monthlyRecurringTotal: 0,
+      shippingCost: 50,
+      deliveryLeadTime: '7 dias',
+      readjustmentIndex: 'IPCA',
+      commercialNotes: 'Linha livre A\nPrazo extra: 2 dias',
+      internalNotes: 'NOTA_QUE_NAO_PODE_SAIR',
+    }));
+    const labels = thin.sheet.summaryRows.map((row) => row.label);
+    assert.deepEqual(labels.slice(0, 5), ['Proposta', 'Valor mensal', 'Prazo de entrega estimado', 'Frete', 'Reajuste anual']);
+    assert.equal(thin.sheet.summaryRows[0].value, 'Locação - 1 mês');
+    assert.match(thin.sheet.summaryRows[1].value.replace(/\u00A0/g, ' '), /R\$ 0,00/);
+    assert.equal(thin.sheet.summaryRows[2].value, '7 dias');
+    assert.match(thin.sheet.summaryRows[3].value.replace(/\u00A0/g, ' '), /R\$ 50,00 \(pagamento único\)/);
+    assert.equal(thin.sheet.summaryRows[4].value, 'IPCA');
+    assert.equal(thin.sheet.summaryRows.find((row) => row.value === 'Linha livre A')?.label, '');
+    assert.equal(thin.sheet.summaryRows.find((row) => row.label === 'Prazo extra')?.value, '2 dias');
+    assert.deepEqual(thin.sheet.commercialNoteLines, ['Linha livre A', 'Prazo extra: 2 dias']);
+    const thinPdf = Buffer.from(buildInternalProposalPdf(thin)).toString('latin1');
+    assert.equal((thinPdf.match(/\/Type \/Page(?!s)/g) || []).length, 1);
+    assert.doesNotMatch(extractPdfText(Buffer.from(thinPdf, 'latin1')), /NOTA_QUE_NAO_PODE_SAIR/);
     const service = toInternalProposalSummary(baseProposal({
       code: '4713',
       budgetType: 'SERVICOS',

@@ -71,14 +71,18 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
           ) : null}
         </div>
 
-        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[205px_1fr]">
-          <section className="leading-snug" data-testid="internal-proposal-kind">
-            <div className="font-bold text-[#1e3a6e]">{sheet.headline}</div>
-            <div>{sheet.monthlyLine}</div>
-            <div>{sheet.deliveryLine}</div>
-            {sheet.freightLine ? <div>{sheet.freightLine}</div> : null}
-            {sheet.slaLine ? <div>{sheet.slaLine}</div> : null}
-            <div>{sheet.readjustmentLine}</div>
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[268px_1fr]">
+          <section data-testid="internal-proposal-kind">
+            <table data-testid="internal-proposal-conditions" className="w-full border-collapse bg-transparent text-[10.5px] leading-tight">
+              <tbody>
+                {sheet.summaryRows.map((row, index) => (
+                  <tr key={`${index}|${row.label}|${row.value}`} className="border-b border-[#e5e9f0]" style={{ borderBottomWidth: '0.5px' }}>
+                    <th className="bg-transparent py-px pr-2 text-left align-baseline font-semibold text-[#1e3a6e]">{row.label}</th>
+                    <td className="bg-transparent py-px text-right align-baseline text-[#1e3a6e]">{row.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </section>
           <section className="text-[10.5px] leading-snug">
             {sheet.notices.map((note) => (
@@ -175,7 +179,9 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
         <section className="mt-2">
           <div className="border border-b-0 border-[#cdd7e6] bg-[#eef2f8] px-2 py-1 text-[11px] font-bold tracking-wide text-[#1e3a6e]">OBSERVAÇÕES</div>
           <div className="columns-2 gap-3 border border-[#cdd7e6] px-2 py-1 text-[10px] leading-snug">
-            {sheet.commercialNote ? <p className="mb-1">{sheet.commercialNote}</p> : null}
+            {sheet.commercialNoteLines.map((line, index) => (
+              <p key={`${index}|${line}`} className="mb-1">{line}</p>
+            ))}
             <p className="mb-1"><b>CONFIDENCIALIDADE E CONDIÇÕES GERAIS</b> — {sheet.confidentiality}</p>
             {sheet.clauses.map((clause) => (
               <p key={clause.title} className="mb-1"><b>{clause.title}</b> — {clause.body}</p>
