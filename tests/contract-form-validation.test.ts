@@ -282,7 +282,7 @@ describe('Centro de custo e Plano de contas editáveis', () => {
   it('o cadastro auxiliar edita registros existentes com chave estável (sem remount ao digitar)', () => {
     const src = read('src/app/components/ContractBillingPanels.tsx');
     assert.equal(src.includes('key={`${item}-${idx}`}'), false);
-    assert.ok(src.includes('key={`${l.key}-${idx}`}'));
+    assert.ok(src.includes('key={item.id}'));
     assert.ok(src.includes('data-testid={`aux-list-${l.key}`}'));
   });
 
