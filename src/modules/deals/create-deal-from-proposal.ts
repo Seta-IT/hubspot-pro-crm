@@ -7,6 +7,7 @@ import type { Company, Contact, Deal, ErpCommercialProposal } from '../../db/typ
 import type { CrmRepository } from '../../db/repository';
 import {
   dealLinkedProposalId,
+  documentDigits,
   findCompanyForProposal,
   findContactForProposal,
   proposalDealValue,
@@ -37,6 +38,62 @@ export type LinkProposalToCrmDealResult = {
   companyCreated: boolean;
   contactCreated: boolean;
 };
+
+/** Visibilidade no mesmo escopo das rotas de empresa e contato. Sem predicado, assume visível. */
+export type CrmRecordVisibility = {
+  canSeeCompany?: (companyId: string) => boolean;
+  canSeeContact?: (contactId: string) => boolean;
+};
+
+function isVisible(
+  check: ((id: string) => boolean) | undefined,
+  id: string | null | undefined
+): boolean {
+  if (!id) return false;
+  return !check || check(id);
+}
+
+function attachmentFieldsForProposal(
+  proposal: ErpCommercialProposal,
+  company: Company,
+  contact: Contact | null,
+  visibility?: CrmRecordVisibility
+): {
+  companyId: string;
+  contactId: string | undefined;
+  companyName: string;
+  companyCnpj: string | null | undefined;
+  contactName: string | undefined;
+  contactEmail: string | undefined;
+} {
+  const seeCompany = isVisible(visibility?.canSeeCompany, company.id);
+  const seeContact = Boolean(contact) && isVisible(visibility?.canSeeContact, contact?.id);
+  const sameCnpj =
+    Boolean(documentDigits(proposal.companyCnpj)) &&
+    documentDigits(proposal.companyCnpj) === documentDigits(company.cnpj);
+  const sameEmail =
+    Boolean(contact) &&
+    String(proposal.contactEmail || '').trim().toLowerCase() !== '' &&
+    String(proposal.contactEmail || '').trim().toLowerCase() === String(contact?.email || '').trim().toLowerCase();
+  return {
+    companyId: company.id,
+    contactId: contact?.id || proposal.contactId || undefined,
+    companyName: company.name,
+    companyCnpj: seeCompany
+      ? company.cnpj || proposal.companyCnpj || undefined
+      : sameCnpj
+        ? ''
+        : proposal.companyCnpj || undefined,
+    contactName: contact
+      ? `${contact.firstName} ${contact.lastName}`.trim()
+      : proposal.contactName,
+    contactEmail: seeContact
+      ? contact?.email || proposal.contactEmail || undefined
+      : sameEmail
+        ? ''
+        : proposal.contactEmail || undefined,
+  };
+}
 
 function findExistingDeal(repo: CrmRepository, proposal: ErpCommercialProposal): Deal | undefined {
   if (proposal.dealId) {
@@ -113,8 +170,16 @@ export function resolveOrCreateContactForProposal(
 export function linkProposalToCrmDeal(
   repo: CrmRepository,
   proposal: ErpCommercialProposal,
-  options?: { actorName?: string }
+  options?: { actorName?: string; visibility?: CrmRecordVisibility }
 ): LinkProposalToCrmDealResult {
+  const reusedCompanyId = String(proposal.companyId || '').trim();
+  const reusedContactId = String(proposal.contactId || '').trim();
+  const sawReusedCompany = !reusedCompanyId || isVisible(options?.visibility?.canSeeCompany, reusedCompanyId);
+  const sawReusedContact = !reusedContactId || isVisible(options?.visibility?.canSeeContact, reusedContactId);
+  const visibility: CrmRecordVisibility = {
+    canSeeCompany: (id) => (reusedCompanyId && id === reusedCompanyId ? sawReusedCompany : true),
+    canSeeContact: (id) => (reusedContactId && id === reusedContactId ? sawReusedContact : true),
+  };
   const companyRes = resolveOrCreateCompanyForProposal(repo, proposal);
   const contactRes = resolveOrCreateContactForProposal(repo, proposal, companyRes.company);
   const existingDeal = findExistingDeal(repo, proposal);
@@ -133,14 +198,7 @@ export function linkProposalToCrmDeal(
     const linked =
       repo.attachCrmDealToProposal(proposal.id, {
         dealId: deal.id,
-        companyId: companyRes.company.id,
-        contactId: contactRes.contact?.id || proposal.contactId,
-        companyName: companyRes.company.name,
-        companyCnpj: companyRes.company.cnpj || proposal.companyCnpj,
-        contactName: contactRes.contact
-          ? `${contactRes.contact.firstName} ${contactRes.contact.lastName}`.trim()
-          : proposal.contactName,
-        contactEmail: contactRes.contact?.email || proposal.contactEmail,
+        ...attachmentFieldsForProposal(proposal, companyRes.company, contactRes.contact, visibility),
       }) || proposal;
     return {
       proposal: linked,
@@ -199,14 +257,7 @@ export function linkProposalToCrmDeal(
   const linked =
     repo.attachCrmDealToProposal(proposal.id, {
       dealId: deal.id,
-      companyId: companyRes.company.id,
-      contactId: contactRes.contact?.id || proposal.contactId,
-      companyName: companyRes.company.name,
-      companyCnpj: companyRes.company.cnpj || proposal.companyCnpj,
-      contactName: contactRes.contact
-        ? `${contactRes.contact.firstName} ${contactRes.contact.lastName}`.trim()
-        : proposal.contactName,
-      contactEmail: contactRes.contact?.email || proposal.contactEmail,
+      ...attachmentFieldsForProposal(proposal, companyRes.company, contactRes.contact, visibility),
     }) || proposal;
 
   return {

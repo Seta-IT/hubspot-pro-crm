@@ -74,6 +74,7 @@ import {
 } from '../lib/contract-billing-utils';
 import { billingRecipientEmailsText, parseBillingRecipientEmails } from '../../modules/erp/billing-recipient-emails';
 import { focusProposalValidityField } from '../lib/proposal-validity-return';
+import { withoutEmailHistoryBccList } from '../lib/email-send-history';
 import { funnelLabelForBudgetType } from '../../modules/deals/proposal-deal-link';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
@@ -2298,7 +2299,7 @@ export function ContractEditModal({
       if (
         prev.lastEmailSentAt === contract.lastEmailSentAt &&
         prev.lastEmailRecipient === contract.lastEmailRecipient &&
-        JSON.stringify(prev.emailHistory || []) === JSON.stringify(contract.emailHistory || [])
+        JSON.stringify(prev.emailHistory || []) === JSON.stringify(withoutEmailHistoryBccList(contract.emailHistory))
       ) {
         return prev;
       }
@@ -2306,7 +2307,7 @@ export function ContractEditModal({
         ...prev,
         lastEmailSentAt: contract.lastEmailSentAt,
         lastEmailRecipient: contract.lastEmailRecipient,
-        emailHistory: contract.emailHistory,
+        emailHistory: withoutEmailHistoryBccList(contract.emailHistory),
       };
     });
   }, [contract.id, contract.lastEmailSentAt, contract.lastEmailRecipient, contract.emailHistory]);

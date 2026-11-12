@@ -65,6 +65,21 @@ export function formatEmailHistoryWhen(iso?: string | null): string {
   });
 }
 
+/** Cco não entra no histórico exibido (contrato, fatura e proposta). */
+export function withoutEmailHistoryBcc<T extends { bcc?: string | null }>(
+  entry: T
+): Omit<T, 'bcc'> {
+  const { bcc: _bcc, ...rest } = entry;
+  void _bcc;
+  return rest;
+}
+
+export function withoutEmailHistoryBccList<T extends { bcc?: string | null }>(
+  list?: readonly T[] | null
+): Array<Omit<T, 'bcc'>> {
+  return (list || []).map(withoutEmailHistoryBcc);
+}
+
 export function emailHistoryRecipientsLabel(entry: Pick<ErpInvoiceEmailHistoryEntry, 'to' | 'cc'>): string {
   const to = String(entry.to || '').trim();
   const cc = String(entry.cc || '').trim();

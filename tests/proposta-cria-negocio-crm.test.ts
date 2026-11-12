@@ -12,7 +12,8 @@ import {
   wantsCreateCrmDeal,
 } from '../src/modules/deals/create-deal-from-proposal';
 import { isFollowupEnrollStage } from '../src/modules/deals/sales-pipeline-stages';
-import type { ErpCommercialProposal, Pipeline } from '../src/db/types';
+import { emailHistoryRecipientsLabel, withoutEmailHistoryBcc, withoutEmailHistoryBccList } from '../src/app/lib/email-send-history';
+import type { ErpCommercialProposal, ErpInvoiceEmailHistoryEntry, Pipeline } from '../src/db/types';
 
 const HTTP = { _fromHttpBridge: '1' };
 const saved: Record<string, string | undefined> = {};
@@ -388,5 +389,298 @@ describe('t226u funil do negócio conforme o tipo da proposta', () => {
       if (prevNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = prevNodeEnv;
     }
+  });
+});
+
+
+describe('t226u CISO B1-B4 escopo e validação no vínculo proposta-negócio', () => {
+  const commercial = (repo: CrmRepository, extra: Record<string, unknown> = {}) =>
+    session(repo, 'usr-seta-03', {
+      enabledModules: ['CRM', 'ERP'],
+      moduleAccess: { crm: true, erp: true, chamados: false },
+      erpRole: 'ERP_COMMERCIAL',
+      ...extra,
+    });
+
+  async function sendProposalEmail(
+    router: CrmApiRouter,
+    query: Record<string, string | undefined>,
+    body: Record<string, unknown>
+  ) {
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'test';
+    try {
+      return await router.dispatch({
+        method: 'POST',
+        path: '/api/communications/send-email',
+        query,
+        body: {
+          docType: 'PROPOSAL',
+          to: 'destinatario.teste@teste.example',
+          subject: 'Proposta comercial',
+          body: 'Segue a proposta.',
+          ...body,
+        },
+      });
+    } finally {
+      if (prevNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prevNodeEnv;
+    }
+  }
+
+  it('B1: só grava histórico e lastEmailSentAt na proposta do escopo, pelo id resolvido; fora do escopo ignora em silêncio', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+
+    const foreign = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/proposals',
+      query: session(repo),
+      body: {
+        title: 'Proposta de outro vendedor',
+        companyName: 'Cliente Fora do Escopo',
+        companyCnpj: uniqueCnpj(701),
+        contactName: 'Contato Alheio',
+        contactEmail: 'contato.alheio@teste.example',
+      },
+    });
+    assert.equal(foreign.status, 201, JSON.stringify(foreign.body));
+    const foreignProp = (foreign.body as { data: ErpCommercialProposal }).data;
+    assert.ok(foreignProp.id);
+    assert.ok(foreignProp.code);
+
+    const sneak = await sendProposalEmail(router, commercial(repo), {
+      proposalId: foreignProp.code,
+      dealId: 'deal-inventado-nao-deve-gravar',
+    });
+    assert.equal(sneak.status, 200, JSON.stringify(sneak.body));
+    const afterSneak = repo.listProposals().find((p) => p.id === foreignProp.id);
+    assert.equal(afterSneak?.lastEmailSentAt || null, null);
+    assert.equal((afterSneak?.emailHistory || []).length, 0);
+
+    const own = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/proposals',
+      query: commercial(repo),
+      body: {
+        title: 'Proposta própria para histórico',
+        companyName: 'Cliente Do Vendedor',
+        companyCnpj: uniqueCnpj(702),
+        contactName: 'Contato Próprio',
+        contactEmail: 'contato.proprio@teste.example',
+      },
+    });
+    assert.equal(own.status, 201, JSON.stringify(own.body));
+    const ownProp = (own.body as { data: ErpCommercialProposal }).data;
+
+    const sent = await sendProposalEmail(router, commercial(repo), {
+      proposalId: ownProp.code,
+      bcc: 'cco.secreto@teste.example',
+    });
+    assert.equal(sent.status, 200, JSON.stringify(sent.body));
+    const stored = repo.listProposals().find((p) => p.id === ownProp.id);
+    assert.ok(stored?.lastEmailSentAt);
+    assert.equal((stored?.emailHistory || []).length, 1);
+    const entry = (stored?.emailHistory || [])[0];
+    assert.equal('bcc' in entry, false);
+    assert.equal(entry.bcc, undefined);
+    assert.match(String(entry.to), /destinatario.teste@teste.example/);
+  });
+
+  it('B2: o Cco não entra no histórico da proposta nem na leitura exibida', () => {
+    const entry: ErpInvoiceEmailHistoryEntry = {
+      sentAt: '2026-11-12T13:00:00.000Z',
+      to: 'para@teste.example',
+      cc: 'copia@teste.example',
+      bcc: 'cco.secreto@teste.example',
+      subject: 'Proposta',
+      protocol: 'STI-MAIL-TESTE',
+      actor: 'Maria Luiza',
+    };
+    const stripped = withoutEmailHistoryBcc(entry);
+    assert.equal('bcc' in stripped, false);
+    assert.equal((stripped as { bcc?: string }).bcc, undefined);
+    const list = withoutEmailHistoryBccList([entry]);
+    assert.equal(list.length, 1);
+    assert.equal('bcc' in list[0], false);
+    const label = emailHistoryRecipientsLabel(entry);
+    assert.equal(label.includes('cco.secreto@teste.example'), false);
+    assert.match(label, /para@teste.example/);
+  });
+
+  it('B3: só inscreve o follow-up com a proposta do escopo, deal vinculado, módulo CRM e escopo do negócio', async () => {
+    const prevFlag = process.env.FOLLOWUP_SEQUENCE_ENABLED;
+    process.env.FOLLOWUP_SEQUENCE_ENABLED = 'true';
+    try {
+      const repo = createInMemoryRepository();
+      const router = new CrmApiRouter(repo);
+
+      const foreign = await router.dispatch({
+        method: 'POST',
+        path: '/api/erp/proposals',
+        query: session(repo),
+        body: {
+          title: 'Proposta alheia com negócio',
+          companyName: 'Cliente Alheio FUP',
+          companyCnpj: uniqueCnpj(711),
+          contactName: 'Eva Alheia',
+          contactEmail: 'eva.alheia.fup@teste.example',
+          createCrmDeal: true,
+        },
+      });
+      assert.equal(foreign.status, 201, JSON.stringify(foreign.body));
+      const foreignBody = foreign.body as { data: ErpCommercialProposal; crmDeal: { id: string } };
+      assert.ok(foreignBody.crmDeal.id);
+
+      const sneak = await sendProposalEmail(router, commercial(repo), {
+        proposalId: foreignBody.data.id,
+        dealId: foreignBody.crmDeal.id,
+      });
+      assert.equal(sneak.status, 200, JSON.stringify(sneak.body));
+      assert.equal(repo.getActiveProposalFollowup(foreignBody.crmDeal.id) || null, null);
+
+      const own = await router.dispatch({
+        method: 'POST',
+        path: '/api/erp/proposals',
+        query: commercial(repo),
+        body: {
+          title: 'Proposta própria com negócio',
+          companyName: 'Cliente Próprio FUP',
+          companyCnpj: uniqueCnpj(712),
+          contactName: 'Eva Própria',
+          contactEmail: 'eva.propria.fup@teste.example',
+          createCrmDeal: true,
+        },
+      });
+      assert.equal(own.status, 201, JSON.stringify(own.body));
+      const ownBody = own.body as { data: ErpCommercialProposal; crmDeal: { id: string } };
+      assert.ok(ownBody.crmDeal.id);
+      assert.equal(repo.getActiveProposalFollowup(ownBody.crmDeal.id) || null, null);
+
+      const outsiderDeal = repo.createDeal({
+        title: 'Negócio de outra pessoa',
+        value: 1000,
+        ownerId: 'usr-seta-01',
+        ownerName: 'Marcelo Lopes Mira',
+      });
+      const unlinked = await sendProposalEmail(router, commercial(repo), {
+        proposalId: ownBody.data.id,
+        dealId: outsiderDeal.id,
+      });
+      assert.equal(unlinked.status, 200, JSON.stringify(unlinked.body));
+      assert.equal(repo.getActiveProposalFollowup(outsiderDeal.id) || null, null);
+      // o deal vinculado e visível ao vendedor ainda pode ser inscrito se o corpo apontar só o deal errado?
+      // B3 exige vínculo com a proposta do B1; o deal do corpo não está vinculado, então não inscreve ninguém.
+      assert.equal(repo.getActiveProposalFollowup(ownBody.crmDeal.id) || null, null);
+
+      const noCrm = await sendProposalEmail(
+        router,
+        commercial(repo, {
+          enabledModules: ['ERP'],
+          moduleAccess: { crm: false, erp: true, chamados: false },
+        }),
+        { proposalId: ownBody.data.id, dealId: ownBody.crmDeal.id }
+      );
+      assert.equal(noCrm.status, 200, JSON.stringify(noCrm.body));
+      assert.equal(repo.getActiveProposalFollowup(ownBody.crmDeal.id) || null, null);
+
+      const ok = await sendProposalEmail(router, commercial(repo), {
+        proposalId: ownBody.data.id,
+        dealId: ownBody.crmDeal.id,
+      });
+      assert.equal(ok.status, 200, JSON.stringify(ok.body));
+      const enrolled = repo.getActiveProposalFollowup(ownBody.crmDeal.id);
+      assert.ok(enrolled, 'envio no escopo, com CRM e deal vinculado, deve inscrever');
+      assert.equal(enrolled?.status, 'ACTIVE');
+      assert.equal(enrolled?.dealId, ownBody.crmDeal.id);
+    } finally {
+      if (prevFlag === undefined) delete process.env.FOLLOWUP_SEQUENCE_ENABLED;
+      else process.env.FOLLOWUP_SEQUENCE_ENABLED = prevFlag;
+    }
+  });
+
+  it('B4: fallback por nome não pega contato de outra empresa; sem visibilidade não copia CNPJ nem e-mail', async () => {
+    const repo = createInMemoryRepository();
+    const companyA = repo.createCompany({ name: 'Empresa A Visível' });
+    const companyB = repo.createCompany({ name: 'Empresa B Secreta', cnpj: uniqueCnpj(801) });
+    const leaked = repo.createContact({
+      firstName: 'Ana',
+      lastName: 'Souza',
+      email: 'ana.vazamento@outra-empresa.example',
+      companyId: companyB.id,
+      ownerId: 'usr-seta-01',
+    });
+
+    const byNameWrongCompany = findContactForProposal(repo.listContacts(), {
+      contactName: 'Ana Souza',
+      companyId: companyA.id,
+    });
+    assert.equal(byNameWrongCompany, undefined);
+
+    const byNameNoCompany = findContactForProposal(repo.listContacts(), {
+      contactName: 'Ana Souza',
+    });
+    assert.equal(byNameNoCompany, undefined);
+
+    const byNameSameCompany = findContactForProposal(repo.listContacts(), {
+      contactName: 'Ana Souza',
+      companyId: companyB.id,
+    });
+    assert.equal(byNameSameCompany?.id, leaked.id);
+
+    const secretCnpj = uniqueCnpj(802);
+    const secretEmail = 'contato.oculto@empresa-secreta.example';
+    const hiddenCompany = repo.createCompany({
+      name: 'Empresa Oculta LTDA',
+      cnpj: secretCnpj,
+    });
+    const hiddenContact = repo.createContact({
+      firstName: 'Zeta',
+      lastName: 'Oculto',
+      email: secretEmail,
+      companyId: hiddenCompany.id,
+      ownerId: 'usr-seta-01',
+    });
+
+    const router = new CrmApiRouter(repo);
+    const created = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/proposals',
+      query: commercial(repo),
+      body: {
+        title: 'Orçamento reaproveita ids fora do escopo',
+        companyName: 'Cliente Sem PII Copiada',
+        companyId: hiddenCompany.id,
+        contactId: hiddenContact.id,
+        contactName: 'Zeta Oculto',
+        createCrmDeal: true,
+      },
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const prop = (created.body as { data: ErpCommercialProposal }).data;
+    assert.notEqual(prop.companyCnpj, secretCnpj);
+    assert.equal(String(prop.companyCnpj || '').includes(secretCnpj.replace(/\D+/g, '')), false);
+    assert.notEqual(String(prop.contactEmail || '').toLowerCase(), secretEmail);
+    assert.equal(String(prop.contactEmail || '').toLowerCase().includes('contato.oculto@empresa-secreta.example'), false);
+
+    const direct = linkProposalToCrmDeal(
+      repo,
+      repo.createProposal({
+        title: 'Vínculo direto sem visibilidade',
+        companyName: 'Cliente Direto',
+        companyId: hiddenCompany.id,
+        contactId: hiddenContact.id,
+        contactName: 'Zeta Oculto',
+        totalContractValue: 5000,
+      }),
+      {
+        visibility: {
+          canSeeCompany: () => false,
+          canSeeContact: () => false,
+        },
+      }
+    );
+    assert.notEqual(direct.proposal.companyCnpj, secretCnpj);
+    assert.notEqual(String(direct.proposal.contactEmail || '').toLowerCase(), secretEmail);
   });
 });

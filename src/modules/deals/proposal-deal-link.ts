@@ -77,8 +77,8 @@ export function findContactForProposal(
   if (!name) return undefined;
   const sameCompany = input.companyId
     ? contacts.filter((c) => c.companyId === input.companyId)
-    : contacts;
-  const pool = sameCompany.length > 0 ? sameCompany : contacts;
+    : [];
+  const pool = input.companyId ? sameCompany : [];
   return pool.find((c) => normalizeLinkText(`${c.firstName} ${c.lastName}`) === name);
 }
 

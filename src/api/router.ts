@@ -267,7 +267,7 @@ import {
   isEmailTemplateRoute,
   sanitizeEmailTemplateJournal,
 } from './email-template-routes';
-import { getAccessToken, handleMailboxRoute, isMailboxRoute, newMailboxSendLimiter, userFacingClientSendFailure } from './mailbox-routes';
+import { canSeeRecordInScope, getAccessToken, handleMailboxRoute, isMailboxRoute, newMailboxSendLimiter, userFacingClientSendFailure } from './mailbox-routes';
 import { deliverClientEmail, publicClientEmailRelay } from '../modules/email/deliver-client-email';
 import { getDefaultMailboxStore, MemoryMailboxStore, type MailboxStore } from '../modules/email/mailbox-store';
 import { createOutlookFollowupSendDeps } from '../modules/deals/proposal-followup-send';
@@ -281,7 +281,7 @@ import {
   toPublicEnrollment,
 } from '../modules/deals/proposal-followup-service';
 import { isProposalFollowupEnabled } from '../modules/deals/proposal-followup-config';
-import { linkProposalToCrmDeal, wantsCreateCrmDeal } from '../modules/deals/create-deal-from-proposal';
+import { dealLinkedProposalId, linkProposalToCrmDeal, wantsCreateCrmDeal } from '../modules/deals/create-deal-from-proposal';
 
 import { isMailboxFeatureEnabled, type FetchLike } from '../modules/email/ms-graph';
 import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE } from '../app/lib/password-policy';
@@ -2606,11 +2606,69 @@ export class CrmApiRouter {
 
   private applyCreateCrmDeal(
     query: Record<string, string | undefined>,
-    proposal: ErpCommercialProposal
+    proposal: ErpCommercialProposal,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
   ): { proposal: ErpCommercialProposal; crmDeal: unknown; crmDealCreated: boolean } {
-    const result = linkProposalToCrmDeal(this.repo, proposal, { actorName: this.sessionActorName(query) });
+    const result = linkProposalToCrmDeal(this.repo, proposal, {
+      actorName: this.sessionActorName(query),
+      visibility: {
+        canSeeCompany: (companyId) => this.sessionCanSeeCrmRecord(query, ctx, { companyId }),
+        canSeeContact: (contactId) => this.sessionCanSeeCrmRecord(query, ctx, { contactId }),
+      },
+    });
     return { proposal: result.proposal, crmDeal: result.deal, crmDealCreated: result.created };
   }
+
+  /**
+   * Mesmo escopo das rotas de empresa, contato e negócio (canSeeRecordInScope):
+   * admin ou escopo TODOS veem tudo; PROPRIOS/EQUIPE só o que é do usuário (ownerId).
+   * Contexto interno ou conta de serviço não restringe.
+   */
+  private sessionCanSeeCrmRecord(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean },
+    ref: { contactId?: string | null; companyId?: string | null; dealId?: string | null }
+  ): boolean {
+    if (ctx.trustedInternal || ctx.serviceAccount) return true;
+    const token = query._sessionToken;
+    if (!token) return false;
+    const sess = this.repo.resolveSessionFromToken(token);
+    if (!sess.authenticated || !sess.user) return false;
+    return canSeeRecordInScope(this.repo, {
+      email: String(sess.user.email || '').toLowerCase(),
+      name: String(sess.user.name || sess.user.email || ''),
+      roleId: String(sess.user.roleId || ''),
+      isAdmin: sess.effectiveActionGuards?.canManageUsersRbac === true,
+      access: { contact: true, company: true, deal: true },
+      id: String(sess.user.id || ''),
+      scope: String((sess.user as { scope?: string }).scope || 'PROPRIOS'),
+    }, ref);
+  }
+
+  /** Se o usuário reaproveita companyId/contactId que não enxerga, não leva CNPJ nem e-mail desses registros. */
+  private redactHiddenLinkedCrmPii(
+    proposal: ErpCommercialProposal,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ErpCommercialProposal {
+    const digits = (v: unknown) => String(v || '').replace(/\D+/g, '');
+    const patch: Partial<ErpCommercialProposal> = {};
+    if (proposal.companyId && !this.sessionCanSeeCrmRecord(query, ctx, { companyId: proposal.companyId })) {
+      const company = this.repo.getCompanyById(proposal.companyId);
+      if (company && digits(proposal.companyCnpj) && digits(proposal.companyCnpj) === digits(company.cnpj)) {
+        patch.companyCnpj = '';
+      }
+    }
+    if (proposal.contactId && !this.sessionCanSeeCrmRecord(query, ctx, { contactId: proposal.contactId })) {
+      const contact = this.repo.getContactById(proposal.contactId);
+      const left = String(proposal.contactEmail || '').trim().toLowerCase();
+      const right = String(contact?.email || '').trim().toLowerCase();
+      if (left && left === right) patch.contactEmail = '';
+    }
+    if (!Object.keys(patch).length) return proposal;
+    return this.repo.updateProposal(proposal.id, patch) || { ...proposal, ...patch };
+  }
+
 
   private resolveProposalSessionAccess(query: Record<string, string | undefined>): {
     user: { id: string; email: string; name: string; scope: string; roleId: string };
@@ -6889,9 +6947,13 @@ export class CrmApiRouter {
             this.proposalStatusAudit(query, sc.kind === 'session' ? sc.access : null, created.id, createStatus.audit.action, 'SUCCESS', createStatus.audit.details);
           }
           // (c) sellerUserId pelo servidor, do usuario cujo e-mail bate.
-          const finalCreated = this.finalizeProposalOwner(scope, query, null, created, 'criacao');
+          const finalCreated = this.redactHiddenLinkedCrmPii(
+            this.finalizeProposalOwner(scope, query, null, created, 'criacao'),
+            query,
+            ctx
+          );
           if (createDealRequested) {
-            const linked = this.applyCreateCrmDeal(query, finalCreated);
+            const linked = this.applyCreateCrmDeal(query, finalCreated, ctx);
             return { status: 201, body: { data: linked.proposal, crmDeal: linked.crmDeal, crmDealCreated: linked.crmDealCreated } };
           }
           return { status: 201, body: { data: finalCreated } };
@@ -7125,9 +7187,13 @@ export class CrmApiRouter {
           if (statusCheck.audit) {
             this.proposalStatusAudit(query, scope.kind === 'session' ? scope.access : null, updatedRaw.id, statusCheck.audit.action, 'SUCCESS', statusCheck.audit.details);
           }
-          const updated = this.finalizeProposalOwner(scope, query, before, updatedRaw, method);
+          const updated = this.redactHiddenLinkedCrmPii(
+            this.finalizeProposalOwner(scope, query, before, updatedRaw, method),
+            query,
+            ctx
+          );
           if (updateDealRequested) {
-            const linked = this.applyCreateCrmDeal(query, updated);
+            const linked = this.applyCreateCrmDeal(query, updated, ctx);
             return { status: 200, body: { data: linked.proposal, crmDeal: linked.crmDeal, crmDealCreated: linked.crmDealCreated } };
           }
           return { status: 200, body: { data: updated } };
@@ -8658,24 +8724,44 @@ export class CrmApiRouter {
           actor: this.sessionActorName(query),
           attachments: historyAttachments,
         };
-        const proposalIdForHistory = String(body.proposalId || rawMail.proposalId || '').trim();
-        if (proposalIdForHistory) {
+        // B1: só grava histórico na proposta visível no escopo (mesmo critério do PUT).
+        // Fora do escopo, ignora em silêncio — o envio já foi feito.
+        const proposalRefForHistory = String(body.proposalId || rawMail.proposalId || '').trim();
+        const scopedProposalForHistory = (() => {
+          if (!proposalRefForHistory) return undefined;
+          const found = this.findProposalByRef(proposalRefForHistory);
+          if (!found) return undefined;
+          const scope = this.proposalScope(query, ctx);
+          if (!CrmApiRouter.proposalVisibleIn(scope, found)) return undefined;
+          return found;
+        })();
+        if (scopedProposalForHistory) {
           try {
-            this.repo.appendProposalEmailHistory(proposalIdForHistory, {
+            this.repo.appendProposalEmailHistory(scopedProposalForHistory.id, {
               ...historyEntry,
-              bcc: recipients.bcc.length ? recipients.bcc.join(', ') : null,
               attachments: historyAttachments.length ? historyAttachments : ['proposta'],
             });
           } catch {
             /* historico da proposta nao derruba o envio ja realizado */
           }
         }
-        // A inscrição do follow-up automático acontece no envio da proposta, não na criação do deal.
-        const dealIdForFollowup = String(body.dealId || rawMail.dealId || '').trim();
-        if (dealIdForFollowup && (String(docType).toUpperCase() === 'PROPOSAL' || proposalIdForHistory)) {
+        // B3: inscrição só com a proposta do B1, deal vinculado a ela, módulo CRM e escopo do deal.
+        if (scopedProposalForHistory && this.sessionHasCrmModule(query, ctx)) {
           try {
-            const followupDeal = this.repo.getDealById(dealIdForFollowup);
-            if (followupDeal) enrollProposalFollowupIfNeeded(this.repo, followupDeal);
+            const bodyDealId = String(body.dealId || rawMail.dealId || '').trim();
+            const dealId = bodyDealId || String(scopedProposalForHistory.dealId || '').trim();
+            const followupDeal = dealId ? this.repo.getDealById(dealId) : undefined;
+            const linked =
+              followupDeal &&
+              (scopedProposalForHistory.dealId === followupDeal.id ||
+                dealLinkedProposalId(followupDeal) === scopedProposalForHistory.id);
+            if (
+              followupDeal &&
+              linked &&
+              this.sessionCanSeeCrmRecord(query, ctx, { dealId: followupDeal.id })
+            ) {
+              enrollProposalFollowupIfNeeded(this.repo, followupDeal);
+            }
           } catch {
             /* a inscrição não derruba o envio já realizado */
           }

@@ -5,6 +5,7 @@ import {
   collectContractEmailHistory,
   emailHistoryRecipientsLabel,
   formatEmailHistoryWhen,
+  withoutEmailHistoryBcc,
   type EmailSendHistoryEntry,
 } from '../lib/email-send-history';
 
@@ -34,11 +35,12 @@ export function EmailSendHistoryPanel({
   emptyText?: string;
   compact?: boolean;
 }) {
-  const list: EmailSendHistoryEntry[] = entries
+  const rawList: EmailSendHistoryEntry[] = entries
     ? entries.map((entry) => entry)
     : contract
       ? collectContractEmailHistory(contract, invoices || [])
       : [];
+  const list: EmailSendHistoryEntry[] = rawList.map((entry) => withoutEmailHistoryBcc(entry));
 
   return (
     <div data-testid="email-send-history" className={compact ? 'space-y-1.5 text-xs' : 'rounded-lg border border-slate-200 bg-white p-3 space-y-2 text-xs'}>

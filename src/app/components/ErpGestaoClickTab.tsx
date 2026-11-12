@@ -157,6 +157,7 @@ import {
 } from './ErpEditModals';
 import { Edit3, Mail } from 'lucide-react';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
+import { withoutEmailHistoryBccList } from '../lib/email-send-history';
 import { buildProposalCrmEmailPayload } from '../lib/proposal-crm-email-payload';
 import { copySignedProposalLink, copySignedProposalVersionLink, openSignedProposalLink, openWithSignedProposalLink } from '../lib/proposal-link-client';
 import { copyInternalProposalLink, openInternalProposalLink } from '../lib/internal-proposal-summary';
@@ -737,7 +738,7 @@ export default function ErpGestaoClickTab({
       if (
         prev.lastEmailSentAt === fresh.lastEmailSentAt &&
         prev.lastEmailRecipient === fresh.lastEmailRecipient &&
-        JSON.stringify(prev.emailHistory || []) === JSON.stringify(fresh.emailHistory || [])
+        JSON.stringify(prev.emailHistory || []) === JSON.stringify(withoutEmailHistoryBccList(fresh.emailHistory))
       ) {
         return prev;
       }
@@ -745,7 +746,7 @@ export default function ErpGestaoClickTab({
         ...prev,
         lastEmailSentAt: fresh.lastEmailSentAt,
         lastEmailRecipient: fresh.lastEmailRecipient,
-        emailHistory: fresh.emailHistory,
+        emailHistory: withoutEmailHistoryBccList(fresh.emailHistory),
       };
     });
   }, [erpData?.rentalContracts, editingContract?.id]);

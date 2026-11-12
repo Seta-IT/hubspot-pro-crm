@@ -5001,9 +5001,9 @@ export class CrmRepository {
       companyId: link.companyId !== undefined ? link.companyId : current.companyId,
       contactId: link.contactId !== undefined ? link.contactId : current.contactId,
       companyName: link.companyName || current.companyName,
-      companyCnpj: link.companyCnpj || current.companyCnpj,
+      companyCnpj: link.companyCnpj !== undefined ? link.companyCnpj || '' : current.companyCnpj,
       contactName: link.contactName || current.contactName,
-      contactEmail: link.contactEmail || current.contactEmail,
+      contactEmail: link.contactEmail !== undefined ? link.contactEmail || undefined : current.contactEmail,
       updatedAt: new Date().toISOString(),
     };
     erp.proposals[idx] = next;
