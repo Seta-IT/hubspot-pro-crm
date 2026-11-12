@@ -49,6 +49,7 @@ import {
   type TemplateVarContext,
   type TimelineAssociations,
 } from '../../lib/email-composer';
+import { EMAIL_OUTLOOK_FALLBACK_NOTICE } from '../../lib/client-email-send-ui';
 import {
   BTN_PRIMARY,
   mailboxApi,
@@ -83,7 +84,7 @@ export interface CrmEmailComposerModalProps {
   associatedContacts?: ComposerContactInput[];
   canSendEmail?: boolean;
   onClose: () => void;
-  onSent: () => void;
+  onSent: (result?: { fallback: boolean; relay: 'outlook' | 'resend' }) => void;
 }
 
 type TabId = 'templates' | 'sequences' | 'documents' | 'meetings' | 'quotes';
@@ -192,6 +193,7 @@ export function CrmEmailComposerModal({
   const [signature, setSignature] = useState(DEFAULT_SETA_SIGNATURE);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [minimized, setMinimized] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [createFollowUp, setCreateFollowUp] = useState(true);
@@ -529,6 +531,7 @@ export function CrmEmailComposerModal({
     if (!canSend) return;
     setSending(true);
     setError(null);
+    setFallbackNotice(null);
     if (signature && signature !== (status?.signature || '')) {
       const saved = await mailboxApi('/signature', { method: 'PUT', body: { signature } });
       if (!saved.ok) {
@@ -574,6 +577,9 @@ export function CrmEmailComposerModal({
       setError(r.error);
       return;
     }
+    const sendMeta = (r.data || {}) as { fallback?: boolean; relay?: 'outlook' | 'resend' };
+    const sendResult = { fallback: Boolean(sendMeta.fallback), relay: sendMeta.relay === 'resend' ? 'resend' as const : 'outlook' as const };
+    if (sendResult.fallback) setFallbackNotice(EMAIL_OUTLOOK_FALLBACK_NOTICE);
     try {
       await fetch('/api/timeline', {
         method: 'POST',
@@ -611,7 +617,7 @@ export function CrmEmailComposerModal({
       }
     }
     setSending(false);
-    onSent();
+    onSent(sendResult);
   };
 
   const widthClass = expanded ? 'w-[min(920px,calc(100vw-2rem))] h-[min(760px,calc(100vh-2rem))]' : 'w-[min(560px,calc(100vw-1.5rem))]';
@@ -921,6 +927,11 @@ export function CrmEmailComposerModal({
               Rastrear aberturas e cliques
             </label>
           </>
+        )}
+        {fallbackNotice && (
+          <p role="status" data-testid="email-fallback-notice" className="text-xs font-semibold text-slate-800 bg-amber-50 border border-amber-300 rounded-lg p-2.5 mb-2">
+            {fallbackNotice}
+          </p>
         )}
         {error && (
           <p role="alert" className="text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-300 rounded-lg p-2.5 mb-2">

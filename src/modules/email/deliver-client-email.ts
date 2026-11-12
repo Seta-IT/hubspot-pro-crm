@@ -1,8 +1,9 @@
 // ============================================================================
 // STI-hub — Envio de e-mail do cliente (ERP e CRM) por um único serviço.
 // Preferência: caixa Outlook do próprio usuário (crm_mailbox_accounts, Graph
-// POST /me/sendMail). Sem caixa ou se o Graph recusar (exceto 400/413), cai no
-// Resend transacional — o mesmo caminho que o ERP já usava.
+// POST /me/sendMail). Só cai no Resend quando há certeza de que nada saiu:
+// sem caixa, sem token, ou Graph 401/403. Timeout, rede, 5xx, 429, 404 e 409
+// devolvem erro específico, sem segundo canal (o sendMail pode já ter sido aceito).
 // Convites, OTP e redefinição de senha continuam só no Resend/SMTP.
 // ============================================================================
 import { GraphError, sendGraphMail, type FetchLike, type GraphSentMessage } from './ms-graph';
@@ -25,6 +26,8 @@ export interface DeliverClientEmailInput {
     accountId?: string;
   } | null;
   resend?: { apiKey: string; from: string } | null;
+  /** Endereço da sessão ou da caixa (nunca vem do corpo da requisição). */
+  replyTo?: string | null;
   message: {
     to: string[];
     cc?: string[];
@@ -37,13 +40,19 @@ export interface DeliverClientEmailInput {
 }
 
 export type ClientEmailRelay = 'OUTLOOK' | 'RESEND';
+export type ClientEmailPublicRelay = 'outlook' | 'resend';
+
+export function publicClientEmailRelay(relay: ClientEmailRelay): ClientEmailPublicRelay {
+  return relay === 'OUTLOOK' ? 'outlook' : 'resend';
+}
 
 export interface DeliverClientEmailSuccess {
   ok: true;
   relay: ClientEmailRelay;
+  fallback: boolean;
   mailboxAddress?: string;
   sent?: GraphSentMessage;
-  /** Preenchido quando o Outlook falhou e o envio caiu no Resend. */
+  /** Preenchido quando o Outlook recusou (401/403) e o envio caiu no Resend. */
   outlookError?: unknown;
 }
 
@@ -55,6 +64,18 @@ export interface DeliverClientEmailFailure {
 }
 
 export type DeliverClientEmailResult = DeliverClientEmailSuccess | DeliverClientEmailFailure;
+
+const REPLY_TO_RE =
+  /^[^\s@<>(),;:"\\[\]]{1,64}@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
+
+/** Só aceita o endereço da sessão/caixa passado pelo chamador, nunca um campo do corpo. */
+export function resolveSendReplyTo(replyTo: string | null | undefined, mailboxAddress?: string | null): string | undefined {
+  for (const raw of [replyTo, mailboxAddress]) {
+    const addr = String(raw || '').trim().toLowerCase();
+    if (addr && REPLY_TO_RE.test(addr)) return addr;
+  }
+  return undefined;
+}
 
 function toGraphAttachments(list: ClientMailAttachment[] | undefined): GraphFileAttachment[] | undefined {
   if (!list || !list.length) return undefined;
@@ -101,42 +122,48 @@ function noProvider(): DeliverClientEmailFailure {
   };
 }
 
-/** 400/413 são do conteúdo: não adianta repetir no Resend. */
-export function isNonRetryableGraphSendError(err: unknown): boolean {
+/** 401/403: o Graph recusou antes de aceitar o envio. Qualquer outro caso pode já ter saído. */
+export function canSafelyFallbackToResend(err: unknown): boolean {
   if (!(err instanceof GraphError)) return false;
-  const g = String(err.graphCode || '').trim().toLowerCase();
-  if (err.status === 413) return true;
-  if (err.status === 400) return true;
-  if (g === 'errorinvalidrecipients' || g === 'errorinvalidrecipient' || g === 'invalidrecipients') return true;
-  if (g === 'errorattachmentsizelimitexceeded' || g === 'errormessagesizeexceeded' || g === 'requestentitytoolarge') return true;
-  return false;
+  if (err.status === 401 || err.code === 'GRAPH_UNAUTHORIZED') return true;
+  return err.status === 403;
+}
+
+export function isTimeoutLikeError(err: unknown): boolean {
+  if (!err || err instanceof GraphError) return false;
+  const name = err instanceof Error ? err.name : '';
+  const msg = err instanceof Error ? `${err.name} ${err.message}` : String(err);
+  return name === 'AbortError' || name === 'TimeoutError' || /timeout|etimedout|aborted|aborterror/i.test(msg);
 }
 
 async function sendViaResend(
   fetchFn: FetchLike,
   resend: { apiKey: string; from: string },
-  msg: DeliverClientEmailInput['message']
+  msg: DeliverClientEmailInput['message'],
+  replyTo?: string
 ): Promise<DeliverClientEmailResult> {
   let failure: string | null = null;
   try {
+    const payload: Record<string, unknown> = {
+      from: resend.from,
+      to: msg.to,
+      cc: msg.cc && msg.cc.length ? msg.cc : undefined,
+      bcc: msg.bcc && msg.bcc.length ? msg.bcc : undefined,
+      subject: msg.subject,
+      text: msg.text,
+      html: msg.html,
+      attachments: toResendAttachments(msg.attachments),
+    };
+    if (replyTo) payload.reply_to = replyTo;
     const res = await fetchFn('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${resend.apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from: resend.from,
-        to: msg.to,
-        cc: msg.cc && msg.cc.length ? msg.cc : undefined,
-        bcc: msg.bcc && msg.bcc.length ? msg.bcc : undefined,
-        subject: msg.subject,
-        text: msg.text,
-        html: msg.html,
-        attachments: toResendAttachments(msg.attachments),
-      }),
+      body: JSON.stringify(payload),
     });
-    if (res.ok) return { ok: true, relay: 'RESEND' };
+    if (res.ok) return { ok: true, relay: 'RESEND', fallback: false };
     failure = `HTTP ${res.status}`;
   } catch {
     failure = 'falha de rede';
@@ -160,6 +187,7 @@ async function sendViaResend(
 export async function deliverClientEmail(input: DeliverClientEmailInput): Promise<DeliverClientEmailResult> {
   const msg = input.message;
   const attempted: ClientEmailRelay[] = [];
+  const replyTo = resolveSendReplyTo(input.replyTo, input.outlook?.mailboxAddress);
 
   if (input.outlook?.accessToken) {
     attempted.push('OUTLOOK');
@@ -176,29 +204,18 @@ export async function deliverClientEmail(input: DeliverClientEmailInput): Promis
       return {
         ok: true,
         relay: 'OUTLOOK',
+        fallback: false,
         mailboxAddress: input.outlook.mailboxAddress,
         sent,
       };
     } catch (err) {
-      if (isNonRetryableGraphSendError(err) || !input.resend?.apiKey) {
-        return {
-          ok: false,
-          relayAttempted: attempted,
-          graphError: err,
-          error: {
-            status: 502,
-            error: 'Não foi possível enviar o e-mail. Nada foi registrado; tente novamente.',
-            code: 'EMAIL_SEND_FAILED',
-          },
-        };
-      }
-      console.warn('[mailbox] Graph send failed, falling back to Resend', {
-        status: err instanceof GraphError ? err.status : 0,
-        graphCode: err instanceof GraphError ? (err.graphCode || err.code) : 'SEND_EXCEPTION',
-      });
-      if (input.resend?.apiKey) {
-        const viaResend = await sendViaResend(input.fetch, input.resend, msg);
-        if (viaResend.ok) return { ...viaResend, outlookError: err };
+      if (canSafelyFallbackToResend(err) && input.resend?.apiKey) {
+        console.warn('[mailbox] Graph send refused, falling back to Resend', {
+          status: err instanceof GraphError ? err.status : 0,
+          graphCode: err instanceof GraphError ? (err.graphCode || err.code) : 'SEND_EXCEPTION',
+        });
+        const viaResend = await sendViaResend(input.fetch, input.resend, msg, replyTo);
+        if (viaResend.ok) return { ...viaResend, fallback: true, outlookError: err, mailboxAddress: input.outlook.mailboxAddress };
         viaResend.relayAttempted = [...attempted, 'RESEND'];
         viaResend.graphError = err;
         return viaResend;
@@ -217,7 +234,7 @@ export async function deliverClientEmail(input: DeliverClientEmailInput): Promis
   }
 
   if (input.resend?.apiKey) {
-    const viaResend = await sendViaResend(input.fetch, input.resend, msg);
+    const viaResend = await sendViaResend(input.fetch, input.resend, msg, replyTo);
     if (!viaResend.ok) viaResend.relayAttempted = [...attempted, 'RESEND'];
     return viaResend;
   }

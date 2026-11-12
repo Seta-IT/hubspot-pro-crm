@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { buildClientEmailGreeting } from '../lib/client-email-greeting';
 import { proposalEmailLinkGate, requestSignedProposalLink, type SignedLinkState } from '../lib/proposal-link-client';
 import { assignInternalFlowHref, signedLinkRecovery } from '../lib/proposal-validity-return';
+import { EMAIL_OUTLOOK_FALLBACK_NOTICE } from '../lib/client-email-send-ui';
 import { requestSignedInvoiceLink } from '../lib/invoice-link-client';
 import { buildContractEmailBody, buildContractEmailSubject } from '../lib/contract-email-payload';
 import {
@@ -355,6 +356,7 @@ export default function ClientEmailComposerModal({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sentProtocol, setSentProtocol] = useState<string | null>(null);
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [signedProposalUrl, setSignedProposalUrl] = useState<string | null>(null);
   const alreadySigned = Boolean(payload.publicPdfUrl && payload.publicPdfUrl.includes('#t='));
@@ -551,6 +553,7 @@ export default function ClientEmailComposerModal({
       return;
     }
     setSending(true);
+    setFallbackNotice(null);
     try {
       const sendInvoiceId = isContractSend
         ? (contractEmailNeedsInvoice(selectedContractAttach) ? selectedInvoiceId : '')
@@ -598,6 +601,7 @@ export default function ClientEmailComposerModal({
       const json = await res.json();
       const protocol = json?.data?.protocol || `STI-MAIL-${Date.now().toString().slice(-6)}`;
       setSentProtocol(protocol);
+      setFallbackNotice(json?.data?.fallback ? EMAIL_OUTLOOK_FALLBACK_NOTICE : null);
 
       recordTimelineEvent({
         id: `evt-mail-${Date.now()}`,
@@ -671,6 +675,11 @@ export default function ClientEmailComposerModal({
             <div className="inline-block px-4 py-2 rounded bg-slate-100 border border-slate-200 font-mono text-xs font-semibold text-slate-800">
               Protocolo: {sentProtocol}
             </div>
+            {fallbackNotice ? (
+              <p role="status" data-testid="email-fallback-notice" className="text-xs font-semibold text-slate-800 bg-amber-50 border border-amber-300 rounded-lg p-2.5 max-w-lg mx-auto">
+                {fallbackNotice}
+              </p>
+            ) : null}
             <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
               <a
                 href={mailtoHref}

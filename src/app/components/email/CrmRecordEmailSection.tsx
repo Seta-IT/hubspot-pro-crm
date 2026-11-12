@@ -131,9 +131,9 @@ export default function CrmRecordEmailSection({
           associatedContacts={associatedContacts}
           canSendEmail={canSendEmail}
           onClose={() => setComposerOpen(false)}
-          onSent={() => {
-            setComposerOpen(false);
+          onSent={(result) => {
             void load();
+            if (!result?.fallback) setComposerOpen(false);
           }}
         />
       )}

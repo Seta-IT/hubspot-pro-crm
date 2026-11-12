@@ -1172,7 +1172,7 @@ export default function DealRecordDrawer({
                       associatedContacts={associatedContacts}
                       canSendEmail={canSendEmail}
                       onClose={() => setEmailOpen(false)}
-                      onSent={() => setEmailOpen(false)}
+                      onSent={(result) => { if (!result?.fallback) setEmailOpen(false); }}
                     />
                   )}
 

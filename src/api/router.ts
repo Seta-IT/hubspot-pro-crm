@@ -266,8 +266,8 @@ import {
   isEmailTemplateRoute,
   sanitizeEmailTemplateJournal,
 } from './email-template-routes';
-import { getAccessToken, handleMailboxRoute, isMailboxRoute, newMailboxSendLimiter } from './mailbox-routes';
-import { deliverClientEmail } from '../modules/email/deliver-client-email';
+import { getAccessToken, handleMailboxRoute, isMailboxRoute, newMailboxSendLimiter, userFacingClientSendFailure } from './mailbox-routes';
+import { deliverClientEmail, publicClientEmailRelay } from '../modules/email/deliver-client-email';
 import { getDefaultMailboxStore, MemoryMailboxStore, type MailboxStore } from '../modules/email/mailbox-store';
 import { createOutlookFollowupSendDeps } from '../modules/deals/proposal-followup-send';
 import {
@@ -8363,6 +8363,7 @@ export class CrmApiRouter {
           fetch: this.mailboxFetch,
           outlook,
           resend: resendKey ? { apiKey: resendKey, from: resolveTransactionalEmailFrom(mailSecCfg?.fromEmail) } : null,
+          replyTo: outlook?.mailboxAddress || ownerEmail,
           message: {
             to: recipients.to,
             cc: recipients.cc,
@@ -8389,15 +8390,18 @@ export class CrmApiRouter {
               status: 503,
               body: { error: 'O envio de e-mail não está configurado. Fale com o administrador.', code: 'EMAIL_PROVIDER_NOT_CONFIGURED' },
             };
-          } else {
+          } else if (delivered.error.code === 'EMAIL_PROVIDER_NOT_CONFIGURED') {
             return {
-              status: delivered.error.status === 503 ? 503 : 502,
-              body: {
-                error: delivered.error.code === 'EMAIL_PROVIDER_NOT_CONFIGURED'
-                  ? delivered.error.error
-                  : 'Não foi possível enviar o e-mail. Nada foi registrado; tente novamente.',
-                code: delivered.error.code === 'EMAIL_PROVIDER_NOT_CONFIGURED' ? 'EMAIL_PROVIDER_NOT_CONFIGURED' : 'EMAIL_SEND_FAILED',
-              },
+              status: 503,
+              body: { error: delivered.error.error, code: 'EMAIL_PROVIDER_NOT_CONFIGURED' },
+            };
+          } else {
+            const mapped = delivered.graphError
+              ? userFacingClientSendFailure(delivered.graphError)
+              : delivered.error;
+            return {
+              status: mapped.status,
+              body: { error: mapped.error, code: mapped.code, relay: outlook ? 'outlook' : 'resend', fallback: false },
             };
           }
         } else if (delivered.relay === 'OUTLOOK') {
@@ -8405,6 +8409,8 @@ export class CrmApiRouter {
         } else if (delivered.relay === 'RESEND') {
           externalRelay = 'SENT_VIA_RESEND';
         }
+        const publicRelay = delivered.ok ? publicClientEmailRelay(delivered.relay) : undefined;
+        const usedFallback = delivered.ok ? Boolean(delivered.fallback) : false;
 
         // A1 (parecer CISO 30/10): o e-mail entregue (acima) leva o link completo; o que e
         // GRAVADO (timeline, metadata, comentario de chamado) leva #t=[REDACTED]. Na metadata,
@@ -8511,6 +8517,8 @@ export class CrmApiRouter {
               subject: storedSubject,
               docType,
               externalRelay,
+              relay: publicRelay,
+              fallback: usedFallback,
               timelineEventId: evt.id,
               followUpTask,
             },

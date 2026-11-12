@@ -36,7 +36,7 @@ import {
   type FetchLike,
   type GraphTokens,
 } from '../modules/email/ms-graph';
-import { deliverClientEmail, type ClientMailAttachment } from '../modules/email/deliver-client-email';
+import { deliverClientEmail, isTimeoutLikeError, publicClientEmailRelay, type ClientMailAttachment } from '../modules/email/deliver-client-email';
 import { openMailboxSecret, sealMailboxSecret } from '../modules/email/mailbox-crypto';
 import { buildTrackedEmailBody, newTrackingId } from '../modules/email/mail-tracking';
 import { applyServerInlineImages } from '../modules/email/mailbox-inline-images';
@@ -69,6 +69,11 @@ export const MAILBOX_MESSAGES = Object.freeze({
   sendTooLarge: 'O e-mail ficou grande demais para o Outlook. Remova anexos ou reduza o conteúdo.',
   mailboxNotEnabled: 'A caixa do Outlook não está habilitada para envio. Fale com o administrador ou reconecte a caixa.',
   connectFailed: 'Não foi possível concluir a conexão com a Microsoft. Tente novamente.',
+  sendUnconfirmed: 'O Outlook não confirmou o envio. Não envie de novo agora: o e-mail pode já ter saído. Confira a caixa de enviados.',
+  sendTimeout: 'O Outlook demorou para responder. Não envie de novo agora: o e-mail pode já ter saído. Confira a caixa de enviados.',
+  sendNetwork: 'Falha de rede no envio pelo Outlook. Não envie de novo agora: o e-mail pode já ter saído. Confira a caixa de enviados.',
+  sendNotFound: 'O Outlook não encontrou a caixa para enviar. Não envie de novo agora: confira se a mensagem aparece nos enviados.',
+  sendConflict: 'O Outlook recusou o envio por conflito. Não envie de novo agora: confira a caixa de enviados e tente de novo só se a mensagem não estiver lá.',
 });
 
 function normGraphCode(code: string | null | undefined): string {
@@ -113,6 +118,31 @@ export function userFacingMailboxSendFailure(err: unknown): { status: number; er
     || g === 'mailboxnotenablederror'
   ) {
     return { status: 409, error: MAILBOX_MESSAGES.mailboxNotEnabled, code: 'MAILBOX_NOT_ENABLED' };
+  }
+  return { status: 502, error: MAILBOX_MESSAGES.sendFailed, code: 'MAILBOX_SEND_FAILED' };
+}
+
+/** Erros do Graph/rede no envio, incluindo os casos em que o sendMail pode já ter sido aceito. */
+export function userFacingClientSendFailure(err: unknown): { status: number; error: string; code: string } {
+  if (err instanceof GraphError) {
+    if (err.status === 404) {
+      return { status: 404, error: MAILBOX_MESSAGES.sendNotFound, code: 'MAILBOX_SEND_NOT_FOUND' };
+    }
+    if (err.status === 409) {
+      const mapped = userFacingMailboxSendFailure(err);
+      if (mapped.code === 'MAILBOX_NOT_ENABLED' || mapped.code === 'MAILBOX_RECONNECT') return mapped;
+      return { status: 409, error: MAILBOX_MESSAGES.sendConflict, code: 'MAILBOX_SEND_CONFLICT' };
+    }
+    if (err.status >= 500) {
+      return { status: 502, error: MAILBOX_MESSAGES.sendUnconfirmed, code: 'MAILBOX_SEND_UNCONFIRMED' };
+    }
+    return userFacingMailboxSendFailure(err);
+  }
+  if (isTimeoutLikeError(err)) {
+    return { status: 504, error: MAILBOX_MESSAGES.sendTimeout, code: 'MAILBOX_SEND_TIMEOUT' };
+  }
+  if (err) {
+    return { status: 502, error: MAILBOX_MESSAGES.sendNetwork, code: 'MAILBOX_SEND_NETWORK' };
   }
   return { status: 502, error: MAILBOX_MESSAGES.sendFailed, code: 'MAILBOX_SEND_FAILED' };
 }
@@ -635,6 +665,7 @@ export async function handleMailboxRoute(
       fetch: deps.fetch,
       outlook: { accessToken: token, mailboxAddress: account.mailboxAddress, displayName: account.displayName, accountId: account.id },
       resend: deps.resend || null,
+      replyTo: account.mailboxAddress || actor.email,
       message: { to: v.to, cc: v.cc, bcc: v.bcc, subject: v.subject, html: inlined.html, text: built.text, attachments: clientAtts },
     });
     const outlookErr = !delivered.ok ? delivered.graphError : delivered.outlookError;
@@ -643,7 +674,7 @@ export async function handleMailboxRoute(
     }
     if (!delivered.ok) {
       const e = delivered.graphError;
-      const mapped = e ? userFacingMailboxSendFailure(e) : delivered.error;
+      const mapped = e ? userFacingClientSendFailure(e) : delivered.error;
       const graphStatus = e instanceof GraphError ? e.status : mapped.status;
       const graphCode = e instanceof GraphError ? (e.graphCode || e.code) : mapped.code;
       console.warn('[mailbox] Graph send failed', { status: graphStatus, graphCode });
@@ -688,7 +719,19 @@ export async function handleMailboxRoute(
     }
     audit(deps.repo, actor, query, 'MAILBOX_EMAIL_SENT', `${m} ${cleanPath}`, 'SUCCESS',
       `E-mail enviado pela caixa ${account.mailboxAddress} para ${v.to.length + v.cc.length} destinatario(s); registrado: ${logIt ? 'sim' : 'nao'}; anexos: ${attachmentNames.length ? attachmentNames.join(', ') : 'nenhum'}.`);
-    return { status: 201, body: { data: { sent: true, logged: logIt, tracked: track, email: item } } };
+    return {
+      status: 201,
+      body: {
+        data: {
+          sent: true,
+          logged: logIt,
+          tracked: track,
+          email: item,
+          relay: publicClientEmailRelay(delivered.relay),
+          fallback: Boolean(delivered.fallback),
+        },
+      },
+    };
   }
 
   // ---------------------------------------------------------------- sincronizar
