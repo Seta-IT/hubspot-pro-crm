@@ -71,6 +71,24 @@ export function isPublicStiHubPath(pathname: string, method = 'GET'): boolean {
   return false;
 }
 
+/**
+ * API v1 + MCP (Fase 1): rotas com autenticacao PROPRIA no handler (Bearer de integracao,
+ * token OAuth 2.1 ou, no authorize, sessao 2FA com redirect proprio). O middleware nao
+ * aplica o redirect HTML de login nem o 401 de sessao nelas, e NUNCA apaga stihub_session.
+ * Caminhos com %2F, %5C, \ ou .. NAO entram na excecao (seguem a regra geral).
+ * /api/iam/integration-keys* continua sob isIamAdminRoute (sessao 2FA + alcada IAM).
+ */
+export function isSelfAuthenticatedIntegrationPath(pathname: string): boolean {
+  const raw = String(pathname || '');
+  if (/%2f|%5c|\\|\.\./i.test(raw)) return false;
+  const clean = raw.replace(/\/+$/, '') || '/'; // sem toLowerCase: o roteamento do Next diferencia caixa
+  if (clean === '/api/v1' || clean.startsWith('/api/v1/')) return true;
+  if (clean === '/api/mcp') return true;
+  if (/^\/api\/oauth\/(register|authorize|token|revoke)$/.test(clean)) return true;
+  if (/^\/\.well-known\/oauth-(authorization-server|protected-resource)(\/.*)?$/.test(clean)) return true;
+  return false;
+}
+
 function matchesApiPrefix(clean: string, prefix: string): boolean {
   return clean === prefix || clean.startsWith(`${prefix}/`);
 }
@@ -377,6 +395,11 @@ export function middleware(req: NextRequest) {
         'IAM_ADMIN_FORBIDDEN'
       );
     }
+  }
+
+  // API v1 / MCP / OAuth / metadata: o handler autentica (nunca redirect HTML de login aqui).
+  if (isSelfAuthenticatedIntegrationPath(pathname)) {
+    return applySecurityHeaders(NextResponse.next(), 'integration-self-auth');
   }
 
   if (isPublicStiHubPath(pathname, req.method)) {

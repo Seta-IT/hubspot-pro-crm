@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { Pool, PoolClient } from 'pg';
 import { CrmDatabaseState, ErpCommercialProposal } from './types';
 import { createInitialSeedState } from './seed';
+import { ensureIntegrationSchema } from '../modules/integration/store-postgres';
 import { applyProposalDiff, ensureKvProposalsGuardTrigger, ensureProposalsTable, insertGcProposalsIfAbsent, isEmptyDiff, PROPOSALS_STORAGE_MARKER, type ProposalDiff } from './proposal-store';
 
 let pgPool: Pool | null = null;
@@ -216,6 +217,9 @@ export async function ensurePostgresSchema(poolOrClient?: Pool | PoolClient): Pr
   await ensureProposalsTable(executor as unknown as { query: (t: string, p?: unknown[]) => Promise<{ rows: any[] }> });
   // Trava no banco: crm_state_v1 em modo tabela nunca recebe propostas (nem de deploy antigo).
   await ensureKvProposalsGuardTrigger(executor as unknown as { query: (t: string, p?: unknown[]) => Promise<{ rows: any[] }> });
+
+  // API v1 + MCP (Fase 1): chaves de integracao, idempotencia, auditoria, rate-limit e OAuth 2.1/DCR.
+  await ensureIntegrationSchema(executor as unknown as { query: (t: string, p?: unknown[]) => Promise<{ rows: any[] }> });
 
   // Coluna aditiva usada pela gravação incremental do espelho (idempotente).
   await executor.query(
