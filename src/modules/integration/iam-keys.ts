@@ -9,6 +9,7 @@
 import { z } from 'zod/v4';
 import { verifyIamAdminSession } from './auth-context';
 import { audit, newRequestId } from './executor';
+import { scopesAboveUserAccess } from './use-cases/common';
 import { json, postgresUnavailable, problem, readSessionToken, type IntegrationHttpRequest, type IntegrationHttpResponse } from './http';
 import { resolveIntegrationDeps, type IntegrationDeps } from './runtime';
 import { moduleForScope, portfolioExceeds, PORTFOLIO_SCOPES, validateRequestedScopes } from './scopes';
@@ -70,8 +71,30 @@ export async function handleIamIntegrationKeys(req: IntegrationHttpRequest, deps
   const store = deps.store;
   if (!store) return postgresUnavailable();
   const admin = session.claims;
-  const log = (statusCode: number, action: string, keyId: string | null, errorCode: string | null = null) =>
-    audit(store, { requestId, channel: 'iam', authType: 'session', actorUserId: admin.uid, keyId, action, path, statusCode, ip: req.ip, startedAt, errorCode, now: deps.now() });
+  const log = (
+    statusCode: number,
+    action: string,
+    keyId: string | null,
+    errorCode: string | null = null,
+    extra: { targetUserId?: string | null; scope?: string | null; details?: Record<string, unknown> | null } = {}
+  ) =>
+    audit(store, {
+      requestId,
+      channel: 'iam',
+      authType: 'session',
+      actorUserId: admin.uid,
+      keyId,
+      action,
+      path,
+      statusCode,
+      ip: req.ip,
+      startedAt,
+      errorCode,
+      targetUserId: extra.targetUserId ?? null,
+      scope: extra.scope ?? null,
+      details: extra.details ?? null,
+      now: deps.now(),
+    });
 
   const m = /^\/api\/iam\/integration-keys(?:\/([A-Za-z0-9_]{1,80}))?(\/revoke)?$/.exec(path);
   if (!m) return problem(404, 'ROUTE_NOT_FOUND', 'Rota inexistente.');
@@ -121,6 +144,11 @@ export async function handleIamIntegrationKeys(req: IntegrationHttpRequest, deps
         await log(422, 'iam.integration_keys.create', null, 'MODULE_EXCEEDS_OWNER');
         return problem(422, 'MODULE_EXCEEDS_OWNER', 'moduleAccess da chave nao pode exceder o do usuario dono.', { fields: ['moduleAccess'] });
       }
+      const aboveAccess = scopesAboveUserAccess(scopes.scopes, owner);
+      if (aboveAccess.length) {
+        await log(422, 'iam.integration_keys.create', null, 'SCOPE_EXCEEDS_OWNER_ACCESS', { targetUserId: owner.id });
+        return problem(422, 'SCOPE_EXCEEDS_OWNER_ACCESS', 'Escopo acima da alcada (RBAC) do usuario dono.', { invalid: aboveAccess });
+      }
       const team = [...new Set(input.teamMemberIds || [])];
       if (team.some((t) => !snap.users.some((u) => u.id === t))) {
         await log(422, 'iam.integration_keys.create', null, 'TEAM_MEMBER_INVALID');
@@ -154,7 +182,20 @@ export async function handleIamIntegrationKeys(req: IntegrationHttpRequest, deps
         createdAt: now.toISOString(),
       };
       await store.insertApiKey(rec);
-      await log(201, 'iam.integration_keys.create', rec.id);
+      // Auditoria: dono, escopos, carteira, modulos e validade — NUNCA o segredo nem o hash.
+      await log(201, 'iam.integration_keys.create', rec.id, null, {
+        targetUserId: rec.ownerUserId,
+        scope: rec.scopes.join(' '),
+        details: {
+          ownerUserId: rec.ownerUserId,
+          scopes: rec.scopes,
+          portfolioScope: rec.portfolioScope,
+          moduleAccess: rec.moduleAccess,
+          teamMemberIds: rec.teamMemberIds,
+          keyPrefix: rec.keyPrefix,
+          expiresAt: rec.expiresAt,
+        },
+      });
       return json(201, {
         data: toPublicKey(rec),
         secret: gen.token,
@@ -171,6 +212,6 @@ export async function handleIamIntegrationKeys(req: IntegrationHttpRequest, deps
     await log(404, 'iam.integration_keys.revoke', id, 'NOT_FOUND');
     return problem(404, 'NOT_FOUND', 'Chave nao encontrada.');
   }
-  await log(200, 'iam.integration_keys.revoke', id);
+  await log(200, 'iam.integration_keys.revoke', id, null, { targetUserId: revoked.ownerUserId, scope: revoked.scopes.join(' ') });
   return json(200, { data: toPublicKey(revoked) });
 }

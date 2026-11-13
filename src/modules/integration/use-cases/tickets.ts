@@ -10,7 +10,7 @@ import type { Company, Contact, ServiceTicket, SetaDeskPipeline } from '../../..
 import { maskTicketForResponse, ticketMatchesSearchServer } from '../../../app/lib/setadesk-ticket-search';
 import { hasScope } from '../auth-context';
 import type { TicketSnapshot } from '../data-port';
-import { companyInScope, contactInScope, ticketInScope } from '../portfolio';
+import { companyInScope, contactInScope, dealInScope, ticketInScope } from '../portfolio';
 import { requireOwnerAccess, unwrapWrite } from './common';
 import {
   CursorSchema,
@@ -262,17 +262,20 @@ export const ticketsCreate = defineUseCase({
     }
     const snap = await ctx.data.snapshot('tickets');
     const lk = lookups(snap);
+    // CADA vinculo informado (contato, empresa, negocio) precisa existir E estar na carteira;
+    // inexistente ou fora da carteira => o mesmo 404 neutro (sem oraculo, sem vinculo cruzado).
     const contact = input.contactId ? lk.contact(input.contactId) : undefined;
+    if (input.contactId && (!contact || !contactInScope(ctx.portfolio, contact))) throw notFound('Contato');
     const company = input.companyId ? lk.company(input.companyId) : undefined;
-    if (input.contactId && !contact) throw new UseCaseError(422, 'LINK_NOT_FOUND', 'Contato inexistente.', { fields: ['contactId'] });
-    if (input.companyId && !company) throw new UseCaseError(422, 'LINK_NOT_FOUND', 'Empresa inexistente.', { fields: ['companyId'] });
-    if (!ctx.portfolio.all) {
-      const linked = (contact && contactInScope(ctx.portfolio, contact)) || (company && companyInScope(ctx.portfolio, company));
-      if (!linked) {
-        throw new UseCaseError(403, 'TICKET_LINK_OUT_OF_PORTFOLIO', 'Com carteira PROPRIOS/EQUIPE o chamado precisa de contato ou empresa da carteira.', {
-          fields: ['contactId', 'companyId'],
-        });
-      }
+    if (input.companyId && (!company || !companyInScope(ctx.portfolio, company))) throw notFound('Empresa');
+    if (input.dealId) {
+      const deal = snap.deals.find((d) => d.id === input.dealId);
+      if (!deal || !dealInScope(ctx.portfolio, deal)) throw notFound('Negocio');
+    }
+    if (!ctx.portfolio.all && !contact && !company) {
+      throw new UseCaseError(422, 'TICKET_LINK_REQUIRED', 'Com carteira PROPRIOS/EQUIPE o chamado precisa de contato ou empresa da carteira.', {
+        fields: ['contactId', 'companyId'],
+      });
     }
     const queue = await activeQueue(ctx, input.queue);
     const res = await ctx.data.write('POST', '/api/tickets', {
@@ -344,6 +347,16 @@ export const ticketsPatch = defineUseCase({
     if (Object.keys(patch).length === 0) throw new UseCaseError(422, 'EMPTY_PATCH', 'Nenhum campo para atualizar.');
     const snap = await ctx.data.snapshot('tickets');
     const t = findTicket(snap, ctx, id);
+    if (patch.assignee !== undefined && !ctx.portfolio.all) {
+      // Carteira PROPRIOS/EQUIPE: reatribuicao so para usuario ATIVO dentro da carteira
+      // (dono da credencial ou membro da equipe gravada). String arbitraria => 403.
+      const who = patch.assignee.trim().toLowerCase();
+      const target = snap.users.find((u) => u.active && (u.name.trim().toLowerCase() === who || u.email === who));
+      if (!target || !ctx.portfolio.ids.has(target.id)) {
+        throw new UseCaseError(403, 'ASSIGNEE_OUT_OF_PORTFOLIO', 'Responsavel fora da carteira permitida para esta credencial.', { fields: ['assignee'] });
+      }
+      patch.assignee = target.name;
+    }
     const res = await ctx.data.write('PATCH', `/api/tickets/${encodeURIComponent(t.id)}`, patch);
     const updated = unwrapWrite(res, 'chamado') as ServiceTicket;
     return { data: toTicket(ctx, updated, updated.companyId ? lookups(snap).company(updated.companyId) : undefined, true) };
@@ -416,6 +429,7 @@ export const ticketsQueuesList = defineUseCase({
   inputSchema: z.object({}).strict(),
   outputSchema: z.object({ data: z.array(QueueDto) }),
   async handler(_input, ctx) {
+    requireOwnerAccess(ctx, 'tickets', 'VIEW');
     const queues = await ctx.data.listTicketQueues();
     return {
       data: queues

@@ -6,10 +6,11 @@
 // - tools/call executa os MESMOS casos de uso Zod da API v1 (channel 'mcp'), com
 //   carteira, rate-limit, idempotencia (_meta["stihub/idempotencyKey"]) e auditoria.
 // - Sem sessao MCP (stateless): GET (SSE) e DELETE => 405.
+// - Sem batch JSON-RPC (array => 400 Invalid Request; spec 2025-06-18 e rate-limit por requisicao).
 // ============================================================================
 import { z } from 'zod/v4';
 import { authenticateBearer, hasScope, type AuthContext } from './auth-context';
-import { audit, beginIdempotency, checkRateLimit, credentialBucket, executeUseCase, finishIdempotency, newRequestId } from './executor';
+import { audit, beginIdempotency, checkRateLimit, credentialBucket, executeUseCase, finishIdempotency, newRequestId, preauthorizeUseCase } from './executor';
 import { json, postgresUnavailable, problem, type IntegrationHttpRequest, type IntegrationHttpResponse } from './http';
 import { API_V1_VERSION } from './openapi';
 import { resolveIntegrationDeps, type IntegrationDeps } from './runtime';
@@ -120,6 +121,14 @@ async function handleMessage(
       let idem: Awaited<ReturnType<typeof beginIdempotency>> = { kind: 'none' };
       if (uc.mutation) {
         const key = typeof meta['stihub/idempotencyKey'] === 'string' ? String(meta['stihub/idempotencyKey']) : undefined;
+        if (key) {
+          // Reautoriza (escopo, dono ativo, teto vivo, alcada) ANTES de olhar o cache de replay.
+          const pre = await preauthorizeUseCase(uc, auth, deps);
+          if (pre && !pre.ok) {
+            await audit(store, { requestId, channel: 'mcp', authType: auth.authType, auth, scope: uc.requiredScope, action: `tools/call:${uc.toolName}`, path: req.path, statusCode: pre.status, ip: req.ip, startedAt, errorCode: pre.code, now: deps.now() });
+            return rpcResult(id, { isError: true, content: [{ type: 'text', text: JSON.stringify({ status: pre.status, code: pre.code, title: pre.title }) }] });
+          }
+        }
         idem = await beginIdempotency(store, auth, key, 'MCP', `tools/call:${uc.toolName}`, args, deps);
         if (idem.kind === 'invalid') return rpcError(id, -32602, 'stihub/idempotencyKey invalida (8-128 caracteres A-Z a-z 0-9 _ . : -).');
         if (idem.kind === 'conflict') {
@@ -188,13 +197,9 @@ export async function handleMcp(req: IntegrationHttpRequest, depsIn?: Integratio
   }
   const headers = { ...rate.headers, 'X-Request-Id': requestId };
   if (Array.isArray(body)) {
-    if (body.length === 0 || body.length > 20) return json(400, rpcError(null, -32600, 'Invalid Request'), headers);
-    const out: object[] = [];
-    for (const msg of body) {
-      const r = await handleMessage(msg, auth, store, deps, req, requestId, startedAt);
-      if (r) out.push(r);
-    }
-    return out.length ? json(200, out, headers) : { status: 202, headers };
+    // MCP 2025-06-18 removeu o batch JSON-RPC; tambem impede contornar o rate-limit por requisicao.
+    await audit(store, { requestId, channel: 'mcp', authType: auth.authType, auth, action: 'mcp:batch_rejected', path: req.path, statusCode: 400, ip: req.ip, startedAt, errorCode: 'BATCH_NOT_SUPPORTED', now: deps.now() });
+    return json(400, rpcError(null, -32600, 'Invalid Request: batch JSON-RPC nao suportado (MCP 2025-06-18).'), headers);
   }
   const r = await handleMessage(body, auth, store, deps, req, requestId, startedAt);
   return r ? json(200, r, headers) : { status: 202, headers };

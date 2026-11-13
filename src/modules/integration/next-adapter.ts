@@ -5,14 +5,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveTrustedClientIp } from '../../api/client-ip';
 import { readBodyWithCap } from '../../app/lib/bridge-body-limit';
-import { problem, type IntegrationHttpRequest, type IntegrationHttpResponse } from './http';
+import { postgresUnavailable, problem, type IntegrationHttpRequest, type IntegrationHttpResponse } from './http';
+import { isIntegrationStoreUnavailable } from './store-errors';
+import { isProductionRuntime } from './runtime';
 
 export const INTEGRATION_MAX_BODY_BYTES = 256 * 1024;
 
-function publicOrigin(req: NextRequest): string {
-  const configured = String(process.env.STI_HUB_PUBLIC_ORIGIN || '').trim().replace(/\/+$/, '');
+export { isProductionRuntime };
+
+/**
+ * Origem publica (issuer OAuth / resource MCP). Em producao EXIGE STI_HUB_PUBLIC_ORIGIN (https)
+ * e falha fechado (null => 503) em vez de confiar no Host da requisicao.
+ */
+export function resolvePublicOrigin(fallbackOrigin: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  const configured = String(env.STI_HUB_PUBLIC_ORIGIN || '').trim().replace(/\/+$/, '');
   if (/^https:\/\/[A-Za-z0-9.-]+(:\d+)?$/.test(configured)) return configured;
-  return req.nextUrl.origin;
+  if (isProductionRuntime(env)) return null;
+  return fallbackOrigin;
 }
 
 export async function toIntegrationRequest(req: NextRequest): Promise<IntegrationHttpRequest | IntegrationHttpResponse> {
@@ -45,6 +54,11 @@ export async function toIntegrationRequest(req: NextRequest): Promise<Integratio
       }
     }
   }
+  const origin = resolvePublicOrigin(req.nextUrl.origin);
+  if (!origin) {
+    console.error('[integration] STI_HUB_PUBLIC_ORIGIN ausente/invalida em producao: rotas de integracao bloqueadas.');
+    return problem(503, 'PUBLIC_ORIGIN_NOT_CONFIGURED', 'Integracao indisponivel: origem publica (STI_HUB_PUBLIC_ORIGIN) nao configurada.', {}, { 'Retry-After': '300' });
+  }
   const cookies: Record<string, string> = {};
   const session = req.cookies.get('stihub_session')?.value;
   if (session) cookies.stihub_session = session;
@@ -56,7 +70,7 @@ export async function toIntegrationRequest(req: NextRequest): Promise<Integratio
     body,
     cookies,
     ip: resolveTrustedClientIp(req.headers) || 'sem-ip',
-    origin: publicOrigin(req),
+    origin,
   };
 }
 
@@ -83,6 +97,10 @@ export async function runIntegrationRoute(
   try {
     return toNextResponse(await handler(r as IntegrationHttpRequest));
   } catch (err) {
+    if (isIntegrationStoreUnavailable(err)) {
+      console.error('[integration] Postgres indisponivel (conexao/DNS/timeout) => 503');
+      return toNextResponse(postgresUnavailable());
+    }
     console.error('[integration] erro nao tratado', (err as Error)?.name || 'Error');
     return toNextResponse(problem(500, 'INTERNAL_ERROR', 'Erro interno.'));
   }

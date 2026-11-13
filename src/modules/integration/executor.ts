@@ -7,7 +7,9 @@ import { buildPortfolioView } from './portfolio';
 import type { IntegrationDeps } from './runtime';
 import type { AuditChannel, AuditAuthType, IntegrationStore } from './store';
 import { generateId, sha256Hex } from './tokens';
+import { isIntegrationStoreUnavailable } from './store-errors';
 import { UseCaseError, type UseCaseDefinition } from './use-cases';
+import { areasForScope, userHasAccess } from './use-cases/common';
 
 export type ExecResult =
   | { ok: true; status: number; body: unknown }
@@ -54,9 +56,57 @@ export async function executeUseCase(def: UseCaseDefinition, rawInput: unknown, 
     return { ok: true, status: def.successStatus, body: checked.data };
   } catch (err) {
     if (err instanceof UseCaseError) return { ok: false, status: err.status, code: err.code, title: err.title, extra: err.extra };
+    if (isIntegrationStoreUnavailable(err)) {
+      return { ok: false, status: 503, code: 'INTEGRATION_STORE_UNAVAILABLE', title: 'Armazenamento indisponivel (Postgres). Tente novamente.' };
+    }
     console.error('[integration] falha no caso de uso', def.operationId, (err as Error)?.name || 'Error');
     return { ok: false, status: 500, code: 'INTERNAL_ERROR', title: 'Erro interno.' };
   }
+}
+
+/**
+ * Autorizacao viva ANTES de consultar/devolver o cache de idempotencia: escopo, dono ativo,
+ * teto de carteira/modulos do dono (aplicado em `auth`) e alcada RBAC da area. Sem isso um
+ * replay poderia devolver resposta apos revogacao de escopo/modulo ou com dono inativo.
+ */
+export async function preauthorizeUseCase(def: UseCaseDefinition, auth: AuthContext, deps: IntegrationDeps): Promise<ExecResult | null> {
+  if (!hasScope(auth, def.requiredScope)) {
+    return { ok: false, status: 403, code: 'SCOPE_INSUFFICIENT', title: `Escopo insuficiente: exige ${def.requiredScope}.`, extra: { requiredScope: def.requiredScope } };
+  }
+  try {
+    const users = await deps.createDataPort().listUsers();
+    const ceiling = applyOwnerCeiling(auth, users);
+    if (!ceiling.ok) return { ok: false, status: ceiling.status, code: ceiling.code, title: ceiling.title };
+    if (!hasScope(auth, def.requiredScope)) {
+      return { ok: false, status: 403, code: 'MODULE_FORBIDDEN', title: `Modulo ${def.requiredModule} nao habilitado para esta credencial ou para o usuario dono.` };
+    }
+    const need = areasForScope(def.requiredScope);
+    if (need && !need.areas.some((a) => userHasAccess(ceiling.owner, a, need.level))) {
+      return { ok: false, status: 403, code: 'OWNER_ACCESS_INSUFFICIENT', title: 'O usuario dono desta credencial nao tem alcada para esta operacao.' };
+    }
+    return null;
+  } catch (err) {
+    if (isIntegrationStoreUnavailable(err)) {
+      return { ok: false, status: 503, code: 'INTEGRATION_STORE_UNAVAILABLE', title: 'Armazenamento indisponivel (Postgres). Tente novamente.' };
+    }
+    throw err;
+  }
+}
+
+/** Impressao digital da autorizacao efetiva (credencial, usuario, escopos, carteira, modulos, equipe). */
+export function authFingerprint(auth: AuthContext): string {
+  return sha256Hex(
+    [
+      auth.authType,
+      auth.keyId || '',
+      auth.oauthClientId || '',
+      auth.actorUserId,
+      [...auth.scopes].sort().join(' '),
+      auth.portfolioScope,
+      `crm=${auth.moduleAccess.crm ? 1 : 0};chamados=${auth.moduleAccess.chamados ? 1 : 0}`,
+      [...auth.teamMemberIds].sort().join(','),
+    ].join('|')
+  ).slice(0, 32);
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +174,9 @@ export async function beginIdempotency(
 ): Promise<IdempotencyStart> {
   if (key === undefined || key === null || key === '') return { kind: 'none' };
   if (!IDEMPOTENCY_KEY_REGEX.test(key)) return { kind: 'invalid' };
-  const actor = `${credentialBucket(auth)}`;
+  // Cache isolado por credencial + usuario + autorizacao efetiva: mudou escopo/carteira/modulo
+  // (ou outra chave/usuario) => nao enxerga a resposta guardada e executa com autorizacao nova.
+  const actor = `${credentialBucket(auth)}|${auth.actorUserId}|${authFingerprint(auth)}`;
   const now = deps.now();
   const requestHash = sha256Hex(`${method.toUpperCase()} ${path}\n${canonicalJson(body)}`);
   const existing = await store.getIdempotency(actor, key, now.toISOString());
@@ -180,6 +232,8 @@ export async function audit(
     ip: string;
     startedAt: number;
     errorCode?: string | null;
+    targetUserId?: string | null;
+    details?: Record<string, unknown> | null;
     now: Date;
   }
 ): Promise<void> {
@@ -199,6 +253,8 @@ export async function audit(
       ipAddress: e.ip ? e.ip.slice(0, 64) : null,
       latencyMs: Math.max(0, Date.now() - e.startedAt),
       errorCode: e.errorCode ? e.errorCode.slice(0, 80) : null,
+      targetUserId: e.targetUserId ?? null,
+      details: e.details ?? null,
       createdAt: e.now.toISOString(),
     });
   } catch (err) {

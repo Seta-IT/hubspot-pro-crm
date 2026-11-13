@@ -15,6 +15,7 @@ import type {
   RateLimitResult,
 } from './store';
 import { normalizeModuleAccess, sanitizeRuntimeScopes, isPortfolioScope } from './scopes';
+import { IntegrationStoreUnavailableError, isPostgresConnectivityError } from './store-errors';
 
 export interface IntegrationPgQueryable {
   query: (text: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
@@ -68,8 +69,12 @@ CREATE TABLE IF NOT EXISTS integration_audit_logs (
   ip_address TEXT,
   latency_ms INT NOT NULL DEFAULT 0,
   error_code TEXT,
+  target_user_id TEXT,
+  details JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE integration_audit_logs ADD COLUMN IF NOT EXISTS target_user_id TEXT;
+ALTER TABLE integration_audit_logs ADD COLUMN IF NOT EXISTS details JSONB;
 CREATE INDEX IF NOT EXISTS idx_integration_audit_created ON integration_audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_integration_audit_key ON integration_audit_logs(key_id);
 
@@ -215,15 +220,21 @@ export class PostgresIntegrationStore implements IntegrationStore {
 
   constructor(private readonly db: IntegrationPgQueryable) {}
 
+  /** Toda falha de conexao/DNS/timeout do Postgres vira IntegrationStoreUnavailableError (=> 503). */
   private async q(text: string, params?: unknown[]) {
-    if (!this.schemaReady) {
-      this.schemaReady = ensureIntegrationSchema(this.db).catch((err) => {
-        this.schemaReady = null;
-        throw err;
-      });
+    try {
+      if (!this.schemaReady) {
+        this.schemaReady = ensureIntegrationSchema(this.db).catch((err) => {
+          this.schemaReady = null;
+          throw err;
+        });
+      }
+      await this.schemaReady;
+      return await this.db.query(text, params);
+    } catch (err) {
+      if (isPostgresConnectivityError(err)) throw new IntegrationStoreUnavailableError();
+      throw err;
     }
-    await this.schemaReady;
-    return this.db.query(text, params);
   }
 
   async insertApiKey(k: IntegrationApiKeyRecord): Promise<void> {
@@ -312,10 +323,11 @@ export class PostgresIntegrationStore implements IntegrationStore {
   async insertAudit(e: IntegrationAuditEntry) {
     await this.q(
       `INSERT INTO integration_audit_logs (id, request_id, channel, auth_type, key_id, oauth_client_id, actor_user_id, scope,
-        action, path, status_code, ip_address, latency_ms, error_code, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        action, path, status_code, ip_address, latency_ms, error_code, target_user_id, details, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17)`,
       [e.id, e.requestId, e.channel, e.authType, e.keyId, e.oauthClientId, e.actorUserId, e.scope, e.action,
-        e.path.slice(0, 300), e.statusCode, e.ipAddress, Math.max(0, Math.round(e.latencyMs)), e.errorCode, e.createdAt]
+        e.path.slice(0, 300), e.statusCode, e.ipAddress, Math.max(0, Math.round(e.latencyMs)), e.errorCode,
+        e.targetUserId ?? null, e.details ? JSON.stringify(e.details) : null, e.createdAt]
     );
   }
 
@@ -357,6 +369,10 @@ export class PostgresIntegrationStore implements IntegrationStore {
       [c.codeHash, c.clientId, c.userId, c.redirectUri, c.scope, c.portfolioScope, JSON.stringify(c.moduleAccess),
         JSON.stringify(c.teamMemberIds), c.codeChallenge, c.codeChallengeMethod, c.expiresAt, c.usedAt, c.createdAt]
     );
+  }
+  async getAuthCode(codeHash: string) {
+    const r = await this.q(`SELECT * FROM oauth_auth_codes WHERE code_hash = $1`, [codeHash]);
+    return r.rows[0] ? rowToCode(r.rows[0]) : null;
   }
   async consumeAuthCode(codeHash: string, at: string) {
     const upd = await this.q(

@@ -4,7 +4,7 @@
 // /api/v1/openapi.json (leitura da especificacao). Erros RFC 7807.
 // ============================================================================
 import { authenticateBearer, hasScope, verifyMfaSession, type AuthContext } from './auth-context';
-import { audit, beginIdempotency, checkRateLimit, credentialBucket, executeUseCase, finishIdempotency, newRequestId } from './executor';
+import { audit, beginIdempotency, checkRateLimit, credentialBucket, executeUseCase, finishIdempotency, newRequestId, preauthorizeUseCase } from './executor';
 import { json, postgresUnavailable, problem, readSessionToken, type IntegrationHttpRequest, type IntegrationHttpResponse } from './http';
 import { getOpenApiDocument } from './openapi';
 import { resolveIntegrationDeps, type IntegrationDeps } from './runtime';
@@ -139,6 +139,14 @@ export async function handleRestV1(req: IntegrationHttpRequest, depsIn?: Integra
   }
 
   let idem: Awaited<ReturnType<typeof beginIdempotency>> = { kind: 'none' };
+  if (uc.mutation && req.headers['idempotency-key']) {
+    // Idempotency-Key e OPCIONAL; quando presente, reautoriza ANTES de olhar o cache.
+    const pre = await preauthorizeUseCase(uc, auth, deps);
+    if (pre && !pre.ok) {
+      await audit(store, { requestId, channel: 'rest_v1', authType: auth.authType, auth, scope: uc.requiredScope, action: uc.operationId, path, statusCode: pre.status, ip: req.ip, startedAt, errorCode: pre.code, now: deps.now() });
+      return withReq(problem(pre.status, pre.code, pre.title, pre.extra || {}, rate.headers), requestId);
+    }
+  }
   if (uc.mutation) {
     idem = await beginIdempotency(store, auth, req.headers['idempotency-key'], method, path, input, deps);
     if (idem.kind === 'invalid') {

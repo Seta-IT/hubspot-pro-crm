@@ -12,7 +12,7 @@ import {
   dealInScope,
   resolveAssignableOwner,
 } from '../portfolio';
-import { includesText, requireOwnerAccess, sortByUpdatedDesc, sourceMetadata, unwrapWrite } from './common';
+import { includesText, requireOwnerAccess, sortByUpdatedDesc, sourceMetadata, unwrapWrite, userHasAccess } from './common';
 import {
   CursorSchema,
   defineUseCase,
@@ -208,11 +208,14 @@ function findDeal(snap: CrmSnapshot, ctx: UseCaseContext, id: string): Deal {
   return d;
 }
 
-/** Vinculo (empresa/contato) precisa existir; nao exige estar na carteira (so referencia por id). */
-function assertExists(list: Array<{ id: string }>, id: string | null | undefined, field: string): void {
-  if (id && !list.some((x) => x.id === id)) {
-    throw new UseCaseError(422, 'LINK_NOT_FOUND', `Registro vinculado inexistente em "${field}".`, { fields: [field] });
-  }
+/**
+ * Vinculo (empresa/contato) ciente de carteira: inexistente OU fora da carteira => o MESMO 404
+ * neutro (sem oraculo de existencia e sem vincular registro de outra carteira).
+ */
+function assertLinkInScope(snap: CrmSnapshot, ctx: UseCaseContext, kind: 'contact' | 'company', id: string | null | undefined): void {
+  if (!id) return;
+  if (kind === 'contact') findContact(snap, ctx, id);
+  else findCompany(snap, ctx, id);
 }
 
 function ownerFields(ctx: UseCaseContext, requested: string | undefined) {
@@ -336,7 +339,7 @@ export const contactsCreate = defineUseCase({
   async handler(input, ctx) {
     requireOwnerAccess(ctx, 'contacts', 'EDIT');
     const snap = await crm(ctx);
-    assertExists(snap.companies, input.companyId, 'companyId');
+    assertLinkInScope(snap, ctx, 'company', input.companyId);
     const owner = ownerFields(ctx, input.ownerId);
     const res = await ctx.data.write('POST', '/api/contacts', {
       ...input,
@@ -384,7 +387,7 @@ export const contactsUpdate = defineUseCase({
     const snap = await crm(ctx);
     findContact(snap, ctx, input.id);
     const { id, ownerId, ...patch } = input;
-    assertExists(snap.companies, patch.companyId, 'companyId');
+    assertLinkInScope(snap, ctx, 'company', patch.companyId);
     const body: Record<string, unknown> = { ...patch };
     if (ownerId !== undefined) {
       const owner = ownerFields(ctx, ownerId);
@@ -690,8 +693,8 @@ export const dealsCreate = defineUseCase({
   async handler(input, ctx) {
     requireOwnerAccess(ctx, 'deals', 'EDIT');
     const snap = await crm(ctx);
-    assertExists(snap.contacts, input.contactId, 'contactId');
-    assertExists(snap.companies, input.companyId, 'companyId');
+    assertLinkInScope(snap, ctx, 'contact', input.contactId);
+    assertLinkInScope(snap, ctx, 'company', input.companyId);
     const { pipeline, stage } = resolvePipelineStage(snap, input.pipelineId, input.stageId);
     if (stage.isClosed) {
       throw new UseCaseError(422, 'STAGE_CLOSED_ON_CREATE', 'Negocio novo nao pode nascer em etapa fechada (ganho/perdido).', { fields: ['stageId'] });
@@ -753,8 +756,8 @@ export const dealsUpdate = defineUseCase({
     if (current.proposalId && (rest.title !== undefined || rest.value !== undefined)) {
       throw new UseCaseError(409, 'DEAL_LOCKED_BY_PROPOSAL', 'Negocio vinculado a proposta do ERP: titulo e valor sao definidos pela proposta.');
     }
-    assertExists(snap.contacts, rest.contactId, 'contactId');
-    assertExists(snap.companies, rest.companyId, 'companyId');
+    assertLinkInScope(snap, ctx, 'contact', rest.contactId);
+    assertLinkInScope(snap, ctx, 'company', rest.companyId);
     const body: Record<string, unknown> = { ...rest };
     if (pipelineId !== undefined || stageId !== undefined) {
       const { pipeline, stage } = resolvePipelineStage(snap, pipelineId, stageId, current);
@@ -801,14 +804,41 @@ export const activitiesList = defineUseCase({
     .strict(),
   outputSchema: listOf(ActivityDto),
   async handler(input, ctx) {
+    // Alcada granular por tipo de vinculo: so enxerga atividade ligada a area que o dono pode ver.
+    const canSee = {
+      contacts: userHasAccess(ctx.owner, 'contacts', 'VIEW'),
+      companies: userHasAccess(ctx.owner, 'companies', 'VIEW'),
+      deals: userHasAccess(ctx.owner, 'deals', 'VIEW'),
+    };
+    if (!canSee.contacts && !canSee.companies && !canSee.deals) requireOwnerAccess(ctx, 'contacts', 'VIEW');
     const snap = await crm(ctx);
+    // Filtro por entidade: exige alcada + carteira daquela entidade (404 neutro fora da carteira).
+    if (input.contactId) {
+      requireOwnerAccess(ctx, 'contacts', 'VIEW');
+      findContact(snap, ctx, input.contactId);
+    }
+    if (input.companyId) {
+      requireOwnerAccess(ctx, 'companies', 'VIEW');
+      findCompany(snap, ctx, input.companyId);
+    }
+    if (input.dealId) {
+      requireOwnerAccess(ctx, 'deals', 'VIEW');
+      findDeal(snap, ctx, input.dealId);
+    }
     const contacts = new Map(snap.contacts.map((c) => [c.id, c]));
     const companies = new Map(snap.companies.map((c) => [c.id, c]));
     const deals = new Map(snap.deals.map((d) => [d.id, d]));
-    const lookup = { contact: (i: string) => contacts.get(i), company: (i: string) => companies.get(i), deal: (i: string) => deals.get(i) };
+    const lookup = {
+      contact: (i: string) => (canSee.contacts ? contacts.get(i) : undefined),
+      company: (i: string) => (canSee.companies ? companies.get(i) : undefined),
+      deal: (i: string) => (canSee.deals ? deals.get(i) : undefined),
+    };
+    const visibleByAccess = (e: { contactId?: string | null; companyId?: string | null; dealId?: string | null }) =>
+      (!!e.contactId && canSee.contacts) || (!!e.companyId && canSee.companies) || (!!e.dealId && canSee.deals);
     const rows = [...snap.timeline]
       .filter(
         (e) =>
+          visibleByAccess(e) &&
           activityInScope(ctx.portfolio, e, lookup) &&
           (!input.contactId || e.contactId === input.contactId) &&
           (!input.companyId || e.companyId === input.companyId) &&
@@ -851,6 +881,10 @@ export const activitiesCreate = defineUseCase({
     if (!input.contactId && !input.companyId && !input.dealId) {
       throw new UseCaseError(422, 'ACTIVITY_LINK_REQUIRED', 'Informe contactId, companyId ou dealId.', { fields: ['contactId', 'companyId', 'dealId'] });
     }
+    // Alcada de escrita por tipo de vinculo + vinculo dentro da carteira (404 neutro).
+    if (input.contactId) requireOwnerAccess(ctx, 'contacts', 'EDIT');
+    if (input.companyId) requireOwnerAccess(ctx, 'companies', 'EDIT');
+    if (input.dealId) requireOwnerAccess(ctx, 'deals', 'EDIT');
     const snap = await crm(ctx);
     if (input.contactId) findContact(snap, ctx, input.contactId);
     if (input.companyId) findCompany(snap, ctx, input.companyId);
@@ -890,6 +924,8 @@ export const pipelinesList = defineUseCase({
   inputSchema: z.object({}).strict(),
   outputSchema: z.object({ data: z.array(PipelineDto) }),
   async handler(_input, ctx) {
+    // Pipelines = estrutura do funil de negocios: exige alcada de leitura em negocios.
+    requireOwnerAccess(ctx, 'deals', 'VIEW');
     const snap = await crm(ctx);
     return {
       data: snap.pipelines.map((p) => ({

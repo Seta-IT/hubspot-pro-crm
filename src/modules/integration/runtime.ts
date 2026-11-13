@@ -9,6 +9,11 @@ import { RouterDataPort, type IntegrationDataPort } from './data-port';
 import type { IntegrationStore } from './store';
 import { PostgresIntegrationStore } from './store-postgres';
 
+/** Producao = NODE_ENV=production ou VERCEL=1 (preview/producao na Vercel). */
+export function isProductionRuntime(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.NODE_ENV === 'production' || env.VERCEL === '1';
+}
+
 export interface IntegrationLimits {
   /** Requisicoes por minuto por credencial. */
   perCredentialPerMinute: number;

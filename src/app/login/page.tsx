@@ -22,6 +22,7 @@ import {
 } from '../lib/auth';
 import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
 import { NEW_PASSWORD_MIN_LENGTH, NEW_PASSWORD_MIN_MESSAGE, NEW_PASSWORD_PLACEHOLDER } from '../lib/password-policy';
+import { sanitizeLoginNext } from '../lib/safe-next';
 
 export default function StiHubLoginPage() {
   const [step, setStep] = useState<'CREDENTIALS' | 'INVITE_PASSWORD' | 'MFA_2FA'>('CREDENTIALS');
@@ -117,13 +118,8 @@ export default function StiHubLoginPage() {
       document.cookie = `stihub_totp_enrolled_r1=${encodeURIComponent(verifiedEmail)}; Path=/; Max-Age=31536000; SameSite=Lax`;
     }
     const params = new URLSearchParams(window.location.search);
-    const rawNext = params.get('next') || '/';
-    const nextUrl =
-      rawNext.startsWith('/') &&
-      !rawNext.startsWith('/login') &&
-      !rawNext.startsWith('/convite')
-        ? rawNext
-        : '/';
+    // Anti open redirect: so caminho da MESMA origem (rejeita //evil.com, /\evil.com, controle).
+    const nextUrl = sanitizeLoginNext(params.get('next'), '/');
     window.location.assign(nextUrl);
   };
 

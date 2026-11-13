@@ -96,6 +96,10 @@ export class TestOnlyMemoryIntegrationStore implements IntegrationStore {
   async insertAuthCode(rec: OAuthAuthCodeRecord) {
     this.codes.set(rec.codeHash, clone(rec));
   }
+  async getAuthCode(codeHash: string) {
+    const c = this.codes.get(codeHash);
+    return c ? clone(c) : null;
+  }
   async consumeAuthCode(codeHash: string, at: string) {
     const c = this.codes.get(codeHash);
     if (!c) return null;

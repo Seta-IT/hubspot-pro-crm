@@ -23,6 +23,15 @@ import { buildOpenApiDocument } from '../src/modules/integration/openapi';
 import { INTEGRATION_USE_CASES } from '../src/modules/integration/use-cases';
 import { INTEGRATION_SCHEMA_SQL } from '../src/modules/integration/store-postgres';
 import { isBlockedScope, validateRequestedScopes } from '../src/modules/integration/scopes';
+import fs from 'node:fs';
+import { Pool } from 'pg';
+import { sanitizeLoginNext } from '../src/app/lib/safe-next';
+import { csrfFor, verifyCsrf, isRedirectUriAllowedForRegistration, cspSourceForRedirect, oauthPortfolioOptions } from '../src/modules/integration/oauth';
+import { resolvePublicOrigin, runIntegrationRoute } from '../src/modules/integration/next-adapter';
+import { PostgresIntegrationStore } from '../src/modules/integration/store-postgres';
+import { IntegrationStoreUnavailableError, isPostgresConnectivityError } from '../src/modules/integration/store-errors';
+import { requireOwnerAccess } from '../src/modules/integration/use-cases/common';
+import { authFingerprint } from '../src/modules/integration/executor';
 
 const ORIGIN = 'https://stihub.test';
 const sha = (t: string) => createHash('sha256').update(t).digest('hex');
@@ -438,7 +447,10 @@ describe('portfolioScope e moduleAccess aplicados no servidor (CRM e Chamados)',
     const patch = await handleRestV1(req('PATCH', `/api/v1/tickets/${env.ids.tAna}`, { headers: bearer(bruno), body: { status: 'IN_PROGRESS' } }), env.deps);
     assert.equal(patch.status, 404);
     const createOut = await handleRestV1(req('POST', '/api/v1/tickets', { headers: bearer(bruno), body: { queue: 'TEC', subject: 'x', companyId: env.ids.coCarla } }), env.deps);
-    assert.equal(createOut.status, 403);
+    assert.equal(createOut.status, 404);
+    const noLink = await handleRestV1(req('POST', '/api/v1/tickets', { headers: bearer(bruno), body: { queue: 'TEC', subject: 'x' } }), env.deps);
+    assert.equal(noLink.status, 422);
+    assert.equal(body(noLink).code, 'TICKET_LINK_REQUIRED');
     const ana = await keyFor(env, 'usr-ana', 'PROPRIOS', ['tickets:read']);
     const anaList = await handleRestV1(req('GET', '/api/v1/tickets', { headers: bearer(ana) }), env.deps);
     const anaIds = body(anaList).data.map((t: { id: string }) => t.id);
@@ -762,9 +774,10 @@ describe('OAuth 2.1 + DCR + MCP remoto', () => {
     const found = body(list).result.structuredContent.data;
     assert.ok(found.some((t: { id: string; subject: string }) => t.id === env.ids.tAna && !t.subject.includes(CNPJ_RAW)));
     assert.ok(env.store.audit.filter((a) => a.channel === 'mcp' && a.keyId).length >= 3);
-    // batch JSON-RPC
+    // batch JSON-RPC nao suportado (MCP 2025-06-18)
     const batch = await handleMcp(rpc(key, [{ jsonrpc: '2.0', id: 'a', method: 'ping' }, { jsonrpc: '2.0', method: 'notifications/initialized' }]), env.deps);
-    assert.equal((body(batch) as unknown[]).length, 1);
+    assert.equal(batch.status, 400);
+    assert.equal(body(batch).error.code, -32600);
   });
 });
 
@@ -800,5 +813,628 @@ describe('Middleware: rotas de integracao sem redirect HTML; IAM integration-key
     assert.equal(run('/api/iam/integration-keys', { cookie: `stihub_session=${session({ ...ADMIN, mfa: false })}` }).status, 401);
     const ok = run('/api/iam/integration-keys', { cookie: `stihub_session=${session(ADMIN)}` }, 'POST');
     assert.ok(ok.status < 300);
+  });
+});
+
+
+// ============================================================================
+// PARECER CISO (Fase 1) — bloqueios obrigatorios + complemento
+// ============================================================================
+const userRec = (env: Env, id: string) => env.repo.getRbacState().users.find((u) => u.id === id)!;
+const setAccess = (env: Env, id: string, patch: Record<string, string | undefined>) => {
+  const u = userRec(env, id);
+  const perms = { ...(u.crmPermissions as unknown as Record<string, unknown>) };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) delete perms[k];
+    else perms[k] = v;
+  }
+  u.crmPermissions = perms as never;
+};
+const noReqId = (b: any) => {
+  const { requestId, ...rest } = b || {};
+  void requestId;
+  return rest;
+};
+
+describe('CISO #1: /login?next= sem open redirect', () => {
+  it('rejeita //evil.com, /\\evil.com, absolutas, controle e loops; preserva caminho local', () => {
+    for (const bad of [
+      '//evil.com',
+      '//evil.com/path',
+      '/\\evil.com',
+      '\\\\evil.com',
+      '/\\/evil.com',
+      'https://evil.com',
+      'javascript:alert(1)',
+      '/\t/evil.com',
+      '/\n/evil.com',
+      ' /x',
+      '/%2F%2Fevil.com',
+      '/%5Cevil.com',
+      '/login?next=/x',
+      '/convite',
+      '',
+      'evil.com',
+    ]) {
+      assert.equal(sanitizeLoginNext(bad), '/', JSON.stringify(bad));
+    }
+    assert.equal(sanitizeLoginNext(null), '/');
+    assert.equal(sanitizeLoginNext('/'), '/');
+    assert.equal(sanitizeLoginNext('/crm?tela=deals#topo'), '/crm?tela=deals#topo');
+    const oauthNext = '/api/oauth/authorize?response_type=code&client_id=stihub_ocl_abc&redirect_uri=https%3A%2F%2Fclient.example%2Fcb';
+    assert.equal(sanitizeLoginNext(oauthNext), oauthNext);
+  });
+
+  it('a tela de login usa o sanitizador estrito (sem startsWith("/"))', () => {
+    const src = fs.readFileSync('src/app/login/page.tsx', 'utf8');
+    assert.match(src, /sanitizeLoginNext\(params\.get\('next'\), '\/'\)/);
+    assert.ok(!/rawNext\.startsWith\('\/'\)/.test(src));
+  });
+});
+
+describe('CISO #2: vinculo fora da carteira => 404 neutro (sem oraculo)', () => {
+  it('contatos: companyId fora da carteira e inexistente dao a MESMA resposta 404, sem gravar', async () => {
+    const env = makeEnv();
+    const key = await keyFor(env, 'usr-bruno', 'PROPRIOS', ALL_CRM);
+    const before = env.repo.listContacts().length;
+    const out = await handleRestV1(req('POST', '/api/v1/contacts', { headers: bearer(key), body: { firstName: 'X', companyId: env.ids.coCarla } }), env.deps);
+    const missing = await handleRestV1(req('POST', '/api/v1/contacts', { headers: bearer(key), body: { firstName: 'X', companyId: 'co-nao-existe-123' } }), env.deps);
+    assert.equal(out.status, 404);
+    assert.equal(missing.status, 404);
+    assert.deepEqual(noReqId(body(out)), noReqId(body(missing)));
+    assert.equal(env.repo.listContacts().length, before);
+    const patch = await handleRestV1(req('PATCH', `/api/v1/contacts/${env.ids.cBruno}`, { headers: bearer(key), body: { companyId: env.ids.coCarla } }), env.deps);
+    assert.equal(patch.status, 404);
+    assert.notEqual(env.repo.listContacts().find((c) => c.id === env.ids.cBruno)!.companyId, env.ids.coCarla);
+  });
+
+  it('negocios: contactId/companyId fora da carteira => 404 no create e no update', async () => {
+    const env = makeEnv();
+    const key = await keyFor(env, 'usr-bruno', 'PROPRIOS', ALL_CRM);
+    const c1 = await handleRestV1(req('POST', '/api/v1/deals', { headers: bearer(key), body: { title: 'D', value: 10, contactId: env.ids.cCarla } }), env.deps);
+    const c2 = await handleRestV1(req('POST', '/api/v1/deals', { headers: bearer(key), body: { title: 'D', value: 10, contactId: 'ct-nao-existe-1' } }), env.deps);
+    assert.equal(c1.status, 404);
+    assert.deepEqual(noReqId(body(c1)), noReqId(body(c2)));
+    const c3 = await handleRestV1(req('POST', '/api/v1/deals', { headers: bearer(key), body: { title: 'D', value: 10, companyId: env.ids.coCarla } }), env.deps);
+    assert.equal(c3.status, 404);
+    const own = await handleRestV1(req('POST', '/api/v1/deals', { headers: bearer(key), body: { title: 'Deal do Bruno', value: 10, contactId: env.ids.cBruno } }), env.deps);
+    assert.equal(own.status, 201, JSON.stringify(own.body));
+    const upd = await handleRestV1(req('PATCH', `/api/v1/deals/${body(own).data.id}`, { headers: bearer(key), body: { companyId: env.ids.coCarla } }), env.deps);
+    assert.equal(upd.status, 404);
+    const upd2 = await handleRestV1(req('PATCH', `/api/v1/deals/${body(own).data.id}`, { headers: bearer(key), body: { contactId: env.ids.cCarla } }), env.deps);
+    assert.equal(upd2.status, 404);
+    // TODOS: inexistente tambem e 404 (nao mais 422 LINK_NOT_FOUND)
+    const all = await keyFor(env, 'usr-api-admin', 'TODOS', ALL_CRM);
+    const allMissing = await handleRestV1(req('POST', '/api/v1/deals', { headers: bearer(all), body: { title: 'D', value: 10, companyId: 'co-nao-existe-9' } }), env.deps);
+    assert.equal(allMissing.status, 404);
+  });
+
+  it('chamados: companyId e dealId validados na carteira mesmo com contactId valido', async () => {
+    const env = makeEnv();
+    const key = await keyFor(env, 'usr-ana', 'PROPRIOS', ['tickets:read', 'tickets:write']);
+    const count = env.repo.listServiceTickets().length;
+    const co = await handleRestV1(req('POST', '/api/v1/tickets', { headers: bearer(key), body: { queue: 'TEC', subject: 'x', contactId: env.ids.cAna, companyId: env.ids.coCarla } }), env.deps);
+    assert.equal(co.status, 404);
+    const dealOut = await handleRestV1(req('POST', '/api/v1/tickets', { headers: bearer(key), body: { queue: 'TEC', subject: 'x', contactId: env.ids.cAna, dealId: env.ids.dCarla } }), env.deps);
+    const dealMissing = await handleRestV1(req('POST', '/api/v1/tickets', { headers: bearer(key), body: { queue: 'TEC', subject: 'x', contactId: env.ids.cAna, dealId: 'deal-nao-existe-1' } }), env.deps);
+    assert.equal(dealOut.status, 404);
+    assert.deepEqual(noReqId(body(dealOut)), noReqId(body(dealMissing)));
+    const contactOut = await handleRestV1(req('POST', '/api/v1/tickets', { headers: bearer(key), body: { queue: 'TEC', subject: 'x', contactId: env.ids.cCarla, companyId: env.ids.coAna } }), env.deps);
+    assert.equal(contactOut.status, 404);
+    assert.equal(env.repo.listServiceTickets().length, count);
+    const ok = await handleRestV1(req('POST', '/api/v1/tickets', { headers: bearer(key), body: { queue: 'TEC', subject: 'ok', contactId: env.ids.cAna, companyId: env.ids.coAna, dealId: env.ids.dAna } }), env.deps);
+    assert.equal(ok.status, 201, JSON.stringify(ok.body));
+    assert.equal(body(ok).data.dealId, env.ids.dAna);
+  });
+});
+
+describe('CISO #3 + complemento #5: alcada granular (requireOwnerAccess fail-closed) e assignee', () => {
+  it('requireOwnerAccess nega quando a alcada vem ausente (nao libera tudo)', () => {
+    assert.throws(() => requireOwnerAccess({ owner: { crmAccess: {} } } as never, 'contacts', 'VIEW'), (e: any) => e.status === 403 && e.code === 'OWNER_ACCESS_INSUFFICIENT');
+    assert.throws(() => requireOwnerAccess({ owner: { crmAccess: { deals: 'ALGO' } } } as never, 'deals', 'VIEW'));
+    assert.doesNotThrow(() => requireOwnerAccess({ owner: { crmAccess: { deals: 'VIEW' } } } as never, 'deals', 'VIEW'));
+  });
+
+  it('alcada ausente no cadastro => preset restrito do papel', async () => {
+    const env = makeEnv();
+    const key = await keyFor(env, 'usr-bruno', 'PROPRIOS', ['crm:pipelines:read']);
+    setAccess(env, 'usr-bruno', { dealsFunnelAccess: undefined }); // VENDEDOR_SALES => EDIT
+    assert.equal((await handleRestV1(req('GET', '/api/v1/pipelines', { headers: bearer(key) }), env.deps)).status, 200);
+    userRec(env, 'usr-bruno').roleId = 'PAPEL_DESCONHECIDO' as never; // default => deals NONE
+    const denied = await handleRestV1(req('GET', '/api/v1/pipelines', { headers: bearer(key) }), env.deps);
+    assert.equal(denied.status, 403);
+    assert.equal(body(denied).code, 'OWNER_ACCESS_INSUFFICIENT');
+  });
+
+  it('pipelines exige deals VIEW; filas exigem tickets VIEW', async () => {
+    const env = makeEnv();
+    const key = await keyFor(env, 'usr-bruno', 'PROPRIOS', ['crm:pipelines:read', 'tickets:read']);
+    setAccess(env, 'usr-bruno', { dealsFunnelAccess: 'NONE', ticketsServiceDeskAccess: 'NONE' });
+    assert.equal((await handleRestV1(req('GET', '/api/v1/pipelines', { headers: bearer(key) }), env.deps)).status, 403);
+    const q = await handleRestV1(req('GET', '/api/v1/tickets/queues', { headers: bearer(key) }), env.deps);
+    assert.equal(q.status, 403);
+    assert.equal(body(q).code, 'OWNER_ACCESS_INSUFFICIENT');
+    setAccess(env, 'usr-bruno', { dealsFunnelAccess: 'VIEW', ticketsServiceDeskAccess: 'VIEW' });
+    assert.equal((await handleRestV1(req('GET', '/api/v1/pipelines', { headers: bearer(key) }), env.deps)).status, 200);
+    assert.equal((await handleRestV1(req('GET', '/api/v1/tickets/queues', { headers: bearer(key) }), env.deps)).status, 200);
+  });
+
+  it('atividades: alcada por tipo de vinculo na listagem, no filtro e na criacao', async () => {
+    const env = makeEnv();
+    const key = await keyFor(env, 'usr-bruno', 'PROPRIOS', ['crm:activities:read', 'crm:activities:write', 'crm:deals:write', 'crm:deals:read']);
+    const deal = env.repo.createDeal({ title: 'Deal Bruno', value: 5, ownerId: 'usr-bruno', ownerName: 'Bruno Vendas' });
+    const onContact = await handleRestV1(req('POST', '/api/v1/activities', { headers: bearer(key), body: { type: 'NOTE', title: 'nota contato', contactId: env.ids.cBruno } }), env.deps);
+    const onDeal = await handleRestV1(req('POST', '/api/v1/activities', { headers: bearer(key), body: { type: 'NOTE', title: 'nota deal', dealId: deal.id } }), env.deps);
+    assert.equal(onContact.status, 201);
+    assert.equal(onDeal.status, 201);
+    setAccess(env, 'usr-bruno', { contactsAccess: 'NONE' });
+    const list = await handleRestV1(req('GET', '/api/v1/activities', { headers: bearer(key), query: { limit: '100' } }), env.deps);
+    const ids = body(list).data.map((a: { id: string }) => a.id);
+    assert.ok(ids.includes(body(onDeal).data.id));
+    assert.ok(!ids.includes(body(onContact).data.id));
+    const filtered = await handleRestV1(req('GET', '/api/v1/activities', { headers: bearer(key), query: { contactId: env.ids.cBruno } }), env.deps);
+    assert.equal(filtered.status, 403);
+    const create = await handleRestV1(req('POST', '/api/v1/activities', { headers: bearer(key), body: { type: 'NOTE', title: 'x', contactId: env.ids.cBruno } }), env.deps);
+    assert.equal(create.status, 403);
+    setAccess(env, 'usr-bruno', { contactsAccess: 'EDIT' });
+    const outOfScope = await handleRestV1(req('GET', '/api/v1/activities', { headers: bearer(key), query: { contactId: env.ids.cCarla } }), env.deps);
+    assert.equal(outOfScope.status, 404);
+    setAccess(env, 'usr-bruno', { contactsAccess: 'NONE', companiesAccess: 'NONE', dealsFunnelAccess: 'NONE' });
+    assert.equal((await handleRestV1(req('GET', '/api/v1/activities', { headers: bearer(key) }), env.deps)).status, 403);
+  });
+
+  it('ticketsPatch: assignee fora da carteira => 403; dentro (dono/equipe) => 200; TODOS livre', async () => {
+    const env = makeEnv();
+    const key = await keyFor(env, 'usr-ana', 'PROPRIOS', ['tickets:read', 'tickets:write']);
+    for (const who of ['Carla Outra', 'carla@seta.test', 'Fulano Arbitrario']) {
+      const r = await handleRestV1(req('PATCH', `/api/v1/tickets/${env.ids.tAna}`, { headers: bearer(key), body: { assignee: who } }), env.deps);
+      assert.equal(r.status, 403, who);
+      assert.equal(body(r).code, 'ASSIGNEE_OUT_OF_PORTFOLIO');
+    }
+    const self = await handleRestV1(req('PATCH', `/api/v1/tickets/${env.ids.tAna}`, { headers: bearer(key), body: { assignee: 'ana@seta.test' } }), env.deps);
+    assert.equal(self.status, 200);
+    assert.equal(env.repo.getServiceTicketById(env.ids.tAna)!.assignee, 'Ana Vendas');
+    const team = await keyFor(env, 'usr-ana', 'EQUIPE', ['tickets:read', 'tickets:write'], { teamMemberIds: ['usr-bruno'] });
+    const toBruno = await handleRestV1(req('PATCH', `/api/v1/tickets/${env.ids.tAna}`, { headers: bearer(team), body: { assignee: 'Bruno Vendas' } }), env.deps);
+    assert.equal(toBruno.status, 200);
+    userRec(env, 'usr-bruno').active = false;
+    const inactive = await handleRestV1(req('PATCH', `/api/v1/tickets/${env.ids.tAna}`, { headers: bearer(team), body: { assignee: 'Bruno Vendas' } }), env.deps);
+    assert.equal(inactive.status, 403);
+    const all = await keyFor(env, 'usr-api-admin', 'TODOS', ['tickets:read', 'tickets:write']);
+    const free = await handleRestV1(req('PATCH', `/api/v1/tickets/${env.ids.tAna}`, { headers: bearer(all), body: { assignee: 'Agente Externo NOC' } }), env.deps);
+    assert.equal(free.status, 200);
+  });
+});
+
+async function registerClient(env: Env, extra: Record<string, unknown> = {}) {
+  const r = await handleOAuth(req('POST', '/api/oauth/register', { body: { client_name: 'Cliente Teste', redirect_uris: ['https://client.example/callback'], ...extra } }), env.deps);
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  return body(r) as { client_id: string; client_secret?: string; redirect_uris: string[] };
+}
+
+function authorizeQuery(clientId: string, scope: string, redirect = 'https://client.example/callback', challenge = pkcePair().challenge) {
+  return { response_type: 'code', client_id: clientId, redirect_uri: redirect, scope, state: 'st-1', code_challenge: challenge, code_challenge_method: 'S256' };
+}
+
+describe('CISO #4 + complemento #1/#2/#4: OAuth 2.1 endurecido', () => {
+  it('authorize: usuario inativo => 403 limpando a sessao, sem emitir code', async () => {
+    const env = makeEnv();
+    const c = await registerClient(env);
+    userRec(env, 'usr-ana').active = false;
+    const q = authorizeQuery(c.client_id, 'crm:contacts:read');
+    const get = await handleOAuth(req('GET', '/api/oauth/authorize', { query: q, session: session(ANA) }), env.deps);
+    assert.equal(get.status, 403);
+    assert.match(get.headers['Set-Cookie'], /stihub_session=;.*Max-Age=0/);
+    const post = await handleOAuth(req('POST', '/api/oauth/authorize', { session: session(ANA), body: { ...q, decision: 'approve', csrf: 'x' } }), env.deps);
+    assert.equal(post.status, 403);
+    assert.equal(env.store.codes.size, 0);
+  });
+
+  it('authorize: teto vivo (carteira/modulos) e sem opcao EQUIPE no consentimento', async () => {
+    assert.deepEqual(oauthPortfolioOptions('TODOS'), ['PROPRIOS', 'TODOS']);
+    assert.deepEqual(oauthPortfolioOptions('EQUIPE'), ['PROPRIOS']);
+    assert.deepEqual(oauthPortfolioOptions('PROPRIOS'), ['PROPRIOS']);
+    const env = makeEnv();
+    const c = await registerClient(env);
+    // Admin TODOS: PROPRIOS ou TODOS, nunca EQUIPE
+    const adminPage = await handleOAuth(req('GET', '/api/oauth/authorize', { query: authorizeQuery(c.client_id, 'crm:contacts:read'), session: session(ADMIN) }), env.deps);
+    assert.match(adminPage.text!, /<option value="TODOS"/);
+    assert.ok(!adminPage.text!.includes('value="EQUIPE"'));
+    // Sessao assinada diz TODOS, cadastro vivo diz EQUIPE => so PROPRIOS
+    const anaTodos = session({ ...ANA, scope: 'TODOS' });
+    const anaPage = await handleOAuth(req('GET', '/api/oauth/authorize', { query: authorizeQuery(c.client_id, 'crm:contacts:read'), session: anaTodos }), env.deps);
+    assert.equal(anaPage.status, 200);
+    assert.ok(!anaPage.text!.includes('value="TODOS"') && !anaPage.text!.includes('value="EQUIPE"'));
+    // POST forjando TODOS/EQUIPE => PROPRIOS
+    const { verifier, challenge } = pkcePair();
+    const q = authorizeQuery(c.client_id, 'crm:contacts:read', undefined, challenge);
+    const page = await handleOAuth(req('GET', '/api/oauth/authorize', { query: q, session: anaTodos }), env.deps);
+    const csrf = /name="csrf" value="([^"]+)"/.exec(page.text!)![1];
+    const post = await handleOAuth(req('POST', '/api/oauth/authorize', { session: anaTodos, body: { ...q, csrf, decision: 'approve', portfolio_scope: 'TODOS' } }), env.deps);
+    assert.equal(post.status, 302);
+    const code = new URL(post.redirect!).searchParams.get('code')!;
+    assert.equal(env.store.codes.get(sha(code))!.portfolioScope, 'PROPRIOS');
+    void verifier;
+    // admin forjando EQUIPE => PROPRIOS
+    const q2 = authorizeQuery(c.client_id, 'crm:contacts:read');
+    const adminSess = session(ADMIN);
+    const p2 = await handleOAuth(req('GET', '/api/oauth/authorize', { query: q2, session: adminSess }), env.deps);
+    const csrf2 = /name="csrf" value="([^"]+)"/.exec(p2.text!)![1];
+    const post2 = await handleOAuth(req('POST', '/api/oauth/authorize', { session: adminSess, body: { ...q2, csrf: csrf2, decision: 'approve', portfolio_scope: 'EQUIPE' } }), env.deps);
+    const code2 = new URL(post2.redirect!).searchParams.get('code')!;
+    assert.equal(env.store.codes.get(sha(code2))!.portfolioScope, 'PROPRIOS');
+    // modulo vivo: cadastro sem Chamados (sessao ainda diz chamados=true) => invalid_scope
+    userRec(env, 'usr-ana').moduleAccess = { crm: true, erp: false, chamados: false };
+    const noTickets = await handleOAuth(req('GET', '/api/oauth/authorize', { query: authorizeQuery(c.client_id, 'tickets:read'), session: session(ANA) }), env.deps);
+    assert.equal(new URL(noTickets.redirect!).searchParams.get('error'), 'invalid_scope');
+    // RBAC (alcada) no consentimento: contatos NONE => invalid_scope
+    setAccess(env, 'usr-ana', { contactsAccess: 'NONE' });
+    const noContacts = await handleOAuth(req('GET', '/api/oauth/authorize', { query: authorizeQuery(c.client_id, 'crm:contacts:read'), session: session(ANA) }), env.deps);
+    assert.equal(new URL(noContacts.redirect!).searchParams.get('error'), 'invalid_scope');
+  });
+
+  it('CSRF vinculado a redirect_uri, escopos e code_challenge; rate-limit no authorize', async () => {
+    const binding = { sessionToken: 's', clientId: 'c', redirectUri: 'https://a.example/cb', scopes: ['tickets:read', 'crm:contacts:read'], codeChallenge: 'x'.repeat(43) };
+    const t = csrfFor(binding, Date.now());
+    assert.ok(verifyCsrf(t, { ...binding, scopes: ['crm:contacts:read', 'tickets:read'] }, Date.now()));
+    assert.ok(!verifyCsrf(t, { ...binding, redirectUri: 'https://b.example/cb' }, Date.now()));
+    assert.ok(!verifyCsrf(t, { ...binding, scopes: ['crm:contacts:read'] }, Date.now()));
+    assert.ok(!verifyCsrf(t, { ...binding, codeChallenge: 'y'.repeat(43) }, Date.now()));
+
+    const env = makeEnv();
+    const c = await registerClient(env, { redirect_uris: ['https://client.example/callback', 'https://client.example/other'], scope: 'crm:contacts:read tickets:read' });
+    const q = authorizeQuery(c.client_id, 'crm:contacts:read');
+    const sess = session(ANA);
+    const page = await handleOAuth(req('GET', '/api/oauth/authorize', { query: q, session: sess }), env.deps);
+    const csrf = /name="csrf" value="([^"]+)"/.exec(page.text!)![1];
+    for (const tampered of [
+      { ...q, scope: 'crm:contacts:read tickets:read' },
+      { ...q, redirect_uri: 'https://client.example/other' },
+      { ...q, code_challenge: pkcePair().challenge },
+    ]) {
+      const r = await handleOAuth(req('POST', '/api/oauth/authorize', { session: sess, body: { ...tampered, csrf, decision: 'approve' } }), env.deps);
+      assert.equal(r.status, 403);
+    }
+    const ok = await handleOAuth(req('POST', '/api/oauth/authorize', { session: sess, body: { ...q, csrf, decision: 'approve' } }), env.deps);
+    assert.equal(ok.status, 302);
+
+    const limited = makeEnv({ oauthPerIpPerMinute: 2 });
+    const c2 = await registerClient(limited);
+    const q2 = authorizeQuery(c2.client_id, 'crm:contacts:read');
+    assert.equal((await handleOAuth(req('GET', '/api/oauth/authorize', { query: q2, session: session(ANA) }), limited.deps)).status, 200);
+    assert.equal((await handleOAuth(req('POST', '/api/oauth/authorize', { session: session(ANA), body: { ...q2, csrf: 'bad', decision: 'approve' } }), limited.deps)).status, 403);
+    const blocked = await handleOAuth(req('GET', '/api/oauth/authorize', { query: q2, session: session(ANA) }), limited.deps);
+    assert.equal(blocked.status, 429);
+    assert.ok(blocked.headers['Retry-After']);
+    const blockedPost = await handleOAuth(req('POST', '/api/oauth/authorize', { session: session(ANA), body: { ...q2, csrf: 'x', decision: 'approve' } }), limited.deps);
+    assert.equal(blockedPost.status, 429);
+  });
+
+  it('Basic malformado e cliente publico com Basic => 401 invalid_client (nunca 500)', async () => {
+    const env = makeEnv();
+    const pub = await registerClient(env);
+    const conf = await registerClient(env, { token_endpoint_auth_method: 'client_secret_basic' });
+    const b64 = (t: string) => Buffer.from(t, 'utf8').toString('base64');
+    for (const authz of [
+      'Basic %%%invalido',
+      `Basic ${b64(`${conf.client_id}:%E0%A4%A`)}`,
+      `Basic ${b64('%E0%A4%A:segredo')}`,
+      `Basic ${b64('sem-dois-pontos')}`,
+      'Basic',
+      `Basic ${b64(`${pub.client_id}:`)}`,
+      `Basic ${b64(`${pub.client_id}:qualquer`)}`,
+    ]) {
+      const r = await handleOAuth(req('POST', '/api/oauth/token', { headers: { authorization: authz }, body: { grant_type: 'refresh_token', refresh_token: 'stihub_ort_' + 'a'.repeat(43), client_id: pub.client_id } }), env.deps);
+      assert.equal(r.status, 401, authz);
+      assert.equal(body(r).error, 'invalid_client', authz);
+    }
+    const good = await handleOAuth(req('POST', '/api/oauth/revoke', { headers: { authorization: `Basic ${b64(`${conf.client_id}:${conf.client_secret}`)}` }, body: { token: 'x' } }), env.deps);
+    assert.equal(good.status, 200);
+  });
+
+  it('code: cliente/PKCE errados NAO consomem o codigo nem derrubam a concessao', async () => {
+    const env = makeEnv();
+    const redirect = 'https://client.example/callback';
+    const c = await registerClient(env);
+    const other = await registerClient(env);
+    const { code, verifier } = await oauthAuthorize(env, c.client_id, redirect, 'crm:contacts:read');
+    const wrongPkce = await handleOAuth(tokenReq({ grant_type: 'authorization_code', client_id: c.client_id, code, redirect_uri: redirect, code_verifier: pkcePair().verifier }), env.deps);
+    assert.equal(body(wrongPkce).error, 'invalid_grant');
+    const wrongClient = await handleOAuth(tokenReq({ grant_type: 'authorization_code', client_id: other.client_id, code, redirect_uri: redirect, code_verifier: verifier }), env.deps);
+    assert.equal(body(wrongClient).error, 'invalid_grant');
+    assert.equal(env.store.codes.get(sha(code))!.usedAt, null);
+    const ok = await handleOAuth(tokenReq({ grant_type: 'authorization_code', client_id: c.client_id, code, redirect_uri: redirect, code_verifier: verifier }), env.deps);
+    assert.equal(ok.status, 200);
+    const access = body(ok).access_token;
+    // reuso com cliente + PKCE validos => revoga a concessao
+    const replay = await handleOAuth(tokenReq({ grant_type: 'authorization_code', client_id: c.client_id, code, redirect_uri: redirect, code_verifier: verifier }), env.deps);
+    assert.equal(body(replay).error, 'invalid_grant');
+    assert.equal((await handleMcp(rpc(access, { jsonrpc: '2.0', id: 1, method: 'ping' }), env.deps)).status, 401);
+  });
+
+  it('consentimento: CSP form-action com a origem da redirect_uri, host em destaque, aviso de cliente nao verificado e escopos :write destacados', async () => {
+    assert.equal(cspSourceForRedirect('https://client.example/callback?x=1'), 'https://client.example');
+    assert.equal(cspSourceForRedirect('http://127.0.0.1:33418/cb'), 'http://127.0.0.1:33418');
+    assert.equal(cspSourceForRedirect('com.example.app:/cb'), 'com.example.app:');
+    const env = makeEnv();
+    const c = await registerClient(env, { client_name: 'Seta Oficial (confie)' });
+    const page = await handleOAuth(req('GET', '/api/oauth/authorize', { query: authorizeQuery(c.client_id, 'crm:contacts:read crm:contacts:write'), session: session(ANA) }), env.deps);
+    assert.equal(page.status, 200);
+    assert.match(page.headers['Content-Security-Policy'], /form-action 'self' https:\/\/client\.example;/);
+    assert.match(page.text!, /<div class="host">client\.example<\/div>/);
+    assert.match(page.text!, /cliente dinamico NAO verificado/);
+    assert.match(page.text!, /class="write">&#9888; ESCRITA: <code>crm:contacts:write<\/code>/);
+    assert.ok(!/class="write">[^<]*<code>crm:contacts:read</.test(page.text!));
+  });
+
+  it('DCR em producao: redirect_uri externa so com OAUTH_ALLOWED_REDIRECT_HOSTS (loopback sempre permitido)', async () => {
+    const prod = { NODE_ENV: 'production' } as NodeJS.ProcessEnv;
+    assert.equal(isRedirectUriAllowedForRegistration('https://client.example/cb', prod), false);
+    assert.equal(isRedirectUriAllowedForRegistration('http://127.0.0.1:5000/cb', prod), true);
+    assert.equal(isRedirectUriAllowedForRegistration('com.example.app:/cb', prod), false);
+    const allow = { VERCEL: '1', OAUTH_ALLOWED_REDIRECT_HOSTS: 'claude.ai, https://chatgpt.com, cursor:' } as NodeJS.ProcessEnv;
+    assert.equal(isRedirectUriAllowedForRegistration('https://claude.ai/api/mcp/auth_callback', allow), true);
+    assert.equal(isRedirectUriAllowedForRegistration('https://chatgpt.com/cb', allow), true);
+    assert.equal(isRedirectUriAllowedForRegistration('cursor://anysphere.cursor-retrieval/oauth/cb', allow), false); // esquema sem ponto ja e recusado
+    assert.equal(isRedirectUriAllowedForRegistration('https://evil.claude.ai.example/cb', allow), false);
+    assert.equal(isRedirectUriAllowedForRegistration('https://client.example/cb', { NODE_ENV: 'test' } as NodeJS.ProcessEnv), true);
+
+    const env = makeEnv();
+    const prevV = process.env.VERCEL;
+    const prevH = process.env.OAUTH_ALLOWED_REDIRECT_HOSTS;
+    process.env.VERCEL = '1';
+    delete process.env.OAUTH_ALLOWED_REDIRECT_HOSTS;
+    try {
+      const denied = await handleOAuth(req('POST', '/api/oauth/register', { body: { redirect_uris: ['https://client.example/cb'] } }), env.deps);
+      assert.equal(denied.status, 400);
+      assert.equal(body(denied).error, 'invalid_redirect_uri');
+      const loop = await handleOAuth(req('POST', '/api/oauth/register', { body: { redirect_uris: ['http://127.0.0.1:7777/cb'] } }), env.deps);
+      assert.equal(loop.status, 201);
+      process.env.OAUTH_ALLOWED_REDIRECT_HOSTS = 'client.example';
+      const allowed = await handleOAuth(req('POST', '/api/oauth/register', { body: { redirect_uris: ['https://client.example/cb'] } }), env.deps);
+      assert.equal(allowed.status, 201);
+      const evil = await handleOAuth(req('POST', '/api/oauth/register', { body: { redirect_uris: ['https://client.example/cb', 'https://evil.example/cb'] } }), env.deps);
+      assert.equal(evil.status, 400);
+    } finally {
+      if (prevV === undefined) delete process.env.VERCEL;
+      else process.env.VERCEL = prevV;
+      if (prevH === undefined) delete process.env.OAUTH_ALLOWED_REDIRECT_HOSTS;
+      else process.env.OAUTH_ALLOWED_REDIRECT_HOSTS = prevH;
+    }
+  });
+});
+
+describe('Complemento #3: MCP sem batch JSON-RPC (nao contorna rate-limit)', () => {
+  it('array JSON-RPC => 400 Invalid Request, sem executar nenhuma tool e contando 1 no rate-limit', async () => {
+    const env = makeEnv({ perCredentialPerMinute: 2 });
+    const key = await keyFor(env, 'usr-ana', 'PROPRIOS', ['tickets:read', 'tickets:write']);
+    const count = env.repo.listServiceTickets().length;
+    const call = (i: number) => ({ jsonrpc: '2.0', id: i, method: 'tools/call', params: { name: 'tickets_create', arguments: { queue: 'TEC', subject: `b${i}`, contactId: env.ids.cAna } } });
+    const batch = await handleMcp(rpc(key, Array.from({ length: 10 }, (_, i) => call(i))), env.deps);
+    assert.equal(batch.status, 400);
+    assert.equal(body(batch).error.code, -32600);
+    assert.equal(env.repo.listServiceTickets().length, count);
+    assert.equal((await handleMcp(rpc(key, { jsonrpc: '2.0', id: 'p', method: 'ping' }), env.deps)).status, 200);
+    assert.equal((await handleMcp(rpc(key, { jsonrpc: '2.0', id: 'q', method: 'ping' }), env.deps)).status, 429);
+  });
+});
+
+describe('Complemento #6: replay de idempotencia reautoriza; STI_HUB_PUBLIC_ORIGIN obrigatoria em producao', () => {
+  it('REST: replay bloqueado apos dono inativo, perda de alcada ou modulo; nunca entre chaves', async () => {
+    const env = makeEnv();
+    const key = await keyFor(env, 'usr-bruno', 'PROPRIOS', ['crm:contacts:write', 'crm:contacts:read']);
+    const h = { ...bearer(key), 'Idempotency-Key': 'replay-check-0001' };
+    const payload = { firstName: 'Replay', email: 'replay@cliente.com.br' };
+    const first = await handleRestV1(req('POST', '/api/v1/contacts', { headers: h, body: payload }), env.deps);
+    assert.equal(first.status, 201);
+    const bruno = userRec(env, 'usr-bruno');
+    bruno.active = false;
+    const r1 = await handleRestV1(req('POST', '/api/v1/contacts', { headers: h, body: payload }), env.deps);
+    assert.equal(r1.status, 401);
+    assert.equal(r1.headers['Idempotent-Replayed'], undefined);
+    bruno.active = true;
+    setAccess(env, 'usr-bruno', { contactsAccess: 'VIEW' });
+    const r2 = await handleRestV1(req('POST', '/api/v1/contacts', { headers: h, body: payload }), env.deps);
+    assert.equal(r2.status, 403);
+    assert.equal(body(r2).code, 'OWNER_ACCESS_INSUFFICIENT');
+    setAccess(env, 'usr-bruno', { contactsAccess: 'EDIT' });
+    bruno.moduleAccess = { crm: false, erp: false, chamados: true };
+    const r3 = await handleRestV1(req('POST', '/api/v1/contacts', { headers: h, body: payload }), env.deps);
+    assert.equal(r3.status, 403);
+    assert.equal(body(r3).code, 'MODULE_FORBIDDEN');
+    bruno.moduleAccess = { crm: true, erp: false, chamados: true };
+    const back = await handleRestV1(req('POST', '/api/v1/contacts', { headers: h, body: payload }), env.deps);
+    assert.equal(back.headers['Idempotent-Replayed'], 'true');
+    assert.equal(body(back).data.id, body(first).data.id);
+    // outra chave do mesmo dono, mesma Idempotency-Key => nao recebe o cache da primeira
+    const key2 = await keyFor(env, 'usr-bruno', 'PROPRIOS', ['crm:contacts:write', 'crm:contacts:read']);
+    const other = await handleRestV1(req('POST', '/api/v1/contacts', { headers: { ...bearer(key2), 'Idempotency-Key': 'replay-check-0001' }, body: payload }), env.deps);
+    assert.equal(other.headers['Idempotent-Replayed'], undefined);
+    assert.notEqual(body(other).data?.id, body(first).data.id);
+    // sem Idempotency-Key continua permitido (opcional)
+    const noKey = await handleRestV1(req('POST', '/api/v1/contacts', { headers: bearer(key), body: { firstName: 'Sem chave' } }), env.deps);
+    assert.equal(noKey.status, 201);
+    const doc = buildOpenApiDocument() as any;
+    const idemParam = doc.paths['/api/v1/contacts'].post.parameters.find((p: { name: string }) => p.name === 'Idempotency-Key');
+    assert.equal(idemParam.required, false);
+  });
+
+  it('impressao digital muda com escopo/carteira/modulo/usuario (cache isolado)', () => {
+    const base = { authType: 'oauth', keyId: null, oauthClientId: 'c', actorUserId: 'u1', scopes: new Set(['crm:contacts:write']), portfolioScope: 'TODOS', moduleAccess: { crm: true, chamados: true }, teamMemberIds: [] } as never as Parameters<typeof authFingerprint>[0];
+    const f = authFingerprint(base);
+    assert.notEqual(f, authFingerprint({ ...base, scopes: new Set(['crm:contacts:read']) }));
+    assert.notEqual(f, authFingerprint({ ...base, portfolioScope: 'PROPRIOS' }));
+    assert.notEqual(f, authFingerprint({ ...base, moduleAccess: { crm: true, chamados: false } }));
+    assert.notEqual(f, authFingerprint({ ...base, actorUserId: 'u2' }));
+    assert.equal(f, authFingerprint({ ...base, scopes: new Set(['crm:contacts:write']) }));
+  });
+
+  it('MCP: replay via _meta reautoriza (dono inativo => erro, sem devolver cache)', async () => {
+    const env = makeEnv();
+    const key = await keyFor(env, 'usr-ana', 'PROPRIOS', ['tickets:read', 'tickets:write']);
+    const msg = { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'tickets_create', arguments: { queue: 'TEC', subject: 'idem mcp', contactId: env.ids.cAna }, _meta: { 'stihub/idempotencyKey': 'mcp-replay-0001' } } };
+    const first = await handleMcp(rpc(key, msg), env.deps);
+    assert.equal(body(first).result.isError, false);
+    userRec(env, 'usr-ana').active = false;
+    const again = await handleMcp(rpc(key, msg), env.deps);
+    assert.equal(body(again).result.isError, true);
+    assert.match(body(again).result.content[0].text, /CREDENTIAL_OWNER_INACTIVE/);
+    assert.equal(body(again).result.structuredContent, undefined);
+    userRec(env, 'usr-ana').active = true;
+    setAccess(env, 'usr-ana', { ticketsServiceDeskAccess: 'VIEW' });
+    const denied = await handleMcp(rpc(key, msg), env.deps);
+    assert.equal(body(denied).result.isError, true);
+    assert.match(body(denied).result.content[0].text, /OWNER_ACCESS_INSUFFICIENT/);
+  });
+
+  it('STI_HUB_PUBLIC_ORIGIN: obrigatoria em producao (falha fechado 503), opcional fora dela', async () => {
+    assert.equal(resolvePublicOrigin('https://host-da-req.example', { NODE_ENV: 'production' } as NodeJS.ProcessEnv), null);
+    assert.equal(resolvePublicOrigin('https://host-da-req.example', { VERCEL: '1' } as NodeJS.ProcessEnv), null);
+    assert.equal(resolvePublicOrigin('https://host-da-req.example', { VERCEL: '1', STI_HUB_PUBLIC_ORIGIN: 'http://inseguro.example' } as NodeJS.ProcessEnv), null);
+    assert.equal(resolvePublicOrigin('https://host-da-req.example', { VERCEL: '1', STI_HUB_PUBLIC_ORIGIN: 'https://sti-hub.seta.com.br/' } as NodeJS.ProcessEnv), 'https://sti-hub.seta.com.br');
+    assert.equal(resolvePublicOrigin('http://localhost:3000', { NODE_ENV: 'development' } as NodeJS.ProcessEnv), 'http://localhost:3000');
+    const env = makeEnv();
+    const prevV = process.env.VERCEL;
+    const prevO = process.env.STI_HUB_PUBLIC_ORIGIN;
+    process.env.VERCEL = '1';
+    delete process.env.STI_HUB_PUBLIC_ORIGIN;
+    try {
+      let called = false;
+      const res = await runIntegrationRoute(new NextRequest(new URL('https://host-forjado.example/.well-known/oauth-authorization-server')), (r) => {
+        called = true;
+        return handleWellKnown(r);
+      });
+      assert.equal(res.status, 503);
+      assert.equal(called, false);
+      assert.equal((await res.json()).code, 'PUBLIC_ORIGIN_NOT_CONFIGURED');
+      process.env.STI_HUB_PUBLIC_ORIGIN = 'https://sti-hub.seta.com.br';
+      const ok = await runIntegrationRoute(new NextRequest(new URL('https://host-forjado.example/.well-known/oauth-authorization-server')), (r) => handleWellKnown(r));
+      assert.equal(ok.status, 200);
+      assert.equal((await ok.json()).issuer, 'https://sti-hub.seta.com.br');
+      void env;
+    } finally {
+      if (prevV === undefined) delete process.env.VERCEL;
+      else process.env.VERCEL = prevV;
+      if (prevO === undefined) delete process.env.STI_HUB_PUBLIC_ORIGIN;
+      else process.env.STI_HUB_PUBLIC_ORIGIN = prevO;
+    }
+  });
+});
+
+describe('Complemento #7: auditoria do IAM com dono e escopos (sem segredo)', () => {
+  it('criacao registra ownerUserId + scopes; revogacao registra o dono; alcada RBAC do dono respeitada', async () => {
+    const env = makeEnv();
+    const k = await keyFor(env, 'usr-bruno', 'PROPRIOS', ['crm:contacts:read', 'tickets:read']);
+    const created = env.store.audit.find((a) => a.action === 'iam.integration_keys.create' && a.statusCode === 201)!;
+    assert.equal(created.targetUserId, 'usr-bruno');
+    assert.equal(created.actorUserId, 'usr-api-admin');
+    assert.equal(created.scope, 'crm:contacts:read tickets:read');
+    assert.deepEqual((created.details as any).scopes, ['crm:contacts:read', 'tickets:read']);
+    assert.equal((created.details as any).ownerUserId, 'usr-bruno');
+    const auditJson = JSON.stringify(env.store.audit);
+    assert.ok(!auditJson.includes(k));
+    assert.ok(!auditJson.includes(sha(k)));
+    const id = [...env.store.keys.values()][0].id;
+    await handleIamIntegrationKeys(req('POST', `/api/iam/integration-keys/${id}/revoke`, { session: session(ADMIN) }), env.deps);
+    const revoked = env.store.audit.find((a) => a.action === 'iam.integration_keys.revoke')!;
+    assert.equal(revoked.targetUserId, 'usr-bruno');
+    setAccess(env, 'usr-bruno', { contactsAccess: 'VIEW' });
+    const above = await createKey(env, { name: 'x', scopes: ['crm:contacts:write'], portfolioScope: 'PROPRIOS', moduleAccess: { crm: true, chamados: false }, ownerUserId: 'usr-bruno' });
+    assert.equal(above.res.status, 422);
+    assert.equal(body(above.res).code, 'SCOPE_EXCEEDS_OWNER_ACCESS');
+  });
+});
+
+describe('CISO #4: Postgres fora (conexao/DNS/timeout) com DATABASE_URL => 503, nunca 500', () => {
+  const failingDb = (err: Record<string, unknown> & { message: string }) => ({
+    query: async () => {
+      throw Object.assign(new Error(err.message), err);
+    },
+  });
+  const routeReq = (path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) =>
+    new NextRequest(new URL(`https://sti-hub.test${path}`), init);
+
+  it('classifica erros de conectividade (e nao erros de SQL)', () => {
+    assert.ok(isPostgresConnectivityError(Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' })));
+    assert.ok(isPostgresConnectivityError(Object.assign(new Error('getaddrinfo ENOTFOUND db.neon.tech'), { code: 'ENOTFOUND' })));
+    assert.ok(isPostgresConnectivityError(new Error('timeout exceeded when trying to connect')));
+    assert.ok(isPostgresConnectivityError(new Error('Connection terminated due to connection timeout')));
+    assert.ok(isPostgresConnectivityError(Object.assign(new Error('x'), { code: '57P01' })));
+    assert.ok(isPostgresConnectivityError(Object.assign(new Error('x'), { code: '08006' })));
+    assert.ok(isPostgresConnectivityError(new AggregateError([Object.assign(new Error('a'), { code: 'ECONNREFUSED' })], 'agg')));
+    assert.ok(!isPostgresConnectivityError(Object.assign(new Error('duplicate key'), { code: '23505' })));
+    assert.ok(!isPostgresConnectivityError(new Error('syntax error at or near')));
+  });
+
+  it('REST/MCP/OAuth/IAM com store Postgres falhando (ECONNREFUSED, ENOTFOUND, timeout) => 503 problem+json', async () => {
+    const env = makeEnv();
+    for (const err of [
+      { message: 'connect ECONNREFUSED 10.0.0.1:5432', code: 'ECONNREFUSED' },
+      { message: 'getaddrinfo ENOTFOUND db.exemplo.neon.tech', code: 'ENOTFOUND' },
+      { message: 'timeout exceeded when trying to connect' },
+    ]) {
+      const deps: IntegrationDeps = { ...env.deps, store: new PostgresIntegrationStore(failingDb(err)) };
+      const responses = [
+        await runIntegrationRoute(routeReq('/api/v1/contacts', { headers: { authorization: 'Bearer stihub_int_abcdefabcdef_' + 'x'.repeat(43) } }), (r) => handleRestV1(r, deps)),
+        await runIntegrationRoute(routeReq('/api/mcp', { method: 'POST', headers: { authorization: 'Bearer stihub_int_abcdefabcdef_' + 'x'.repeat(43), 'content-type': 'application/json' }, body: '{"jsonrpc":"2.0","id":1,"method":"ping"}' }), (r) => handleMcp(r, deps)),
+        await runIntegrationRoute(routeReq('/api/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"redirect_uris":["https://c.example/cb"]}' }), (r) => handleOAuth(r, deps)),
+        await runIntegrationRoute(routeReq('/api/iam/integration-keys', { headers: { cookie: `stihub_session=${session(ADMIN)}` } }), (r) => handleIamIntegrationKeys(r, deps)),
+      ];
+      for (const res of responses) {
+        assert.equal(res.status, 503, err.message);
+        assert.match(res.headers.get('content-type') || '', /problem\+json/);
+        assert.equal((await res.json()).code, 'INTEGRATION_STORE_UNAVAILABLE');
+      }
+    }
+  });
+
+  it('falha da porta de dados (carga do Postgres) no caso de uso => 503', async () => {
+    const env = makeEnv();
+    const key = await keyFor(env, 'usr-bruno', 'PROPRIOS', ['crm:contacts:read']);
+    const deps: IntegrationDeps = {
+      ...env.deps,
+      createDataPort: () =>
+        ({
+          snapshot: async () => {
+            throw new IntegrationStoreUnavailableError();
+          },
+          listUsers: async () => {
+            throw new IntegrationStoreUnavailableError();
+          },
+          listTicketQueues: async () => [],
+          write: async () => ({ status: 500, body: null }),
+        }) as never,
+    };
+    const r = await handleRestV1(req('GET', '/api/v1/contacts', { headers: bearer(key) }), deps);
+    assert.equal(r.status, 503);
+    assert.equal(body(r).code, 'INTEGRATION_STORE_UNAVAILABLE');
+  });
+
+  it('pg.Pool real apontando para porta fechada (DATABASE_URL presente) => 503', async () => {
+    const pool = new Pool({ connectionString: 'postgres://u:p@127.0.0.1:1/stihub', connectionTimeoutMillis: 2000, max: 1 });
+    try {
+      const env = makeEnv();
+      const deps: IntegrationDeps = { ...env.deps, store: new PostgresIntegrationStore(pool as never) };
+      const res = await runIntegrationRoute(routeReq('/api/v1/contacts', { headers: { authorization: 'Bearer stihub_int_abcdefabcdef_' + 'x'.repeat(43) } }), (r) => handleRestV1(r, deps));
+      assert.equal(res.status, 503);
+      assert.equal((await res.json()).code, 'INTEGRATION_STORE_UNAVAILABLE');
+    } finally {
+      await pool.end().catch(() => undefined);
+    }
+    const prev = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = 'postgres://u:p@127.0.0.1:1/stihub';
+    setIntegrationDepsForTests(null);
+    try {
+      const deps = resolveIntegrationDeps();
+      assert.ok(deps.store, 'com DATABASE_URL o store Postgres e criado');
+      const res = await runIntegrationRoute(routeReq('/api/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"redirect_uris":["https://c.example/cb"]}' }), (r) => handleOAuth(r, deps));
+      assert.equal(res.status, 503);
+      assert.equal((await res.json()).code, 'INTEGRATION_STORE_UNAVAILABLE');
+    } finally {
+      const { getPostgresPool } = await import('../src/db/postgres');
+      await (getPostgresPool() as unknown as Pool | null)?.end().catch(() => undefined);
+      if (prev === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = prev;
+    }
   });
 });

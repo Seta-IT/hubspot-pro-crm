@@ -21,7 +21,9 @@ import type {
 } from '../../db/types';
 import type { CrmApiRouter } from '../../api/router';
 import { TRUSTED_INTERNAL_CONTEXT } from '../../api/router';
+import { buildDefaultCrmPermissionsForRole } from '../erp/rbac-seed';
 import { isPortfolioScope, type PortfolioScope } from './scopes';
+import { IntegrationStoreUnavailableError } from './store-errors';
 
 export interface IntegrationUser {
   id: string;
@@ -48,6 +50,7 @@ export interface TicketSnapshot {
   tickets: ServiceTicket[];
   contacts: Contact[];
   companies: Company[];
+  deals: Deal[];
   users: IntegrationUser[];
 }
 
@@ -64,6 +67,8 @@ export interface IntegrationDataPort {
   snapshot(domain: 'tickets'): Promise<TicketSnapshot>;
   snapshot(domain: DataDomain): Promise<CrmSnapshot | TicketSnapshot>;
   listTicketQueues(): Promise<SetaDeskPipeline[]>;
+  /** Usuarios (cadastro vivo do IAM) — teto de carteira/modulos/alcada no consentimento OAuth. */
+  listUsers(): Promise<IntegrationUser[]>;
   /** Escrita via rota interna existente (POST/PATCH apenas). */
   write(method: 'POST' | 'PATCH', path: string, body: Record<string, unknown>): Promise<DataWriteResult>;
 }
@@ -76,6 +81,8 @@ export function toIntegrationUser(u: StiHubUserRecord): IntegrationUser {
     chamados: enabled ? enabled.includes('CHAMADOS') : false,
   };
   const scopeRaw = u.crmPermissions?.portfolioScope || u.scope;
+  // Alcada ausente no cadastro => preset RESTRITO do papel (nunca "libera tudo").
+  const preset = buildDefaultCrmPermissionsForRole((u.roleId || 'SEM_PAPEL') as StiHubUserRecord['roleId']);
   return {
     id: String(u.id),
     name: String(u.name || ''),
@@ -85,10 +92,10 @@ export function toIntegrationUser(u: StiHubUserRecord): IntegrationUser {
     moduleAccess: { crm: ma.crm === true, chamados: ma.chamados === true },
     portfolioScope: isPortfolioScope(scopeRaw) ? scopeRaw : 'PROPRIOS',
     crmAccess: {
-      contacts: u.crmPermissions?.contactsAccess,
-      companies: u.crmPermissions?.companiesAccess,
-      deals: u.crmPermissions?.dealsFunnelAccess,
-      tickets: u.crmPermissions?.ticketsServiceDeskAccess,
+      contacts: u.crmPermissions?.contactsAccess ?? preset.contactsAccess,
+      companies: u.crmPermissions?.companiesAccess ?? preset.companiesAccess,
+      deals: u.crmPermissions?.dealsFunnelAccess ?? preset.dealsFunnelAccess,
+      tickets: u.crmPermissions?.ticketsServiceDeskAccess ?? preset.ticketsServiceDeskAccess,
     },
   };
 }
@@ -115,6 +122,13 @@ export class RouterDataPort implements IntegrationDataPort {
     return this.router.dispatch({ method, path, query, body, context: TRUSTED_INTERNAL_CONTEXT });
   }
 
+  /** Leitura de carga: falha 5xx (ex.: Postgres fora) => 503, nunca dados vazios/antigos. */
+  private async load(path: string, query: Record<string, string> = {}) {
+    const res = await this.trusted('GET', path, query);
+    if (res.status >= 500) throw new IntegrationStoreUnavailableError();
+    return res;
+  }
+
   private users(): IntegrationUser[] {
     const rbac = this.router.getRepository().getRbacState();
     return (rbac.users || []).map(toIntegrationUser);
@@ -127,7 +141,7 @@ export class RouterDataPort implements IntegrationDataPort {
     if (domain === 'crm') {
       if (this.cache.crm) return this.cache.crm;
       // GET leve: o dispatch carrega o estado do Postgres (mesmo caminho da aplicacao).
-      await this.trusted('GET', '/api/pipelines');
+      await this.load('/api/pipelines');
       const repo = this.router.getRepository();
       const snap: CrmSnapshot = structuredClone({
         contacts: repo.listContacts(),
@@ -143,20 +157,27 @@ export class RouterDataPort implements IntegrationDataPort {
     if (this.cache.tickets) return this.cache.tickets;
     // GET /api/tickets carrega os chamados das tabelas setadesk_* (fonte de verdade com Postgres).
     // O filtro impossivel evita montar a lista enriquecida no router; os dados brutos vem do repo.
-    await this.trusted('GET', '/api/tickets', { status: '__NONE__' });
+    await this.load('/api/tickets', { status: '__NONE__' });
     const repo = this.router.getRepository();
     const snap: TicketSnapshot = structuredClone({
       tickets: repo.listServiceTickets(),
       contacts: repo.listContacts(),
       companies: repo.listCompanies(),
+      deals: repo.listDeals(),
       users: this.users(),
     });
     this.cache.tickets = snap;
     return snap;
   }
 
+  async listUsers(): Promise<IntegrationUser[]> {
+    if (this.cache.crm) return structuredClone(this.cache.crm.users);
+    await this.load('/api/pipelines');
+    return structuredClone(this.users());
+  }
+
   async listTicketQueues(): Promise<SetaDeskPipeline[]> {
-    const res = await this.trusted('GET', '/api/tickets/pipelines');
+    const res = await this.load('/api/tickets/pipelines');
     const data = (res.body as { data?: SetaDeskPipeline[] })?.data;
     return Array.isArray(data) ? structuredClone(data) : [];
   }

@@ -14,10 +14,13 @@ import { resolveStiHubSigningSecret } from '../../app/lib/auth';
 import { verifyMfaSession } from './auth-context';
 import { audit, checkRateLimit, newRequestId } from './executor';
 import { json, NO_STORE_HEADERS, postgresUnavailable, readSessionToken, type IntegrationHttpRequest, type IntegrationHttpResponse } from './http';
-import { resolveIntegrationDeps, type IntegrationDeps } from './runtime';
+import { isProductionRuntime, resolveIntegrationDeps, type IntegrationDeps } from './runtime';
+import { scopesAboveUserAccess } from './use-cases/common';
+import type { IntegrationUser } from './data-port';
 import {
   INTEGRATION_SCOPES,
   isPortfolioScope,
+  moduleForScope,
   narrowestPortfolio,
   sanitizeRuntimeScopes,
   SCOPE_DESCRIPTIONS,
@@ -121,6 +124,55 @@ export function isAllowedRedirectUri(raw: string): boolean {
   return scheme.includes('.') || extra.includes(scheme);
 }
 
+function redirectSchemeOf(raw: string): string {
+  try {
+    return new URL(raw).protocol.replace(/:$/, '').toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+/** Entradas de OAUTH_ALLOWED_REDIRECT_HOSTS: hostname (claude.ai), origem (https://x.y:8443) ou esquema (cursor:). */
+export function parseAllowedRedirectHosts(env: NodeJS.ProcessEnv = process.env): string[] {
+  return String(env.OAUTH_ALLOWED_REDIRECT_HOSTS || '')
+    .split(',')
+    .map((x) => x.trim().toLowerCase().replace(/\/+$/, ''))
+    .filter(Boolean);
+}
+
+/**
+ * Registro dinamico (DCR): alem de isAllowedRedirectUri, em PRODUCAO (NODE_ENV=production ou
+ * VERCEL=1) toda redirect_uri que nao seja loopback precisa casar com OAUTH_ALLOWED_REDIRECT_HOSTS.
+ * Allowlist vazia em producao => so loopback (clientes nativos locais).
+ */
+export function isRedirectUriAllowedForRegistration(raw: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (!isAllowedRedirectUri(raw)) return false;
+  if (!isProductionRuntime(env)) return true;
+  const u = new URL(raw);
+  const scheme = redirectSchemeOf(raw);
+  if (scheme === 'http' && isLoopbackHost(u.hostname.toLowerCase())) return true;
+  const allow = parseAllowedRedirectHosts(env);
+  if (allow.length === 0) return false;
+  if (scheme === 'https') {
+    const host = u.hostname.toLowerCase();
+    const origin = u.origin.toLowerCase();
+    return allow.includes(host) || allow.includes(origin);
+  }
+  return allow.includes(`${scheme}:`);
+}
+
+/** Fonte CSP (form-action) para a redirect_uri ja validada: origem https/http ou esquema privado. */
+export function cspSourceForRedirect(redirectUri: string): string | null {
+  try {
+    const u = new URL(redirectUri);
+    const scheme = u.protocol.replace(/:$/, '').toLowerCase();
+    if (scheme === 'https' || scheme === 'http') return u.origin;
+    return /^[a-z][a-z0-9+.-]*$/.test(scheme) ? `${scheme}:` : null;
+  } catch {
+    return null;
+  }
+}
+
 function clientIpBucket(req: IntegrationHttpRequest, what: string) {
   return `oauth-ip:${what}:${(req.ip || 'sem-ip').slice(0, 64)}`;
 }
@@ -145,22 +197,28 @@ async function authenticateClient(
   let secret: string | null = params.client_secret || null;
   let viaBasic = false;
   const authz = req.headers['authorization'] || '';
-  const basic = /^Basic\s+([A-Za-z0-9+/=]+)$/i.exec(authz);
-  if (basic) {
+  const invalid = { ok: false as const, res: oauthError(401, 'invalid_client', 'Cliente invalido.', { 'WWW-Authenticate': 'Basic realm="stihub-oauth"' }) };
+  if (/^Basic\b/i.test(authz)) {
+    // Header Basic malformado (base64/percent-encoding invalido, sem ":") => 401 invalid_client, nunca 500.
+    const basic = /^Basic\s+([A-Za-z0-9+/=]+)$/i.exec(authz);
+    if (!basic) return invalid;
     const decoded = Buffer.from(basic[1], 'base64').toString('utf8');
     const idx = decoded.indexOf(':');
-    if (idx > 0) {
+    if (idx <= 0) return invalid;
+    try {
       clientId = decodeURIComponent(decoded.slice(0, idx));
       secret = decodeURIComponent(decoded.slice(idx + 1));
-      viaBasic = true;
+    } catch {
+      return invalid;
     }
+    viaBasic = true;
   }
-  const invalid = { ok: false as const, res: oauthError(401, 'invalid_client', 'Cliente invalido.', { 'WWW-Authenticate': 'Basic realm="stihub-oauth"' }) };
   if (!/^stihub_ocl_[0-9a-f]{32}$/.test(clientId)) return invalid;
   const client = await store.getOAuthClient(clientId);
   if (!client || client.revokedAt) return invalid;
   if (client.tokenEndpointAuthMethod === 'none') {
-    if (secret) return invalid;
+    // Cliente publico: nao aceita Basic nem segredo.
+    if (secret || viaBasic) return invalid;
     return { ok: true, client };
   }
   if (!secret || !client.clientSecretHash) return invalid;
@@ -170,18 +228,29 @@ async function authenticateClient(
   return { ok: true, client };
 }
 
-function csrfFor(sessionToken: string, clientId: string, issuedAt: number): string {
-  const mac = createHmac('sha256', `${resolveStiHubSigningSecret()}::oauth-consent`)
-    .update(`${sha256Hex(sessionToken)}|${clientId}|${issuedAt}`)
+export interface ConsentBinding {
+  sessionToken: string;
+  clientId: string;
+  redirectUri: string;
+  scopes: readonly string[];
+  codeChallenge: string;
+}
+
+/** HMAC do consentimento: sessao + cliente + redirect_uri + escopos (ordenados) + code_challenge + emissao. */
+export function csrfFor(b: ConsentBinding, issuedAt: number): string {
+  const scopes = [...new Set(b.scopes)].sort().join(' ');
+  const mac = createHmac('sha256', `${resolveStiHubSigningSecret()}::oauth-consent:v2`)
+    .update([sha256Hex(b.sessionToken), b.clientId, b.redirectUri, scopes, b.codeChallenge, String(issuedAt)].join('\n'))
     .digest('base64url');
   return `${issuedAt}.${mac}`;
 }
 
-function verifyCsrf(token: string, sessionToken: string, clientId: string, now: number): boolean {
-  const [ts, mac] = String(token || '').split('.');
+export function verifyCsrf(token: string, b: ConsentBinding, now: number): boolean {
+  const [ts, mac, extra] = String(token || '').split('.');
   const issuedAt = Number(ts);
+  if (extra !== undefined || !/^\d{10,16}$/.test(ts || '')) return false;
   if (!Number.isFinite(issuedAt) || !mac || now - issuedAt > 10 * 60_000 || issuedAt - now > 60_000) return false;
-  const expected = csrfFor(sessionToken, clientId, issuedAt);
+  const expected = csrfFor(b, issuedAt);
   return constantTimeHexEqual(expected, `${ts}.${mac}`);
 }
 
@@ -194,17 +263,22 @@ function redirectWith(redirectUri: string, params: Record<string, string | undef
   return { status: 302, headers: { ...NO_STORE_HEADERS }, redirect: u.toString() };
 }
 
-function htmlPage(status: number, title: string, inner: string): IntegrationHttpResponse {
+function htmlPage(status: number, title: string, inner: string, formActionExtra: string | null = null, extraHeaders: Record<string, string> = {}): IntegrationHttpResponse {
+  // form-action precisa incluir a origem da redirect_uri validada: o POST do consentimento
+  // responde 302 para ela e Chrome/Firefox aplicam form-action tambem ao redirect.
+  const formAction = ["'self'", ...(formActionExtra ? [formActionExtra] : [])].join(' ');
   return {
     status,
     headers: {
       ...NO_STORE_HEADERS,
       'Content-Type': 'text/html; charset=utf-8',
       'X-Frame-Options': 'DENY',
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; form-action ${formAction}; frame-ancestors 'none'; base-uri 'none'`,
+      ...extraHeaders,
     },
     text: `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title>
-<style>body{font-family:system-ui,sans-serif;max-width:560px;margin:40px auto;padding:0 16px;color:#1f2937}h1{font-size:20px}li{margin:4px 0}button{padding:10px 18px;margin-right:8px;border-radius:6px;border:1px solid #d1d5db;cursor:pointer}.ok{background:#d9541e;color:#fff;border-color:#d9541e}code{background:#f3f4f6;padding:1px 4px;border-radius:4px}</style></head><body>${inner}</body></html>`,
+<style>body{font-family:system-ui,sans-serif;max-width:560px;margin:40px auto;padding:0 16px;color:#1f2937}h1{font-size:20px}li{margin:4px 0}button{padding:10px 18px;margin-right:8px;border-radius:6px;border:1px solid #d1d5db;cursor:pointer}.ok{background:#d9541e;color:#fff;border-color:#d9541e}code{background:#f3f4f6;padding:1px 4px;border-radius:4px}.warn{background:#fef3c7;border:1px solid #f59e0b;padding:10px 12px;border-radius:6px}.host{font-size:18px;font-weight:700;color:#b91c1c;word-break:break-all}.write{color:#b91c1c;font-weight:700}</style></head><body>${inner}</body></html>`,
   };
 }
 
@@ -321,6 +395,9 @@ async function handleRegister(req: IntegrationHttpRequest, store: IntegrationSto
   if (redirectUris.length === 0 || redirectUris.length > 10 || !redirectUris.every(isAllowedRedirectUri)) {
     return oauthError(400, 'invalid_redirect_uri', 'redirect_uris obrigatorias: https, http somente em loopback, sem fragmento/curinga.');
   }
+  if (!redirectUris.every((u) => isRedirectUriAllowedForRegistration(u))) {
+    return oauthError(400, 'invalid_redirect_uri', 'redirect_uri fora da allowlist de producao (OAUTH_ALLOWED_REDIRECT_HOSTS); somente loopback e hosts aprovados.');
+  }
   const grantTypes = Array.isArray(b.grant_types) ? b.grant_types.map(String) : ['authorization_code', 'refresh_token'];
   if (!grantTypes.includes('authorization_code') || grantTypes.some((g) => g !== 'authorization_code' && g !== 'refresh_token')) {
     return oauthError(400, 'invalid_client_metadata', 'grant_types permitidos: authorization_code e refresh_token.');
@@ -371,6 +448,20 @@ async function handleRegister(req: IntegrationHttpRequest, store: IntegrationSto
   });
 }
 
+/** Teto vivo do usuario (cadastro do IAM) aplicado sobre as claims da sessao. */
+interface LiveCeiling {
+  user: IntegrationUser;
+  portfolio: PortfolioScope;
+  moduleAccess: { crm: boolean; chamados: boolean };
+}
+
+const CLEAR_SESSION_COOKIE = 'stihub_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax';
+
+/** Opcoes de carteira no consentimento OAuth: sem lista de equipe => nunca EQUIPE (decisao CISO). */
+export function oauthPortfolioOptions(ceiling: PortfolioScope): PortfolioScope[] {
+  return ceiling === 'TODOS' ? ['PROPRIOS', 'TODOS'] : ['PROPRIOS'];
+}
+
 async function handleAuthorize(
   req: IntegrationHttpRequest,
   store: IntegrationStore,
@@ -379,10 +470,16 @@ async function handleAuthorize(
 ): Promise<IntegrationHttpResponse> {
   const method = req.method.toUpperCase();
   if (method !== 'GET' && method !== 'POST') return json(405, { error: 'method_not_allowed' }, { Allow: 'GET, POST' });
+  // Rate-limit por IP tambem no authorize (GET e POST).
+  const rate = await checkRateLimit(store, clientIpBucket(req, 'authorize'), deps.limits.oauthPerIpPerMinute, deps.now());
+  if (!rate.allowed) {
+    return done(htmlPage(429, 'Muitas requisicoes', '<h1>Muitas tentativas de autorizacao. Aguarde e tente novamente.</h1>', null, rate.headers), { errorCode: 'RATE_LIMITED' });
+  }
   const source = method === 'GET' ? req.query : formOrJson(req.body);
   const a = readAuthorizeParams(source);
   const v = await validateAuthorize(store, a, req.origin);
   if (!v.ok) return done(v.res, { clientId: a.clientId || null, errorCode: 'authorize_invalid' });
+  const formActionSrc = cspSourceForRedirect(a.redirectUri);
 
   const sessionToken = readSessionToken(req);
   const session = verifyMfaSession(sessionToken);
@@ -393,10 +490,54 @@ async function handleAuthorize(
     return { status: 302, headers: { ...NO_STORE_HEADERS }, redirect: `${req.origin}/login?next=${encodeURIComponent(next)}` };
   }
   const claims = session.claims;
-  const userCeiling: PortfolioScope = isPortfolioScope(claims.scope) ? claims.scope : 'PROPRIOS';
+
+  // --- Teto VIVO do usuario (cadastro no Postgres via porta de dados), nao so as claims assinadas.
+  const users = await deps.createDataPort().listUsers();
+  const user = users.find((u) => u.id === claims.uid);
+  if (!user || user.active === false) {
+    // Usuario removido/inativo: nega e encerra a sessao neste navegador.
+    return done(
+      htmlPage(403, 'Acesso negado', '<h1>Usuario inativo ou removido. Acesso negado.</h1>', null, { 'Set-Cookie': CLEAR_SESSION_COOKIE }),
+      { clientId: v.client.clientId, userId: claims.uid, errorCode: 'user_inactive' }
+    );
+  }
+  const claimsPortfolio: PortfolioScope = isPortfolioScope(claims.scope) ? claims.scope : 'PROPRIOS';
+  const live: LiveCeiling = {
+    user,
+    portfolio: narrowestPortfolio(claimsPortfolio, user.portfolioScope),
+    moduleAccess: {
+      crm: claims.moduleAccess?.crm === true && user.moduleAccess.crm,
+      chamados: claims.moduleAccess?.chamados === true && user.moduleAccess.chamados,
+    },
+  };
+  // RBAC no consentimento: escopos de modulo desabilitado ou acima da alcada do usuario => invalid_scope.
+  const moduleDenied = v.scopes.filter((s) => {
+    const mod = moduleForScope(s as never);
+    return (mod === 'crm' && !live.moduleAccess.crm) || (mod === 'chamados' && !live.moduleAccess.chamados);
+  });
+  const aboveAccess = scopesAboveUserAccess(v.scopes, user);
+  if (moduleDenied.length || aboveAccess.length) {
+    return done(
+      redirectWith(a.redirectUri, {
+        error: 'invalid_scope',
+        error_description: 'Escopo acima do perfil (modulos/alcada) do usuario.',
+        state: a.state,
+        iss: req.origin,
+      }),
+      { clientId: v.client.clientId, userId: claims.uid, errorCode: 'scope_above_user_rbac' }
+    );
+  }
+  const binding: ConsentBinding = {
+    sessionToken,
+    clientId: v.client.clientId,
+    redirectUri: a.redirectUri,
+    scopes: v.scopes,
+    codeChallenge: a.codeChallenge,
+  };
+  const options = oauthPortfolioOptions(live.portfolio);
 
   if (method === 'GET') {
-    const csrf = csrfFor(sessionToken, v.client.clientId, deps.now().getTime());
+    const csrf = csrfFor(binding, deps.now().getTime());
     const hidden = Object.entries({
       response_type: 'code',
       client_id: v.client.clientId,
@@ -410,28 +551,42 @@ async function handleAuthorize(
     })
       .map(([k, val]) => `<input type="hidden" name="${k}" value="${escapeHtml(val)}">`)
       .join('');
-    const scopesHtml = v.scopes.map((s) => `<li><code>${escapeHtml(s)}</code> — ${escapeHtml(SCOPE_DESCRIPTIONS[s as keyof typeof SCOPE_DESCRIPTIONS] || '')}</li>`).join('');
-    const portfolioOptions = (['PROPRIOS', 'EQUIPE', 'TODOS'] as const)
-      .filter((p) => narrowestPortfolio(p, userCeiling) === p)
-      .map((p) => `<option value="${p}"${p === 'PROPRIOS' ? ' selected' : ''}>${p}</option>`)
+    const scopesHtml = v.scopes
+      .map((s) => {
+        const isWrite = s.endsWith(':write');
+        const label = `<code>${escapeHtml(s)}</code> — ${escapeHtml(SCOPE_DESCRIPTIONS[s as keyof typeof SCOPE_DESCRIPTIONS] || '')}`;
+        return isWrite ? `<li class="write">&#9888; ESCRITA: ${label}</li>` : `<li>${label}</li>`;
+      })
       .join('');
+    let redirectHost = a.redirectUri;
+    try {
+      const u = new URL(a.redirectUri);
+      redirectHost = u.host || `${u.protocol}`;
+    } catch {
+      /* validada antes */
+    }
+    const portfolioOptions = options.map((p) => `<option value="${p}"${p === 'PROPRIOS' ? ' selected' : ''}>${p}</option>`).join('');
     return done(
       htmlPage(
         200,
         'Autorizar integracao',
         `<h1>Autorizar "${escapeHtml(v.client.clientName)}"</h1>
+<div class="warn"><b>Atencao: cliente dinamico NAO verificado.</b> O nome acima foi informado pelo proprio aplicativo e nao foi verificado pela Seta.
+Os dados e o codigo de acesso serao enviados para:<div class="host">${escapeHtml(redirectHost)}</div>
+Autorize somente se voce reconhece este endereco.</div>
 <p>Conectado como <b>${escapeHtml(claims.email)}</b>. O aplicativo tera acesso, em seu nome, a:</p><ul>${scopesHtml}</ul>
 <p>Sem exclusao, merge, sequencias, fiscal/financeiro ou administracao.</p>
 <form method="post" action="/api/oauth/authorize">${hidden}
 <p><label>Carteira: <select name="portfolio_scope">${portfolioOptions}</select></label></p>
-<button class="ok" type="submit" name="decision" value="approve">Autorizar</button><button type="submit" name="decision" value="deny">Negar</button></form>`
+<button class="ok" type="submit" name="decision" value="approve">Autorizar</button><button type="submit" name="decision" value="deny">Negar</button></form>`,
+        formActionSrc
       ),
       { clientId: v.client.clientId, userId: claims.uid, scope: v.scopes.join(' ') }
     );
   }
 
-  // POST (consentimento)
-  if (!verifyCsrf(source.csrf || '', sessionToken, v.client.clientId, deps.now().getTime())) {
+  // POST (consentimento) — CSRF vinculado a sessao, cliente, redirect_uri, escopos e code_challenge.
+  if (!verifyCsrf(source.csrf || '', binding, deps.now().getTime())) {
     return done(htmlPage(403, 'Requisicao invalida', '<h1>Formulario expirado ou invalido. Recomece a autorizacao.</h1>'), {
       clientId: v.client.clientId,
       userId: claims.uid,
@@ -445,9 +600,9 @@ async function handleAuthorize(
       errorCode: 'access_denied',
     });
   }
-  const requestedPortfolio: PortfolioScope = isPortfolioScope(source.portfolio_scope) ? source.portfolio_scope : 'PROPRIOS';
-  const portfolio = narrowestPortfolio(requestedPortfolio, userCeiling);
-  const moduleAccess = { crm: claims.moduleAccess?.crm === true, chamados: claims.moduleAccess?.chamados === true };
+  // EQUIPE nao e oferecida (sem lista de equipe no cadastro); qualquer valor fora das opcoes => PROPRIOS.
+  const requested = String(source.portfolio_scope || 'PROPRIOS').toUpperCase() as PortfolioScope;
+  const portfolio: PortfolioScope = options.includes(requested) ? requested : 'PROPRIOS';
   const code = generateOAuthCode();
   const now = deps.now();
   await store.insertAuthCode({
@@ -457,8 +612,7 @@ async function handleAuthorize(
     redirectUri: a.redirectUri,
     scope: v.scopes.join(' '),
     portfolioScope: portfolio,
-    moduleAccess,
-    // EQUIPE via OAuth: a lista da equipe ainda nao existe no cadastro => so o proprio usuario.
+    moduleAccess: live.moduleAccess,
     teamMemberIds: [],
     codeChallenge: a.codeChallenge,
     codeChallengeMethod: 'S256',
@@ -507,18 +661,23 @@ async function handleToken(req: IntegrationHttpRequest, store: IntegrationStore,
   if (p.grant_type === 'authorization_code') {
     if (!OAUTH_CODE_REGEX.test(p.code || '')) return invalidGrant('Codigo invalido.');
     if (!PKCE_VERIFIER_REGEX.test(p.code_verifier || '')) return { res: oauthError(400, 'invalid_request', 'code_verifier obrigatorio (PKCE S256).'), clientId: client.clientId, userId: null };
-    const consumed = await store.consumeAuthCode(sha256Hex(p.code), nowIso);
-    if (!consumed) return invalidGrant('Codigo invalido.');
-    const rec = consumed.record;
-    if (consumed.alreadyUsed) {
-      // Reuso de codigo: revoga tudo o que foi emitido para esta concessao (RFC 6749 4.1.2).
-      await store.revokeTokensForGrant(rec.clientId, rec.userId, nowIso);
-      return { ...invalidGrant('Codigo ja utilizado.'), userId: rec.userId };
-    }
-    if (rec.clientId !== client.clientId) return invalidGrant('Codigo de outro cliente.');
+    const codeHash = sha256Hex(p.code);
+    // 1) Leitura SEM efeito colateral; valida cliente, validade, redirect_uri e PKCE ANTES de
+    //    consumir. Codigo interceptado sem o code_verifier nao queima o codigo nem derruba a concessao.
+    const rec = await store.getAuthCode(codeHash);
+    if (!rec) return invalidGrant('Codigo invalido.');
+    if (rec.clientId !== client.clientId) return invalidGrant('Codigo invalido.');
     if (rec.expiresAt <= nowIso) return invalidGrant('Codigo expirado.');
     if ((p.redirect_uri || rec.redirectUri) !== rec.redirectUri) return invalidGrant('redirect_uri diferente da autorizacao.');
     if (!constantTimeHexEqual(pkceS256(p.code_verifier), rec.codeChallenge)) return invalidGrant('PKCE invalido.');
+    // 2) Consumo atomico (UPDATE ... WHERE used_at IS NULL). Reuso COM cliente+PKCE validos =>
+    //    revoga tudo o que foi emitido para esta concessao (RFC 6749 4.1.2 / OAuth 2.1).
+    const consumed = await store.consumeAuthCode(codeHash, nowIso);
+    if (!consumed) return invalidGrant('Codigo invalido.');
+    if (consumed.alreadyUsed) {
+      await store.revokeTokensForGrant(rec.clientId, rec.userId, nowIso);
+      return { ...invalidGrant('Codigo ja utilizado.'), userId: rec.userId };
+    }
     const res = await issueTokens(store, deps, {
       clientId: client.clientId,
       userId: rec.userId,

@@ -54,6 +54,10 @@ export interface IntegrationAuditEntry {
   ipAddress: string | null;
   latencyMs: number;
   errorCode: string | null;
+  /** Usuario alvo da acao (ex.: dono da chave criada no IAM). */
+  targetUserId?: string | null;
+  /** Metadados nao sensiveis (nunca segredo/token/corpo). */
+  details?: Record<string, unknown> | null;
   createdAt: string;
 }
 
@@ -132,6 +136,8 @@ export interface IntegrationStore {
   getOAuthClient(clientId: string): Promise<OAuthClientRecord | null>;
   insertAuthCode(rec: OAuthAuthCodeRecord): Promise<void>;
   /** Marca o codigo como usado de forma atomica; retorna o registro ANTES do uso, ou null se nao existe. */
+  /** Leitura sem efeito colateral (validar cliente/redirect/PKCE ANTES de consumir). */
+  getAuthCode(codeHash: string): Promise<OAuthAuthCodeRecord | null>;
   consumeAuthCode(codeHash: string, at: string): Promise<{ record: OAuthAuthCodeRecord; alreadyUsed: boolean } | null>;
   insertToken(rec: OAuthTokenRecord): Promise<void>;
   getTokenByAccessHash(hash: string): Promise<OAuthTokenRecord | null>;
