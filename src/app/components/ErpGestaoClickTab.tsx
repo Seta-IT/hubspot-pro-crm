@@ -1664,6 +1664,10 @@ export default function ErpGestaoClickTab({
       return;
     }
     if (target === "CONTRATO" || target === "LOCACAO") {
+      if (prop.budgetType === "PRODUTOS") {
+        onShowToast("Orçamentos de produtos não geram contrato. Use Gerar > Venda.");
+        return;
+      }
       await handleApproveProposal(prop.id);
       return;
     }
@@ -1726,6 +1730,23 @@ export default function ErpGestaoClickTab({
       onShowToast(`Orçamento ${showCode(prop)} encaminhado para Produção / Bancada Técnica!`);
       await onRefresh();
     }
+  };
+
+  const openProposalInCrm = (prop: ErpCommercialProposal) => {
+    setOpenProposalMenuId(null);
+    if (!canAccessCrm) {
+      onShowToast('Sem acesso ao CRM.');
+      return;
+    }
+    const linkedDealId =
+      prop.dealId ||
+      deals.find((d) => d.proposalId === prop.id || d.proposalId === prop.code)?.id ||
+      null;
+    if (linkedDealId && onOpenLinkedDeal) {
+      onOpenLinkedDeal(linkedDealId);
+      return;
+    }
+    onShowToast('Este orçamento ainda não tem negócio no CRM. Edite e marque "Criar negócio no CRM".');
   };
 
   const renderProposalGestaoClickActions = (
@@ -1855,6 +1876,19 @@ export default function ErpGestaoClickTab({
                 <Copy className="w-3.5 h-3.5" />
               </button>
             </div>
+
+            {canAccessCrm && (
+              <button
+                type="button"
+                data-testid="menu-abrir-no-crm"
+                title={prop.dealId ? "Abre o negócio vinculado no CRM" : "Abre o CRM; este orçamento ainda pode não ter negócio vinculado"}
+                onClick={() => openProposalInCrm(prop)}
+                className="w-full px-3.5 py-2 hover:bg-slate-50 flex items-center gap-2.5 text-[#1e3a6e] font-semibold cursor-pointer text-left text-xs"
+              >
+                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                <span>Abrir no CRM</span>
+              </button>
+            )}
 
             {/* Ver proposta */}
             <a
@@ -2057,20 +2091,26 @@ export default function ErpGestaoClickTab({
                   >
                     Ordem de serviço
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => handleGenerateFromProposalMenu(prop, "CONTRATO")}
-                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 font-semibold text-slate-800 cursor-pointer"
-                  >
-                    Contrato
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleGenerateFromProposalMenu(prop, "LOCACAO")}
-                    className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 font-semibold text-[#1e3a6e] cursor-pointer"
-                  >
-                    Locação
-                  </button>
+                  {prop.budgetType !== "PRODUTOS" && (
+                    <>
+                      <button
+                        type="button"
+                        data-testid="menu-gerar-contrato"
+                        onClick={() => handleGenerateFromProposalMenu(prop, "CONTRATO")}
+                        className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 font-semibold text-slate-800 cursor-pointer"
+                      >
+                        Contrato
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="menu-gerar-locacao"
+                        onClick={() => handleGenerateFromProposalMenu(prop, "LOCACAO")}
+                        className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 font-semibold text-[#1e3a6e] cursor-pointer"
+                      >
+                        Locação
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={() => handleGenerateFromProposalMenu(prop, "PRODUCAO")}
@@ -2335,6 +2375,10 @@ export default function ErpGestaoClickTab({
   ];
 
   const openGenerateContractFromProposal = (prop: ErpCommercialProposal) => {
+    if (prop.budgetType === "PRODUTOS") {
+      onShowToast("Orçamentos de produtos não geram contrato. Use Gerar > Venda.");
+      return;
+    }
     const startDate = new Date().toISOString().slice(0, 10);
     const months = Math.max(1, Number(prop.contractMonths) || 24);
     const endDate = new Date(Date.now() + months * 30 * 86400000).toISOString().slice(0, 10);

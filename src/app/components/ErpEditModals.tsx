@@ -1908,9 +1908,10 @@ export function ProposalEditModal({
               >
                 Cancelar
               </button>
-              {!isNew && onGenerateContract && (
+              {!isNew && onGenerateContract && draft.budgetType !== 'PRODUTOS' && (
                 <button
                   type="button"
+                  data-testid="proposal-gerar-contrato"
                   onClick={() => onGenerateContract(draft)}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
                 >

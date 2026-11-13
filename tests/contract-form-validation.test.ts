@@ -8,7 +8,7 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import { filterCatalogProducts, isServiceCatalogItem } from '../src/app/lib/catalog-search';
-import { computeFixedMenuPosition } from '../src/app/components/FixedPortalMenu';
+import { computeFixedMenuPosition, shouldClosePortalMenuOnScroll } from '../src/app/components/FixedPortalMenu';
 import type { ErpCatalogItem } from '../src/db/types';
 
 const validEq = {
@@ -271,6 +271,47 @@ describe('Menu ⋮ em portal com posição fixed', () => {
     assert.equal(pos.openUp, true);
     assert.ok(pos.top + pos.maxHeight <= 740 + 1);
     assert.ok(pos.left + pos.width <= 1280);
+  });
+
+  it('não fecha o menu quando o scroll nasce no próprio painel (barra de rolagem dos 3 pontos)', () => {
+    const child = { id: 'item' };
+    const menu = { contains: (node: unknown) => node === child };
+    assert.equal(shouldClosePortalMenuOnScroll(menu as unknown as EventTarget, menu), false);
+    assert.equal(shouldClosePortalMenuOnScroll(child as unknown as EventTarget, menu), false);
+    assert.equal(shouldClosePortalMenuOnScroll({ id: 'page' } as unknown as EventTarget, menu), true);
+    assert.equal(shouldClosePortalMenuOnScroll(null, menu), true);
+    assert.equal(shouldClosePortalMenuOnScroll(menu as unknown as EventTarget, null), true);
+  });
+});
+
+describe('Gerar contrato só para serviços e locações', () => {
+  const read = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+
+  it('o menu Gerar e o modal de orçamento ocultam Contrato quando budgetType é PRODUTOS', () => {
+    const tabSrc = read('src/app/components/ErpGestaoClickTab.tsx');
+    const modalSrc = read('src/app/components/ErpEditModals.tsx');
+
+    assert.ok(
+      tabSrc.includes('prop.budgetType !== "PRODUTOS"') && tabSrc.includes('menu-gerar-contrato'),
+      'menu dos 3 pontos deve condicionar Gerar > Contrato a orçamentos que não são de produtos'
+    );
+    assert.ok(
+      tabSrc.includes('if (prop.budgetType === "PRODUTOS")') &&
+        tabSrc.includes('Orçamentos de produtos não geram contrato'),
+      'handlers não devem converter orçamento de produtos em contrato'
+    );
+    assert.ok(
+      modalSrc.includes("draft.budgetType !== 'PRODUTOS'") && modalSrc.includes('Gerar contrato'),
+      'botão Gerar contrato do modal deve sumir em orçamento de produtos'
+    );
+  });
+
+  it('o menu dos 3 pontos e a visualização da proposta têm Abrir no CRM', () => {
+    const tabSrc = read('src/app/components/ErpGestaoClickTab.tsx');
+    const viewSrc = read('src/app/proposta/[id]/page.tsx');
+    assert.ok(tabSrc.includes('menu-abrir-no-crm') && tabSrc.includes('Abrir no CRM'));
+    assert.ok(tabSrc.includes('openProposalInCrm') && tabSrc.includes('onOpenLinkedDeal'));
+    assert.ok(viewSrc.includes('proposal-open-crm') && viewSrc.includes('buildOpenCrmHref'));
   });
 });
 

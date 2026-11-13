@@ -29,6 +29,7 @@ import {
 import { ErpCommercialProposal, ErpProposalDigitalSignature, ErpProposalVersionEntry } from '../../../db/types';
 import { formatBRL as formatBRLWhole } from '../../components/ui-helpers';
 import { publicDtoToRenderableProposal, type PublicProposalDto } from '../../lib/proposal-public-dto';
+import { buildOpenCrmHref } from '../../lib/home-screen';
 import { SETA_PROPOSAL_HEADER_ADDRESS } from '../../lib/company-issuer-address';
 import {
   appendClientProposalVersion,
@@ -1079,6 +1080,16 @@ function PublicProposalPrintContent() {
               {internalCopied ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
           </span>
+
+          <a
+            href={buildOpenCrmHref({ dealId: proposal.dealId })}
+            data-testid="proposal-open-crm"
+            title={proposal.dealId ? "Abre o negócio vinculado no CRM" : "Abre o funil de negócios do CRM"}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition cursor-pointer"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            Abrir no CRM
+          </a>
 
           <button
             type="button"

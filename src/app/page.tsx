@@ -47,6 +47,7 @@ import {
   getHomeScreen,
   isHomeScreenId,
   loadHomeScreenPreference,
+  parseCrmDealDeepLink,
   parseHomeDeepLink,
   resolveInitialHomeScreen,
   saveHomeScreenPreference,
@@ -1221,6 +1222,12 @@ export default function HubSpotProCrmApp() {
       typeof window !== 'undefined'
         ? parseHomeDeepLink(window.location.search, window.location.hash)
         : { hasDeepLink: false, screenId: null };
+    const crmDealId = typeof window !== 'undefined' ? parseCrmDealDeepLink(window.location.search) : null;
+    if (crmDealId) {
+      setInitialDealIdForDrawer(crmDealId);
+      setLastCrmSubModule('DEALS_KANBAN');
+      setActiveModule('DEALS_KANBAN');
+    }
     // Atualizar validade / voltar ao envio: a URL manda (não a tela inicial salva).
     const flowNav =
       typeof window !== 'undefined' && systemHasAccess('ERP', access)

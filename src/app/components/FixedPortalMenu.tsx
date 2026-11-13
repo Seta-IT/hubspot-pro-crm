@@ -11,6 +11,18 @@ export interface FixedMenuCoords {
   openUp: boolean;
 }
 
+/** Returns true when a scroll event should close the portal menu (page/table
+ *  scroll). Scroll originating inside the menu itself must be ignored so the
+ *  dropdown's overflow scrollbar can actually move. */
+export function shouldClosePortalMenuOnScroll(
+  eventTarget: EventTarget | null,
+  menuEl: { contains?: (node: any) => boolean } | null
+): boolean {
+  if (!menuEl || eventTarget == null) return true;
+  if (eventTarget === (menuEl as unknown)) return false;
+  return typeof menuEl.contains !== 'function' || !menuEl.contains(eventTarget);
+}
+
 export function computeFixedMenuPosition(
   anchor: Pick<DOMRect, 'top' | 'bottom' | 'left' | 'right'>,
   opts?: {
@@ -85,7 +97,12 @@ export function FixedPortalMenu({
       if (anchorRef.current?.contains(target)) return;
       onClose();
     };
-    const onScrollOrResize = () => onClose();
+    const onScrollOrResize = (e: Event) => {
+      if (e.type === 'scroll' && !shouldClosePortalMenuOnScroll(e.target, menuRef.current)) {
+        return;
+      }
+      onClose();
+    };
     document.addEventListener('keydown', onKey, true);
     document.addEventListener('mousedown', onDown);
     window.addEventListener('scroll', onScrollOrResize, true);
@@ -112,6 +129,7 @@ export function FixedPortalMenu({
         minWidth: coords.width,
         maxHeight: coords.maxHeight,
         overflowY: 'auto',
+        overscrollBehavior: 'contain',
       }}
     >
       {children}

@@ -106,6 +106,22 @@ export function parseHomeDeepLink(search: string, hash = ''): HomeDeepLink {
   return { hasDeepLink: keys.length > 0 || cleanHash.length > 0, screenId };
 }
 
+export const CRM_DEAL_QUERY_PARAM = 'deal';
+
+/** Link da home que abre o funil do CRM, e o negócio quando o orçamento já tem dealId. */
+export function buildOpenCrmHref(opts?: { dealId?: string | null }): string {
+  const params = new URLSearchParams();
+  params.set(HOME_SCREEN_QUERY_PARAM, 'CRM_DEALS');
+  const dealId = opts?.dealId?.trim();
+  if (dealId) params.set(CRM_DEAL_QUERY_PARAM, dealId);
+  return `/?${params.toString()}`;
+}
+
+export function parseCrmDealDeepLink(search: string): string | null {
+  const dealId = new URLSearchParams(search || '').get(CRM_DEAL_QUERY_PARAM)?.trim();
+  return dealId || null;
+}
+
 export type HomeResolutionSource = 'DEEP_LINK' | 'SAVED' | 'FALLBACK' | 'NO_ACCESS';
 
 export interface HomeResolution {
