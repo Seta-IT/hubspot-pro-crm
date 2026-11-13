@@ -7,6 +7,8 @@ import {
   HOME_SCREEN_STORAGE_KEY,
   getAllowedSystems,
   loadHomeScreenPreference,
+  buildOpenCrmHref,
+  parseCrmDealDeepLink,
   parseHomeDeepLink,
   resolveInitialHomeScreen,
   saveHomeScreenPreference,
@@ -127,5 +129,15 @@ describe('Tela inicial padrao - persistencia por usuario', () => {
     const storage = memoryStorage();
     storage.setItem(HOME_SCREEN_STORAGE_KEY, '{nao-e-json');
     assert.equal(loadHomeScreenPreference('user-a', storage), null);
+  });
+});
+
+describe('Deep link Abrir no CRM a partir da proposta', () => {
+  it('monta /?tela=CRM_DEALS e inclui o deal quando o orçamento tem negócio vinculado', () => {
+    assert.equal(buildOpenCrmHref(), '/?tela=CRM_DEALS');
+    assert.equal(buildOpenCrmHref({ dealId: '  ' }), '/?tela=CRM_DEALS');
+    assert.equal(buildOpenCrmHref({ dealId: 'deal-123' }), '/?tela=CRM_DEALS&deal=deal-123');
+    assert.equal(parseCrmDealDeepLink('?tela=CRM_DEALS&deal=deal-123'), 'deal-123');
+    assert.equal(parseCrmDealDeepLink('?tela=CRM_DEALS'), null);
   });
 });
