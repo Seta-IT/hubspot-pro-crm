@@ -37,7 +37,7 @@ export interface IdempotencyRecord {
 }
 
 export type AuditChannel = 'rest_v1' | 'mcp' | 'oauth' | 'iam';
-export type AuditAuthType = 'api_key' | 'oauth' | 'session' | 'none';
+export type AuditAuthType = 'api_key' | 'oauth' | 'session' | 'service_key' | 'none';
 
 export interface IntegrationAuditEntry {
   id: string;
