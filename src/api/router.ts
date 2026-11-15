@@ -838,6 +838,35 @@ function checkAdminNewPassword(
   return { ok: true, body };
 }
 
+/**
+ * CISO 15/11: GET /api/erp/daily-sync do Vercel Cron. So vale com a flag _cronAuthorized que o
+ * bridge define APENAS apos comparar Authorization: Bearer <CRON_SECRET> em tempo constante
+ * (chaves "_" da URL sao descartadas). Cookie de sessao nunca habilita escrita via GET.
+ */
+export function isAuthorizedDailySyncCron(
+  method: string,
+  cleanPath: string,
+  query: Record<string, string | undefined>
+): boolean {
+  return (
+    method === 'GET' &&
+    cleanPath === '/api/erp/daily-sync' &&
+    query._fromHttpBridge === '1' &&
+    query._cronAuthorized === '1'
+  );
+}
+
+/** Decide se o estado vai para o Postgres apos a rota: mutacoes 2xx/3xx e o cron diario autenticado (2xx). */
+export function shouldPersistAfterDispatch(
+  method: string,
+  cleanPath: string,
+  query: Record<string, string | undefined>,
+  status: number
+): boolean {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return status >= 200 && status < 400;
+  return isAuthorizedDailySyncCron(method, cleanPath, query) && status >= 200 && status < 300;
+}
+
 export class CrmApiRouter {
   private repo: CrmRepository;
   private isSingletonRepo: boolean;
@@ -1377,12 +1406,8 @@ export class CrmApiRouter {
       : rawResponse;
 
     if (
-      this.isSingletonRepo &&
-      isPostgresEnabled() &&
-      ((["POST", "PUT", "PATCH", "DELETE"].includes(method) &&
-        response.status >= 200 &&
-        response.status < 400) ||
-        journalReconciled)
+      this.canPersistToPostgres() &&
+      (shouldPersistAfterDispatch(method, cleanPath, query, response.status) || journalReconciled)
     ) {
       const failed = await this.persistStateToPostgres();
       if (failed) return failed;
@@ -1471,6 +1496,11 @@ export class CrmApiRouter {
   }
 
   /** Grava o estado (e, no modo tabela, o diff das propostas). Conflito => 409; falha => 503. */
+  /** Gravacao no Neon so no repositorio singleton com Postgres configurado (isolado para teste). */
+  private canPersistToPostgres(): boolean {
+    return this.isSingletonRepo && isPostgresEnabled();
+  }
+
   private async persistStateToPostgres(): Promise<ApiResponse | null> {
     const ctx = this.proposalTableCtx;
     if (!ctx) {
@@ -8173,9 +8203,41 @@ export class CrmApiRouter {
             };
           }
         }
+        // CISO 15/11: o Vercel Cron (GET com Bearer CRON_SECRET validado no bridge) roda a sync
+        // completa como o botao Sincronizar (POST, forceRefresh) e o dispatch GRAVA o estado no
+        // Postgres (shouldPersistAfterDispatch). GET com cookie de sessao segue sem gravar.
+        const cronRun = isAuthorizedDailySyncCron(method, cleanPath, query);
         const syncReport = await this.repo.runIncrementalDailySync({
-          forceRefresh: method === 'POST' ? body.forceRefresh !== false : false,
+          forceRefresh: method === 'POST' ? body.forceRefresh !== false : cronRun,
         });
+        if (cronRun) {
+          try {
+            this.repo.appendSecurityAuditLog({
+              actorEmail: 'vercel-cron@sti-hub.local',
+              actorName: 'Vercel Cron',
+              actorRole: 'SYSTEM',
+              action: 'ERP_DAILY_SYNC_CRON',
+              module: 'ERP',
+              resource: 'GET /api/erp/daily-sync',
+              status: syncReport.liveConnected ? 'SUCCESS' : 'WARNING',
+              ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+              details: `Sincronizacao diaria GestaoClick disparada pelo Vercel Cron (conectado: ${syncReport.liveConnected ? 'sim' : 'nao'}).`,
+            });
+          } catch {
+            // auditoria nunca derruba a resposta
+          }
+          // Resposta do cron: so horario, status da conexao e contagens (sem dados de negocio).
+          return {
+            status: 200,
+            body: {
+              data: {
+                syncedAt: syncReport.syncedAt,
+                liveConnected: syncReport.liveConnected,
+                counts: syncReport.counts,
+              },
+            },
+          };
+        }
         return {
           status: 200,
           body: {

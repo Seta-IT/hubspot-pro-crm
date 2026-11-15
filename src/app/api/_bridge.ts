@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { resolveTrustedClientIp } from '../../api/client-ip';
 import { isSensitiveProposalPath, SENSITIVE_PROPOSAL_HEADERS } from '../lib/sensitive-paths';
 import { BRIDGE_RESERVED_KEYS, CrmApiRouter } from '../../api/router';
-import { constantTimeEqual, STIHUB_TOTP_ENROLLED_COOKIE, verifyStiHubSessionToken } from '../lib/auth';
+import { STIHUB_TOTP_ENROLLED_COOKIE, verifyStiHubSessionToken } from '../lib/auth';
 import {
   BODY_TOO_LARGE_RESPONSE_BODY,
   BRIDGE_LARGE_BODY_BYTES,
@@ -11,6 +11,7 @@ import {
   parseJsonBodyLenient,
   readBodyWithCap,
 } from '../lib/bridge-body-limit';
+import { isValidCronBearer, resolveCronSecret } from '../lib/cron-auth';
 import { hashServiceToken, parseServiceBearer, SERVICE_MAX_BODY_BYTES } from '../lib/service-account';
 import { isSessionTokenRevoked } from '../lib/session-revocation';
 
@@ -113,15 +114,12 @@ export async function forwardToCrmRouter(
 
   // Vercel Cron: GET exactos /api/erp/daily-sync e /api/crm/proposal-followup
   // com Authorization: Bearer <CRON_SECRET>.
-  const cronSecret = process.env.CRON_SECRET?.trim();
-  const authHeader = req.headers.get('authorization') || '';
+  // CISO 15/11: SHA-256 + timingSafeEqual; fail-closed sem CRON_SECRET (nunca roda sem auth).
   const cronPath = path.replace(/\/+$/, '');
   if (
-    cronSecret &&
-    cronSecret.length >= 16 &&
     req.method === 'GET' &&
     (cronPath === '/api/erp/daily-sync' || cronPath === '/api/crm/proposal-followup') &&
-    constantTimeEqual(authHeader, `Bearer ${cronSecret}`)
+    isValidCronBearer(req.headers.get('authorization'), resolveCronSecret())
   ) {
     query._cronAuthorized = '1';
   }
