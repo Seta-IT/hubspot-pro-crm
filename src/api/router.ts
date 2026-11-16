@@ -7058,6 +7058,22 @@ export class CrmApiRouter {
         return await this.approveProposalViaLink(decodeURIComponent(approvePropMatch[1]).trim(), query, body, ctx);
       }
 
+      // Gravação do PKCS#7 Gov.br. Só o callback no servidor (contexto interno) chega aqui.
+      // A rota HTTP pública não recebe TRUSTED_INTERNAL_CONTEXT e cai no 404 genérico.
+      const govBrSave = cleanPath.match(/^\/api\/internal\/govbr-signature\/([^/]+)$/);
+      if (govBrSave && method === 'POST') {
+        if (!ctx.trustedInternal) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        const saved = this.repo.recordGovBrSignature(decodeURIComponent(govBrSave[1]), {
+          signerName: String(body.signerName || ''),
+          signerCpf: String(body.signerCpf || ''),
+          signerRole: String(body.signerRole || ''),
+          signatureHashSha256: String(body.signatureHashSha256 || ''),
+          pkcs7Base64: String(body.pkcs7Base64 || ''),
+        });
+        if (!saved) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        return { status: 200, body: { data: { id: saved.id, govBrSigned: true } } };
+      }
+
       const restorePropVerMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/restore-version$/);
       if (restorePropVerMatch && method === 'POST') {
         const propId = decodeURIComponent(restorePropVerMatch[1]);
