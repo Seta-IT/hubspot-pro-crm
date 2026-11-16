@@ -10,7 +10,7 @@ import { ERP_SYNC_MAX_BODY_BYTES, ERP_SYNC_ROUTE, handleErpSyncRun } from '../..
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 async function handle(req: NextRequest): Promise<NextResponse> {
   const method = req.method.toUpperCase();
