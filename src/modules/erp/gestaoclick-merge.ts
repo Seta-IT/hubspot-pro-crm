@@ -266,17 +266,92 @@ function formatCnpjCpf(digits: string): string {
 }
 
 /**
- * Insere todos os contratos do GC que ainda não existem (chave = id ctr-gc-N).
- * - CNPJ vazio no GC: completa pelo cadastro de empresas do STI-hub (id GC do
- *   cliente, depois companyId, depois nome exato).
- * - Contrato já existente: só preenche campos vazios (CNPJ, modalidade, código
- *   GC); nunca sobrescreve status nem valores editados no STI-hub.
- * - Trava Fiscal: CNPJ existente diferente do CNPJ do GC => conflito, nada muda.
+ * Campos do contrato que vêm do GestãoClick e são espelhados (decisão do
+ * Marcéllo em 16/11: "deve estar tudo como esta no gestao click").
+ * Campos só do STI-hub (índice de reajuste, modelo de contrato, cláusulas,
+ * versões, assinatura, faturamento, deal/contato, CFOP de remessa, nota legal
+ * etc.) não estão aqui e nunca são tocados.
+ */
+export const GC_MIRRORED_CONTRACT_FIELDS = [
+  'contractNumber',
+  'title',
+  'modality',
+  'gestaoClickCode',
+  'nextDueDate',
+  'sellerName',
+  'proposalId',
+  'monthlyValue',
+  'dueDay',
+  'startDate',
+  'endDate',
+  'contractMonths',
+  'status',
+  'remessaNfeNumber',
+] as const;
+
+/** Identidade fiscal do cliente: sob conflito de CNPJ (Trava Fiscal) não muda. */
+const GC_IDENTITY_CONTRACT_FIELDS = ['companyId', 'companyName'] as const;
+
+/** Campos de equipamento espelhados do GC; serial, patrimônio, NCM, chave NF-e etc. ficam do STI-hub. */
+const GC_MIRRORED_EQUIPMENT_FIELDS = ['skuGestaoClick', 'description', 'quantity', 'unitMonthlyRent'] as const;
+
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+function mirrorEquipments(
+  contractGcPrefix: string,
+  current: ErpRentalContract['equipments'],
+  incoming: ErpRentalContract['equipments']
+): { list: ErpRentalContract['equipments']; changed: boolean } {
+  const currentList = Array.isArray(current) ? current : [];
+  const incomingList = Array.isArray(incoming) ? incoming : [];
+  const byId = new Map(currentList.map((e) => [e.id, e]));
+  const incomingIds = new Set(incomingList.map((e) => e.id));
+  let changed = false;
+  const list: ErpRentalContract['equipments'] = [];
+  for (const inc of incomingList) {
+    const ex = byId.get(inc.id);
+    if (!ex) {
+      list.push(inc);
+      changed = true;
+      continue;
+    }
+    const merged = { ...ex };
+    for (const f of GC_MIRRORED_EQUIPMENT_FIELDS) {
+      if (!sameValue(ex[f], inc[f])) {
+        (merged as Record<string, unknown>)[f] = inc[f];
+        changed = true;
+      }
+    }
+    list.push(merged);
+  }
+  for (const ex of currentList) {
+    if (incomingIds.has(ex.id)) continue;
+    // Item gerado pelo GC que não existe mais no GC sai; item criado no STI-hub fica.
+    if (ex.id.startsWith(contractGcPrefix)) {
+      changed = true;
+      continue;
+    }
+    list.push(ex);
+  }
+  return { list, changed };
+}
+
+/**
+ * Espelha todos os contratos do GC (chave = id ctr-gc-N, sem duplicar).
+ * - Novo: inserido. CNPJ vazio no GC é completado pelo cadastro de empresas
+ *   do STI-hub (id GC do cliente, depois companyId, depois nome exato).
+ * - Existente: os campos de GC_MIRRORED_CONTRACT_FIELDS e os itens do GC
+ *   passam a valer como no GestãoClick (status, valores, datas, tipo...).
+ * - Trava Fiscal: CNPJ do STI-hub diferente do CNPJ do GC => conflito; o CNPJ
+ *   e a identidade do cliente não mudam (os demais campos são espelhados).
  */
 export function mergeGestaoClickContracts(
   contracts: ErpRentalContract[],
   incoming: ErpRentalContract[],
-  companies: Array<Partial<Company> & { customProperties?: Record<string, unknown> }> = []
+  companies: Array<Partial<Company> & { customProperties?: Record<string, unknown> }> = [],
+  nowIso: string = new Date().toISOString()
 ): GcMergeStats {
   const stats = emptyStats();
   const docByGcClient = new Map<string, string>();
@@ -315,26 +390,45 @@ export function mergeGestaoClickContracts(
       stats.inserted++;
       continue;
     }
-    const existingDoc = docKey(existing.companyCnpj);
-    if (existingDoc && doc && existingDoc !== doc) {
-      stats.conflicts.push({ gcId: raw.id, existingId: existing.id, reason: 'CNPJ divergente (Trava Fiscal)' });
-      continue;
-    }
+
+    const target = existing as unknown as Record<string, unknown>;
+    const source = next as unknown as Record<string, unknown>;
     let changed = false;
-    if (isBlank(existing.companyCnpj) && doc) {
-      existing.companyCnpj = formatCnpjCpf(doc);
+    const setField = (f: string) => {
+      if (!(f in source) || source[f] === undefined) return;
+      // proposalId nulo no GC não desfaz vínculo com proposta do STI-hub.
+      if (f === 'proposalId' && source[f] === null) return;
+      if (!sameValue(target[f], source[f])) {
+        target[f] = source[f];
+        changed = true;
+      }
+    };
+
+    const existingDoc = docKey(existing.companyCnpj);
+    const conflict = Boolean(existingDoc && doc && existingDoc !== doc);
+    if (conflict) {
+      stats.conflicts.push({ gcId: raw.id, existingId: existing.id, reason: 'CNPJ divergente (Trava Fiscal)' });
+    } else {
+      if (isBlank(existing.companyCnpj) && doc) {
+        existing.companyCnpj = formatCnpjCpf(doc);
+        changed = true;
+      }
+      for (const f of GC_IDENTITY_CONTRACT_FIELDS) setField(f);
+    }
+    for (const f of GC_MIRRORED_CONTRACT_FIELDS) setField(f);
+
+    const eq = mirrorEquipments(`eq-gc-${raw.id.replace(/^ctr-gc-/, '')}-`, existing.equipments, next.equipments);
+    if (eq.changed) {
+      existing.equipments = eq.list;
       changed = true;
     }
-    if (!existing.modality && next.modality) {
-      existing.modality = next.modality;
-      changed = true;
+
+    if (changed) {
+      existing.updatedAt = nowIso;
+      stats.updated++;
+    } else {
+      stats.unchanged++;
     }
-    if (isBlank(existing.gestaoClickCode) && next.gestaoClickCode) {
-      existing.gestaoClickCode = next.gestaoClickCode;
-      changed = true;
-    }
-    if (changed) stats.updated++;
-    else stats.unchanged++;
   }
   return stats;
 }
@@ -344,7 +438,7 @@ export function mergeGestaoClickContracts(
 // ---------------------------------------------------------------------------
 
 /**
- * Upsert pelo id do GestãoClick: registro do GC atualiza o espelho, registros
+ * Upsert pelo id do GestãoClick: campos do GC sobrescrevem o espelho, registros
  * novos entram no fim e registros que não vieram nesta leitura são mantidos
  * (uma leitura parcial nunca encolhe a lista). Antes a lista era substituída
  * inteira pelos 15 primeiros registros.
@@ -363,7 +457,9 @@ export function upsertRecordsById<T extends { id: string }>(current: T[], incomi
       index.set(id, result.length);
       result.push(rec);
     } else {
-      result[at] = rec;
+      // Campos do GC sobrescrevem; campos só do STI-hub (ex.: prioridade, laudo,
+      // forma de pagamento, comissão) que o GC não envia ficam intactos.
+      result[at] = { ...result[at], ...rec };
     }
   }
   return result;

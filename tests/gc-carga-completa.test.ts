@@ -139,23 +139,125 @@ describe('GestaoClick: merge de contratos', () => {
     assert.equal(list[0].companyCnpj, '11.222.333/0001-81');
   });
 
-  it('nao sobrescreve status editado no STI-hub', () => {
-    const list = [ctr('ctr-gc-1', { status: 'SUSPENSO' })];
-    mergeGestaoClickContracts(list, [ctr('ctr-gc-1', { status: 'ENCERRADO', modality: 'LOCACAO' })], companies);
-    assert.equal(list[0].status, 'SUSPENSO');
-    assert.equal(list[0].modality, 'LOCACAO');
-  });
-
-  it('Trava Fiscal: CNPJ divergente vira conflito e nada muda', () => {
-    const list = [ctr('ctr-gc-1', { companyCnpj: '99.888.777/0001-66' })];
+  it('espelha o GestaoClick: status, valores, datas e tipo sobrescritos; campos so do STI-hub intactos', () => {
+    const list = [
+      ctr('ctr-gc-1', {
+        status: 'ATIVO',
+        monthlyValue: 750,
+        endDate: '2027-01-01',
+        readjustmentIndex: 'IGP-M',
+        contractTemplateModel: 'MODELO_LOCACAO_BENS_MOVEIS',
+        dealId: 'deal-9',
+        proposalId: 'prop-local-1',
+        equipments: [
+          {
+            id: 'eq-gc-1-0',
+            skuGestaoClick: 'A',
+            description: 'Antigo',
+            serialNumber: 'SN-REAL-1',
+            ncm: '8517.62.59',
+            quantity: 1,
+            unitMonthlyRent: 750,
+            assetValueBrl: 9000,
+            remessaCfop: '5.908',
+            remessaNfeKey: 'k',
+          },
+          {
+            id: 'eq-gc-1-1',
+            skuGestaoClick: 'B',
+            description: 'Saiu do GC',
+            serialNumber: 'x',
+            ncm: 'n',
+            quantity: 1,
+            unitMonthlyRent: 1,
+            assetValueBrl: 1,
+            remessaCfop: '5.908',
+            remessaNfeKey: 'k',
+          },
+          {
+            id: 'eq-local-7',
+            skuGestaoClick: 'C',
+            description: 'Criado no STI-hub',
+            serialNumber: 'y',
+            ncm: 'n',
+            quantity: 1,
+            unitMonthlyRent: 1,
+            assetValueBrl: 1,
+            remessaCfop: '5.908',
+            remessaNfeKey: 'k',
+          },
+        ],
+      }),
+    ];
     const stats = mergeGestaoClickContracts(
       list,
-      [ctr('ctr-gc-1', { companyCnpj: '11.222.333/0001-81', modality: 'SERVICO' })],
+      [
+        ctr('ctr-gc-1', {
+          status: 'ENCERRADO',
+          modality: 'SERVICO',
+          monthlyValue: 990,
+          endDate: '2026-06-30',
+          proposalId: null,
+          readjustmentIndex: 'IPCA',
+          equipments: [
+            {
+              id: 'eq-gc-1-0',
+              skuGestaoClick: 'A2',
+              description: 'Novo nome',
+              serialNumber: 'SN-GC-FAKE',
+              ncm: '0000',
+              quantity: 3,
+              unitMonthlyRent: 330,
+              assetValueBrl: 1,
+              remessaCfop: '5.908',
+              remessaNfeKey: 'fake',
+            },
+          ],
+        }),
+      ],
+      companies,
+      '2026-11-16T20:00:00.000Z'
+    );
+    const c = list[0];
+    assert.equal(stats.updated, 1);
+    assert.equal(c.status, 'ENCERRADO');
+    assert.equal(c.modality, 'SERVICO');
+    assert.equal(c.monthlyValue, 990);
+    assert.equal(c.endDate, '2026-06-30');
+    assert.equal(c.updatedAt, '2026-11-16T20:00:00.000Z');
+    // so do STI-hub
+    assert.equal(c.readjustmentIndex, 'IGP-M');
+    assert.equal(c.dealId, 'deal-9');
+    assert.equal(c.proposalId, 'prop-local-1');
+    assert.equal(c.contractTemplateModel, 'MODELO_LOCACAO_BENS_MOVEIS');
+    // itens: campos do GC espelhados, serial/NCM/chave do STI-hub mantidos; item do GC removido; item local mantido
+    assert.deepEqual(c.equipments.map((e) => e.id), ['eq-gc-1-0', 'eq-local-7']);
+    assert.equal(c.equipments[0].description, 'Novo nome');
+    assert.equal(c.equipments[0].quantity, 3);
+    assert.equal(c.equipments[0].serialNumber, 'SN-REAL-1');
+    assert.equal(c.equipments[0].ncm, '8517.62.59');
+    assert.equal(c.equipments[0].remessaNfeKey, 'k');
+  });
+
+  it('segunda leitura igual nao altera nada (idempotente)', () => {
+    const list: ErpRentalContract[] = [];
+    mergeGestaoClickContracts(list, [ctr('ctr-gc-5', { status: 'FATURAMENTO' })], companies);
+    const stats = mergeGestaoClickContracts(list, [ctr('ctr-gc-5', { status: 'FATURAMENTO' })], companies);
+    assert.equal(list.length, 1);
+    assert.equal(stats.unchanged, 1);
+  });
+
+  it('Trava Fiscal: CNPJ divergente vira conflito, CNPJ e cliente nao mudam, demais campos espelhados', () => {
+    const list = [ctr('ctr-gc-1', { companyCnpj: '99.888.777/0001-66', companyName: 'Cliente X' })];
+    const stats = mergeGestaoClickContracts(
+      list,
+      [ctr('ctr-gc-1', { companyCnpj: '11.222.333/0001-81', companyName: 'Outro', status: 'ENCERRADO' })],
       companies
     );
     assert.equal(stats.conflicts.length, 1);
     assert.equal(list[0].companyCnpj, '99.888.777/0001-66');
-    assert.equal(list[0].modality, undefined);
+    assert.equal(list[0].companyName, 'Cliente X');
+    assert.equal(list[0].status, 'ENCERRADO');
   });
 });
 
@@ -170,5 +272,13 @@ describe('GestaoClick: upsert de vendas e OS', () => {
       { id: '2', status: 'Concretizada' },
     ]);
     assert.deepEqual(out.map((r) => `${r.id}:${r.status}`), ['1:Concretizada', 'local-9:Manual', '2:Concretizada']);
+  });
+
+  it('campos so do STI-hub (ex.: prioridade da OS) ficam intactos', () => {
+    const out = upsertRecordsById<{ id: string; status: string; priority?: string }>(
+      [{ id: '1', status: 'Em aberto', priority: 'ALTA' }],
+      [{ id: '1', status: 'Concretizada' }]
+    );
+    assert.deepEqual(out[0], { id: '1', status: 'Concretizada', priority: 'ALTA' });
   });
 });
