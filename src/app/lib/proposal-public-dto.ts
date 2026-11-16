@@ -47,6 +47,8 @@ export interface PublicProposalAcceptanceDto {
   signatureHashSha256: string;
   timestampToken: string;
   signedAt: string;
+  /** True quando o PKCS#7 da API Gov.br foi gravado. O PKCS#7 em si não sai no DTO. */
+  govBrSigned?: boolean;
 }
 
 export interface PublicProposalDto {
@@ -132,7 +134,8 @@ function inferItemType(it: { itemType?: string; fiscalNature?: string }): 'PRODU
 /** Monta o DTO publico a partir da proposta do servidor (lista branca, campo a campo). */
 export function toPublicProposalDto(p: ErpCommercialProposal): PublicProposalDto {
   const sig = p.digitalSignature || null;
-  const accepted = Boolean(sig && (p.status === 'APROVADA' || p.status === 'CONVERTIDA_CONTRATO'));
+  const govBrSigned = Boolean(sig?.govBrSigned && sig.pkcs7Base64);
+  const accepted = Boolean(sig && (p.status === 'APROVADA' || p.status === 'CONVERTIDA_CONTRATO' || govBrSigned));
   return {
     code: String(p.code || ''),
     title: String(p.title || ''),
@@ -201,6 +204,7 @@ export function toPublicProposalDto(p: ErpCommercialProposal): PublicProposalDto
             signatureHashSha256: String(sig.signatureHashSha256 || ''),
             timestampToken: String(sig.timestampToken || ''),
             signedAt: String(sig.signedAt || ''),
+            govBrSigned,
           }
         : null,
   };
@@ -284,6 +288,7 @@ export function publicDtoToRenderableProposal(dto: PublicProposalDto, routeId: s
           signatureHashSha256: dto.acceptance.signatureHashSha256,
           timestampToken: dto.acceptance.timestampToken,
           signedAt: dto.acceptance.signedAt,
+          govBrSigned: dto.acceptance.govBrSigned === true,
         }
       : null,
     version: dto.version,

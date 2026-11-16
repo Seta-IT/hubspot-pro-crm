@@ -135,11 +135,44 @@ function PublicProposalPrintContent() {
   const [signatureModality, setSignatureModality] = useState<
     "ICP_BRASIL_A1" | "ICP_BRASIL_A3" | "GOV_BR_OURO"
   >("ICP_BRASIL_A1");
+  const [govBrEnabled, setGovBrEnabled] = useState(false);
+  const govBrResumeRef = useRef(false);
 
   useEffect(() => {
     setLinkToken(linkOverride?.token || readProposalLinkTokenFromLocation());
     setLinkChecked(true);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/govbr/sign/status', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (active) setGovBrEnabled(json?.enabled === true);
+      })
+      .catch(() => {
+        if (active) setGovBrEnabled(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (searchParams?.get('govbr') !== '1' || !proposal || govBrResumeRef.current) return;
+    govBrResumeRef.current = true;
+    fetch('/api/govbr/sign/result', { credentials: 'same-origin', cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!json?.signerName || !json?.signerCpf) return;
+        setSignerName(json.signerName);
+        setSignerCpf(json.signerCpf);
+        setSignatureModality('GOV_BR_OURO');
+        setAcceptedTerms(true);
+        void handleApproveAndConvertInPage({ signerName: json.signerName, signerCpf: json.signerCpf });
+      })
+      .catch(() => null);
+  }, [proposal, searchParams]);
 
   useEffect(() => {
     if (!linkChecked || !sessionChecked) return;
@@ -611,14 +644,45 @@ function PublicProposalPrintContent() {
     }).then(reportProtectedFailure).catch(() => null);
   };
 
-  const handleApproveAndConvertInPage = async () => {
+  const handleApproveAndConvertInPage = async (override?: { signerName: string; signerCpf: string }) => {
     if (!proposal) return;
     setApprovalError(null);
-    if (!signerName.trim() || !signerCpf.trim() || !signerRole.trim()) {
+    const name = (override?.signerName || signerName).trim();
+    const cpf = (override?.signerCpf || signerCpf).trim();
+    if (signatureModality === "GOV_BR_OURO" && govBrEnabled && !override) {
+      if (!signerRole.trim() || !acceptedTerms) {
+        setApprovalError("Para assinar com Gov.br, informe o cargo e confirme que aceita os termos.");
+        return;
+      }
+      const path = typeof window !== "undefined" ? window.location.pathname.replace(/\/+$/, "") : "";
+      const returnPath = /^\/(?:proposta|p)\//.test(path) ? path : `/proposta/${encodeURIComponent(proposal.id)}`;
+      setApprovingContract(true);
+      try {
+        const started = await fetch("/api/govbr/sign/start", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            ...(linkToken ? { "X-Proposal-Token": linkToken } : {}),
+          },
+          body: JSON.stringify({ proposalId: proposal.id, signerRole: signerRole.trim(), returnPath }),
+        });
+        const json = await started.json().catch(() => null);
+        if (started.ok && typeof json?.authorizeUrl === "string") {
+          window.location.assign(json.authorizeUrl);
+          return;
+        }
+        setApprovalError(typeof json?.error === "string" ? json.error : "Não foi possível iniciar a assinatura Gov.br.");
+      } finally {
+        setApprovingContract(false);
+      }
+      return;
+    }
+    if (!name || !cpf || !signerRole.trim()) {
       setApprovalError("Preencha nome completo, CPF e cargo do signatário para concluir o aceite.");
       return;
     }
-    if (!acceptedTerms) {
+    if (!acceptedTerms && !override) {
       setApprovalError("Para concluir, confirme que leu e aceita os termos desta proposta comercial.");
       return;
     }
@@ -653,8 +717,8 @@ function PublicProposalPrintContent() {
         credentials: linkToken ? 'omit' : 'same-origin',
         referrerPolicy: 'no-referrer',
         body: JSON.stringify({
-          signerName: signerName.trim(),
-          signerCpf: signerCpf.trim(),
+          signerName: name,
+          signerCpf: cpf,
           signerRole: signerRole.trim(),
           ...(proposal.contactEmail ? { signerEmail: proposal.contactEmail } : {}),
           modality: signatureModality,
@@ -1598,7 +1662,7 @@ function PublicProposalPrintContent() {
                       Token / Smartcard Criptográfico ICP-Brasil Tipo A3
                     </option>
                     <option value="GOV_BR_OURO">
-                      Assinatura Eletrônica Avançada / Qualificada Gov.br (Nível Ouro — ITI)
+                      {govBrEnabled ? 'Assinatura Eletrônica Gov.br (ITI)' : 'Aceite eletrônico'}
                     </option>
                   </select>
                 </div>
@@ -1633,7 +1697,7 @@ function PublicProposalPrintContent() {
                 <button
                   type="button"
                   disabled={approvingContract}
-                  onClick={handleApproveAndConvertInPage}
+                  onClick={() => { void handleApproveAndConvertInPage(); }}
                   className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-50"
                 >
                   <CheckCircle2 className="w-4 h-4" />
@@ -2321,12 +2385,20 @@ function PublicProposalPrintContent() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 font-semibold text-slate-900 uppercase text-[11px]">
                     <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                    Selo de Autenticidade e Assinatura Eletrônica ICP-Brasil / Gov.br (ITI)
+                    {proposal.digitalSignature?.govBrSigned
+                      ? 'Selo de Assinatura Eletrônica Gov.br (ITI)'
+                      : 'Selo de Autenticidade e Assinatura Eletrônica'}
                   </div>
                   <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-semibold">
-                    {proposal.digitalSignature
-                      ? `ASSINADO DIGITALMENTE (${proposal.digitalSignature.modality})`
-                      : "HABILITADO PARA ASSINATURA ICP-BRASIL / GOV.BR"}
+                    {proposal.digitalSignature?.govBrSigned
+                      ? 'ASSINADO VIA GOV.BR'
+                      : proposal.digitalSignature
+                        ? proposal.digitalSignature.modality === 'GOV_BR_OURO'
+                          ? 'ACEITE ELETRÔNICO'
+                          : `ASSINADO DIGITALMENTE (${proposal.digitalSignature.modality})`
+                        : govBrEnabled
+                          ? 'HABILITADO PARA ASSINATURA GOV.BR'
+                          : 'HABILITADO PARA ACEITE ELETRÔNICO'}
                   </span>
                 </div>
 
