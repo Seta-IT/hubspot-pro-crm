@@ -647,7 +647,7 @@ export const GESTAOCLICK_FULL_RESOURCE_SCHEMAS: GestaoClickResourceSchema[] = [
     recurso: 'documentos',
     modulo: 'assinatura_digital',
     menuGroup: 'Contratos',
-    menuSubItem: 'Assinatura Digital (ICP-Brasil / Gov.br)',
+    menuSubItem: 'Assinatura Digital (ICP-Brasil)',
     caminho: '/documentos',
     acoes: ['listar', 'visualizar', 'cadastrar', 'editar', 'deletar', 'signatarios', 'cancelar', 'enviar'],
     filtros: ['documento', 'contato', 'loja', 'situacao', 'data_inicio', 'data_fim'],

@@ -50,12 +50,6 @@ export function isPublicStiHubPath(pathname: string, method = 'GET'): boolean {
   // (GET /api/erp/proposals/:id and POST /api/erp/proposals/:id/approve).
   // Root listing (GET /api/erp/proposals) is NEVER public.
   // t33u: resolucao do short link /p/<codigo> (GET /api/p/<codigo>, um unico segmento).
-  // Retorno OAuth da Assinatura Gov.br e a consulta de status (sem segredo).
-  // O callback só troca o code no servidor; o POST de gravação interno não é público.
-  if (clean === '/api/govbr/sign/status' && String(method || 'GET').toUpperCase() === 'GET') return true;
-  if (clean === '/api/govbr/sign/callback' && String(method || 'GET').toUpperCase() === 'GET') return true;
-  if (clean === '/api/govbr/sign/result' && String(method || 'GET').toUpperCase() === 'GET') return true;
-  if (clean === '/api/govbr/sign/start' && String(method || 'GET').toUpperCase() === 'POST') return true;
   if (clean.startsWith('/api/p/') && String(method || 'GET').toUpperCase() === 'GET') {
     const segs = clean.slice('/api/p/'.length).split('/').filter(Boolean);
     if (segs.length === 1) return true;
