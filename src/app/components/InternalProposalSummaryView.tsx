@@ -37,6 +37,15 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
         </div>
       </div>
       <main className="mx-auto my-4 max-w-[794px] rounded-md border border-[#dbe2ee] bg-white px-6 py-6 print:m-0 print:max-w-none print:border-0 print:p-0 sm:px-10">
+        {sheet.validityExpiredSince ? (
+          <div
+            data-testid="internal-proposal-expired-banner"
+            role="status"
+            className="mb-3 rounded-md border border-[#c7d2e8] bg-[#eef2fa] px-3 py-2 text-[11px] font-semibold leading-relaxed text-[#1e3a6e]"
+          >
+            Esta proposta está vencida desde {sheet.validityExpiredSince} e precisa ser revalidada. Fale com seu consultor Seta Telecom.
+          </div>
+        ) : null}
         <header className="flex items-start justify-between gap-4 border-b-2 border-[#1e3a6e] pb-2">
           <div className="flex items-center gap-3">
             <img src="/brand/seta-it-logo.png" alt="SETA | IT" className="h-8 w-auto" />

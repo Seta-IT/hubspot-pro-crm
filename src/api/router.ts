@@ -152,9 +152,12 @@ import {
   publicProposalApproveSchema,
   signProposalLinkToken,
   verifyProposalLinkToken,
+  isAuthenticProposalLinkToken,
   proposalLinkVersionStillValid,
   describeProposalLinkInText,
-  proposalValidUntilEndMs,
+  proposalLinkNotAfterMs,
+  isProposalValidityExpired,
+  proposalExpiredRevalidationMessage,
   ProposalLinkExpiredProposalError,
   resolveProposalLinkOrigin,
   signProposalLinkClaims,
@@ -3392,10 +3395,11 @@ export class CrmApiRouter {
 
   /**
    * t33u: GET /api/p/:code (publico). Mesmo rate limit por IP da visualizacao publica; codigo fora
-   * do formato, inexistente, revogado, vencido, de revisao ainda nao alcancada, proposta em
-   * RASCUNHO ou cujo token reassinado nao passa no verifyProposalLinkToken => o mesmo 404
-   * generico (anti-enumeracao). Correcao comercial (versao interna maior) NAO entra nessa lista:
-   * o slug devolve a proposta atual.
+   * do formato, inexistente, revogado, de revisao ainda nao alcancada, proposta em
+   * RASCUNHO ou cujo token reassinado nao e autentico => o mesmo 404
+   * generico (anti-enumeracao). Token ou validade vencidos NAO entram nessa lista: o slug
+   * abre a proposta atual com aviso de revalidacao. Correcao comercial (versao interna maior)
+   * tambem devolve a proposta atual.
    */
   private resolveProposalShortLink(code: string, query: Record<string, string | undefined>): ApiResponse {
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
@@ -3413,7 +3417,7 @@ export class CrmApiRouter {
       return proposalNotFoundResponse();
     }
     const v = verifyProposalLinkToken(token, { proposalId: rec.proposalId });
-    if (!v.valid) return proposalNotFoundResponse();
+    if (!isAuthenticProposalLinkToken(v)) return proposalNotFoundResponse();
     const found = this.findProposalExact(rec.proposalId);
     if (this.publicProposalLinkViewBlocked(found, v.claims.ver)) return proposalNotFoundResponse();
     this.proposalLinkAudit(
@@ -3632,9 +3636,10 @@ export class CrmApiRouter {
   }
 
   /**
-   * GET publico: token valido (assinatura, id, nao expirado) para ESTA proposta.
-   * A revisao gravada no token pode ser anterior a atual: a resposta e sempre o DTO atual.
-   * Qualquer outra falha => 404 generico.
+   * GET publico: token autentico (assinatura e id) para ESTA proposta, mesmo se o exp
+   * ou a validade comercial ja tiverem passado. A revisao gravada no token pode ser
+   * anterior a atual: a resposta e sempre o DTO atual. Token adulterado/ausente,
+   * proposta inexistente ou RASCUNHO => 404 generico.
    */
   private viewProposalViaLink(pathId: string, query: Record<string, string | undefined>): ApiResponse {
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
@@ -3642,7 +3647,7 @@ export class CrmApiRouter {
       return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
     }
     const v = verifyProposalLinkToken(query.proposalLinkToken, { proposalId: pathId });
-    if (!v.valid) return proposalNotFoundResponse();
+    if (!isAuthenticProposalLinkToken(v)) return proposalNotFoundResponse();
     const found = this.findProposalExact(pathId);
     if (this.publicProposalLinkViewBlocked(found, v.claims.ver)) return proposalNotFoundResponse();
     this.proposalLinkAudit(
@@ -3704,7 +3709,7 @@ export class CrmApiRouter {
       // Com token valido => balde proprio por jti + proposta, e NAO o balde por IP: quem divide o IP
       // do cliente (NAT, Wi-Fi) sem o token nao consegue travar o aceite dele.
       const v = verifyProposalLinkToken(query.proposalLinkToken, { proposalId: pathId });
-      if (!v.valid) {
+      if (!isAuthenticProposalLinkToken(v)) {
         if (!this.proposalApproveIpLimiter.hit(`approve-ip:${ipKey}`)) {
           this.proposalLinkAudit('PROPOSAL_PUBLIC_APPROVE', 'BLOCKED', ip, pathId, 'rate-limit por IP (429)');
           return rateLimited;
@@ -3822,6 +3827,25 @@ export class CrmApiRouter {
         jti
       );
       return proposalNotFoundResponse();
+    }
+    // Proposta vencida: o link continua abrindo, mas o aceite do cliente fica bloqueado.
+    if (!trusted && isProposalValidityExpired(existing.validUntil)) {
+      this.proposalLinkAudit(
+        'PROPOSAL_PUBLIC_APPROVE',
+        'BLOCKED',
+        ip,
+        existing.id,
+        'validade da proposta vencida (409, precisa revalidar)',
+        undefined,
+        jti
+      );
+      return {
+        status: 409,
+        body: {
+          error: proposalExpiredRevalidationMessage(existing.validUntil),
+          code: 'PROPOSAL_EXPIRED',
+        },
+      };
     }
     // A5/D3: valida pelo status canonico (caixa/invisiveis nao mudam a decisao do gate acima).
     const existingStatusNorm = CrmApiRouter.normalizeProposalStatus(existing.status);
@@ -3967,12 +3991,21 @@ export class CrmApiRouter {
     const statusNorm = CrmApiRouter.normalizeProposalStatus(found.status);
     const statusCanon = statusNorm.kind === 'ok' ? statusNorm.value : null;
     const isDraft = statusCanon === 'RASCUNHO';
-    // B1: exp = min(TTL, fim do dia de validUntil). Proposta vencida => 409, sem link (e, se
-    // for RASCUNHO, sem mudar o status: a assinatura e testada ANTES da transicao).
+    // B1: exp = min(TTL, fim do dia de validUntil) quando a validade ainda esta vigente.
+    // Proposta ja enviada e vencida: o link continua sendo emitido (visualizacao com aviso;
+    // o aceite publico e bloqueado). RASCUNHO vencido => 409, sem promover o status.
+    // A assinatura e testada ANTES da transicao RASCUNHO -> ENVIADA.
+    if (isDraft && isProposalValidityExpired(found.validUntil)) {
+      this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, 'validade da proposta vencida (409)', actor);
+      return {
+        status: 409,
+        body: { error: 'A validade desta proposta já venceu. Atualize a data de validade antes de gerar o link para o cliente.', code: 'PROPOSAL_EXPIRED' },
+      };
+    }
     let signed: ReturnType<typeof signProposalLinkToken>;
     let target = found;
     try {
-      signed = signProposalLinkToken({ proposalId: found.id, version: Math.max(1, Number(found.version || 1)), notAfterMs: proposalValidUntilEndMs(found.validUntil) });
+      signed = signProposalLinkToken({ proposalId: found.id, version: Math.max(1, Number(found.version || 1)), notAfterMs: proposalLinkNotAfterMs(found.validUntil) });
       if (isDraft) {
         // D3: RASCUNHO -> ENVIADA na emissao, com o mesmo escopo/sessao ja conferidos acima,
         // historico de status e auditoria. A transicao cria versao nova e o link sai dela.
@@ -3992,7 +4025,7 @@ export class CrmApiRouter {
           'SUCCESS',
           `RASCUNHO -> ENVIADA na emissao do link assinado (versao ${Math.max(1, Number(sent.version || 1))})`
         );
-        signed = signProposalLinkToken({ proposalId: sent.id, version: Math.max(1, Number(sent.version || 1)), notAfterMs: proposalValidUntilEndMs(sent.validUntil) });
+        signed = signProposalLinkToken({ proposalId: sent.id, version: Math.max(1, Number(sent.version || 1)), notAfterMs: proposalLinkNotAfterMs(sent.validUntil) });
       }
     } catch (err) {
       if (err instanceof ProposalLinkExpiredProposalError) {

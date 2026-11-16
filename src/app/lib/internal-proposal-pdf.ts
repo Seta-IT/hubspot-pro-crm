@@ -91,7 +91,9 @@ th{background:#fafbfd;font-size:9.5px;text-transform:uppercase;text-align:left}
 .sign{margin-top:6px;border:1px solid #cdd7e6;padding:18px 0 4px;text-align:center}
 .ln{width:300px;margin:0 auto 4px;border-top:1px solid #1f2937}
 .foot{margin-top:4px;text-align:right;font-size:9.5px;color:#6b7280}
+.expired{margin:0 0 6px;padding:5px 8px;border:1px solid #c7d2e8;background:#eef2fa;color:#1e3a6e;font-size:10.5px;font-weight:700}
 </style></head><body>
+${sheet.validityExpiredSince ? `<div class="expired" data-testid="internal-proposal-expired-banner">Esta proposta está vencida desde ${escHtml(sheet.validityExpiredSince)} e precisa ser revalidada. Fale com seu consultor Seta Telecom.</div>` : ''}
 <header class="head"><div class="brand"><img src="${escHtml(logo)}" alt="SETA | IT"><div><h1>${escHtml(sheetTitle(sheet))}</h1><div class="l">${escHtml(sheet.issuerLegalName)}</div><div class="l">CNPJ: ${escHtml(sheet.issuerCnpj)}</div><div class="l">${escHtml(sheet.issuerStreet)}</div><div class="l">${escHtml(sheet.issuerCity)}</div></div></div>
 <div class="contact">${sheet.issuerPhone ? `<div><strong>${escHtml(sheet.issuerPhone)}</strong></div>` : ''}${sheet.issuerEmail ? `<div><strong>${escHtml(sheet.issuerEmail)}</strong></div>` : ''}${sheet.sellerName ? `<div>Vendedor: <strong>${escHtml(sheet.sellerName)}</strong></div>` : ''}</div></header>
 <div class="docline"><div class="n">ORÇAMENTO Nº ${escHtml(sheet.budgetNumber)}</div><div class="d">${escHtml(sheet.proposalDateLabel)}</div></div>

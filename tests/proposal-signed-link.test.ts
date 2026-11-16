@@ -110,7 +110,10 @@ describe('Link assinado de proposta: token HMAC', () => {
     const forgedPayload = Buffer.from(JSON.stringify({ v: 1, pid: 'prop-fixture-001', ver: 9, iat: Date.now(), exp: Date.now() + 1e6, jti: 'x' })).toString('base64url');
     assert.equal(verifyProposalLinkToken(`${forgedPayload}.${sig}`, { proposalId: 'prop-fixture-001' }).valid, false);
     const expired = linkFor('prop-fixture-001', 1, { ttlDays: 1, nowMs: Date.now() - 2 * 86_400_000 });
-    assert.equal(verifyProposalLinkToken(expired, { proposalId: 'prop-fixture-001' }).valid, false);
+    const expiredV = verifyProposalLinkToken(expired, { proposalId: 'prop-fixture-001' });
+    assert.equal(expiredV.valid, false);
+    assert.equal('expired' in expiredV && expiredV.expired, true);
+    if ('claims' in expiredV) assert.equal(expiredV.claims.pid, 'prop-fixture-001');
     for (const junk of ['', 'lixo', 'a.b.c', null, undefined, 'x'.repeat(5000)]) {
       assert.equal(verifyProposalLinkToken(junk, { proposalId: 'prop-fixture-001' }).valid, false);
     }
@@ -185,15 +188,16 @@ describe('Link assinado de proposta: GET publico', () => {
     assert.deepEqual({ ...SENSITIVE_PROPOSAL_HEADERS }, { 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
   });
 
-  it('token adulterado, expirado, de outra proposta ou de outra versao => 404', async () => {
+  it('token adulterado, de outra proposta ou de outra versao => 404; token expirado autentico ainda abre', async () => {
     const { repo, router } = fresh();
     const p = repo.listProposals().find((x) => x.id === 'prop-fixture-001')!;
     const ver = p.version || 1;
     const good = linkFor(p.id, ver);
     assert.equal((await getPublic(router, p.id, good)).status, 200);
+    const expiredTok = linkFor(p.id, ver, { ttlDays: 1, nowMs: Date.now() - 3 * 86_400_000 });
+    assert.equal((await getPublic(router, p.id, expiredTok)).status, 200);
     const bad = [
       `${good.slice(0, -3)}AAA`,
-      linkFor(p.id, ver, { ttlDays: 1, nowMs: Date.now() - 3 * 86_400_000 }),
       linkFor('prop-fixture-002', ver),
       linkFor(p.id, ver + 1),
     ];
@@ -713,7 +717,7 @@ describe('Parecer CISO 30/10 (A1, M1, M2, B1, B2, B3, B5)', () => {
     assert.equal((await issue(mineByEmail.id, equipe)).status, 200);
   });
 
-  it('B1: exp = min(TTL, fim do dia de validUntil); validade vencida => 409; aceite publico recusa RASCUNHO', async () => {
+  it('B1: exp = min(TTL, fim do dia de validUntil); enviada vencida emite link (aceite 409); rascunho recusado', async () => {
     const { repo, router } = fresh();
     const admin = sessionFor(repo, 'usr-seta-01');
     const soon = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
@@ -723,10 +727,17 @@ describe('Parecer CISO 30/10 (A1, M1, M2, B1, B2, B3, B5)', () => {
     const exp = Date.parse((r.body as { data: { expiresAt: string } }).data.expiresAt);
     assert.equal(exp, Date.parse(`${soon}T23:59:59.999-03:00`));
     await new Promise((res) => setTimeout(res, 5));
-    const old = repo.createProposal({ title: 'Vencida', companyName: 'C', validUntil: '2020-01-01', items: [] } as never);
+    const old = repo.createProposal({ title: 'Vencida', companyName: 'C', status: 'ENVIADA', validUntil: '2020-01-01', items: [] } as never);
     const r2 = await router.dispatch({ method: 'POST', path: `/api/erp/proposals/${old.id}/public-link`, query: { ...HTTP, _sessionToken: admin }, body: {} });
-    assert.equal(r2.status, 409);
-    assert.equal((r2.body as { code: string }).code, 'PROPOSAL_EXPIRED');
+    assert.equal(r2.status, 200);
+    const expiredUrl = (r2.body as { data: { url?: string } }).data.url || '';
+    assert.ok(expiredUrl.includes('#t='));
+    const expiredToken = decodeURIComponent(expiredUrl.split('#t=')[1] || '');
+    assert.equal((await getPublic(router, old.id, expiredToken)).status, 200);
+    const denied = await approve(router, old.id, expiredToken);
+    assert.equal(denied.status, 409);
+    assert.equal((denied.body as { code: string }).code, 'PROPOSAL_EXPIRED');
+    assert.equal(repo.listProposals().find((x) => x.id === old.id)!.status, 'ENVIADA');
     await new Promise((res) => setTimeout(res, 5));
     const draft = repo.createProposal({ title: 'Rascunho', companyName: 'C', status: 'RASCUNHO', items: [] } as never);
     const a = await approve(router, draft.id, linkFor(draft.id, draft.version || 1));
@@ -1969,7 +1980,7 @@ describe('Link publico sobrevive a correcao comercial (versao N -> N+1)', () => 
     assert.equal((await getPublic(router, created.id, undefined, '198.51.100.16')).status, 404);
     assert.equal((await getPublic(router, created.id, linkFor(created.id, versionAtIssue + 2), '198.51.100.17')).status, 404);
     assert.equal((await getPublic(router, created.id, linkFor('prop-outra', versionAtIssue), '198.51.100.18')).status, 404);
-    assert.equal((await getPublic(router, created.id, linkFor(created.id, versionAtIssue, { ttlDays: 1, nowMs: Date.now() - 3 * 86_400_000 }), '198.51.100.19')).status, 404);
+    assert.equal((await getPublic(router, created.id, linkFor(created.id, versionAtIssue, { ttlDays: 1, nowMs: Date.now() - 3 * 86_400_000 }), '198.51.100.19')).status, 200);
     const missingSlug = await router.dispatch({
       method: 'GET',
       path: '/api/p/AAAAAAAAAA',
