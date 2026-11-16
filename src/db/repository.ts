@@ -207,7 +207,13 @@ function generateTotpSecretBase32(seedIdentifier?: string): string {
   return deriveServerTotpSecret(String(seedIdentifier || ''));
 }
 import { calculateCompanyCompleteness, calculateContactCompleteness } from '../modules/data-health/completeness';
-import { mergeGcCatalog, mergeGcCompanies, mergeGcSuppliers } from '../modules/erp/gestaoclick-merge';
+import {
+  mergeGcCatalog,
+  mergeGcCompanies,
+  mergeGcSuppliers,
+  mergeGestaoClickContracts,
+  upsertRecordsById,
+} from '../modules/erp/gestaoclick-merge';
 import { normalizeAndValidatePhone, normalizeCorporateDomain, validateCnpj, validateEmail } from '../modules/data-health/validators';
 import {
   calculateLeadScore,
@@ -7438,14 +7444,8 @@ export class CrmRepository {
       }
     }
 
-    // 5. Merge Rental Contracts
-    const existingCtrIds = new Set(erp.rentalContracts.map((c) => c.id));
-    for (const ctr of snapshot.mappedRentalContracts) {
-      if (!existingCtrIds.has(ctr.id)) {
-        erp.rentalContracts.push(ctr);
-        existingCtrIds.add(ctr.id);
-      }
-    }
+    // 5. Merge Rental Contracts (todos os tipos; chave = id do GestaoClick, sem duplicar)
+    mergeGestaoClickContracts(erp.rentalContracts, snapshot.mappedRentalContracts, this.state.companies);
 
     // 6. Merge Invoices
     const existingInvIds = new Set(erp.invoices.map((i) => i.id));
@@ -7477,10 +7477,10 @@ export class CrmRepository {
       );
     }
     if (snapshot.mappedSalesOrders && snapshot.mappedSalesOrders.length > 0) {
-      erp.salesOrders = snapshot.mappedSalesOrders;
+      erp.salesOrders = upsertRecordsById(erp.salesOrders || [], snapshot.mappedSalesOrders);
     }
     if (snapshot.mappedServiceOrders && snapshot.mappedServiceOrders.length > 0) {
-      erp.serviceOrders = snapshot.mappedServiceOrders;
+      erp.serviceOrders = upsertRecordsById(erp.serviceOrders || [], snapshot.mappedServiceOrders);
     }
     if (snapshot.mappedSuppliers && snapshot.mappedSuppliers.length > 0) {
       // Upsert por id do GestãoClick (fallback CNPJ/CPF, Trava Fiscal). NUNCA

@@ -120,6 +120,15 @@ export interface GestaoClickLiveSnapshot {
   mappedSuppliers: ErpSupplierRecord[];
   mappedEmployees: ErpEmployeeRecord[];
   mappedPurchaseOrders: ErpPurchaseOrder[];
+  /** Carga completa paginada (contratos, vendas, OS): registros lidos x total informado pelo GestaoClick. */
+  fullLoad?: Record<'contratos' | 'vendas' | 'ordens_servicos', GestaoClickFullLoadInfo>;
+}
+
+export interface GestaoClickFullLoadInfo {
+  fetched: number;
+  total: number;
+  pages: number;
+  complete: boolean;
 }
 
 let runtimeCredentialsOverride: GestaoClickCredentials | null = null;
@@ -205,6 +214,113 @@ export function maskSecretToken(token: string | undefined | null): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** O GestaoClick ignora limite_por_pagina e devolve no maximo 20 registros por pagina. */
+export const GESTAOCLICK_MAX_PAGES = 250;
+/** Rate-limit oficial: 3 requisicoes por segundo. */
+export const GESTAOCLICK_REQS_PER_SECOND = 3;
+
+type GcPageFetcher = (
+  endpoint: string
+) => Promise<{ data: Record<string, unknown>[]; meta: GestaoClickRawMeta; ok: boolean }>;
+
+function withPage(endpoint: string, page: number): string {
+  return `${endpoint}${endpoint.includes('?') ? '&' : '?'}pagina=${page}`;
+}
+
+/**
+ * Le TODAS as paginas de um endpoint do GestaoClick (antes so a 1a pagina, 20 registros, era lida).
+ * Respeita 3 req/s, tenta de novo cada pagina ate 2 vezes e remove duplicatas pelo id do GestaoClick.
+ * `complete` so e true quando todas as paginas vieram e o total bate com meta.total_registros.
+ */
+export async function fetchAllGcPages(
+  endpoint: string,
+  fetchPage: GcPageFetcher,
+  options?: { maxPages?: number; reqsPerSecond?: number; sleepFn?: (ms: number) => Promise<void> }
+): Promise<{ data: Record<string, unknown>[]; meta: GestaoClickRawMeta; ok: boolean; info: GestaoClickFullLoadInfo }> {
+  const maxPages = Math.max(1, options?.maxPages ?? GESTAOCLICK_MAX_PAGES);
+  const perSecond = Math.max(1, options?.reqsPerSecond ?? GESTAOCLICK_REQS_PER_SECOND);
+  const wait = options?.sleepFn ?? sleep;
+
+  const fetchWithRetry = async (page: number) => {
+    let last = await fetchPage(withPage(endpoint, page));
+    for (let attempt = 0; !last.ok && attempt < 2; attempt++) {
+      await wait(1000);
+      last = await fetchPage(withPage(endpoint, page));
+    }
+    return last;
+  };
+
+  const first = await fetchWithRetry(1);
+  if (!first.ok) {
+    return { data: [], meta: {}, ok: false, info: { fetched: 0, total: 0, pages: 0, complete: false } };
+  }
+  const totalPages = Math.min(maxPages, Math.max(1, Number(first.meta.total_paginas || 1)));
+  const byId = new Map<string, Record<string, unknown>>();
+  const noId: Record<string, unknown>[] = [];
+  const add = (rows: Record<string, unknown>[]) => {
+    for (const row of rows) {
+      const id = String(row?.id ?? '').trim();
+      if (id) byId.set(id, row);
+      else noId.push(row);
+    }
+  };
+  add(first.data);
+
+  let allOk = true;
+  let pagesRead = 1;
+  for (let start = 2; start <= totalPages; start += perSecond) {
+    const t0 = Date.now();
+    const pages: number[] = [];
+    for (let p = start; p < start + perSecond && p <= totalPages; p++) pages.push(p);
+    const results = await Promise.all(pages.map((p) => fetchWithRetry(p)));
+    for (const r of results) {
+      if (r.ok) {
+        add(r.data);
+        pagesRead++;
+      } else {
+        allOk = false;
+      }
+    }
+    const elapsed = Date.now() - t0;
+    if (start + perSecond <= totalPages && elapsed < 1000) await wait(1000 - elapsed);
+  }
+
+  const data = [...byId.values(), ...noId];
+  const total = Number(first.meta.total_registros ?? data.length);
+  const reachedAllPages = Number(first.meta.total_paginas || 1) <= maxPages;
+  return {
+    data,
+    meta: { ...first.meta, total_registros: total },
+    ok: true,
+    info: {
+      fetched: data.length,
+      total,
+      pages: pagesRead,
+      complete: allOk && reachedAllPages && data.length >= total,
+    },
+  };
+}
+
+export type GestaoClickContractKind = 'LOCACAO' | 'SERVICO';
+
+/** Tipo LO = locacao de bens moveis; tipo CO (contrato) = prestacao de servico. */
+export function resolveGcContractKind(ctr: Record<string, unknown>): GestaoClickContractKind {
+  const tipo = String(ctr.tipo || '').trim().toUpperCase();
+  if (tipo === 'LO') return 'LOCACAO';
+  if (tipo === 'CO') return 'SERVICO';
+  const centro = String(ctr.nome_centro_custo || '').toLowerCase();
+  return centro.includes('loca') ? 'LOCACAO' : 'SERVICO';
+}
+
+export function mapGcContractStatus(nomeSituacao: unknown): ErpRentalContract['status'] {
+  const sit = String(nomeSituacao || 'Ativo').toLowerCase();
+  if (sit.includes('encerr') || sit.includes('cancel') || sit.includes('finaliz')) return 'ENCERRADO';
+  if (sit.includes('suspen')) return 'SUSPENSO';
+  if (sit.includes('fatur')) return 'FATURAMENTO';
+  if (sit.includes('aberto')) return 'EM_IMPLANTACAO';
+  return 'ATIVO';
 }
 
 async function fetchGcEndpoint<T = Record<string, unknown>>(
@@ -345,11 +461,11 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
 
   await sleep(360);
 
-  // Batch 4 (contratos + vendas)
-  const [contratosRes, vendasRes] = await Promise.all([
-    fetchGcEndpoint<Record<string, unknown>>('/contratos', creds),
-    fetchGcEndpoint<Record<string, unknown>>('/vendas', creds),
-  ]);
+  // Batch 4 (contratos + vendas) — carga completa paginada (20 por pagina no GestaoClick)
+  const gcPage: GcPageFetcher = (ep) => fetchGcEndpoint<Record<string, unknown>>(ep, creds);
+  const contratosRes = await fetchAllGcPages('/contratos', gcPage);
+  await sleep(360);
+  const vendasRes = await fetchAllGcPages('/vendas', gcPage);
 
   await sleep(360);
 
@@ -361,11 +477,10 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
 
   await sleep(360);
 
-  // Batch 6 (contas_bancarias + ordens_servicos)
-  const [contasBancariasRes, ordensServicosRes] = await Promise.all([
-    fetchGcEndpoint<Record<string, unknown>>('/contas_bancarias', creds),
-    fetchGcEndpoint<Record<string, unknown>>('/ordens_servicos', creds),
-  ]);
+  // Batch 6 (contas_bancarias + ordens_servicos — OS com carga completa paginada)
+  const contasBancariasRes = await fetchGcEndpoint<Record<string, unknown>>('/contas_bancarias', creds);
+  await sleep(360);
+  const ordensServicosRes = await fetchAllGcPages('/ordens_servicos', gcPage);
 
   await sleep(360);
 
@@ -672,13 +787,16 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
     });
   }
 
-  // 4. Map Contratos (/contratos tipo LO) -> ERP Rental Contracts
+  // 4. Map Contratos (/contratos tipos LO e CO) -> ERP Rental Contracts (todos, sem teto)
   const mappedRentalContracts: ErpRentalContract[] = [];
 
-  for (const ctr of contratosRes.data.slice(0, 14)) {
+  for (const ctr of contratosRes.data) {
     const gcId = String(ctr.id || '');
+    if (!gcId) continue;
+    const kind = resolveGcContractKind(ctr);
+    const isLocacao = kind === 'LOCACAO';
     const codigo = String(ctr.codigo || gcId);
-    const companyName = String(ctr.nome_cliente || 'Cliente Locação Seta Telecom').trim();
+    const companyName = String(ctr.nome_cliente || (isLocacao ? 'Cliente Locação Seta Telecom' : 'Cliente Seta Telecom')).trim();
     const monthlyValue = Math.max(100, Number(ctr.valor_total || ctr.valor_produtos || 750));
     const dueDay = Math.min(28, Math.max(1, Number(ctr.dia_vencimento || 10)));
     const startDate = String(ctr.data || '2026-10-01');
@@ -714,8 +832,10 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
     if (equipments.length === 0) {
       equipments.push({
         id: `eq-gc-${gcId}-1`,
-        skuGestaoClick: `GC-LOC-${codigo}`,
-        description: `Infraestrutura Telecom Locada — Contrato GestãoClick #${codigo}`,
+        skuGestaoClick: isLocacao ? `GC-LOC-${codigo}` : `GC-SRV-${codigo}`,
+        description: isLocacao
+          ? `Infraestrutura Telecom Locada — Contrato GestãoClick #${codigo}`
+          : `Prestação de Serviço — Contrato GestãoClick #${codigo}`,
         serialNumber: `SN-GC-${codigo}-101`,
         ncm: '8517.62.59',
         quantity: 1,
@@ -731,15 +851,23 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       .toISOString()
       .slice(0, 10);
 
-    const rawSit = String(ctr.nome_situacao || 'Ativo').toLowerCase();
-    const status = rawSit.includes('encerr') || rawSit.includes('cancel')
-      ? 'ENCERRADO'
-      : 'ATIVO';
+    const status = mapGcContractStatus(ctr.nome_situacao);
+    const centroCusto = String(ctr.nome_centro_custo || (isLocacao ? 'LOCAÇÃO DE EQUIPAMENTO' : 'PRESTAÇÃO DE SERVIÇO')).trim();
+    const proximoVencimento = String(ctr.proximo_vencimento || '').trim();
 
     mappedRentalContracts.push({
       id: `ctr-gc-${gcId}`,
-      contractNumber: contratoAttr ? `GC-${codigo} (${contratoAttr})` : `GC-LOC-${codigo}`,
-      title: `Locação #${codigo} — ${companyName}${propostaAttr ? ` (Prop. #${propostaAttr})` : ''}`,
+      contractNumber: contratoAttr
+        ? `GC-${codigo} (${contratoAttr})`
+        : isLocacao
+          ? `GC-LOC-${codigo}`
+          : `GC-SRV-${codigo}`,
+      title: `${isLocacao ? 'Locação' : 'Serviço'} #${codigo} — ${companyName}${propostaAttr ? ` (Prop. #${propostaAttr})` : ''}`,
+      modality: kind,
+      gestaoClickCode: codigo,
+      ...(proximoVencimento ? { nextDueDate: proximoVencimento } : {}),
+      ...(ctr.nome_vendedor ? { sellerName: String(ctr.nome_vendedor).trim() } : {}),
+      contractTemplateModel: isLocacao ? 'MODELO_LOCACAO_BENS_MOVEIS' : 'MODELO_PRESTACAO_SERVICOS_TI',
       companyId: ctr.cliente_id ? `comp-gc-${String(ctr.cliente_id)}` : null,
       companyName,
       companyCnpj: resolveClientCnpj(ctr, companyName),
@@ -756,8 +884,9 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       equipments,
       remessaNfeNumber: remessaAttr,
       remessaCfop: '5.908',
-      legalBasisNote:
-        'Contrato de Locação sincronizado do GestãoClick (Tipo LO • Centro de Custo: LOCAÇÃO DE EQUIPAMENTO). Não incidência de ISSQN conforme Veto ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF.',
+      legalBasisNote: isLocacao
+        ? `Contrato de Locação sincronizado do GestãoClick (Tipo LO • Centro de Custo: ${centroCusto}). Não incidência de ISSQN conforme Veto ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF.`
+        : `Contrato de Prestação de Serviço sincronizado do GestãoClick (Tipo CO • Centro de Custo: ${centroCusto}). Serviço sujeito ao ISSQN conforme LC 116/2003.`,
       lastBilledCompetence: '10/2026',
       createdAt: `${startDate}T12:00:00.000Z`,
       updatedAt: `${startDate}T12:00:00.000Z`,
@@ -925,7 +1054,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
   });
 
   // 7. Map Vendas (/vendas)
-  const mappedSalesOrders: ErpSaleOrder[] = vendasRes.data.slice(0, 15).map((v) => {
+  const mappedSalesOrders: ErpSaleOrder[] = vendasRes.data.map((v) => {
     const rawDate = String(v.data || "2026-10-16");
     const fmtDate = rawDate.includes("-") ? rawDate.split("-").reverse().join("/") : rawDate;
     return {
@@ -941,7 +1070,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
   });
 
   // 8. Map Ordens de Serviços (/ordens_servicos)
-  const mappedServiceOrders: ErpServiceOrder[] = ordensServicosRes.data.slice(0, 15).map((os) => {
+  const mappedServiceOrders: ErpServiceOrder[] = ordensServicosRes.data.map((os) => {
     const rawIn = String(os.data_entrada || "2026-10-24");
     const fmtIn = rawIn.includes("-") ? rawIn.split("-").reverse().join("/") : rawIn;
     const rawOut = String(os.data_saida || "");
@@ -1026,6 +1155,11 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
     mappedSuppliers,
     mappedEmployees,
     mappedPurchaseOrders,
+    fullLoad: {
+      contratos: contratosRes.info,
+      vendas: vendasRes.info,
+      ordens_servicos: ordensServicosRes.info,
+    },
   };
 
   cachedSnapshot = snapshot;

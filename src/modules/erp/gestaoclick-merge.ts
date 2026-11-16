@@ -13,7 +13,7 @@
 //    com aprovação).
 // ============================================================================
 
-import { Company, ErpCatalogItem, ErpSupplierRecord } from '../../db/types';
+import { Company, ErpCatalogItem, ErpRentalContract, ErpSupplierRecord } from '../../db/types';
 
 export interface GcMergeStats {
   inserted: number;
@@ -249,4 +249,122 @@ export function mergeGcCatalog(catalog: ErpCatalogItem[], incoming: ErpCatalogIt
     stats.inserted++;
   }
   return stats;
+}
+
+// ---------------------------------------------------------------------------
+// Contratos (locação LO e serviço CO)
+// ---------------------------------------------------------------------------
+
+function formatCnpjCpf(digits: string): string {
+  if (digits.length === 14) {
+    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
+  }
+  if (digits.length === 11) {
+    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+  }
+  return digits;
+}
+
+/**
+ * Insere todos os contratos do GC que ainda não existem (chave = id ctr-gc-N).
+ * - CNPJ vazio no GC: completa pelo cadastro de empresas do STI-hub (id GC do
+ *   cliente, depois companyId, depois nome exato).
+ * - Contrato já existente: só preenche campos vazios (CNPJ, modalidade, código
+ *   GC); nunca sobrescreve status nem valores editados no STI-hub.
+ * - Trava Fiscal: CNPJ existente diferente do CNPJ do GC => conflito, nada muda.
+ */
+export function mergeGestaoClickContracts(
+  contracts: ErpRentalContract[],
+  incoming: ErpRentalContract[],
+  companies: Array<Partial<Company> & { customProperties?: Record<string, unknown> }> = []
+): GcMergeStats {
+  const stats = emptyStats();
+  const docByGcClient = new Map<string, string>();
+  const docByCompanyId = new Map<string, string>();
+  const docByName = new Map<string, string>();
+  for (const c of companies) {
+    const d = docKey(c.cnpj);
+    if (!d) continue;
+    const gcId = companyGcId(c);
+    if (gcId) docByGcClient.set(gcId, d);
+    if (c.id) docByCompanyId.set(String(c.id), d);
+    const n = normName(c.name);
+    if (n) docByName.set(n, d);
+  }
+  const resolveDoc = (ctr: ErpRentalContract): string => {
+    const own = docKey(ctr.companyCnpj);
+    if (own) return own;
+    const gcClient = String(ctr.companyId || '').match(/^comp-gc-(\d+)$/)?.[1] || '';
+    return (
+      (gcClient && docByGcClient.get(gcClient)) ||
+      (ctr.companyId && docByCompanyId.get(String(ctr.companyId))) ||
+      docByName.get(normName(ctr.companyName)) ||
+      ''
+    );
+  };
+
+  const byId = new Map(contracts.map((c) => [c.id, c]));
+  for (const raw of incoming) {
+    if (!raw?.id) continue;
+    const doc = resolveDoc(raw);
+    const next: ErpRentalContract = doc ? { ...raw, companyCnpj: formatCnpjCpf(doc) } : raw;
+    const existing = byId.get(raw.id);
+    if (!existing) {
+      contracts.push(next);
+      byId.set(next.id, next);
+      stats.inserted++;
+      continue;
+    }
+    const existingDoc = docKey(existing.companyCnpj);
+    if (existingDoc && doc && existingDoc !== doc) {
+      stats.conflicts.push({ gcId: raw.id, existingId: existing.id, reason: 'CNPJ divergente (Trava Fiscal)' });
+      continue;
+    }
+    let changed = false;
+    if (isBlank(existing.companyCnpj) && doc) {
+      existing.companyCnpj = formatCnpjCpf(doc);
+      changed = true;
+    }
+    if (!existing.modality && next.modality) {
+      existing.modality = next.modality;
+      changed = true;
+    }
+    if (isBlank(existing.gestaoClickCode) && next.gestaoClickCode) {
+      existing.gestaoClickCode = next.gestaoClickCode;
+      changed = true;
+    }
+    if (changed) stats.updated++;
+    else stats.unchanged++;
+  }
+  return stats;
+}
+
+// ---------------------------------------------------------------------------
+// Vendas e ordens de serviço (espelho somente leitura do GC)
+// ---------------------------------------------------------------------------
+
+/**
+ * Upsert pelo id do GestãoClick: registro do GC atualiza o espelho, registros
+ * novos entram no fim e registros que não vieram nesta leitura são mantidos
+ * (uma leitura parcial nunca encolhe a lista). Antes a lista era substituída
+ * inteira pelos 15 primeiros registros.
+ */
+export function upsertRecordsById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
+  const result = [...current];
+  const index = new Map<string, number>();
+  result.forEach((r, i) => {
+    if (r?.id) index.set(String(r.id), i);
+  });
+  for (const rec of incoming) {
+    const id = String(rec?.id || '').trim();
+    if (!id) continue;
+    const at = index.get(id);
+    if (at === undefined) {
+      index.set(id, result.length);
+      result.push(rec);
+    } else {
+      result[at] = rec;
+    }
+  }
+  return result;
 }
