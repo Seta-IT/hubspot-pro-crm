@@ -86,7 +86,7 @@ describe('Numeracao de orcamentos no padrao GestaoClick', () => {
     assert.notEqual(ahead.status, 200);
   });
 
-  it('t33u: short link opaco /p/<codigo> abre sem login, sobrevive a outra instancia e respeita versao/expiracao/revogacao', async () => {
+  it('t33u: short link opaco /p/<codigo> abre sem login, sobrevive a outra instancia e respeita versao/revogacao', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
     const HTTP = { _fromHttpBridge: '1' };
@@ -130,13 +130,14 @@ describe('Numeracao de orcamentos no padrao GestaoClick', () => {
     const revised = await router.dispatch({ method: 'GET', path: `/api/p/${code}`, query: { ...HTTP, _clientIp: '198.51.100.94' } });
     assert.equal(revised.status, 200);
     assert.equal((revised.body as { data: { title: string } }).data.title, 'Revisao t33u');
-    // expiracao
+    // expiracao do short link: o slug continua abrindo a proposta (aviso de revalidacao na folha).
     const issued2 = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-gc-4695/public-link', query: { ...HTTP, _origin: 'https://sti-hub.vercel.app', _sessionToken: session }, body: {} });
     const code2 = (issued2.body as { data: { shortUrl: string } }).data.shortUrl.split('/p/')[1];
     const st2 = repo.getState().erp!.proposalShortLinks!;
     st2[st2.length - 1].exp = Date.now() - 1000;
     const expired = await router.dispatch({ method: 'GET', path: `/api/p/${code2}`, query: { ...HTTP, _clientIp: '198.51.100.95' } });
-    assert.equal(expired.status, 404);
+    assert.equal(expired.status, 200);
+    assert.equal((expired.body as { data: { code?: string }; proposalId?: string }).proposalId, 'prop-gc-4695');
   });
 
   it('t33u: /p/<codigo> e GET /api/p/<codigo> sao publicos; botoes "Copiar link do cliente" visiveis', async () => {

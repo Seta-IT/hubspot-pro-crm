@@ -2,6 +2,7 @@ import type { ErpCommercialProposal } from '../../db/types';
 import { DEFAULT_COMPANY_EMITTER_SETTINGS } from '../../modules/erp/daily-sync-service';
 import { formatIssuerAddress, type IssuerAddressInput } from './company-issuer-address';
 import { resolveProposalCommercialFigures } from './proposal-share';
+import { formatProposalValidUntilPtBr, isProposalValidityExpired } from './proposal-validity';
 import {
   FORBIDDEN_TEMPLATE_CNPJ,
   SETA_INTERNAL_BRAND_TITLE,
@@ -58,6 +59,8 @@ export interface InternalProposalSheet {
   /** Quadro de condições: uma linha por informação, rótulo à esquerda e valor à direita. */
   summaryRows: Array<{ label: string; value: string }>;
   notices: readonly string[];
+  /** Data em DD/MM/AAAA quando a validade comercial ja passou; senão null. */
+  validityExpiredSince: string | null;
   validityLine: string;
   deliveryForecastLine: string;
   clientLegalName: string;
@@ -272,6 +275,7 @@ export function buildInternalProposalSheet(
     readjustmentLine: `Reajuste anual: ${readjustment}`,
     summaryRows,
     notices: SETA_INTERNAL_PROPOSAL_NOTICES,
+    validityExpiredSince: isProposalValidityExpired(proposal.validUntil) ? (formatProposalValidUntilPtBr(proposal.validUntil) || formatIsoDatePt(proposal.validUntil)) : null,
     validityLine: `VALIDADE DA PROPOSTA: ${formatIsoDatePt(proposal.validUntil)}${daysBetween(proposal.proposalDate, proposal.validUntil)}`,
     deliveryForecastLine: `PREVISÃO DE ENTREGA: ${(delivery || INTERNAL_FIELD_BLANK).toUpperCase()}`,
     clientLegalName: String(proposal.companyName || '').trim() || INTERNAL_FIELD_BLANK,

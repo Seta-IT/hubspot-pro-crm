@@ -65,6 +65,7 @@ import { lookupServerProposal } from '../../lib/proposal-approval-lookup';
 import { copyInternalProposalLink, openInternalProposalLink } from '../../lib/internal-proposal-summary';
 import { ProposalLinkOverrideContext } from '../../lib/proposal-link-override';
 import { formatProposalDisplayCode, isLegacyProposalCode } from '../../lib/proposal-number';
+import { isProposalValidityExpired, proposalExpiredRevalidationMessage, formatProposalValidUntilPtBr } from '../../lib/proposal-validity';
 
 /**
  * Token do link assinado: lido SOMENTE do FRAGMENTO (#t=...), que nao vai ao servidor, aos logs
@@ -612,6 +613,11 @@ function PublicProposalPrintContent() {
   const handleApproveAndConvertInPage = async () => {
     if (!proposal) return;
     setApprovalError(null);
+    if (isProposalValidityExpired(proposal.validUntil)) {
+      setApprovalError(proposalExpiredRevalidationMessage(proposal.validUntil));
+      setShowIcpSignatureModal(false);
+      return;
+    }
     const name = signerName.trim();
     const cpf = signerCpf.trim();
     if (!name || !cpf || !signerRole.trim()) {
@@ -674,11 +680,15 @@ function PublicProposalPrintContent() {
         } else if (res.status === 404) {
           setApprovalError(
             linkToken
-              ? "Este link de proposta é inválido ou expirou. Solicite um novo link ao seu consultor Seta Telecom."
+              ? "Este link de proposta é inválido. Solicite um novo link ao seu consultor Seta Telecom."
               : "Não foi possível localizar este orçamento no servidor. Recarregue a página e tente de novo."
           );
         } else if (res.status === 429) {
           setApprovalError("Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente.");
+        } else if (res.status === 409 && errJson?.code === "PROPOSAL_EXPIRED") {
+          setApprovalError(
+            (typeof errJson?.error === "string" && errJson.error) || proposalExpiredRevalidationMessage(current.validUntil)
+          );
         } else {
           setApprovalError(
             (typeof errJson?.error === "string" && errJson.error) ||
@@ -826,7 +836,7 @@ function PublicProposalPrintContent() {
           </h1>
           <p className="text-xs text-slate-600 leading-relaxed">
             {publicLinkInvalid
-              ? "Este link de proposta é inválido ou expirou. Solicite um novo link ao seu consultor Seta Telecom."
+              ? "Este link de proposta é inválido. Solicite um novo link ao seu consultor Seta Telecom."
               : <>Não encontramos nenhum orçamento com o identificador <strong>{rawId}</strong>. Volte ao painel da Seta Telecom para abrir ou gerar o link da proposta desejada.</>}
           </p>
           {!linkToken && !isInternalUser && (
@@ -859,6 +869,9 @@ function PublicProposalPrintContent() {
       ? new Date(`${proposal.validUntil.slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR')
       : proposal.validUntil
     : '15 dias';
+  const proposalIsExpired = isProposalValidityExpired(proposal.validUntil);
+  const expiredBannerText = proposalExpiredRevalidationMessage(proposal.validUntil);
+  const expiredSinceLabel = formatProposalValidUntilPtBr(proposal.validUntil) || validUntilStr;
 
   const recurringItems = proposal.items.filter((i) => i.isRecurring !== false);
   const setupItems = proposal.items.filter((i) => i.isRecurring === false);
@@ -1114,6 +1127,16 @@ function PublicProposalPrintContent() {
           )}
 
           {proposal.status !== "CONVERTIDA_CONTRATO" && !proposal.convertedContractId ? (
+            proposalIsExpired ? (
+              <span
+                data-testid="proposal-expired-sign-blocked"
+                title={expiredBannerText}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#c7d2e8] bg-[#eef2fa] text-[#1e3a6e] text-xs font-semibold"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Assinatura indisponível — proposta vencida
+              </span>
+            ) : (
             <button
               type="button"
               disabled={approvingContract}
@@ -1132,6 +1155,7 @@ function PublicProposalPrintContent() {
               <ShieldCheck className="w-3.5 h-3.5" />
               {approvingContract ? "Assinando..." : "Assinar ICP-Brasil & Aprovar"}
             </button>
+            )
           ) : (
             <a
               href="/"
@@ -1649,6 +1673,15 @@ function PublicProposalPrintContent() {
         id="proposal-printable-sheet"
         className={`max-w-4xl mx-auto bg-white shadow-sm border ${sheetBorderClass} overflow-hidden print:overflow-visible print:shadow-none print:border-0 print:rounded-none`}
       >
+        {proposalIsExpired && (
+          <div
+            data-testid="proposal-expired-banner"
+            role="status"
+            className="px-7 py-2 print:px-3.5 print:py-1.5 text-[11px] font-semibold leading-relaxed text-[#1e3a6e] bg-[#eef2fa] border-b border-[#c7d2e8]"
+          >
+            Esta proposta está vencida desde {expiredSinceLabel} e precisa ser revalidada. Fale com seu consultor Seta Telecom.
+          </div>
+        )}
         {/* BLOCO 1: CABEÇALHO LEVE TIMBRADO SETA TELECOM / SETA | IT */}
         <div className={`${headerBgClass} print-avoid-break px-7 py-5 print:px-3.5 print:py-2 space-y-3.5 print:space-y-1.5 rounded-t-lg print:rounded-none`}>
           <div className="flex flex-col sm:flex-row print:flex-row sm:items-center print:items-center justify-between gap-4 print:gap-3 pb-3.5 print:pb-1.5 border-b border-slate-200/80">
@@ -2371,8 +2404,18 @@ function PublicProposalPrintContent() {
                 ) : (
                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
                     <span>
-                      Documento preparado para assinatura eletrônica qualificada nos termos da MP nº 2.200-2/2001 (ICP-Brasil A1/A3).
+                      {proposalIsExpired
+                        ? expiredBannerText
+                        : "Documento preparado para assinatura eletrônica qualificada nos termos da MP nº 2.200-2/2001 (ICP-Brasil A1/A3)."}
                     </span>
+                    {proposalIsExpired ? (
+                      <span
+                        data-testid="proposal-expired-sign-blocked-sheet"
+                        className="px-3 py-1 rounded border border-[#c7d2e8] bg-[#eef2fa] text-[#1e3a6e] text-[11px] font-semibold print:hidden"
+                      >
+                        Assinatura indisponível
+                      </span>
+                    ) : (
                     <button
                       type="button"
                       onClick={() => {
@@ -2385,6 +2428,7 @@ function PublicProposalPrintContent() {
                     >
                       Assinar com ICP-Brasil
                     </button>
+                    )}
                   </div>
                 )}
               </div>

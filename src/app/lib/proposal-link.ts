@@ -18,6 +18,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { z } from 'zod';
 import { SlidingWindowRateLimiter } from '../../api/password-reset';
+export { proposalValidUntilEndMs, isProposalValidityExpired, proposalLinkNotAfterMs, proposalExpiredRevalidationMessage, PROPOSAL_EXPIRED_REVALIDATION_MESSAGE, formatProposalValidUntilPtBr } from './proposal-validity';
 
 export const PROPOSAL_LINK_DEFAULT_TTL_DAYS = 30;
 export const PROPOSAL_LINK_MAX_TTL_DAYS = 90;
@@ -117,18 +118,6 @@ export class ProposalLinkExpiredProposalError extends Error {
   }
 }
 
-/**
- * B1: fim do dia de validUntil (YYYY-MM-DD) no fuso de Brasilia (23:59:59.999 -03:00).
- * Valor ausente/invalido => null (vale so o TTL).
- */
-export function proposalValidUntilEndMs(validUntil: unknown): number | null {
-  const s = String(validUntil || '').trim();
-  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (!m) return null;
-  const ms = Date.parse(`${m[1]}T23:59:59.999-03:00`);
-  return Number.isFinite(ms) ? ms : null;
-}
-
 export function signProposalLinkToken(input: {
   proposalId: string;
   version: number;
@@ -153,7 +142,17 @@ export function signProposalLinkToken(input: {
   return { token: `${payload}.${sig}`, claims };
 }
 
-export type ProposalLinkVerification = { valid: true; claims: ProposalLinkClaims } | { valid: false };
+export type ProposalLinkVerification =
+  | { valid: true; claims: ProposalLinkClaims }
+  | { valid: false; expired: true; claims: ProposalLinkClaims }
+  | { valid: false };
+
+/** Token autentico (HMAC/escopo ok), inclusive se o exp ja passou. Nao cobre token adulterado. */
+export function isAuthenticProposalLinkToken(
+  v: ProposalLinkVerification
+): v is { valid: true; claims: ProposalLinkClaims } | { valid: false; expired: true; claims: ProposalLinkClaims } {
+  return v.valid === true || ('expired' in v && v.expired === true && 'claims' in v);
+}
 
 /**
  * Valida assinatura (timingSafeEqual), formato, expiracao, teto de validade e o escopo
@@ -191,10 +190,10 @@ export function verifyProposalLinkToken(
     if (!Number.isInteger(c.ver) || c.ver < 1) return { valid: false };
     if (!Number.isFinite(c.iat) || !Number.isFinite(c.exp)) return { valid: false };
     const now = expected.nowMs ?? Date.now();
-    if (c.exp <= now) return { valid: false };
     if (c.iat > now + 5 * 60 * 1000) return { valid: false };
     if (c.exp - c.iat > PROPOSAL_LINK_MAX_TTL_DAYS * DAY_MS + 1000) return { valid: false };
     if (!safeEqualStr(c.pid, String(expected.proposalId || '').trim())) return { valid: false };
+    if (c.exp <= now) return { valid: false, expired: true, claims: c };
     return { valid: true, claims: c };
   } catch {
     return { valid: false };
