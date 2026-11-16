@@ -890,9 +890,6 @@ export interface ErpProposalDigitalSignature {
   timestampToken: string;
   signedAt: string;
   ipAddress?: string;
-  /** PKCS#7 da Assinatura Eletrônica Gov.br. Não vai para o DTO público. */
-  pkcs7Base64?: string;
-  govBrSigned?: boolean;
 }
 
 export interface ErpProposalInstallment {

@@ -132,47 +132,12 @@ function PublicProposalPrintContent() {
   // versoes e restauracao. O cliente sem login so visualiza, imprime/PDF e aprova.
   const [isInternalUser, setIsInternalUser] = useState(false);
   const [signerRole, setSignerRole] = useState("Diretor / Representante Legal");
-  const [signatureModality, setSignatureModality] = useState<
-    "ICP_BRASIL_A1" | "ICP_BRASIL_A3" | "GOV_BR_OURO"
-  >("ICP_BRASIL_A1");
-  const [govBrEnabled, setGovBrEnabled] = useState(false);
-  const govBrResumeRef = useRef(false);
+  const [signatureModality, setSignatureModality] = useState<"ICP_BRASIL_A1" | "ICP_BRASIL_A3">("ICP_BRASIL_A1");
 
   useEffect(() => {
     setLinkToken(linkOverride?.token || readProposalLinkTokenFromLocation());
     setLinkChecked(true);
   }, []);
-
-  useEffect(() => {
-    let active = true;
-    fetch('/api/govbr/sign/status', { cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
-        if (active) setGovBrEnabled(json?.enabled === true);
-      })
-      .catch(() => {
-        if (active) setGovBrEnabled(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (searchParams?.get('govbr') !== '1' || !proposal || govBrResumeRef.current) return;
-    govBrResumeRef.current = true;
-    fetch('/api/govbr/sign/result', { credentials: 'same-origin', cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
-        if (!json?.signerName || !json?.signerCpf) return;
-        setSignerName(json.signerName);
-        setSignerCpf(json.signerCpf);
-        setSignatureModality('GOV_BR_OURO');
-        setAcceptedTerms(true);
-        void handleApproveAndConvertInPage({ signerName: json.signerName, signerCpf: json.signerCpf });
-      })
-      .catch(() => null);
-  }, [proposal, searchParams]);
 
   useEffect(() => {
     if (!linkChecked || !sessionChecked) return;
@@ -644,45 +609,16 @@ function PublicProposalPrintContent() {
     }).then(reportProtectedFailure).catch(() => null);
   };
 
-  const handleApproveAndConvertInPage = async (override?: { signerName: string; signerCpf: string }) => {
+  const handleApproveAndConvertInPage = async () => {
     if (!proposal) return;
     setApprovalError(null);
-    const name = (override?.signerName || signerName).trim();
-    const cpf = (override?.signerCpf || signerCpf).trim();
-    if (signatureModality === "GOV_BR_OURO" && govBrEnabled && !override) {
-      if (!signerRole.trim() || !acceptedTerms) {
-        setApprovalError("Para assinar com Gov.br, informe o cargo e confirme que aceita os termos.");
-        return;
-      }
-      const path = typeof window !== "undefined" ? window.location.pathname.replace(/\/+$/, "") : "";
-      const returnPath = /^\/(?:proposta|p)\//.test(path) ? path : `/proposta/${encodeURIComponent(proposal.id)}`;
-      setApprovingContract(true);
-      try {
-        const started = await fetch("/api/govbr/sign/start", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: {
-            "Content-Type": "application/json",
-            ...(linkToken ? { "X-Proposal-Token": linkToken } : {}),
-          },
-          body: JSON.stringify({ proposalId: proposal.id, signerRole: signerRole.trim(), returnPath }),
-        });
-        const json = await started.json().catch(() => null);
-        if (started.ok && typeof json?.authorizeUrl === "string") {
-          window.location.assign(json.authorizeUrl);
-          return;
-        }
-        setApprovalError(typeof json?.error === "string" ? json.error : "Não foi possível iniciar a assinatura Gov.br.");
-      } finally {
-        setApprovingContract(false);
-      }
-      return;
-    }
+    const name = signerName.trim();
+    const cpf = signerCpf.trim();
     if (!name || !cpf || !signerRole.trim()) {
       setApprovalError("Preencha nome completo, CPF e cargo do signatário para concluir o aceite.");
       return;
     }
-    if (!acceptedTerms && !override) {
+    if (!acceptedTerms) {
       setApprovalError("Para concluir, confirme que leu e aceita os termos desta proposta comercial.");
       return;
     }
@@ -1194,7 +1130,7 @@ function PublicProposalPrintContent() {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
             >
               <ShieldCheck className="w-3.5 h-3.5" />
-              {approvingContract ? "Assinando..." : "Assinar ICP-Brasil / Gov.br & Aprovar"}
+              {approvingContract ? "Assinando..." : "Assinar ICP-Brasil & Aprovar"}
             </button>
           ) : (
             <a
@@ -1572,7 +1508,7 @@ function PublicProposalPrintContent() {
                     Validade Jurídica MP 2.200-2/2001 &amp; Lei 14.063/2020
                   </span>
                   <h3 className="text-sm font-semibold">
-                    Assinatura Eletrônica ICP-Brasil / Gov.br ({displayCode})
+                    Assinatura Eletrônica ICP-Brasil ({displayCode})
                   </h3>
                 </div>
               </div>
@@ -1650,7 +1586,7 @@ function PublicProposalPrintContent() {
                     value={signatureModality}
                     onChange={(e) =>
                       setSignatureModality(
-                        e.target.value as "ICP_BRASIL_A1" | "ICP_BRASIL_A3" | "GOV_BR_OURO"
+                        e.target.value as "ICP_BRASIL_A1" | "ICP_BRASIL_A3"
                       )
                     }
                     className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-[#1e3a6e]"
@@ -1660,9 +1596,6 @@ function PublicProposalPrintContent() {
                     </option>
                     <option value="ICP_BRASIL_A3">
                       Token / Smartcard Criptográfico ICP-Brasil Tipo A3
-                    </option>
-                    <option value="GOV_BR_OURO">
-                      {govBrEnabled ? 'Assinatura Eletrônica Gov.br (ITI)' : 'Aceite eletrônico'}
                     </option>
                   </select>
                 </div>
@@ -2380,25 +2313,19 @@ function PublicProposalPrintContent() {
                 </div>
               </div>
 
-              {/* SELO DE ASSINATURA DIGITAL ICP-BRASIL / GOV.BR NO RODAPÉ A4 */}
+              {/* SELO DE ASSINATURA DIGITAL ICP-BRASIL NO RODAPÉ A4 */}
               <div className="p-4 print:p-3.5 rounded-lg border border-slate-200 border-l-4 border-l-emerald-500 bg-slate-50/70 text-xs space-y-2 print:space-y-1.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 font-semibold text-slate-900 uppercase text-[11px]">
                     <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                    {proposal.digitalSignature?.govBrSigned
-                      ? 'Selo de Assinatura Eletrônica Gov.br (ITI)'
-                      : 'Selo de Autenticidade e Assinatura Eletrônica'}
+                    Selo de Autenticidade e Assinatura Eletrônica ICP-Brasil
                   </div>
                   <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-semibold">
-                    {proposal.digitalSignature?.govBrSigned
-                      ? 'ASSINADO VIA GOV.BR'
-                      : proposal.digitalSignature
-                        ? proposal.digitalSignature.modality === 'GOV_BR_OURO'
-                          ? 'ACEITE ELETRÔNICO'
-                          : `ASSINADO DIGITALMENTE (${proposal.digitalSignature.modality})`
-                        : govBrEnabled
-                          ? 'HABILITADO PARA ASSINATURA GOV.BR'
-                          : 'HABILITADO PARA ACEITE ELETRÔNICO'}
+                    {proposal.digitalSignature
+                      ? proposal.digitalSignature.modality === 'GOV_BR_OURO'
+                        ? 'ACEITE ELETRÔNICO'
+                        : `ASSINADO DIGITALMENTE (${proposal.digitalSignature.modality})`
+                      : 'HABILITADO PARA ASSINATURA ICP-BRASIL'}
                   </span>
                 </div>
 
@@ -2411,17 +2338,17 @@ function PublicProposalPrintContent() {
                       </div>
                       <div>
                         <strong>Cargo:</strong> {proposal.digitalSignature.signerRole} •{" "}
-                        <strong>Modalidade:</strong> {proposal.digitalSignature.modality}
+                        <strong>Modalidade:</strong> {proposal.digitalSignature.modality === 'GOV_BR_OURO' ? 'Aceite eletrônico' : proposal.digitalSignature.modality}
                       </div>
                       <div>
                         <strong>Autoridade Certificadora:</strong>{" "}
-                        {proposal.digitalSignature.certificateIssuer}
+                        {proposal.digitalSignature.modality === 'GOV_BR_OURO' ? 'Aceite eletrônico' : proposal.digitalSignature.certificateIssuer}
                       </div>
                     </div>
                     <div className="font-mono text-[10px] text-slate-700 space-y-0.5">
                       <div>
                         <strong>Carimbo de Tempo (ACT/ITI):</strong>{" "}
-                        {proposal.digitalSignature.timestampToken}
+                        {proposal.digitalSignature.modality === 'GOV_BR_OURO' ? 'Aceite eletrônico' : proposal.digitalSignature.timestampToken}
                       </div>
                       <div>
                         <strong>Data/Hora UTC:</strong> {proposal.digitalSignature.signedAt}
@@ -2444,7 +2371,7 @@ function PublicProposalPrintContent() {
                 ) : (
                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
                     <span>
-                      Documento preparado para assinatura eletrônica qualificada nos termos da MP nº 2.200-2/2001 (ICP-Brasil A1/A3) e Lei nº 14.063/2020 (Gov.br).
+                      Documento preparado para assinatura eletrônica qualificada nos termos da MP nº 2.200-2/2001 (ICP-Brasil A1/A3).
                     </span>
                     <button
                       type="button"
@@ -2456,7 +2383,7 @@ function PublicProposalPrintContent() {
                       }}
                       className="px-3 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-semibold cursor-pointer print:hidden"
                     >
-                      Assinar com ICP-Brasil / Gov.br
+                      Assinar com ICP-Brasil
                     </button>
                   </div>
                 )}

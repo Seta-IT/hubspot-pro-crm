@@ -1173,7 +1173,7 @@ export function buildStandaloneContractA4Html(
 ${eqRows ? `<table><tr><th>SKU</th><th>Descrição</th><th>S/N</th><th>Qtd</th></tr>${eqRows}</table>` : ''}
 ${clausesHtml}
 ${extra ? `<h2>Cláusulas Adicionais</h2><p>${escHtml(extra).replace(/\n/g, '<br/>')}</p>` : ''}
-<p>E, por estarem justas e contratadas, as partes assinam o presente instrumento, podendo fazê-lo por assinatura digital ICP-Brasil / Gov.br.</p>
+<p>E, por estarem justas e contratadas, as partes assinam o presente instrumento, podendo fazê-lo por assinatura digital ICP-Brasil.</p>
 <div class="sig"><div>SETA TELECOM</div><div>${escHtml(contract.companyName)}</div></div>
 </body></html>`;
 }

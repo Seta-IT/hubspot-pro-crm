@@ -1672,7 +1672,7 @@ export default function ErpGestaoClickTab({
       const r = await openWithSignedProposalLink(prop.id, (signedUrl) => signedUrl);
       onShowToast(
         r.ok
-          ? `Link assinado da proposta ${showCode(prop)} aberto e copiado para a e-Assinatura do cliente (ICP-Brasil / Gov.br).`
+          ? `Link assinado da proposta ${showCode(prop)} aberto e copiado para a e-Assinatura do cliente (ICP-Brasil).`
           : `Não foi possível gerar o link assinado: ${r.error}`
       );
       return;
@@ -3388,7 +3388,7 @@ export default function ErpGestaoClickTab({
         { key: "RENOVAR", label: renewLabel, icon: RefreshCw, run: () => handleRenewContract(ctr, 12) },
         { key: "AGENDAR", label: "Agendar compromisso", icon: Calendar, run: () => { onShowToast(`Compromisso técnico-comercial agendado para o contrato ${ctr.contractNumber} (${ctr.companyName}). Veja em Ordens de Serviços.`); setActiveSection("ORDENS_SERVICOS"); } },
         { key: "VER_FINANCEIRO", label: "Ver no financeiro", icon: Wallet, run: () => { setActiveSection("FINANCEIRO" as GestaoClickMenuSection); onShowToast(`Financeiro filtrado por ${ctr.companyName} / contrato ${ctr.contractNumber}.`); } },
-        { key: "SOLICITAR_ASSINATURA", label: "Solicitar assinatura", icon: FileCheck2, run: async () => { const l = contractSignLink(ctr); await copyText(l); onShowToast(`Solicitação de assinatura digital ICP-Brasil / Gov.br registrada. Link copiado: ${l}`); } },
+        { key: "SOLICITAR_ASSINATURA", label: "Solicitar assinatura", icon: FileCheck2, run: async () => { const l = contractSignLink(ctr); await copyText(l); onShowToast(`Solicitação de assinatura digital ICP-Brasil registrada. Link copiado: ${l}`); } },
         { key: "EXCLUIR", label: "Excluir", icon: Trash2, danger: true, disabled: isRecordInUse('rentalContract', { id: ctr.id, contractNumber: ctr.contractNumber }), title: isRecordInUse('rentalContract', { id: ctr.id, contractNumber: ctr.contractNumber }) ? 'Em uso' : 'Excluir', run: () => {
           const ref = { id: ctr.id, contractNumber: ctr.contractNumber };
           if (blockDeleteIfUsed('rentalContract', ref)) return;

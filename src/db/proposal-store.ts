@@ -234,8 +234,6 @@ export function proposalRouteLookupRefs(method: string, cleanPath: string): stri
   };
   const byRef = String(cleanPath || '').match(/^\/api\/erp\/proposals\/([^/]+)(?:\/[^/]+)?$/);
   if (byRef) push(byRef[1]);
-  const govBr = String(cleanPath || '').match(/^\/api\/internal\/govbr-signature\/([^/]+)$/);
-  if (govBr) push(govBr[1]);
   if (String(method || 'GET').toUpperCase() === 'GET') {
     const internal = String(cleanPath || '').match(/^\/api\/interno\/proposta\/([^/]+)$/);
     if (internal) push(internal[1]);

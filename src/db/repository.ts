@@ -6406,42 +6406,28 @@ export class CrmRepository {
         : "ICP_BRASIL_A1"
     ) as "ICP_BRASIL_A1" | "ICP_BRASIL_A3" | "GOV_BR_OURO";
 
-    const keptGovBr =
-      modality === "GOV_BR_OURO" &&
-      proposal.digitalSignature?.govBrSigned === true &&
-      typeof proposal.digitalSignature.pkcs7Base64 === "string" &&
-      proposal.digitalSignature.pkcs7Base64.length > 0
-        ? proposal.digitalSignature
-        : null;
-    const certificateIssuer = keptGovBr
-      ? keptGovBr.certificateIssuer
-      : modality === "GOV_BR_OURO"
-        ? "Aceite eletrônico (sem integração Gov.br)"
+    const certificateIssuer =
+      modality === "GOV_BR_OURO"
+        ? "Aceite eletrônico"
         : modality === "ICP_BRASIL_A3"
           ? "AC Certisign RFB G5 — Token Criptográfico ICP-Brasil A3"
           : "AC Soluti Multipla v5 — Certificado Digital ICP-Brasil A1";
 
     const hashPayload = `${proposal.id}|${proposal.code}|${proposal.companyCnpj}|${signerName}|${signerCpf}|${modality}|${nowIso}`;
-    const signatureHashSha256 = keptGovBr?.signatureHashSha256 || crypto.createHash("sha256").update(hashPayload).digest("hex");
-    const digitalSignature: ErpProposalDigitalSignature = keptGovBr
-      ? {
-          ...keptGovBr,
-          signerRole: signerRole || keptGovBr.signerRole,
-          ipAddress: signatureInput?.ipAddress ? String(signatureInput.ipAddress) : keptGovBr.ipAddress,
-        }
-      : {
-          signerName,
-          signerCpf,
-          signerRole,
-          signerEmail: signatureInput?.signerEmail ? String(signatureInput.signerEmail) : proposal.contactEmail,
-          modality,
-          certificateIssuer,
-          certificateSerial: `ICP-BR-${signatureHashSha256.slice(0, 16).toUpperCase()}`,
-          signatureHashSha256,
-          timestampToken: `ACT-ITI-${now.getFullYear()}-${signatureHashSha256.slice(16, 28).toUpperCase()}`,
-          signedAt: nowIso,
-          ipAddress: signatureInput?.ipAddress ? String(signatureInput.ipAddress) : "sem-ip",
-        };
+    const signatureHashSha256 = crypto.createHash("sha256").update(hashPayload).digest("hex");
+    const digitalSignature: ErpProposalDigitalSignature = {
+      signerName,
+      signerCpf,
+      signerRole,
+      signerEmail: signatureInput?.signerEmail ? String(signatureInput.signerEmail) : proposal.contactEmail,
+      modality,
+      certificateIssuer,
+      certificateSerial: `ICP-BR-${signatureHashSha256.slice(0, 16).toUpperCase()}`,
+      signatureHashSha256,
+      timestampToken: `ACT-ITI-${now.getFullYear()}-${signatureHashSha256.slice(16, 28).toUpperCase()}`,
+      signedAt: nowIso,
+      ipAddress: signatureInput?.ipAddress ? String(signatureInput.ipAddress) : "sem-ip",
+    };
 
     proposal.status = "CONVERTIDA_CONTRATO";
     proposal.convertedContractId = contract.id;
@@ -6474,43 +6460,6 @@ export class CrmRepository {
 
     this.save();
     return { proposal, contract, invoice, digitalSignature };
-  }
-
-  /**
-   * Grava o PKCS#7 da Assinatura Gov.br na proposta, sem mudar o status e sem gerar contrato.
-   * O aceite segue depois pelas regras já existentes.
-   */
-  recordGovBrSignature(
-    proposalId: string,
-    input: {
-      signerName: string;
-      signerCpf: string;
-      signerRole: string;
-      signatureHashSha256: string;
-      pkcs7Base64: string;
-    }
-  ): ErpCommercialProposal | null {
-    const id = decodeURIComponent(String(proposalId || "")).trim();
-    const proposal = this.listProposals().find((p) => p.id === id);
-    if (!proposal) return null;
-    if (!input.pkcs7Base64 || !input.signerName || !input.signerCpf || !input.signatureHashSha256) return null;
-    const nowIso = new Date().toISOString();
-    proposal.digitalSignature = {
-      signerName: input.signerName,
-      signerCpf: input.signerCpf,
-      signerRole: input.signerRole || "Signatário Gov.br",
-      modality: "GOV_BR_OURO",
-      certificateIssuer: "ITI — Assinatura Eletrônica Gov.br",
-      certificateSerial: "",
-      signatureHashSha256: input.signatureHashSha256,
-      timestampToken: "Gov.br",
-      signedAt: nowIso,
-      pkcs7Base64: input.pkcs7Base64,
-      govBrSigned: true,
-    };
-    proposal.updatedAt = nowIso;
-    this.save();
-    return proposal;
   }
 
   listRentalContracts(): ErpRentalContract[] {
