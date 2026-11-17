@@ -68,6 +68,7 @@ import { formatBRL } from './components/ui-helpers';
 import { canDeleteDealsFromPermissions, canEditDealsFromPermissions } from './lib/deal-sidebar-edit';
 import { canSendCrmEmailFromPermissions } from './lib/email-composer';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './components/ClientEmailComposerModal';
+import AssistenteIaPanel from './components/AssistenteIaPanel';
 import {
   loadDurableJournal,
   stripEmojisDeep,
@@ -1702,6 +1703,7 @@ export default function HubSpotProCrmApp() {
 
           {/* Right Status & Profile Controls */}
           <div className="flex items-center gap-2 shrink-0">
+            <AssistenteIaPanel system={headerSystem} userName={activeRbacUser?.name} />
             {isCrmActive && (
               <>
                 <button

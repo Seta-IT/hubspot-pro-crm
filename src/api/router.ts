@@ -115,7 +115,8 @@ import {
   PROPOSAL_EDITOR_ERP_ROLES,
   resolveErpAccountRoleFromClaims,
 } from '../middleware';
-import { signStiHubSessionToken, verifyStiHubSessionToken } from '../app/lib/auth';
+import { resolveStiHubSigningSecret, signStiHubSessionToken, verifyStiHubSessionToken } from '../app/lib/auth';
+import { verifyAuditReceipt } from '../modules/assistente/confirmation';
 import {
   rejectedSelfProfileKeys,
   SELF_PROFILE_STEP_UP_FIELDS,
@@ -10243,6 +10244,42 @@ export class CrmApiRouter {
             message: `Autenticador resetado para ${updated.name}. No próximo login será exibido o QR Code para novo cadastro.`,
           },
         };
+      }
+
+      // ======================================================================
+      // ASSISTENTE DE IA (etapa 1) - POST /api/assistente/auditoria
+      // So grava o recibo ASSINADO pelo servidor do assistente (HMAC, uso imediato, mesmo usuario
+      // da sessao). O cliente nao consegue forjar entradas: sem recibo valido => 400.
+      // ======================================================================
+      if (cleanPath === '/api/assistente/auditoria') {
+        if (method !== 'POST') return { status: 405, body: { error: 'Método não permitido.', code: 'METHOD_NOT_ALLOWED' } };
+        const asTok = query._sessionToken;
+        const asSess = asTok && verifyStiHubSessionToken(asTok).valid ? this.repo.resolveSessionFromToken(asTok) : null;
+        if (!asSess || !asSess.authenticated || !asSess.mfaVerified) {
+          return { status: 401, body: { error: 'Sessão corporativa STI-hub com MFA obrigatória.', code: 'MFA_AUTH_REQUIRED' } };
+        }
+        let receipt: ReturnType<typeof verifyAuditReceipt> = null;
+        try {
+          receipt = verifyAuditReceipt(resolveStiHubSigningSecret(), (body as Record<string, unknown>).recibo, {
+            uid: String(asSess.user?.id || ''),
+            now: Date.now(),
+          });
+        } catch {
+          receipt = null;
+        }
+        if (!receipt) return { status: 400, body: { error: 'Recibo de auditoria inválido.', code: 'ASSISTENTE_RECIBO_INVALIDO' } };
+        const entry = this.repo.appendSecurityAuditLog({
+          actorEmail: asSess.user.email,
+          actorName: asSess.user.name,
+          actorRole: asSess.role.id,
+          action: receipt.ok ? 'ASSISTENTE_IA_ACAO_EXECUTADA' : 'ASSISTENTE_IA_ACAO_FALHOU',
+          module: receipt.modulo,
+          resource: `assistente:${String(receipt.tool).slice(0, 60)}`,
+          status: receipt.ok ? 'SUCCESS' : 'WARNING',
+          ipAddress: query._clientIp,
+          details: `Assistente de IA (${receipt.tipo}, confirmado pelo usuário): ${String(receipt.titulo).slice(0, 120)}. ${String(receipt.detalhe).slice(0, 900)}${receipt.registro ? ` Registro: ${String(receipt.registro).slice(0, 120)}.` : ''} Resultado HTTP ${receipt.status}.`,
+        });
+        return { status: 201, body: { data: { id: entry.id } } };
       }
 
       // ======================================================================
