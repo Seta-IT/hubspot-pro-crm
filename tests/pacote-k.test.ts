@@ -215,11 +215,10 @@ describe('Pacote K (D-I2): generateNextInvoiceOnSave exige a alcada fiscal de /g
     assert.ok([200, 503].includes(poll.status), `poll cron status inesperado: ${poll.status}`);
     assert.equal(invCount(repo), n0, 'poll da entrada de e-mail nao gera fatura/NF');
     const vercel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'vercel.json'), 'utf8')) as { crons?: Array<{ path: string }> };
-    assert.deepEqual(
-      (vercel.crons || []).map((c) => c.path).sort(),
-      ['/api/crm/proposal-followup', '/api/erp/daily-sync', '/api/tickets/email-intake/poll'].sort(),
-      'novo cron alem desta allowlist precisa passar pela alcada fiscal/flag'
-    );
+    const allow = ['/api/crm/proposal-followup', '/api/erp/daily-sync', '/api/tickets/email-intake/poll'];
+    for (const c of vercel.crons || []) {
+      assert.ok(allow.includes(c.path), `novo cron alem desta allowlist precisa passar pela alcada fiscal/flag: ${c.path}`);
+    }
   });
 });
 

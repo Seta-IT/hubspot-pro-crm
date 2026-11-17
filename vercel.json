@@ -11,10 +11,6 @@
     {
       "path": "/api/crm/proposal-followup",
       "schedule": "0 12 * * 1-5"
-    },
-    {
-      "path": "/api/tickets/email-intake/poll",
-      "schedule": "*/10 * * * *"
     }
   ]
 }
