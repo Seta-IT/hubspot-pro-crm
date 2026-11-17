@@ -8,11 +8,15 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import forge from 'node-forge';
 import {
   allowedIntakeMailboxes,
   isSetaDeskAnalysisNoticeEnabled,
   isSetaDeskEmailIntakeEnabled,
+  parseGraphPfx,
   resolveSetaDeskGraphConfig,
+  SETADESK_EMAIL_ENV_NAMES,
+  SETADESK_GRAPH_DOCUMENTED_IDS,
 } from '../src/modules/setadesk-email/config';
 import {
   buildClientAssertion,
@@ -78,6 +82,36 @@ function graphMsg(over: Partial<GraphMessage> & { headers?: Record<string, strin
 
 const ctx = (mailbox = TEC_BOX) => ({ mailbox, pipelines: PIPELINES, now: () => NOW });
 
+
+/** PFX sintetico (autoassinado, CN=setadesk-teste.example.com) para os testes. */
+function makeTestPfx(password: string, opts: { notAfter?: Date; notBefore?: Date } = {}) {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const fKey = forge.pki.privateKeyFromPem(privateKey.export({ type: 'pkcs1', format: 'pem' }).toString());
+  const fPub = forge.pki.publicKeyFromPem(publicKey.export({ type: 'spki', format: 'pem' }).toString());
+  const cert = forge.pki.createCertificate();
+  cert.publicKey = fPub;
+  cert.serialNumber = '01';
+  cert.validity.notBefore = opts.notBefore || new Date('2026-01-01T00:00:00Z');
+  cert.validity.notAfter = opts.notAfter || new Date('2028-01-01T00:00:00Z');
+  const attrs = [{ name: 'commonName', value: 'setadesk-teste.example.com' }];
+  cert.setSubject(attrs);
+  cert.setIssuer(attrs);
+  cert.sign(fKey, forge.md.sha256.create());
+  const p12 = forge.pkcs12.toPkcs12Asn1(fKey, [cert], password, { algorithm: '3des' });
+  const b64 = Buffer.from(forge.asn1.toDer(p12).getBytes(), 'binary').toString('base64');
+  const der = Buffer.from(forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes(), 'binary');
+  const thumb = crypto.createHash('sha1').update(der).digest('hex').toUpperCase();
+  return { b64, thumb, privateKey, publicKey };
+}
+const TEST_PFX_PASSWORD = 'senha-pfx-de-teste-987';
+const TEST_PFX = makeTestPfx(TEST_PFX_PASSWORD);
+const PFX_ENV = {
+  SETADESK_GRAPH_CERT_THUMBPRINT: TEST_PFX.thumb,
+  SETADESK_GRAPH_CERT_PFX_BASE64: TEST_PFX.b64,
+  SETADESK_GRAPH_CERT_PASSWORD: TEST_PFX_PASSWORD,
+};
+const CFG_NOW = Date.parse('2026-11-12T15:00:00Z');
+
 describe('SetaDesk e-mail - configuracao e flag', () => {
   it('flag desligada por padrao; aviso de analise exige as duas flags', () => {
     assert.equal(isSetaDeskEmailIntakeEnabled({}), false);
@@ -87,23 +121,50 @@ describe('SetaDesk e-mail - configuracao e flag', () => {
     assert.deepEqual(allowedIntakeMailboxes({ SETADESK_EMAIL_INTAKE_MAILBOXES: ` ${TEC_BOX.toUpperCase()}, invalido, ${TEC_BOX}` }), [TEC_BOX]);
   });
 
-  it('config do Graph: codigos sem valores; aceita PEM, PEM em base64 e thumbprint SHA-1/SHA-256', () => {
-    const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
-    const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  it('config do Graph por PFX: codigos sem valores; confere thumbprint, senha e validade', () => {
     const base = {
       SETADESK_GRAPH_TENANT_ID: '11111111-2222-3333-4444-555555555555',
       SETADESK_GRAPH_CLIENT_ID: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-      SETADESK_GRAPH_CERT_THUMBPRINT: 'AB'.repeat(20),
+      ...PFX_ENV,
     };
     assert.deepEqual(resolveSetaDeskGraphConfig({}), { ok: false, code: 'GRAPH_TENANT_MISSING' });
     assert.deepEqual(resolveSetaDeskGraphConfig({ ...base, SETADESK_GRAPH_TENANT_ID: 'common' }), { ok: false, code: 'GRAPH_TENANT_MISSING' });
-    const bad = resolveSetaDeskGraphConfig({ ...base, SETADESK_GRAPH_PRIVATE_KEY: 'nao-e-chave' });
-    assert.deepEqual(bad, { ok: false, code: 'GRAPH_PRIVATE_KEY_INVALID' });
-    const ok1 = resolveSetaDeskGraphConfig({ ...base, SETADESK_GRAPH_PRIVATE_KEY: pem });
-    assert.equal(ok1.ok, true);
-    const ok2 = resolveSetaDeskGraphConfig({ ...base, SETADESK_GRAPH_PRIVATE_KEY: Buffer.from(pem).toString('base64'), SETADESK_GRAPH_CERT_THUMBPRINT: 'cd'.repeat(32) });
-    assert.equal(ok2.ok, true);
-    if (ok2.ok) assert.equal(ok2.config.thumbprintHeader.name, 'x5t#S256');
+    assert.deepEqual(resolveSetaDeskGraphConfig({ ...base, SETADESK_GRAPH_CERT_THUMBPRINT: '' }, CFG_NOW), { ok: false, code: 'GRAPH_THUMBPRINT_MISSING' });
+    assert.deepEqual(resolveSetaDeskGraphConfig({ ...base, SETADESK_GRAPH_CERT_PFX_BASE64: '' }, CFG_NOW), { ok: false, code: 'GRAPH_CERT_PFX_MISSING' });
+    const wrong = resolveSetaDeskGraphConfig({ ...base, SETADESK_GRAPH_CERT_PASSWORD: 'errada' }, CFG_NOW);
+    assert.deepEqual(wrong, { ok: false, code: 'GRAPH_CERT_PFX_INVALID_OR_WRONG_PASSWORD' });
+    assert.equal(JSON.stringify(wrong).includes('errada'), false);
+    assert.deepEqual(
+      resolveSetaDeskGraphConfig({ ...base, SETADESK_GRAPH_CERT_THUMBPRINT: SETADESK_GRAPH_DOCUMENTED_IDS.certThumbprintSha1 }, CFG_NOW),
+      { ok: false, code: 'GRAPH_THUMBPRINT_MISMATCH' }
+    );
+    assert.deepEqual(resolveSetaDeskGraphConfig(base, Date.parse('2030-01-01T00:00:00Z')), { ok: false, code: 'GRAPH_CERT_EXPIRED_OR_NOT_YET_VALID' });
+    // Thumbprint com dois-pontos/minusculas (como alguns painéis exibem) tambem vale.
+    const pretty = TEST_PFX.thumb.toLowerCase().match(/../g)!.join(':');
+    const ok = resolveSetaDeskGraphConfig({ ...base, SETADESK_GRAPH_CERT_THUMBPRINT: pretty }, CFG_NOW);
+    assert.equal(ok.ok, true);
+    if (ok.ok) {
+      assert.equal(ok.config.thumbprintHeader.name, 'x5t');
+      assert.equal(ok.config.thumbprintHeader.value, Buffer.from(TEST_PFX.thumb, 'hex').toString('base64url'));
+      assert.equal(ok.config.privateKey.asymmetricKeyType, 'rsa');
+    }
+    const parsed = parseGraphPfx(TEST_PFX.b64, TEST_PFX_PASSWORD);
+    assert.equal(parsed.ok && parsed.pfx.thumbprintSha1, TEST_PFX.thumb);
+  });
+
+  it('nomes das env vars e ids documentados (nao secretos)', () => {
+    assert.deepEqual([...SETADESK_EMAIL_ENV_NAMES], [
+      'SETADESK_EMAIL_INTAKE_ENABLED',
+      'SETADESK_EMAIL_ANALYSIS_NOTICE_ENABLED',
+      'SETADESK_EMAIL_INTAKE_MAILBOXES',
+      'SETADESK_GRAPH_TENANT_ID',
+      'SETADESK_GRAPH_CLIENT_ID',
+      'SETADESK_GRAPH_CERT_THUMBPRINT',
+      'SETADESK_GRAPH_CERT_PFX_BASE64',
+      'SETADESK_GRAPH_CERT_PASSWORD',
+    ]);
+    assert.equal(SETADESK_GRAPH_DOCUMENTED_IDS.tenantId, '05c800b3-8c5b-448b-912d-e1e51d667588');
+    assert.equal(SETADESK_GRAPH_DOCUMENTED_IDS.clientId, '9b5ce520-d659-4348-8044-70827160b247');
   });
 
   it('client assertion: JWT RS256 com x5t, aud do tenant, iss/sub = client id e assinatura valida', () => {
@@ -402,8 +463,6 @@ describe('SetaDesk e-mail - outbox e aviso de analise', () => {
 describe('SetaDesk e-mail - ciclo de entrada (Graph falso) e flag desligada', () => {
   const tenant = '11111111-2222-3333-4444-555555555555';
   const client = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-  const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
-  const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
   const SECRET_TOKEN = 'token-super-secreto-de-teste-123';
 
   function fakeFetch(messages: GraphMessage[]) {
@@ -432,7 +491,7 @@ describe('SetaDesk e-mail - ciclo de entrada (Graph falso) e flag desligada', ()
   it('flag desligada: nenhuma chamada ao Graph e nada gravado', async () => {
     const s = store();
     const { f, calls } = fakeFetch([graphMsg()]);
-    const cfg = resolveSetaDeskGraphConfig({ SETADESK_GRAPH_TENANT_ID: tenant, SETADESK_GRAPH_CLIENT_ID: client, SETADESK_GRAPH_CERT_THUMBPRINT: 'ab'.repeat(20), SETADESK_GRAPH_PRIVATE_KEY: pem });
+    const cfg = resolveSetaDeskGraphConfig({ SETADESK_GRAPH_TENANT_ID: tenant, SETADESK_GRAPH_CLIENT_ID: client, ...PFX_ENV }, CFG_NOW);
     assert.equal(cfg.ok, true);
     const r = await runSetaDeskEmailIntake({ store: s, graph: createSetaDeskGraphClient({ config: (cfg as any).config, fetch: f }), env: {} });
     assert.deepEqual(r, { enabled: false });
@@ -445,8 +504,8 @@ describe('SetaDesk e-mail - ciclo de entrada (Graph falso) e flag desligada', ()
     const s = store();
     const msgs = [graphMsg(), graphMsg({ headers: { 'Auto-Submitted': 'auto-replied' } }), graphMsg({ receivedDateTime: '2026-01-01T00:00:00Z' })];
     const { f, calls } = fakeFetch(msgs);
-    const env = { ...ON, SETADESK_GRAPH_TENANT_ID: tenant, SETADESK_GRAPH_CLIENT_ID: client, SETADESK_GRAPH_CERT_THUMBPRINT: 'ab'.repeat(20), SETADESK_GRAPH_PRIVATE_KEY: pem };
-    const cfg = resolveSetaDeskGraphConfig(env);
+    const env = { ...ON, SETADESK_GRAPH_TENANT_ID: tenant, SETADESK_GRAPH_CLIENT_ID: client, ...PFX_ENV };
+    const cfg = resolveSetaDeskGraphConfig(env, CFG_NOW);
     assert.equal(cfg.ok, true);
     const lines: string[] = [];
     const orig = { log: console.log, info: console.info, error: console.error, warn: console.warn };
@@ -470,7 +529,7 @@ describe('SetaDesk e-mail - ciclo de entrada (Graph falso) e flag desligada', ()
     assert.match(s.state.sync.get(TEC_BOX)!.deltaLink || '', /deltatoken=t1/);
     const blob = lines.join('\n');
     assert.ok(lines.length >= 1);
-    for (const secret of [SECRET_TOKEN, tenant, client, 'BEGIN PRIVATE KEY', pem.split('\n')[1], 'cliente@example.com', TEC_BOX, 'Equipamento']) {
+    for (const secret of [SECRET_TOKEN, tenant, client, 'PRIVATE KEY', TEST_PFX.b64.slice(0, 40), TEST_PFX_PASSWORD, TEST_PFX.thumb, 'cliente@example.com', TEC_BOX, 'Equipamento']) {
       assert.equal(blob.includes(secret), false, `log contem dado sensivel: ${secret.slice(0, 12)}`);
     }
   });
@@ -479,8 +538,8 @@ describe('SetaDesk e-mail - ciclo de entrada (Graph falso) e flag desligada', ()
     const s = store();
     const msgs = [graphMsg()];
     const { f } = fakeFetch(msgs);
-    const env = { ...ON, SETADESK_GRAPH_TENANT_ID: tenant, SETADESK_GRAPH_CLIENT_ID: client, SETADESK_GRAPH_CERT_THUMBPRINT: 'ab'.repeat(20), SETADESK_GRAPH_PRIVATE_KEY: pem };
-    const graph = createSetaDeskGraphClient({ config: (resolveSetaDeskGraphConfig(env) as any).config, fetch: f });
+    const env = { ...ON, SETADESK_GRAPH_TENANT_ID: tenant, SETADESK_GRAPH_CLIENT_ID: client, ...PFX_ENV };
+    const graph = createSetaDeskGraphClient({ config: (resolveSetaDeskGraphConfig(env, CFG_NOW) as any).config, fetch: f });
     const log = () => undefined;
     await runSetaDeskEmailIntake({ store: s, graph, env, now: () => NOW, log });
     const r2 = await runSetaDeskEmailIntake({ store: s, graph, env, now: () => NOW, log });
