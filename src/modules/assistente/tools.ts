@@ -334,7 +334,7 @@ const relatorio: AssistenteTool<RelatorioArgs> = {
   schema: relatorioSchema,
   modulos: (a) => modulosEntidade(a.entidade),
   resumo: (a) => ({
-    titulo: `Relatório de ${ENTIDADE_DEFS[a.entidade].rotulo}`,
+    titulo: `Gerar o relatório de ${ENTIDADE_DEFS[a.entidade].rotulo}`,
     linhas: [...descreverFiltro(a), `Agrupado por: ${a.agrupar_por === 'mes' ? 'mês' : 'situação'}`],
   }),
   async executar(a, api) {
