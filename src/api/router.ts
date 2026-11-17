@@ -59,6 +59,14 @@ import {
   type SetaDeskBaseline,
 } from '../db/setadesk-store';
 import { canManageSetaDeskPipelines, parseSetaDeskPipelineWrite } from './setadesk-pipeline-guards';
+import { isSetaDeskEmailDirectRoute, matchMarkViewedPath, SETADESK_EMAIL_POLL_PATH } from '../modules/setadesk-email/routes';
+import { isSetaDeskEmailIntakeEnabled, resolveSetaDeskGraphConfig } from '../modules/setadesk-email/config';
+import { createSetaDeskGraphClient, type SetaDeskFetch } from '../modules/setadesk-email/graph-app-client';
+import { createPostgresSetaDeskEmailStore } from '../modules/setadesk-email/store-postgres';
+import { runSetaDeskEmailIntake } from '../modules/setadesk-email/intake';
+import { markSetaDeskTicketViewed } from '../modules/setadesk-email/first-view';
+import { resolveRequesterLink } from '../modules/setadesk-email/parse';
+import { ensureSetaDeskSchema } from '../db/setadesk-store';
 import { introducedMaskedFinanceArtifacts, maskTicketForResponse, omitMaskedTicketOverwrite, ticketMatchesSearchServer } from '../app/lib/setadesk-ticket-search';
 import {
   countProposals,
@@ -547,6 +555,8 @@ export interface ApiRequest {
 export function shouldLoadSetaDeskTicketsForRoute(method: string, path: string): boolean {
   const clean = (path || '/').replace(/\/+$/, '') || '/';
   if (isPublicStiHubPath(clean, method)) return false;
+  // Rotas da entrada de e-mail escrevem direto nas tabelas: nao carregam a lista inteira.
+  if (isSetaDeskEmailDirectRoute(method, clean)) return false;
   return clean === '/api/tickets' || clean.startsWith('/api/tickets/');
 }
 
@@ -854,6 +864,23 @@ export function isAuthorizedDailySyncCron(
   return (
     method === 'GET' &&
     cleanPath === '/api/erp/daily-sync' &&
+    query._fromHttpBridge === '1' &&
+    query._cronAuthorized === '1'
+  );
+}
+
+/**
+ * CISO 17/11: GET /api/tickets/email-intake/poll do Vercel Cron. Mesmo padrao do daily-sync: so com a
+ * flag _cronAuthorized que o bridge define APENAS apos conferir Authorization: Bearer <CRON_SECRET>.
+ */
+export function isAuthorizedSetaDeskEmailPollCron(
+  method: string,
+  cleanPath: string,
+  query: Record<string, string | undefined>
+): boolean {
+  return (
+    method === 'GET' &&
+    cleanPath === SETADESK_EMAIL_POLL_PATH &&
     query._fromHttpBridge === '1' &&
     query._cronAuthorized === '1'
   );
@@ -1294,7 +1321,10 @@ export class CrmApiRouter {
 
     this.proposalTableCtx = null;
     this.repo.setProposalNumberingHint(null);
-    if (this.isSingletonRepo && isPostgresEnabled()) {
+    // CISO 17/11: cron da entrada de e-mail com a flag desligada nao le o crm_state_v1 (~7 MB por
+    // execucao no Neon); a rota responde 200 { enabled: false } sem tocar em nada.
+    const skipStateLoad = isAuthorizedSetaDeskEmailPollCron(method, cleanPath, query) && !isSetaDeskEmailIntakeEnabled();
+    if (this.isSingletonRepo && isPostgresEnabled() && !skipStateLoad) {
       try {
         const pgState = await loadStateFromPostgres();
         if (pgState) {
@@ -1410,6 +1440,7 @@ export class CrmApiRouter {
 
     if (
       this.canPersistToPostgres() &&
+      !isSetaDeskEmailDirectRoute(method, cleanPath) &&
       (shouldPersistAfterDispatch(method, cleanPath, query, response.status) || journalReconciled)
     ) {
       const failed = await this.persistStateToPostgres();
@@ -4195,7 +4226,7 @@ export class CrmApiRouter {
         isHttpRequest &&
         query._cronAuthorized === "1" &&
         method === "GET" &&
-        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup");
+        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup" || cleanPath === SETADESK_EMAIL_POLL_PATH);
       const requestSessionToken =
         query._sessionToken;
 
@@ -6276,6 +6307,78 @@ export class CrmApiRouter {
           const sla = computeRealtimeTicketSla(created);
           created.slaStatus = sla.slaStatus;
           return { status: 201, body: { data: maskTicketForResponse(created) } };
+        }
+      }
+
+      // ----------------------------------------------------------------------
+      // SetaDesk: entrada de e-mail (flag SETADESK_EMAIL_INTAKE_ENABLED, desligada por padrao)
+      // ----------------------------------------------------------------------
+      if (cleanPath === SETADESK_EMAIL_POLL_PATH && (method === 'POST' || method === 'GET')) {
+        // CISO 17/11: GET so para o Vercel Cron (Bearer CRON_SECRET validado no bridge com
+        // SHA-256 + timingSafeEqual, fail-closed). GET com sessao/cookie nunca dispara a leitura.
+        const viaCron = isAuthorizedSetaDeskEmailPollCron(method, cleanPath, query);
+        if (method === 'GET' && !viaCron) {
+          return { status: query._sessionToken ? 405 : 401, body: { error: 'Use POST (administrador/coordenador) ou o cron autenticado.', code: 'EMAIL_INTAKE_METHOD_NOT_ALLOWED' } };
+        }
+        if (!viaCron) {
+          const tok = query._sessionToken;
+          const sess = tok ? this.repo.resolveSessionFromToken(tok) : null;
+          if (!canManageSetaDeskPipelines({ trustedInternal: ctx.trustedInternal, session: sess })) {
+            return { status: 403, body: { error: 'Somente administradores e coordenadores podem executar a leitura das caixas.', code: 'EMAIL_INTAKE_FORBIDDEN' } };
+          }
+        }
+        if (!isSetaDeskEmailIntakeEnabled()) {
+          // Cron com a flag desligada: 200 sem fazer nada (nao gera erro na Vercel a cada execucao).
+          if (viaCron) return { status: 200, body: { data: { enabled: false } } };
+          return { status: 409, body: { error: 'A abertura de chamados por e-mail está desligada.', code: 'EMAIL_INTAKE_DISABLED' } };
+        }
+        const pool = getPostgresPool();
+        if (!pool || !isSetaDeskPostgresEnabled()) {
+          return { status: 503, body: { error: 'A abertura de chamados por e-mail exige o banco de dados.', code: 'EMAIL_INTAKE_NO_DATABASE' } };
+        }
+        const cfg = resolveSetaDeskGraphConfig();
+        if (!cfg.ok) {
+          return { status: 503, body: { error: 'Integração com o Microsoft 365 não configurada.', code: cfg.code } };
+        }
+        try {
+          await ensureSetaDeskSchema(pool);
+          const contacts = this.repo.listContacts();
+          const companies = this.repo.listCompanies();
+          const result = await runSetaDeskEmailIntake({
+            store: createPostgresSetaDeskEmailStore(pool, {
+              contactEmailOf: (id) => this.repo.getContactById(id)?.email || null,
+            }),
+            graph: createSetaDeskGraphClient({ config: cfg.config, fetch: fetch as unknown as SetaDeskFetch }),
+            resolveRequester: (email) => resolveRequesterLink(email, contacts, companies),
+          });
+          return { status: 200, body: { data: result } };
+        } catch {
+          return { status: 503, body: { error: 'Falha na leitura das caixas. Tente de novo em instantes.', code: 'EMAIL_INTAKE_FAILED' } };
+        }
+      }
+
+      const markViewedKey = method === 'POST' ? matchMarkViewedPath(cleanPath) : null;
+      if (markViewedKey !== null) {
+        if (!this.hasChamadosTicketAccess(query, ctx)) {
+          return { status: 403, body: { error: 'Acesso negado.', code: 'MODULE_CHAMADOS_FORBIDDEN' } };
+        }
+        if (!isSetaDeskEmailIntakeEnabled()) {
+          return { status: 200, body: { data: { recorded: false, reason: 'INTAKE_DISABLED' } } };
+        }
+        const pool = getPostgresPool();
+        if (!pool || !isSetaDeskPostgresEnabled()) {
+          return { status: 200, body: { data: { recorded: false, reason: 'NO_DATABASE' } } };
+        }
+        const tok = query._sessionToken;
+        const sess = tok ? this.repo.resolveSessionFromToken(tok) : null;
+        const viewer = sess && sess.authenticated ? String(sess.user?.email || sess.user?.id || 'sessao') : ctx.trustedInternal ? 'interno' : 'sessao';
+        try {
+          await ensureSetaDeskSchema(pool);
+          const r = await markSetaDeskTicketViewed(createPostgresSetaDeskEmailStore(pool), markViewedKey, viewer);
+          if (!r.recorded && r.reason === 'NOT_FOUND') return { status: 404, body: { error: 'Chamado não encontrado.' } };
+          return { status: 200, body: { data: r } };
+        } catch {
+          return { status: 503, body: { error: 'Não foi possível registrar a abertura agora.', code: 'MARK_VIEWED_FAILED' } };
         }
       }
 

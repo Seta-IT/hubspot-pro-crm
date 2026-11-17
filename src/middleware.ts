@@ -413,13 +413,15 @@ export function middleware(req: NextRequest) {
 
   const isLoggedOutCookie = req.cookies.get('stihub_logged_out')?.value === '1';
 
-  // Cron da Vercel (GET exactos /api/erp/daily-sync e /api/crm/proposal-followup):
+  // Cron da Vercel (GET exactos /api/erp/daily-sync, /api/crm/proposal-followup e /api/tickets/email-intake/poll):
   // autorizado somente com Authorization: Bearer <CRON_SECRET> quando configurado.
   const cronSecret = process.env.CRON_SECRET?.trim();
   if (
     cronSecret &&
     cronSecret.length >= 16 &&
-    (pathname === '/api/erp/daily-sync' || pathname === '/api/crm/proposal-followup') &&
+    (pathname === '/api/erp/daily-sync' ||
+      pathname === '/api/crm/proposal-followup' ||
+      pathname === '/api/tickets/email-intake/poll') &&
     req.method === 'GET' &&
     constantTimeEqual(req.headers.get('authorization') || '', `Bearer ${cronSecret}`)
   ) {
