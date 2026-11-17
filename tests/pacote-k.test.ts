@@ -210,10 +210,14 @@ describe('Pacote K (D-I2): generateNextInvoiceOnSave exige a alcada fiscal de /g
     const followup = await router.dispatch({ method: 'GET', path: '/api/crm/proposal-followup', query: { ...HTTP, _cronAuthorized: '1' } });
     assert.ok([200, 401, 403].includes(followup.status), `follow-up cron status inesperado: ${followup.status}`);
     assert.equal(invCount(repo), n0, 'follow-up da proposta nao gera fatura/NF');
+    // CISO 17/11: o poll da entrada de e-mail do SetaDesk so cria chamados/comentarios (tabelas setadesk_*).
+    const poll = await router.dispatch({ method: 'GET', path: '/api/tickets/email-intake/poll', query: { ...HTTP, _cronAuthorized: '1' } });
+    assert.ok([200, 503].includes(poll.status), `poll cron status inesperado: ${poll.status}`);
+    assert.equal(invCount(repo), n0, 'poll da entrada de e-mail nao gera fatura/NF');
     const vercel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'vercel.json'), 'utf8')) as { crons?: Array<{ path: string }> };
     assert.deepEqual(
       (vercel.crons || []).map((c) => c.path).sort(),
-      ['/api/crm/proposal-followup', '/api/erp/daily-sync'].sort(),
+      ['/api/crm/proposal-followup', '/api/erp/daily-sync', '/api/tickets/email-intake/poll'].sort(),
       'novo cron alem desta allowlist precisa passar pela alcada fiscal/flag'
     );
   });

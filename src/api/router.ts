@@ -869,6 +869,23 @@ export function isAuthorizedDailySyncCron(
   );
 }
 
+/**
+ * CISO 17/11: GET /api/tickets/email-intake/poll do Vercel Cron. Mesmo padrao do daily-sync: so com a
+ * flag _cronAuthorized que o bridge define APENAS apos conferir Authorization: Bearer <CRON_SECRET>.
+ */
+export function isAuthorizedSetaDeskEmailPollCron(
+  method: string,
+  cleanPath: string,
+  query: Record<string, string | undefined>
+): boolean {
+  return (
+    method === 'GET' &&
+    cleanPath === SETADESK_EMAIL_POLL_PATH &&
+    query._fromHttpBridge === '1' &&
+    query._cronAuthorized === '1'
+  );
+}
+
 /** Decide se o estado vai para o Postgres apos a rota: mutacoes 2xx/3xx e o cron diario autenticado (2xx). */
 export function shouldPersistAfterDispatch(
   method: string,
@@ -1304,7 +1321,10 @@ export class CrmApiRouter {
 
     this.proposalTableCtx = null;
     this.repo.setProposalNumberingHint(null);
-    if (this.isSingletonRepo && isPostgresEnabled()) {
+    // CISO 17/11: cron da entrada de e-mail com a flag desligada nao le o crm_state_v1 (~7 MB por
+    // execucao no Neon); a rota responde 200 { enabled: false } sem tocar em nada.
+    const skipStateLoad = isAuthorizedSetaDeskEmailPollCron(method, cleanPath, query) && !isSetaDeskEmailIntakeEnabled();
+    if (this.isSingletonRepo && isPostgresEnabled() && !skipStateLoad) {
       try {
         const pgState = await loadStateFromPostgres();
         if (pgState) {
@@ -4206,7 +4226,7 @@ export class CrmApiRouter {
         isHttpRequest &&
         query._cronAuthorized === "1" &&
         method === "GET" &&
-        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup");
+        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup" || cleanPath === SETADESK_EMAIL_POLL_PATH);
       const requestSessionToken =
         query._sessionToken;
 
@@ -6293,13 +6313,23 @@ export class CrmApiRouter {
       // ----------------------------------------------------------------------
       // SetaDesk: entrada de e-mail (flag SETADESK_EMAIL_INTAKE_ENABLED, desligada por padrao)
       // ----------------------------------------------------------------------
-      if (cleanPath === SETADESK_EMAIL_POLL_PATH && method === 'POST') {
-        const tok = query._sessionToken;
-        const sess = tok ? this.repo.resolveSessionFromToken(tok) : null;
-        if (!canManageSetaDeskPipelines({ trustedInternal: ctx.trustedInternal, session: sess })) {
-          return { status: 403, body: { error: 'Somente administradores e coordenadores podem executar a leitura das caixas.', code: 'EMAIL_INTAKE_FORBIDDEN' } };
+      if (cleanPath === SETADESK_EMAIL_POLL_PATH && (method === 'POST' || method === 'GET')) {
+        // CISO 17/11: GET so para o Vercel Cron (Bearer CRON_SECRET validado no bridge com
+        // SHA-256 + timingSafeEqual, fail-closed). GET com sessao/cookie nunca dispara a leitura.
+        const viaCron = isAuthorizedSetaDeskEmailPollCron(method, cleanPath, query);
+        if (method === 'GET' && !viaCron) {
+          return { status: query._sessionToken ? 405 : 401, body: { error: 'Use POST (administrador/coordenador) ou o cron autenticado.', code: 'EMAIL_INTAKE_METHOD_NOT_ALLOWED' } };
+        }
+        if (!viaCron) {
+          const tok = query._sessionToken;
+          const sess = tok ? this.repo.resolveSessionFromToken(tok) : null;
+          if (!canManageSetaDeskPipelines({ trustedInternal: ctx.trustedInternal, session: sess })) {
+            return { status: 403, body: { error: 'Somente administradores e coordenadores podem executar a leitura das caixas.', code: 'EMAIL_INTAKE_FORBIDDEN' } };
+          }
         }
         if (!isSetaDeskEmailIntakeEnabled()) {
+          // Cron com a flag desligada: 200 sem fazer nada (nao gera erro na Vercel a cada execucao).
+          if (viaCron) return { status: 200, body: { data: { enabled: false } } };
           return { status: 409, body: { error: 'A abertura de chamados por e-mail está desligada.', code: 'EMAIL_INTAKE_DISABLED' } };
         }
         const pool = getPostgresPool();
