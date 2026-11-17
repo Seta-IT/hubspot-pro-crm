@@ -39,6 +39,8 @@ const QUEUE_BY_CATEGORY: Record<'SUPPORT' | 'BILLING', string> = {
 };
 
 export const RELATED_SUGGESTION_MIN_SCORE = 0.5;
+/** Confirmacoes automaticas por remetente por hora (o 4o chamado na mesma hora nao recebe). */
+export const CONFIRMATIONS_MAX_PER_SENDER_PER_HOUR = 3;
 export const RELATED_SUGGESTION_WINDOW_DAYS = 14;
 
 export function pipelineForMailbox(pipelines: IntakePipeline[], mailbox: string): IntakePipeline | null {
@@ -196,6 +198,15 @@ export async function processInboundEmail(
       }
     }
 
+    // CISO 17/11: anti-loop/backscatter. Outro sistema automatico sem cabecalhos de auto-resposta
+    // (ou um remetente forjado) abriria um chamado novo a cada confirmacao. Acima do limite por
+    // remetente na ultima hora, o chamado e aberto mas a confirmacao nao e enviada.
+    const hourAgo = new Date(now.getTime() - 3600_000).toISOString();
+    const recentFromSender = await tx.findRecentRequesterTickets(from, hourAgo, ticketId);
+    if (recentFromSender.length >= CONFIRMATIONS_MAX_PER_SENDER_PER_HOUR) {
+      await tx.insertNotification('TICKET_CREATED', ticketId, `Novo chamado ${key}`, email.subject, `TICKET_CREATED:${ticketId}`);
+      return { action: 'CREATED', ticketId, ticketKey: key, confirmationQueued: false } as const;
+    }
     const tpl = buildConfirmationEmail(key);
     const confirmationQueued = await tx.enqueueOutbox({
       id: newId('obx'),

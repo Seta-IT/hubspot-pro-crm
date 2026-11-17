@@ -6,6 +6,7 @@
 // ============================================================================
 
 import { SetaDeskGraphError, type SetaDeskGraphClient } from './graph-app-client';
+import { isMailboxPermitted } from './config';
 import { isOutboundPublic } from './parse';
 import { newId, type SetaDeskEmailStore } from './store';
 import { SETADESK_SYSTEM_AUTHOR } from './templates';
@@ -42,6 +43,12 @@ export async function processSetaDeskOutbox(
   result.staleFailed = await store.failStaleSending(OUTBOX_STALE_SENDING_MINUTES, now().toISOString());
   const items = await store.claimDueOutbox(Math.min(Math.max(opts.limit || 20, 1), 100), now().toISOString());
   for (const item of items) {
+    // CISO 17/11: a caixa de envio e conferida de novo na hora do envio (lista fixa em producao).
+    if (!isMailboxPermitted(item.fromMailbox)) {
+      await store.completeOutbox(item.id, { status: 'FAILED', lastError: 'MAILBOX_NOT_ALLOWED' });
+      result.failed += 1;
+      continue;
+    }
     try {
       await graph.sendReply({
         mailbox: item.fromMailbox,

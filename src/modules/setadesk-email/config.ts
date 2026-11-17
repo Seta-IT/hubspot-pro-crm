@@ -55,12 +55,32 @@ export function normalizeMailboxAddress(raw: unknown): string | null {
   return EMAIL_RE.test(s) ? s : null;
 }
 
-/** Caixas autorizadas por env (minusculas, validas, sem repeticao). */
+/**
+ * CISO 17/11: em producao, so estas caixas podem ser lidas ou usadas para enviar, mesmo que a
+ * env ou setadesk_pipelines.mailbox tragam outra (mesmo escopo do RBAC for Applications no Exchange).
+ */
+export const SETADESK_EMAIL_PRODUCTION_MAILBOXES = Object.freeze([
+  'suporte-sti@setatelecom.com.br',
+  'financeiro-sti@setatelecom.com.br',
+]);
+
+function isProductionRuntime(env: Env): boolean {
+  return env.VERCEL_ENV === 'production' || env.NODE_ENV === 'production';
+}
+
+/** Caixa permitida para leitura/envio: em producao, somente as da lista fixa. */
+export function isMailboxPermitted(mailbox: unknown, env: Env = process.env): boolean {
+  const m = normalizeMailboxAddress(mailbox);
+  if (!m) return false;
+  return !isProductionRuntime(env) || SETADESK_EMAIL_PRODUCTION_MAILBOXES.includes(m);
+}
+
+/** Caixas autorizadas por env (minusculas, validas, sem repeticao), limitadas a lista fixa em producao. */
 export function allowedIntakeMailboxes(env: Env = process.env): string[] {
   const out = new Set<string>();
   for (const part of String(env.SETADESK_EMAIL_INTAKE_MAILBOXES || '').split(/[,;\s]+/)) {
     const m = normalizeMailboxAddress(part);
-    if (m) out.add(m);
+    if (m && isMailboxPermitted(m, env)) out.add(m);
   }
   return [...out];
 }

@@ -7,6 +7,8 @@ import type { GraphMessage, GraphRecipient } from './graph-app-client';
 
 export const INBOUND_BODY_TEXT_MAX = 20_000;
 export const INBOUND_SUBJECT_MAX = 300;
+/** Dominio de envio dos e-mails automaticos do STI-hub (Resend): nunca vira chamado (anti-loop). */
+export const OWN_SENDING_DOMAINS = Object.freeze(['notificacoes.setatelecom.com.br']);
 
 export interface InboundAttachmentMeta {
   name: string;
@@ -115,6 +117,8 @@ export type IgnoreReason = 'AUTO_REPLY' | 'BOUNCE' | 'OWN_MAILBOX' | 'NO_SENDER'
 const BOUNCE_SENDER_RE = /^(mailer-daemon|postmaster|microsoftexchange[0-9a-f]*|mail-daemon)@/i;
 const BOUNCE_SUBJECT_RE =
   /^(undeliverable|undelivered mail|delivery status notification|mail delivery (failed|subsystem)|returned mail|n[aã]o foi poss[ií]vel entregar|falha na entrega|delivery has failed)/i;
+/** Remetentes que nao recebem resposta (no-reply e variacoes, com ou sem +tag). */
+const NO_REPLY_SENDER_RE = /^(no[-_.]?reply|do[-_.]?not[-_.]?reply|nao[-_.]?responda|naoresponda)([+._-][^@]*)?@/i;
 const AUTO_SUBJECT_RE = /^(automatic reply|auto(matic)?[- ]?reply|out of office|resposta autom[aá]tica|ausente|fora do escrit[oó]rio)\s*:/i;
 
 /** Regras anti-loop: auto-respostas, bounces, a propria caixa (ou outra caixa de fila) e nao-mensagens. */
@@ -123,6 +127,8 @@ export function classifyIgnorable(email: InboundEmail, ownMailboxes: readonly st
   if (!email.fromEmail) return 'NO_SENDER';
   const own = ownMailboxes.map((m) => m.toLowerCase());
   if (own.includes(email.fromEmail)) return 'OWN_MAILBOX';
+  const fromDomain = email.fromEmail.split('@').pop() || '';
+  if (OWN_SENDING_DOMAINS.some((d) => fromDomain === d || fromDomain.endsWith(`.${d}`))) return 'OWN_MAILBOX';
   const h = email.headers;
   const ct = String(h['content-type'] || '').toLowerCase();
   if (
@@ -141,7 +147,8 @@ export function classifyIgnorable(email: InboundEmail, ownMailboxes: readonly st
   const precedence = String(h['precedence'] || '').trim().toLowerCase();
   if (['bulk', 'list', 'junk', 'auto_reply'].includes(precedence)) return 'AUTO_REPLY';
   if (h['x-autoreply'] !== undefined || h['x-autorespond'] !== undefined || h['x-autoresponder'] !== undefined) return 'AUTO_REPLY';
-  if (h['list-id'] !== undefined) return 'AUTO_REPLY';
+  if (h['list-id'] !== undefined || h['list-unsubscribe'] !== undefined) return 'AUTO_REPLY';
+  if (NO_REPLY_SENDER_RE.test(email.fromEmail)) return 'AUTO_REPLY';
   if (AUTO_SUBJECT_RE.test(email.subject)) return 'AUTO_REPLY';
   return null;
 }
