@@ -29,10 +29,16 @@ Status: implementado atrás de flag, **desligado por padrão**. Nada é lido nem
    assunto. Retry com backoff (1, 5, 15, 60, 360 min), FAILED após 6 tentativas; envio travado em
    SENDING vira FAILED (nunca reenvia às cegas). Registrada como comentário AGENT, público só se todos
    os destinatários forem o solicitante/contato (pacote H).
-4. **"Estamos analisando"**: `POST /api/tickets/:id/mark-viewed`, chamado pelo modal ao abrir (POST
+4. **Aviso "Chamado em atendimento"**: `POST /api/tickets/:id/mark-viewed`, chamado pelo modal ao abrir (POST
    explícito, imune a prefetch). Grava `first_viewed_at`/`first_viewed_by` uma única vez (UPDATE
    condicional) e, só em chamado aberto por e-mail e com `SETADESK_EMAIL_ANALYSIS_NOTICE_ENABLED`,
-   enfileira o aviso uma única vez.
+   enfileira o aviso uma única vez. A flag vem **desligada por padrão**.
+
+   Texto **APROVADO pelo Marcéllo em 17/11/2026** (chave real TEC- ou FIN-):
+   - Assunto: `[TEC-249] Chamado em atendimento`
+   - Corpo: "Olá, o chamado TEC-249 já está com um técnico da nossa equipe e está sendo tratado dentro
+     do prazo de atendimento. Vamos responder por este e-mail com o andamento ou a solução. Se tiver
+     mais informações, responda mantendo o número no assunto. Equipe de Suporte Seta Telecom."
 5. **Disparo do ciclo**: `POST /api/tickets/email-intake/poll` (admin/coordenador com Chamados).
    O cron automático depende de liberar o caminho no `middleware.ts` e no `_bridge.ts` (allowlist do
    `CRON_SECRET`), arquivos que só mudam com o CISO. Ver checklist.
@@ -44,7 +50,7 @@ Migração `0006_email_intake` (idempotente; aplicada pelo `ensureSetaDeskSchema
 | Nome | Conteúdo | Segredo |
 |---|---|---|
 | `SETADESK_EMAIL_INTAKE_ENABLED` | `true` liga a entrada | não |
-| `SETADESK_EMAIL_ANALYSIS_NOTICE_ENABLED` | `true` liga o aviso de análise | não |
+| `SETADESK_EMAIL_ANALYSIS_NOTICE_ENABLED` | `true` liga o aviso "Chamado em atendimento" (padrão: desligado) | não |
 | `SETADESK_EMAIL_INTAKE_MAILBOXES` | `suporte-sti@setatelecom.com.br,financeiro-sti@setatelecom.com.br` | não |
 | `SETADESK_GRAPH_TENANT_ID` | `05c800b3-8c5b-448b-912d-e1e51d667588` | não |
 | `SETADESK_GRAPH_CLIENT_ID` | `9b5ce520-d659-4348-8044-70827160b247` | não |
@@ -62,7 +68,7 @@ Exchange Online com escopo limitado às duas caixas (sem consentimento de organi
 
 ## Checklist para ligar
 
-1. CISO revisa e aprova o PR; Marcéllo aprova o texto do aviso de análise.
+1. CISO revisa e aprova o PR. (Texto do aviso "Chamado em atendimento" já aprovado pelo Marcéllo em 17/11/2026.)
 2. Merge na main (deploy automático). A migração 0006 roda no primeiro acesso.
 3. Marcéllo cadastra na Vercel (Production) as variáveis acima; as secretas só por ele.
 4. Desligar no Jira o canal de e-mail dessas duas caixas (senão o cliente recebe duas confirmações).
@@ -72,4 +78,4 @@ Exchange Online com escopo limitado às duas caixas (sem consentimento de organi
 7. Cron: com o CISO, liberar `/api/tickets/email-intake/poll` na allowlist do `CRON_SECRET`
    (`middleware.ts` e `_bridge.ts`) e adicionar ao `vercel.json`. No plano Hobby da Vercel o cron
    roda no máximo 1x/dia; para intervalos curtos é preciso plano Pro ou agendador externo.
-8. Depois de aprovado, ligar `SETADESK_EMAIL_ANALYSIS_NOTICE_ENABLED`.
+8. Quando decidido, ligar `SETADESK_EMAIL_ANALYSIS_NOTICE_ENABLED` (continua desligada por padrão).

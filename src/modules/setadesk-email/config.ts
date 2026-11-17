@@ -8,7 +8,7 @@
 // Variaveis (nomes documentados no PR; nenhuma e criada ou alterada por este codigo):
 //   SETADESK_EMAIL_INTAKE_ENABLED            "true" | "1" liga a entrada (padrao: desligada)
 //   SETADESK_EMAIL_ANALYSIS_NOTICE_ENABLED   "true" | "1" liga o aviso "estamos analisando"
-//                                            (padrao: desligado; texto pendente de aprovacao)
+//                                            (padrao: desligado; texto aprovado em 17/11/2026)
 //   SETADESK_EMAIL_INTAKE_MAILBOXES          lista (virgula) de caixas autorizadas; a fila so
 //                                            e lida se a caixa estiver nesta lista E em
 //                                            setadesk_pipelines.mailbox (defesa em profundidade)
@@ -45,7 +45,7 @@ export function isSetaDeskEmailIntakeEnabled(env: Env = process.env): boolean {
   return truthy(env.SETADESK_EMAIL_INTAKE_ENABLED);
 }
 
-/** O aviso so sai com a entrada ligada E com a flag propria (texto pendente de aprovacao). */
+/** O aviso so sai com a entrada ligada E com a flag propria (desligada por padrao). */
 export function isSetaDeskAnalysisNoticeEnabled(env: Env = process.env): boolean {
   return isSetaDeskEmailIntakeEnabled(env) && truthy(env.SETADESK_EMAIL_ANALYSIS_NOTICE_ENABLED);
 }

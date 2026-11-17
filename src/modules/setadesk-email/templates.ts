@@ -1,7 +1,7 @@
 // ============================================================================
 // SetaDesk - Textos dos e-mails automaticos.
 // CONFIRMACAO: texto APROVADO pelo Marcelo (chave real TEC-/FIN-).
-// ANALISE: texto PROPOSTO, PENDENTE DE APROVACAO; so sai com
+// ANALISE ("Chamado em atendimento"): texto APROVADO pelo Marcello em 17/11/2026; so sai com
 // SETADESK_EMAIL_ANALYSIS_NOTICE_ENABLED ligada.
 // ============================================================================
 
@@ -35,12 +35,12 @@ export function buildConfirmationEmail(ticketKey: string): SetaDeskAutoEmail {
   };
 }
 
-/** PENDENTE DE APROVACAO DO MARCELLO. */
+/** Texto APROVADO pelo Marcello (17/11/2026). Envio depende de SETADESK_EMAIL_ANALYSIS_NOTICE_ENABLED. */
 export function buildAnalysisNoticeEmail(ticketKey: string): SetaDeskAutoEmail {
   const key = String(ticketKey).trim().toUpperCase();
-  const main = `informamos que o chamado ${key} já está em análise pela nossa equipe. Assim que tivermos novidades, retornaremos por este e-mail. Para enviar mais informações, basta responder mantendo o número no assunto.`;
+  const main = `o chamado ${key} já está com um técnico da nossa equipe e está sendo tratado dentro do prazo de atendimento. Vamos responder por este e-mail com o andamento ou a solução. Se tiver mais informações, responda mantendo o número no assunto.`;
   return {
-    subject: `[${key}] Estamos analisando sua solicitação`,
+    subject: `[${key}] Chamado em atendimento`,
     bodyText: `Olá, ${main} ${SIGNATURE}`,
     bodyHtml: toHtml(['Olá,', main, SIGNATURE]),
   };

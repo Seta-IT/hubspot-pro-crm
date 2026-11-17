@@ -3,7 +3,7 @@
 // Chamado pelo modal (POST /api/tickets/:id/mark-viewed), nao pelo GET do detalhe,
 // para nao disparar com prefetch. Grava first_viewed_at/by uma unica vez e, so em
 // chamado aberto por e-mail e ainda em aberto, enfileira UMA vez o aviso
-// "estamos analisando" (texto pendente de aprovacao; flag propria).
+// "estamos analisando" ("Chamado em atendimento", texto aprovado; flag propria desligada por padrao).
 // ============================================================================
 
 import { isSetaDeskAnalysisNoticeEnabled, isSetaDeskEmailIntakeEnabled } from './config';

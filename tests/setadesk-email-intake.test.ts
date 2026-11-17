@@ -249,14 +249,22 @@ describe('SetaDesk e-mail - regras puras', () => {
     );
   });
 
-  it('textos: confirmacao aprovada com a chave real; aviso de analise proposto', () => {
+  it('textos: confirmacao e aviso "Chamado em atendimento" aprovados, com a chave real', () => {
     const c = buildConfirmationEmail('TEC-249');
     assert.equal(c.subject, '[TEC-249] Recebemos sua solicitação');
     assert.equal(
       c.bodyText,
       'Olá, recebemos seu e-mail e abrimos o chamado TEC-249. Para acompanhar ou enviar mais informações, basta responder a este e-mail mantendo o número no assunto. Equipe de Suporte Seta Telecom.'
     );
-    assert.equal(buildAnalysisNoticeEmail('FIN-1031').subject, '[FIN-1031] Estamos analisando sua solicitação');
+    assert.equal(buildAnalysisNoticeEmail('FIN-1031').subject, '[FIN-1031] Chamado em atendimento');
+    const a = buildAnalysisNoticeEmail('TEC-249');
+    assert.equal(a.subject, '[TEC-249] Chamado em atendimento');
+    assert.equal(
+      a.bodyText,
+      'Olá, o chamado TEC-249 já está com um técnico da nossa equipe e está sendo tratado dentro do prazo de atendimento. Vamos responder por este e-mail com o andamento ou a solução. Se tiver mais informações, responda mantendo o número no assunto. Equipe de Suporte Seta Telecom.'
+    );
+    assert.match(a.bodyHtml, /já está com um técnico da nossa equipe/);
+    assert.equal(isSetaDeskAnalysisNoticeEnabled({ SETADESK_EMAIL_INTAKE_ENABLED: 'true' }), false);
   });
 });
 
@@ -442,7 +450,7 @@ describe('SetaDesk e-mail - outbox e aviso de analise', () => {
     assert.deepEqual(r2, { recorded: true, firstTime: false, analysisQueued: false });
     const notices = s.state.outbox.filter((o) => o.kind === 'ANALYSIS_NOTICE');
     assert.equal(notices.length, 1);
-    assert.equal(notices[0].subject, '[TEC-249] Estamos analisando sua solicitação');
+    assert.equal(notices[0].subject, '[TEC-249] Chamado em atendimento');
     assert.equal(notices[0].replyToProviderMessageId, s.state.emailMessages[0].providerMessageId);
     assert.equal(s.state.tickets[0].firstViewedBy, 'tecnico@example.com');
     assert.equal(s.state.tickets[0].firstViewedAt, NOW.toISOString());
