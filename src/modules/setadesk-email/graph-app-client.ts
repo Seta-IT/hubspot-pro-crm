@@ -21,7 +21,7 @@ export const SETADESK_GRAPH_SCOPE = 'https://graph.microsoft.com/.default';
 
 export type SetaDeskFetch = (
   input: string,
-  init?: { method?: string; headers?: Record<string, string>; body?: string }
+  init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }
 ) => Promise<{
   ok: boolean;
   status: number;
@@ -135,12 +135,38 @@ export function isTrustedGraphCursor(url: string | null | undefined): boolean {
 const toRecipients = (list: string[] | undefined) =>
   (list || []).map((address) => ({ emailAddress: { address } }));
 
+/** Tempo maximo de cada chamada ao Graph/token (ms). */
+export const SETADESK_GRAPH_TIMEOUT_MS = 15_000;
+
 export function createSetaDeskGraphClient(opts: {
   config: SetaDeskGraphAppConfig;
   fetch: SetaDeskFetch;
+  /** Padrao SETADESK_GRAPH_TIMEOUT_MS (15 s). */
+  timeoutMs?: number;
   now?: () => number;
   pageSize?: number;
 }): SetaDeskGraphClient {
+  const timeoutMs = Math.max(1, opts.timeoutMs ?? SETADESK_GRAPH_TIMEOUT_MS);
+  // Timeout de 15 s por chamada: AbortController + corrida com timer (vale mesmo se o fetch ignorar o signal).
+  async function timedFetch(url: string, init: { method?: string; headers?: Record<string, string>; body?: string }) {
+    const ac = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        ac.abort();
+        reject(new SetaDeskGraphError('GRAPH_TIMEOUT', 504));
+      }, timeoutMs);
+    });
+    try {
+      return await Promise.race([opts.fetch(url, { ...init, signal: ac.signal }), timeout]);
+    } catch (err) {
+      if (err instanceof SetaDeskGraphError) throw err;
+      if (ac.signal.aborted) throw new SetaDeskGraphError('GRAPH_TIMEOUT', 504);
+      throw new SetaDeskGraphError('GRAPH_NETWORK_ERROR', 503);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
   const now = opts.now || Date.now;
   const pageSize = Math.min(Math.max(opts.pageSize || 25, 1), 50);
   let cached: { token: string; expiresAt: number } | null = null;
@@ -154,7 +180,7 @@ export function createSetaDeskGraphClient(opts: {
       client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
       client_assertion: buildClientAssertion(opts.config, now()),
     });
-    const res = await opts.fetch(
+    const res = await timedFetch(
       `https://login.microsoftonline.com/${encodeURIComponent(opts.config.tenantId)}/oauth2/v2.0/token`,
       { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() }
     );
@@ -178,7 +204,7 @@ export function createSetaDeskGraphClient(opts: {
       Prefer: init.prefer || 'IdType="ImmutableId"',
     };
     if (init.body !== undefined) headers['Content-Type'] = 'application/json';
-    const res = await opts.fetch(url, {
+    const res = await timedFetch(url, {
       method,
       headers,
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,

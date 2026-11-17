@@ -15,11 +15,12 @@ Status: implementado atrás de flag, **desligado por padrão**. Nada é lido nem
      por Message-ID) e mais simples de auditar. Webhook pode vir depois para reduzir a latência.
 2. **Processamento**: fila pela caixa destinatária (`setadesk_pipelines.mailbox`, que também precisa
    estar em `SETADESK_EMAIL_INTAKE_MAILBOXES`). Deduplicação só por Message-ID idêntico (índice único).
-   Threading: In-Reply-To/References de mensagens conhecidas; depois `[TEC-n]`/`[FIN-n]` no assunto
-   (só se o remetente participar do chamado); senão, chamado novo. Assunto parecido do mesmo cliente
-   gera, no máximo, uma sugestão em `setadesk_related_tickets` (nunca fusão). Resposta do solicitante
-   vira comentário público com papel `CUSTOMER` (o papel de solicitante já usado pelo portal); de
-   terceiro, comentário interno. HTML sanitizado (allowlist) e texto puro guardados. Anexos: só
+   Threading: In-Reply-To/References de mensagens conhecidas; depois `[TEC-n]`/`[FIN-n]` no assunto.
+   Em todos esses passos o remetente precisa participar do chamado (solicitante, cc ou contato); se não
+   participar, o e-mail abre chamado novo com sugestão de relação e nunca entra no chamado existente.
+   Sem vínculo, chamado novo. Assunto parecido do mesmo cliente gera, no máximo, uma sugestão em
+   `setadesk_related_tickets` (nunca fusão). Resposta do participante vira comentário público com papel
+   `CUSTOMER` (o papel de solicitante já usado pelo portal). Cada chamada ao Graph tem timeout de 15 s. HTML sanitizado (allowlist) e texto puro guardados. Anexos: só
    metadados (sem upload; nenhum Blob). Ignorados: auto-replies (Auto-Submitted, X-Auto-Response-Suppress,
    Precedence bulk/list/junk/auto_reply), mensagens da própria caixa e bounces. Vínculo com
    contato/empresa só por e-mail exato; mais de um contato ou empresas com CNPJs diferentes => sem vínculo.

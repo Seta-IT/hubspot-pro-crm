@@ -21,6 +21,7 @@ import {
 import {
   buildClientAssertion,
   createSetaDeskGraphClient,
+  SETADESK_GRAPH_TIMEOUT_MS,
   isTrustedGraphCursor,
   type GraphMessage,
   type SetaDeskFetch,
@@ -268,6 +269,25 @@ describe('SetaDesk e-mail - regras puras', () => {
   });
 });
 
+describe('SetaDesk e-mail - timeout do Graph', () => {
+  it('cada chamada ao Graph tem timeout (15 s por padrao); estouro vira GRAPH_TIMEOUT e aborta o fetch', async () => {
+    assert.equal(SETADESK_GRAPH_TIMEOUT_MS, 15_000);
+    const cfg = resolveSetaDeskGraphConfig(
+      { SETADESK_GRAPH_TENANT_ID: '11111111-2222-3333-4444-555555555555', SETADESK_GRAPH_CLIENT_ID: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', ...PFX_ENV },
+      CFG_NOW
+    );
+    assert.equal(cfg.ok, true);
+    let signal: AbortSignal | undefined;
+    const hanging: SetaDeskFetch = (_url, init) => {
+      signal = init?.signal;
+      return new Promise(() => undefined);
+    };
+    const graph = createSetaDeskGraphClient({ config: (cfg as any).config, fetch: hanging, timeoutMs: 30 });
+    await assert.rejects(graph.getMessage(TEC_BOX, 'AAMk-x'), (err: any) => err.code === 'GRAPH_TIMEOUT' && err.status === 504);
+    assert.equal(signal?.aborted, true);
+  });
+});
+
 describe('SetaDesk e-mail - processamento', () => {
   it('caso novo: abre TEC-249, origem EMAIL, confirmacao enfileirada uma vez como resposta ao original', async () => {
     const s = store();
@@ -352,6 +372,45 @@ describe('SetaDesk e-mail - processamento', () => {
     assert.equal(s.state.related.length, 1);
     assert.equal(s.state.related[0].reason, 'SUBJECT_KEY_SENDER_NOT_PARTICIPANT');
     assert.equal(s.state.comments.length, 0);
+  });
+
+  it('In-Reply-To de remetente que nao participa: chamado novo + sugestao; o chamado original fica intacto', async () => {
+    const s = store();
+    const first = normalizeGraphMessage(graphMsg());
+    const c = await processInboundEmail(s, first, ctx());
+    s.state.tickets[0].status = 'WAITING_CUSTOMER';
+    const reply = normalizeGraphMessage(graphMsg({ from: 'terceiro@example.net', subject: 'RE: Equipamento sem sinal na filial', headers: { 'In-Reply-To': first.messageId, References: first.messageId } }));
+    const r = await processInboundEmail(s, reply, ctx());
+    assert.equal(r.action, 'CREATED');
+    assert.equal(s.state.tickets.length, 2);
+    assert.equal(s.state.comments.length, 0, 'nunca entra no chamado existente');
+    assert.equal(s.state.tickets[0].status, 'WAITING_CUSTOMER');
+    const rel = s.state.related.filter((x) => x.relatedId === (c.action === 'CREATED' ? c.ticketId : ''));
+    assert.equal(rel.length, 1);
+    assert.equal(rel[0].reason, 'THREAD_SENDER_NOT_PARTICIPANT');
+    assert.equal(rel[0].ticketId, r.action === 'CREATED' ? r.ticketId : '');
+  });
+
+  it('References de remetente que nao participa: chamado novo + sugestao (nunca anexa)', async () => {
+    const s = store();
+    const first = normalizeGraphMessage(graphMsg());
+    await processInboundEmail(s, first, ctx());
+    const reply = normalizeGraphMessage(graphMsg({ from: 'outro@example.net', headers: { 'In-Reply-To': '<desconhecida@desk.example.com>', References: `${first.messageId} <desconhecida@desk.example.com>` } }));
+    const r = await processInboundEmail(s, reply, ctx());
+    assert.equal(r.action, 'CREATED');
+    assert.equal(s.state.comments.length, 0);
+    assert.equal(s.state.related.some((x) => x.reason === 'THREAD_SENDER_NOT_PARTICIPANT'), true);
+  });
+
+  it('In-Reply-To de quem esta em cc do chamado: participa, entra como comentario publico', async () => {
+    const s = store();
+    const first = normalizeGraphMessage(graphMsg({ ccRecipients: [{ emailAddress: { address: 'colega@example.com' } }] }));
+    await processInboundEmail(s, first, ctx());
+    const reply = normalizeGraphMessage(graphMsg({ from: 'colega@example.com', headers: { 'In-Reply-To': first.messageId } }));
+    const r = await processInboundEmail(s, reply, ctx());
+    assert.equal(r.action === 'APPENDED' && r.linkedBy, 'IN_REPLY_TO');
+    assert.equal(r.action === 'APPENDED' && r.isInternal, false);
+    assert.equal(s.state.tickets.length, 1);
   });
 
   it('mesmo cliente, assunto parecido, e-mail novo: chamados separados + sugestao (sem fusao)', async () => {

@@ -6,11 +6,11 @@
 //  3. Anti-loop: auto-respostas, bounces, caixas das filas e nao-mensagens sao
 //     registrados como IGNORED_* e nao abrem chamado nem geram resposta.
 //  4. Threading: In-Reply-To -> References (mensagens conhecidas) -> [PREFIX-n]
-//     no assunto (so se o remetente participa do chamado) -> chamado novo.
+//     no assunto -> chamado novo. Em TODOS os passos o remetente precisa participar
+//     do chamado (solicitante, cc ou contato); se nao, chamado novo + sugestao.
 //  5. Nunca funde chamados: assunto parecido do mesmo solicitante gera so uma
 //     SUGESTAO em setadesk_related_tickets (status SUGGESTED).
-//  6. Resposta do cliente vira comentario (papel CUSTOMER, origem EMAIL). Publico
-//     so se o remetente e o solicitante, um cc do chamado ou o contato; senao, interno.
+//  6. Resposta do participante vira comentario publico (papel CUSTOMER, origem EMAIL).
 //  7. Chamado novo: confirmacao enfileirada (uma por chamado, dedupe_key).
 //  8. Anexos: apenas metadados (nome, tipo, tamanho), sem upload.
 // ============================================================================
@@ -103,43 +103,49 @@ export async function processInboundEmail(
     const from = email.fromEmail!;
 
     // ---- Threading ----
+    // CISO 17/11: a mesma regra de participante vale para In-Reply-To, References e [PREFIX-n].
+    // Remetente que nao participa do chamado (solicitante, cc ou contato) NUNCA entra num chamado
+    // existente: abre chamado novo com sugestao de relacao.
     let target: StoredTicket | null = null;
     let linkedBy: string | null = null;
+    const mismatches: Array<{ ticket: StoredTicket; reason: string }> = [];
+    const consider = async (t: StoredTicket | null, via: string, mismatchReason: string): Promise<boolean> => {
+      if (!t) return false;
+      if (await isParticipant(tx, t, from)) {
+        target = t;
+        linkedBy = via;
+        return true;
+      }
+      if (!mismatches.some((m) => m.ticket.id === t.id)) mismatches.push({ ticket: t, reason: mismatchReason });
+      return false;
+    };
     if (email.inReplyTo) {
       const ids = await tx.findTicketIdsByMessageIds([email.inReplyTo]);
-      if (ids[0]) {
-        target = await tx.getTicketById(ids[0]);
-        linkedBy = 'IN_REPLY_TO';
-      }
+      if (ids[0]) await consider(await tx.getTicketById(ids[0]), 'IN_REPLY_TO', 'THREAD_SENDER_NOT_PARTICIPANT');
     }
     if (!target && email.references.length) {
       const ids = await tx.findTicketIdsByMessageIds(email.references);
-      if (ids[0]) {
-        target = await tx.getTicketById(ids[0]);
-        linkedBy = 'REFERENCES';
+      for (const id of ids) {
+        if (await consider(await tx.getTicketById(id), 'REFERENCES', 'THREAD_SENDER_NOT_PARTICIPANT')) break;
       }
     }
-    let subjectKeyMismatch: StoredTicket | null = null;
     if (!target) {
       for (const key of extractSubjectTicketKeys(email.subject, prefixes)) {
         const t = await tx.getTicketByKey(key);
         if (!t) continue;
-        if (await isParticipant(tx, t, from)) {
-          target = t;
-          linkedBy = 'SUBJECT_KEY';
-        } else {
-          subjectKeyMismatch = t;
-        }
+        await consider(t, 'SUBJECT_KEY', 'SUBJECT_KEY_SENDER_NOT_PARTICIPANT');
         break;
       }
     }
 
     if (target) {
-      const participant = await isParticipant(tx, target, from);
+      const t0: StoredTicket = target;
+      // So chega aqui remetente participante (regra acima): comentario publico.
+      const participant = true;
       const commentId = newId('cm-email');
       await tx.insertComment({
         id: commentId,
-        ticketId: target.id,
+        ticketId: t0.id,
         author: email.fromName || from,
         authorEmail: from,
         authorRole: 'CUSTOMER',
@@ -150,13 +156,13 @@ export async function processInboundEmail(
         emailMessageId: email.messageId,
         createdAt: email.receivedAt || now.toISOString(),
       });
-      if (target.status === 'WAITING_CUSTOMER') {
-        await tx.setTicketStatus(target.id, 'WAITING_CUSTOMER', 'IN_PROGRESS', 'EMAIL');
+      if (t0.status === 'WAITING_CUSTOMER') {
+        await tx.setTicketStatus(t0.id, 'WAITING_CUSTOMER', 'IN_PROGRESS', 'EMAIL');
       }
-      await tx.touchTicket(target.id);
-      await tx.updateEmailMessage(pk, { ticketId: target.id, commentId, processingStatus: 'LINKED', linkedBy });
-      await tx.insertNotification('TICKET_EMAIL_REPLY', target.id, `Resposta por e-mail em ${target.key}`, '', `TICKET_EMAIL_REPLY:${pk}`);
-      return { action: 'APPENDED', ticketId: target.id, ticketKey: target.key, linkedBy: linkedBy!, isInternal: !participant } as const;
+      await tx.touchTicket(t0.id);
+      await tx.updateEmailMessage(pk, { ticketId: t0.id, commentId, processingStatus: 'LINKED', linkedBy });
+      await tx.insertNotification('TICKET_EMAIL_REPLY', t0.id, `Resposta por e-mail em ${t0.key}`, '', `TICKET_EMAIL_REPLY:${pk}`);
+      return { action: 'APPENDED', ticketId: t0.id, ticketKey: t0.key, linkedBy: linkedBy!, isInternal: !participant } as const;
     }
 
     // ---- Chamado novo ----
@@ -186,12 +192,12 @@ export async function processInboundEmail(
     await tx.updateEmailMessage(pk, { ticketId, processingStatus: 'TICKET_CREATED', linkedBy: 'NEW_TICKET' });
 
     // Sugestoes de relacao (nunca fusao).
-    if (subjectKeyMismatch) {
-      await tx.insertRelatedSuggestion(ticketId, subjectKeyMismatch.id, 'SUBJECT_KEY_SENDER_NOT_PARTICIPANT', 1);
+    for (const m of mismatches) {
+      await tx.insertRelatedSuggestion(ticketId, m.ticket.id, m.reason, 1);
     }
     const since = new Date(now.getTime() - RELATED_SUGGESTION_WINDOW_DAYS * 86400_000).toISOString();
     for (const t of await tx.findRecentRequesterTickets(from, since, ticketId)) {
-      if (subjectKeyMismatch && t.id === subjectKeyMismatch.id) continue;
+      if (mismatches.some((m) => m.ticket.id === t.id)) continue;
       const score = subjectSimilarity(email.subject, t.subject);
       if (score >= RELATED_SUGGESTION_MIN_SCORE) {
         await tx.insertRelatedSuggestion(ticketId, t.id, 'SIMILAR_SUBJECT_SAME_REQUESTER', Math.round(score * 10000) / 10000);
