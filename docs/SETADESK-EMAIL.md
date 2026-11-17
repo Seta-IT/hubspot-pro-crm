@@ -40,8 +40,11 @@ Status: implementado atrás de flag, **desligado por padrão**. Nada é lido nem
      do prazo de atendimento. Vamos responder por este e-mail com o andamento ou a solução. Se tiver
      mais informações, responda mantendo o número no assunto. Equipe de Suporte Seta Telecom."
 5. **Disparo do ciclo**: `POST /api/tickets/email-intake/poll` (admin/coordenador com Chamados).
-   O cron automático depende de liberar o caminho no `middleware.ts` e no `_bridge.ts` (allowlist do
-   `CRON_SECRET`), arquivos que só mudam com o CISO. Ver checklist.
+   Cron automático (CISO 17/11): `GET /api/tickets/email-intake/poll` a cada 10 min no `vercel.json`, só
+   com `Authorization: Bearer <CRON_SECRET>` (SHA-256 + timingSafeEqual no bridge, fail-closed). GET com
+   sessão responde 405; com a flag desligada responde 200 `{ enabled: false }` sem ler o banco.
+   Em produção, leitura e envio só por suporte-sti@ e financeiro-sti@ (lista fixa no código, além da env).
+   Confirmação automática limitada a 3 por remetente por hora (anti-loop).
 
 Migração `0006_email_intake` (idempotente; aplicada pelo `ensureSetaDeskSchema` no primeiro acesso).
 
@@ -75,7 +78,6 @@ Exchange Online com escopo limitado às duas caixas (sem consentimento de organi
 5. Conferir DKIM e DMARC do domínio.
 6. Ligar `SETADESK_EMAIL_INTAKE_ENABLED` com novo build do main e rodar o ciclo pelo
    `POST /api/tickets/email-intake/poll`; testar com um e-mail externo de teste.
-7. Cron: com o CISO, liberar `/api/tickets/email-intake/poll` na allowlist do `CRON_SECRET`
-   (`middleware.ts` e `_bridge.ts`) e adicionar ao `vercel.json`. No plano Hobby da Vercel o cron
-   roda no máximo 1x/dia; para intervalos curtos é preciso plano Pro ou agendador externo.
+7. Cron: já liberado pelo CISO (17/11) no `middleware.ts`, `_bridge.ts` e `vercel.json` (`*/10 * * * *`,
+   exige plano Pro). Com a flag ligada, cada execução lê o `crm_state_v1` (~7 MB) para vincular contato/empresa.
 8. Quando decidido, ligar `SETADESK_EMAIL_ANALYSIS_NOTICE_ENABLED` (continua desligada por padrão).
