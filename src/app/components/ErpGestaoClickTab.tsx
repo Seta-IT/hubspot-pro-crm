@@ -108,6 +108,7 @@ import {
 } from '../lib/durable-storage';
 import { buildProposalDisplayCodeMap, formatProposalDisplayCode, nextGcProposalNumber } from '../lib/proposal-number';
 import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
+import { isoToBrDate } from '../lib/br-date';
 import GestaoClickDashboard from './GestaoClickDashboard';
 import { ProposalTemplateSelect } from './ProposalTemplateSelect';
 import {
@@ -3121,11 +3122,12 @@ export default function ErpGestaoClickTab({
                         <td className="py-2.5 px-3 text-[11px] whitespace-nowrap">
                           <div>
                             Emissão:{" "}
-                            {prop.proposalDate ||
-                              (prop.createdAt ? prop.createdAt.slice(0, 10) : "26/10/2026")}
+                            {isoToBrDate(prop.proposalDate) ||
+                              isoToBrDate(prop.createdAt) ||
+                              "26/10/2026"}
                           </div>
                           <div className="text-slate-500">
-                            Val: {prop.validUntil ? prop.validUntil.slice(0, 10) : "15 dias"}
+                            Val: {isoToBrDate(prop.validUntil) || "15 dias"}
                           </div>
                         </td>
                         <td className="py-2.5 px-3 text-[11px]">

@@ -76,6 +76,8 @@ import { billingRecipientEmailsText, parseBillingRecipientEmails } from '../../m
 import { focusProposalValidityField } from '../lib/proposal-validity-return';
 import { withoutEmailHistoryBccList } from '../lib/email-send-history';
 import { funnelLabelForBudgetType } from '../../modules/deals/proposal-deal-link';
+import { isoToBrDate } from '../lib/br-date';
+import { BrDateInput } from './BrDateInput';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
 export function ProposalEditModal({
@@ -827,14 +829,15 @@ export function ProposalEditModal({
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     Data <span className="text-rose-600">*</span>
                   </label>
-                  <input
-                    type="date"
+                  <BrDateInput
                     required
+                    ariaLabel="Data da proposta"
+                    testId="proposal-date"
                     value={
                       draft.proposalDate ||
                       (draft.createdAt ? draft.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10))
                     }
-                    onChange={(e) => updateDraft({ proposalDate: e.target.value })}
+                    onChange={(iso) => updateDraft({ proposalDate: iso })}
                     className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                   />
                 </div>
@@ -863,6 +866,9 @@ export function ProposalEditModal({
                     }}
                     className={`w-full px-3 py-2 rounded border ${validityHighlight ? 'border-[#1e3a6e] ring-2 ring-[#1e3a6e] bg-[#eef3fa]' : 'border-slate-300'}`}
                   />
+                  {isoToBrDate(draft.validUntil) && (
+                    <p className="mt-1 text-[10px] text-[#1e3a6e]">Até {isoToBrDate(draft.validUntil)}</p>
+                  )}
                   {validityHighlight && (
                     <p id="proposal-valid-until-hint" className="mt-1 text-[11px] font-semibold text-[#1e3a6e]">
                       Atualize a validade e salve para voltar ao envio do e-mail.
@@ -1579,10 +1585,11 @@ export function ProposalEditModal({
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       1º Vencimento
                     </label>
-                    <input
-                      type="date"
+                    <BrDateInput
+                      ariaLabel="1º vencimento"
+                      testId="proposal-first-due"
                       value={firstDueDate}
-                      onChange={(e) => setFirstDueDate(e.target.value)}
+                      onChange={setFirstDueDate}
                       className="w-full px-2.5 py-1.5 rounded border border-slate-300"
                     />
                   </div>
@@ -1627,12 +1634,12 @@ export function ProposalEditModal({
                           <tr key={idx}>
                             <td className="py-1.5 px-2.5 font-mono font-semibold">#{inst.number}</td>
                             <td className="py-1.5 px-2.5">
-                              <input
-                                type="date"
+                              <BrDateInput
+                                ariaLabel={`Vencimento da parcela ${inst.number}`}
                                 value={inst.dueDate}
-                                onChange={(e) => {
+                                onChange={(iso) => {
                                   const copy = [...(draft.installments || [])];
-                                  copy[idx] = { ...copy[idx], dueDate: e.target.value };
+                                  copy[idx] = { ...copy[idx], dueDate: iso };
                                   updateDraft({ installments: copy });
                                 }}
                                 className="w-full px-2 py-1 rounded border border-slate-300"
