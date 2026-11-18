@@ -441,6 +441,16 @@ export const HUBSPOT_NAV_ITEMS: HubspotNavItem[] = [
     screenKey: 'erp:ORCAMENTOS:ORC_SERVICOS',
   },
   {
+    id: 'quotes-spare-parts',
+    label: 'Propostas de Spare Parts / Hard Parts',
+    category: 'RECEITA',
+    icon: 'quotes',
+    module: 'erp',
+    permissionKey: 'erp.orcamentos_propostas',
+    target: { type: 'erp', section: 'ORCAMENTOS', subId: 'ORC_SPARE_PARTS' },
+    screenKey: 'erp:ORCAMENTOS:ORC_SPARE_PARTS',
+  },
+  {
     id: 'quotes-aux',
     label: 'Opções auxiliares de orçamentos',
     category: 'RECEITA',

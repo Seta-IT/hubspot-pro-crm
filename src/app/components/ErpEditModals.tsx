@@ -676,15 +676,25 @@ export function ProposalEditModal({
                 <label className="text-[11px] font-semibold text-slate-600">Tipo de orçamento</label>
                 <select
                   value={draft.budgetType || 'LOCACAO'}
-                  onChange={(e) =>
+                    onChange={(e) => {
+                    const budgetType = e.target.value as ErpCommercialProposal['budgetType'];
                     updateDraft({
-                      budgetType: e.target.value as ErpCommercialProposal['budgetType'],
-                    })
-                  }
+                      budgetType,
+                      ...(budgetType === 'SPARE_PARTS'
+                        ? {
+                            contractMonths: 1,
+                            setupFee: 0,
+                            slaTier: 'SEM_SLA_ESPECIFICO',
+                            title: draft.title?.trim() ? draft.title : 'Proposta de Spare Parts / Hard Parts',
+                          }
+                        : {}),
+                    });
+                  }}
                   className="px-3 py-1.5 rounded border border-[#1e3a6e]/40 bg-blue-50/40 text-[#1e3a6e]"
                 >
                   <option value="PRODUTOS">Orçamento de Produtos</option>
                   <option value="SERVICOS">Orçamento de Serviços</option>
+                  <option value="SPARE_PARTS">Spare Parts / Hard Parts</option>
                   <option value="CONJUNTO">Orçamento conjunto</option>
                   <option value="LOCACAO">Locação Pura &amp; Conectividade</option>
                 </select>
@@ -1126,7 +1136,7 @@ export function ProposalEditModal({
                               serviceType:
                                 nextParts.length > 0
                                   ? nextParts.join(", ")
-                                  : "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação",
+                                  : "Suporte Técnico, Configuração e Instalação",
                             });
                           }}
                           className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border cursor-pointer transition ${
@@ -1157,7 +1167,7 @@ export function ProposalEditModal({
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 bg-blue-50/50 p-3 rounded border border-blue-200">
-                {draft.budgetType !== "PRODUTOS" && (
+                {draft.budgetType !== "PRODUTOS" && draft.budgetType !== "SPARE_PARTS" && (
                   <div className="sm:col-span-4">
                     <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
                       SLA contratado <span className="text-rose-600">*</span>
@@ -1183,7 +1193,7 @@ export function ProposalEditModal({
                   </div>
                 )}
 
-                <div className={draft.budgetType === "PRODUTOS" ? "sm:col-span-6" : "sm:col-span-3"}>
+                <div className={draft.budgetType === "PRODUTOS" || draft.budgetType === "SPARE_PARTS" ? "sm:col-span-6" : "sm:col-span-3"}>
                   <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
                     Prazo de Entrega
                   </label>
@@ -1207,7 +1217,7 @@ export function ProposalEditModal({
                   </datalist>
                 </div>
 
-                {draft.budgetType !== "PRODUTOS" && (
+                {draft.budgetType !== "PRODUTOS" && draft.budgetType !== "SPARE_PARTS" && (
                   <div className="sm:col-span-2">
                     <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
                       Vigência / Contrato
@@ -1240,6 +1250,7 @@ export function ProposalEditModal({
                   </div>
                 )}
 
+                {draft.budgetType !== "SPARE_PARTS" && (
                 <div className={draft.budgetType === "PRODUTOS" ? "sm:col-span-6" : "sm:col-span-3"}>
                   <div className="flex items-center justify-between mb-1">
                     <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#1e3a6e] cursor-pointer">
@@ -1272,6 +1283,7 @@ export function ProposalEditModal({
                     </div>
                   )}
                 </div>
+                )}
               </div>
 
               {/* LINHA 4 DO GESTÃOCLICK: Introdução da proposta */}
@@ -1321,7 +1333,8 @@ export function ProposalEditModal({
             onItemsChange={(items) => updateDraft({ items })}
           />
 
-          {/* BLOCO 3: SERVICOS (mesma grade; Tipo = tipo de servico) */}
+          {/* BLOCO 3: SERVICOS (mesma grade; Tipo = tipo de servico). Peças usam só a grade de produtos. */}
+          {draft.budgetType !== "SPARE_PARTS" && (
           <ProposalItemsGrid
             kind="SERVICE"
             items={draft.items}
@@ -1331,6 +1344,7 @@ export function ProposalEditModal({
             subtotal={draft.servicesSubtotal || 0}
             onItemsChange={(items) => updateDraft({ items })}
           />
+          )}
 
           {/* BLOCO 4: TRANSPORTE / FRETE E ENDEREÇO DE ENTREGA. Serviço não tem frete. */}
           {!proposalHidesFreight(draft) && (
@@ -1482,6 +1496,7 @@ export function ProposalEditModal({
                     - {formatBRL(itemDiscountsTotal + globalDiscountBrl)}
                   </strong>
                 </div>
+                {draft.budgetType !== "SPARE_PARTS" && (
                 <div>
                   <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                     Setup único
@@ -1490,6 +1505,7 @@ export function ProposalEditModal({
                     {formatBRL(draft.oneTimeSetupTotal || 0)}
                   </strong>
                 </div>
+                )}
                 {!proposalHidesFreight(draft) && (
                 <div>
                   <span className="text-[10px] uppercase font-semibold text-slate-500 block">
@@ -1502,15 +1518,15 @@ export function ProposalEditModal({
                 )}
                 <div className="bg-emerald-50 px-2.5 py-1.5 rounded border border-emerald-200">
                   <span className="text-[10px] uppercase font-semibold text-emerald-700 block">
-                    {isAvulsoServiceProposal(draft) ? "Pagamento único" : "Valor Mensal"}
+                    {draft.budgetType === "SPARE_PARTS" ? "Valor total" : isAvulsoServiceProposal(draft) ? "Pagamento único" : "Valor Mensal"}
                   </span>
                   <strong className="text-sm font-semibold text-emerald-800">
-                    {formatBRL(isAvulsoServiceProposal(draft) ? (draft.totalContractValue || draft.monthlyRecurringTotal) : draft.monthlyRecurringTotal)}
+                    {formatBRL(draft.budgetType === "SPARE_PARTS" || isAvulsoServiceProposal(draft) ? (draft.totalContractValue || draft.monthlyRecurringTotal) : draft.monthlyRecurringTotal)}
                   </strong>
                 </div>
                 <div className="bg-[#1e3a6e] text-white px-2.5 py-1.5 rounded">
                   <span className="text-[10px] uppercase font-semibold text-white/80 block">
-                    {isAvulsoServiceProposal(draft) ? "Total" : `Total (${draft.contractMonths}m)`}
+                    {draft.budgetType === "SPARE_PARTS" || isAvulsoServiceProposal(draft) ? "Total" : `Total (${draft.contractMonths}m)`}
                   </span>
                   <strong className="text-sm font-semibold text-white">
                     {formatBRL(draft.totalContractValue)}
@@ -1944,7 +1960,7 @@ export function ProposalEditModal({
               >
                 Cancelar
               </button>
-              {!isNew && onGenerateContract && draft.budgetType !== 'PRODUTOS' && (
+              {!isNew && onGenerateContract && draft.budgetType !== 'PRODUTOS' && draft.budgetType !== 'SPARE_PARTS' && (
                 <button
                   type="button"
                   data-testid="proposal-gerar-contrato"
@@ -1960,19 +1976,22 @@ export function ProposalEditModal({
             <div className="flex flex-wrap items-center gap-4">
               <div className="text-right">
                 <span className="block text-[10px] text-slate-500">
-                  {isAvulsoServiceProposal(draft) ? (
+                  {draft.budgetType === "SPARE_PARTS" ? (
+                    <>Valor total: <strong>{formatBRL(draft.totalContractValue)}</strong></>
+                  ) : isAvulsoServiceProposal(draft) ? (
                     <>Pagamento único: <strong>{formatBRL(draft.totalContractValue || draft.monthlyRecurringTotal)}</strong></>
                   ) : (
                     <>Valor mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong></>
                   )}
-                  {' '}• Setup:{' '}
-                  <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong>
+                  {draft.budgetType !== "SPARE_PARTS" && (
+                    <> • Setup: <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong></>
+                  )}
                   {!proposalHidesFreight(draft) && (
                     <> • Frete: <strong>{formatBRL(draft.shippingCost || 0)}</strong></>
                   )}
                 </span>
                 <strong className="text-base font-semibold text-[#1e3a6e]">
-                  {isAvulsoServiceProposal(draft)
+                  {draft.budgetType === "SPARE_PARTS" || isAvulsoServiceProposal(draft)
                     ? <>Total: {formatBRL(draft.totalContractValue)}</>
                     : <>Valor total ({draft.contractMonths}m): {formatBRL(draft.totalContractValue)}</>}
                 </strong>

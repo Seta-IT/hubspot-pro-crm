@@ -40,7 +40,7 @@ function defaultServiceKind(budgetType?: ErpCommercialProposal['budgetType'], se
 
 /** Locacao (MRR) para LOCACAO/SERVICOS/CONJUNTO; venda de equipamento para PRODUTOS. */
 function isRentalBudget(budgetType?: ErpCommercialProposal['budgetType']): boolean {
-  return budgetType !== 'PRODUTOS';
+  return budgetType !== 'PRODUTOS' && budgetType !== 'SPARE_PARTS';
 }
 
 /**
@@ -196,7 +196,7 @@ export function ProposalItemsGrid({
       discountPercent: 0,
       discountAmount: 0,
       subtotal: price,
-      isRecurring: budgetType !== 'PRODUTOS',
+      isRecurring: budgetType !== 'PRODUTOS' && budgetType !== 'SPARE_PARTS',
       totalMonthly: price,
     };
     return item;
