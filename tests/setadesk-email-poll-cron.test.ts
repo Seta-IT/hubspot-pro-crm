@@ -144,9 +144,10 @@ describe('CISO 17/11: cron da entrada de e-mail (GET /api/tickets/email-intake/p
     assert.equal(isSetaDeskEmailDirectRoute('GET', '/api/tickets'), false);
   });
 
-  it('vercel.json nao agenda o poll enquanto o projeto estiver no plano Hobby (cron so diario)', () => {
+  it('vercel.json agenda o poll (GET) a cada 10 min', () => {
     const cfg = JSON.parse(readFileSync('vercel.json', 'utf8')) as { crons: Array<{ path: string; schedule: string }> };
     const c = cfg.crons.find((x) => x.path === '/api/tickets/email-intake/poll');
-    assert.equal(c, undefined);
+    assert.ok(c);
+    assert.equal(c!.schedule, '*/10 * * * *');
   });
 });

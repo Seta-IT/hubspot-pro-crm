@@ -41,7 +41,7 @@ Status: implementado atrás de flag, **desligado por padrão**. Nada é lido nem
      do prazo de atendimento. Vamos responder por este e-mail com o andamento ou a solução. Se tiver
      mais informações, responda mantendo o número no assunto. Equipe de Suporte Seta Telecom."
 5. **Disparo do ciclo**: `POST /api/tickets/email-intake/poll` (admin/coordenador com Chamados).
-   Cron automático (CISO 17/11, ainda NÃO agendado: o projeto está no plano Hobby, que só aceita cron diário): `GET /api/tickets/email-intake/poll` a cada 10 min, só
+   Cron automático (CISO 17/11, restaurado em 18/11/2026 após a transferência do projeto para a equipe Seta Telecom STI IT, plano Pro): `GET /api/tickets/email-intake/poll` a cada 10 min no `vercel.json`, só
    com `Authorization: Bearer <CRON_SECRET>` (SHA-256 + timingSafeEqual no bridge, fail-closed). GET com
    sessão responde 405; com a flag desligada responde 200 `{ enabled: false }` sem ler o banco.
    Em produção, leitura e envio só por suporte-sti@ e financeiro-sti@ (lista fixa no código, além da env).
@@ -79,7 +79,7 @@ Exchange Online com escopo limitado às duas caixas (sem consentimento de organi
 5. Conferir DKIM e DMARC do domínio.
 6. Ligar `SETADESK_EMAIL_INTAKE_ENABLED` com novo build do main e rodar o ciclo pelo
    `POST /api/tickets/email-intake/poll`; testar com um e-mail externo de teste.
-7. Cron: rota liberada pelo CISO (17/11) no `middleware.ts` e `_bridge.ts`. A entrada `*/10 * * * *` foi retirada do
-   `vercel.json` porque o projeto está na equipe Personal Projects (Hobby) e o deploy falha. Volta após a transferência
-   do projeto para a equipe Seta Telecom STI IT (Pro). Com a flag ligada, cada execução lê o `crm_state_v1` (~7 MB) para vincular contato/empresa.
+7. Cron: já liberado pelo CISO (17/11) no `middleware.ts`, `_bridge.ts` e `vercel.json` (`*/10 * * * *`).
+   A entrada foi restaurada em 18/11/2026 após a transferência do projeto para a equipe Seta Telecom STI IT (Pro).
+   Com a flag ligada, cada execução lê o `crm_state_v1` (~7 MB) para vincular contato/empresa.
 8. Quando decidido, ligar `SETADESK_EMAIL_ANALYSIS_NOTICE_ENABLED` (continua desligada por padrão).
