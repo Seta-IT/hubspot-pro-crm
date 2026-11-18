@@ -117,6 +117,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
       { id: 'ORC_PRODUTOS', label: 'Propostas de Produtos' },
       { id: 'ORC_LOCACAO', label: 'Propostas de Locação' },
       { id: 'ORC_SERVICOS', label: 'Propostas de Serviços' },
+      { id: 'ORC_SPARE_PARTS', label: 'Propostas de Spare Parts / Hard Parts' },
       { id: 'ORC_AUXILIARES', label: 'Opções auxiliares', hasArrowRight: true },
     ],
   },

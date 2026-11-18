@@ -903,7 +903,7 @@ export interface ErpProposalInstallment {
 export interface ErpProposalVersionSnapshot {
   title: string;
   status: ErpProposalStatus;
-  budgetType?: 'PRODUTOS' | 'SERVICOS' | 'CONJUNTO' | 'LOCACAO';
+  budgetType?: 'PRODUTOS' | 'SERVICOS' | 'CONJUNTO' | 'LOCACAO' | 'SPARE_PARTS';
   serviceType?: string;
   companyId: string | null;
   companyName: string;
@@ -976,7 +976,7 @@ export interface ErpCommercialProposal {
   code: string;
   title: string;
   serviceType?: string;
-  budgetType?: 'PRODUTOS' | 'SERVICOS' | 'CONJUNTO' | 'LOCACAO';
+  budgetType?: 'PRODUTOS' | 'SERVICOS' | 'CONJUNTO' | 'LOCACAO' | 'SPARE_PARTS';
   storeName?: string;
   salesChannel?: string;
   costCenter?: string;

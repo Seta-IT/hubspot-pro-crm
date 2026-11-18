@@ -923,9 +923,11 @@ function PublicProposalPrintContent() {
     dividerTitle,
     serviceTypeLabel,
     isProductsOnly,
+    isSpareParts,
     isRental,
     isServices,
   } = docHeadings;
+  const saleLike = isProductsOnly || isSpareParts;
   const hideServiceFreight = proposalHidesFreight(proposal);
   const shippingCost = hideServiceFreight ? 0 : Number(proposal.shippingCost || 0);
   // PRODUTOS (venda): sem Setup na folha/PDF. Itens de pagamento unico de venda NAO sao setup
@@ -941,14 +943,14 @@ function PublicProposalPrintContent() {
   const oneTimeServicesSetupFee = Math.max(0, Number(proposal.setupFee || 0));
   const hasSetupSelected = isOneTimeServices
     ? oneTimeServicesSetupFee > 0
-    : !isProductsOnly && isolatedSetupTotal > 0;
+    : !saleLike && isolatedSetupTotal > 0;
   const formatBRL = (value: number | null | undefined): string =>
-    isProductsOnly
+    saleLike
       ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value ?? 0))
       : formatBRLWhole(value);
   const resolvedSla = resolveProposalSlaOption(proposal);
   const hasSelectedSla =
-    !isProductsOnly && resolvedSla.id !== "SEM_SLA_ESPECIFICO" && Boolean(resolvedSla.shortLabel);
+    !saleLike && resolvedSla.id !== "SEM_SLA_ESPECIFICO" && Boolean(resolvedSla.shortLabel);
   const commercialFigures = resolveProposalCommercialFigures(proposal);
   const avulsoService = commercialFigures.oneTime;
   const shownIntroduction = (hideServiceFreight
@@ -968,20 +970,20 @@ function PublicProposalPrintContent() {
     ? "Valor total (pagamento único)"
     : "Valor Total (Pagamento Único)";
   const hasContractVigencia =
-    !avulsoService && !isProductsOnly && (isRental || proposal.items.some((i) => i.isRecurring !== false));
+    !avulsoService && !saleLike && (isRental || proposal.items.some((i) => i.isRecurring !== false));
   const sellerContact = resolveProposalSellerContact(proposal);
   const displayPaymentCondition =
     (avulsoService
       ? readablePaymentCondition(proposal.paymentCondition)
       : cleanProposalPaymentCondition(proposal.paymentCondition)) || "Conforme condições acordadas";
-  const commercialTotalAmount = isProductsOnly
+  const commercialTotalAmount = saleLike
     ? // Venda: subtotal (itens ja liquidos do desconto do item) - desconto global + frete; sem setup.
       Math.round((productsSubtotal + servicesSubtotal - globalDiscountVal + shippingCost) * 100) / 100
     : uniquePayment
       ? Number(proposal.totalContractValue || commercialFigures.monthly || 0)
       : proposal.monthlyRecurringTotal || proposal.totalContractValue;
   const displaySetupAmount = isOneTimeServices ? oneTimeServicesSetupFee : isolatedSetupTotal;
-  const showTotalInsteadOfMonthly = isProductsOnly || uniquePayment;
+  const showTotalInsteadOfMonthly = saleLike || uniquePayment;
 
 
   // Classes de cada modelo vêm do módulo comum (também usado pelo Recibo/Fatura de Locação).
@@ -1956,11 +1958,11 @@ function PublicProposalPrintContent() {
           </div>
 
           {/* BLOCO 4: FAIXA EXECUTIVA LEVE */}
-          {isProductsOnly ? (
+          {saleLike ? (
             <div className={`print-avoid-break grid grid-cols-2 sm:grid-cols-4 print:grid-cols-4 gap-2.5 p-3.5 print:p-2 rounded-lg ${stripBoxClass} text-xs`}>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
                 <span className="text-[10px] uppercase text-slate-500 font-semibold block">
-                  Valor Total dos Produtos
+                  {isSpareParts ? "Valor total" : "Valor Total dos Produtos"}
                 </span>
                 <span className="font-semibold text-emerald-700 text-sm">
                   {formatBRL(Math.round((productsSubtotal - globalDiscountVal) * 100) / 100)}
@@ -2180,7 +2182,9 @@ function PublicProposalPrintContent() {
                 <span>Fiscal</span>
               </div>
               <p className="text-slate-700 leading-relaxed text-[11px]">
-                {isProductsOnly
+                {isSpareParts
+                  ? "Fornecimento de peças (Spare Parts / Hard Parts) mediante emissão de Nota Fiscal Eletrônica de Venda (NF-e Modelo 55)."
+                  : isProductsOnly
                   ? proposal.commercialNotes && !proposal.commercialNotes.toLowerCase().includes("locação")
                     ? proposal.commercialNotes
                     : "Fornecimento de equipamentos e produtos mediante emissão de Nota Fiscal Eletrônica de Venda (NF-e Modelo 55 — ICMS / IPI conforme legislação vigente e NCM de cada item)."
@@ -2267,7 +2271,7 @@ function PublicProposalPrintContent() {
                 <Truck className="w-4 h-4 text-[#1e3a6e] shrink-0" />
                 <div>
                   <span className="font-semibold text-slate-800 uppercase text-[11px] block">
-                    {isProductsOnly ? "Logística, Transporte & Entrega" : "Logística, Remessa & Instalação"}
+                    {saleLike ? "Logística, Transporte & Entrega" : "Logística, Remessa & Instalação"}
                   </span>
                   <span className="text-slate-600">
                     Modalidade: <strong className="text-slate-800">{proposal.shippingCarrier || "Frota Própria Seta Telecom"}</strong>{deliveryLeadTime ? <> • Prazo de Entrega: <strong className="text-slate-800">{deliveryLeadTime}</strong></> : null}{proposal.deliveryAddress ? ` • Local: ${proposal.deliveryAddress}` : ""}
@@ -2284,7 +2288,7 @@ function PublicProposalPrintContent() {
             <div className={`print-avoid-break p-4 print:p-3 rounded-lg ${softBoxClass} space-y-1.5 text-xs`}>
               <div className="font-semibold text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-[#1e3a6e]" />
-                {isProductsOnly
+                {saleLike
                   ? "Condições Gerais de Fornecimento & Garantia"
                   : isServices && !isRental
                     ? `Condições Técnicas de Execução (${serviceTypeLabel})`
@@ -2335,7 +2339,9 @@ function PublicProposalPrintContent() {
                   Termo de Aceite e Aprovação — {headerDocLabel} ({displayCode})
                 </div>
                 <p className="text-[11px] text-slate-600 mb-6 print:mb-5 leading-relaxed">
-                  {isProductsOnly
+                  {isSpareParts
+                    ? "Declaramos estar de acordo com as peças, quantidades, prazo de entrega e condições comerciais descritas nesta Proposta de Spare Parts / Hard Parts, autorizando o faturamento e fornecimento pela SETA TELECOM LTDA."
+                    : isProductsOnly
                     ? "Declaramos estar de acordo com as especificações dos produtos, quantidades, prazo de entrega e condições comerciais descritas nesta Proposta Comercial, autorizando o faturamento e fornecimento pela SETA TELECOM LTDA."
                     : isServices && !isRental
                       ? avulsoService

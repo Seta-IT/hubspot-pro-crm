@@ -267,10 +267,11 @@ export const SETA_TELECOM_HIRING_FLOW_STEPS: readonly SetaHiringFlowStep[] = [
 
 export const PROPOSAL_SERVICE_PILL_OPTIONS: readonly string[] = [
   "Suporte Técnico",
-  "Spare Parts / Hard Parts",
   "Configuração",
   "Instalação",
 ] as const;
+
+export const SPARE_PARTS_PROPOSAL_TITLE = "Proposta de Spare Parts / Hard Parts";
 
 export const PROPOSAL_SERVICE_TYPE_OPTIONS: readonly string[] = [
   "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação",
@@ -330,11 +331,12 @@ export function resolveProposalServiceType(prop: Partial<ErpCommercialProposal>)
 }
 
 export function resolveProposalDocumentHeadings(prop: Partial<ErpCommercialProposal>): {
-  effectiveBudgetType: "PRODUTOS" | "LOCACAO" | "SERVICOS" | "CONJUNTO";
+  effectiveBudgetType: "PRODUTOS" | "LOCACAO" | "SERVICOS" | "CONJUNTO" | "SPARE_PARTS";
   headerDocLabel: string;
   dividerTitle: string;
   serviceTypeLabel: string;
   isProductsOnly: boolean;
+  isSpareParts: boolean;
   isRental: boolean;
   isServices: boolean;
 } {
@@ -348,6 +350,20 @@ export function resolveProposalDocumentHeadings(prop: Partial<ErpCommercialPropo
       dividerTitle: "PROPOSTA COMERCIAL - Produtos",
       serviceTypeLabel: "",
       isProductsOnly: true,
+      isSpareParts: false,
+      isRental: false,
+      isServices: false,
+    };
+  }
+
+  if (bt === "SPARE_PARTS") {
+    return {
+      effectiveBudgetType: "SPARE_PARTS",
+      headerDocLabel: SPARE_PARTS_PROPOSAL_TITLE,
+      dividerTitle: SPARE_PARTS_PROPOSAL_TITLE,
+      serviceTypeLabel: "",
+      isProductsOnly: false,
+      isSpareParts: true,
       isRental: false,
       isServices: false,
     };
@@ -361,6 +377,7 @@ export function resolveProposalDocumentHeadings(prop: Partial<ErpCommercialPropo
       dividerTitle: `PROPOSTA DE SERVIÇOS — ${suffix}`,
       serviceTypeLabel: suffix,
       isProductsOnly: false,
+      isSpareParts: false,
       isRental: false,
       isServices: true,
     };
@@ -374,6 +391,7 @@ export function resolveProposalDocumentHeadings(prop: Partial<ErpCommercialPropo
       dividerTitle: `PROPOSTA DE LOCAÇÃO & SERVIÇOS — ${suffix}`,
       serviceTypeLabel: suffix,
       isProductsOnly: false,
+      isSpareParts: false,
       isRental: true,
       isServices: true,
     };
@@ -385,6 +403,7 @@ export function resolveProposalDocumentHeadings(prop: Partial<ErpCommercialPropo
     dividerTitle: "PROPOSTA DE LOCAÇÃO - Solução",
     serviceTypeLabel: "",
     isProductsOnly: false,
+    isSpareParts: false,
     isRental: true,
     isServices: false,
   };
@@ -818,7 +837,7 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
           ? "LOCACAO"
           : "PRODUTOS");
 
-  const isProductsProposal = inferredBudgetType === "PRODUTOS";
+  const isProductsProposal = inferredBudgetType === "PRODUTOS" || inferredBudgetType === "SPARE_PARTS";
   const shippingCost = proposalHidesFreight({
     budgetType: inferredBudgetType,
     serviceType: next.serviceType,

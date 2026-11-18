@@ -495,7 +495,7 @@ export default function ErpGestaoClickTab({
   } | null>(null);
   const [proposalsPageLoading, setProposalsPageLoading] = useState<boolean>(false);
   const proposalsTypeParam =
-    activeSubId === 'ORC_PRODUTOS' ? 'PRODUTOS' : activeSubId === 'ORC_LOCACAO' ? 'LOCACAO' : activeSubId === 'ORC_SERVICOS' ? 'SERVICOS' : 'TODOS';
+    activeSubId === 'ORC_PRODUTOS' ? 'PRODUTOS' : activeSubId === 'ORC_LOCACAO' ? 'LOCACAO' : activeSubId === 'ORC_SERVICOS' ? 'SERVICOS' : activeSubId === 'ORC_SPARE_PARTS' ? 'SPARE_PARTS' : 'TODOS';
   React.useEffect(() => {
     setProposalsOffset(0);
   }, [proposalsSearch, proposalsStatusFilter, proposalsTypeParam]);
@@ -2487,10 +2487,10 @@ export default function ErpGestaoClickTab({
   };
 
   const openFullNewProposalModal = (
-    presetBudgetType?: 'PRODUTOS' | 'SERVICOS' | 'CONJUNTO' | 'LOCACAO',
+    presetBudgetType?: 'PRODUTOS' | 'SERVICOS' | 'CONJUNTO' | 'LOCACAO' | 'SPARE_PARTS',
     templateOverrides?: Partial<ErpCommercialProposal>
   ) => {
-    const inferredType = presetBudgetType || (activeSubId === 'ORC_SERVICOS' ? 'SERVICOS' : activeSubId === 'ORC_PRODUTOS' ? 'PRODUTOS' : 'LOCACAO');
+    const inferredType = presetBudgetType || (activeSubId === 'ORC_SERVICOS' ? 'SERVICOS' : activeSubId === 'ORC_PRODUTOS' ? 'PRODUTOS' : activeSubId === 'ORC_SPARE_PARTS' ? 'SPARE_PARTS' : 'LOCACAO');
     const draftNew: ErpCommercialProposal = {
       id: `prop-${Date.now()}`,
       code: nextProposalCodeHint(),
@@ -2527,13 +2527,13 @@ export default function ErpGestaoClickTab({
       templateStyle: defaultProposalTemplateStyle,
       serviceType:
         inferredType === "SERVICOS" || inferredType === "CONJUNTO"
-          ? "Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação"
+          ? "Suporte Técnico, Configuração e Instalação"
           : undefined,
-      slaTier: inferredType === "PRODUTOS" ? "SEM_SLA_ESPECIFICO" : "CORPORATIVO_8X5_NBD",
-      slaAvailabilityPercent: inferredType === "PRODUTOS" ? "" : "99,50%",
-      slaResponseHours: inferredType === "PRODUTOS" ? 0 : 4,
+      slaTier: inferredType === "PRODUTOS" || inferredType === "SPARE_PARTS" ? "SEM_SLA_ESPECIFICO" : "CORPORATIVO_8X5_NBD",
+      slaAvailabilityPercent: inferredType === "PRODUTOS" || inferredType === "SPARE_PARTS" ? "" : "99,50%",
+      slaResponseHours: inferredType === "PRODUTOS" || inferredType === "SPARE_PARTS" ? 0 : 4,
       readjustmentIndex: "IPCA",
-      contractMonths: inferredType === "PRODUTOS" ? 1 : 24,
+      contractMonths: inferredType === "PRODUTOS" || inferredType === "SPARE_PARTS" ? 1 : 24,
       paymentCondition: '',
       validUntil: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
       items: [],
@@ -2604,18 +2604,20 @@ export default function ErpGestaoClickTab({
       | "ORC_PRODUTOS"
       | "ORC_LOCACAO"
       | "ORC_SERVICOS"
+      | "ORC_SPARE_PARTS"
       | "ORC_AUXILIARES" =
       activeSubId === "ORC_PRODUTOS" ||
       activeSubId === "ORC_LOCACAO" ||
       activeSubId === "ORC_SERVICOS" ||
+      activeSubId === "ORC_SPARE_PARTS" ||
       activeSubId === "ORC_AUXILIARES"
-        ? (activeSubId as "ORC_PRODUTOS" | "ORC_LOCACAO" | "ORC_SERVICOS" | "ORC_AUXILIARES")
+        ? (activeSubId as "ORC_PRODUTOS" | "ORC_LOCACAO" | "ORC_SERVICOS" | "ORC_SPARE_PARTS" | "ORC_AUXILIARES")
         : "TODOS";
 
     const isProductsOnlyProp = (p: ErpCommercialProposal) => p.budgetType === "PRODUTOS";
 
     const isRentalProp = (p: ErpCommercialProposal) => {
-      if (p.budgetType === "PRODUTOS" || p.budgetType === "SERVICOS") return false;
+      if (p.budgetType === "PRODUTOS" || p.budgetType === "SERVICOS" || p.budgetType === "SPARE_PARTS") return false;
       if (p.budgetType === "LOCACAO" || p.budgetType === "CONJUNTO") return true;
       return p.items.some((i) => i.fiscalNature === "LOCACAO_BENS_MOVEIS");
     };
@@ -2624,7 +2626,7 @@ export default function ErpGestaoClickTab({
       isProductsOnlyProp(p) || isRentalProp(p);
 
     const hasServiceItem = (p: ErpCommercialProposal) => {
-      if (p.budgetType === "PRODUTOS" || p.budgetType === "LOCACAO") return false;
+      if (p.budgetType === "PRODUTOS" || p.budgetType === "LOCACAO" || p.budgetType === "SPARE_PARTS") return false;
       if (p.budgetType === "SERVICOS" || p.budgetType === "CONJUNTO") return true;
       return p.items.some(
         (i) =>
@@ -2641,6 +2643,8 @@ export default function ErpGestaoClickTab({
           ? proposals.filter(isRentalProp)
           : effectiveOrcTab === "ORC_SERVICOS"
             ? proposals.filter(hasServiceItem)
+            : effectiveOrcTab === "ORC_SPARE_PARTS"
+              ? proposals.filter((p) => p.budgetType === "SPARE_PARTS")
             : proposals;
 
     const normErp = (v: unknown) =>
@@ -2692,6 +2696,7 @@ export default function ErpGestaoClickTab({
     };
 
     const getBudgetTypeLabel = (p: ErpCommercialProposal) => {
+      if (p.budgetType === 'SPARE_PARTS') return 'Spare Parts / Hard Parts';
       if (p.budgetType === 'SERVICOS') return 'Serviços (LC 116)';
       if (p.budgetType === 'PRODUTOS') return 'Produtos / Hardware';
       if (p.budgetType === 'CONJUNTO') return 'Conjunto (Prod + Serv)';
@@ -2712,6 +2717,8 @@ export default function ErpGestaoClickTab({
                   ? 'Orçamentos de locação'
                   : effectiveOrcTab === 'ORC_SERVICOS'
                     ? 'Orçamentos de serviços'
+                    : effectiveOrcTab === 'ORC_SPARE_PARTS'
+                      ? 'Orçamentos de Spare Parts / Hard Parts'
                     : effectiveOrcTab === 'ORC_AUXILIARES'
                       ? 'Opções auxiliares'
                       : 'Orçamentos'}
@@ -2755,6 +2762,8 @@ export default function ErpGestaoClickTab({
                       ? 'SERVICOS'
                       : effectiveOrcTab === 'ORC_PRODUTOS'
                         ? 'PRODUTOS'
+                        : effectiveOrcTab === 'ORC_SPARE_PARTS'
+                          ? 'SPARE_PARTS'
                         : 'LOCACAO'
                   )
                 }

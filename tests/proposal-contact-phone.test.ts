@@ -32,7 +32,8 @@ describe('proposta: telefone e WhatsApp da Seta Telecom', () => {
 describe('proposta de PRODUTOS: sem Setup, total sem dobrar e com centavos', () => {
   const src = readFileSync(join(process.cwd(), 'src/app/proposta/[id]/page.tsx'), 'utf8');
   it('setup so fora de PRODUTOS', () => {
-    assert.ok(src.includes(': !isProductsOnly && isolatedSetupTotal > 0;'));
+    assert.ok(src.includes(': !saleLike && isolatedSetupTotal > 0;'));
+    assert.ok(src.includes('const saleLike = isProductsOnly || isSpareParts;'));
   });
   it('total de venda = itens - desconto global + frete (sem oneTimeSetupTotal)', () => {
     assert.ok(src.includes('Math.round((productsSubtotal + servicesSubtotal - globalDiscountVal + shippingCost) * 100) / 100'));
@@ -50,7 +51,7 @@ describe('proposta de SERVICOS de cobranca unica (todos os itens isRecurring=fal
   it('detecta servico unico e mostra Valor Total sem /mes nem setup duplicado', () => {
     assert.ok(src.includes('proposal.items.every((i) => i.isRecurring === false)'));
     assert.ok(src.includes('const uniquePayment = isOneTimeServices || avulsoService;'));
-    assert.ok(src.includes('const showTotalInsteadOfMonthly = isProductsOnly || uniquePayment;'));
+    assert.ok(src.includes('const showTotalInsteadOfMonthly = saleLike || uniquePayment;'));
     assert.ok(src.includes('? oneTimeServicesSetupFee > 0'));
     assert.ok(src.includes('Valor Total (Pagamento Único)'));
   });

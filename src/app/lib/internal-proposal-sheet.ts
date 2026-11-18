@@ -195,9 +195,12 @@ export function buildInternalProposalSheet(
   const figures = resolveProposalCommercialFigures(proposal);
   const months = figures.months;
   const oneTime = figures.oneTime;
-  const monthLabel = !oneTime && months > 0 ? `${months} ${months === 1 ? 'mês' : 'meses'}` : '';
-  const service = kind === 'SERVICO' || kind === 'SPARE_PARTS';
-  const headline = service
+  const partsBudget = proposal.budgetType === 'SPARE_PARTS';
+  const monthLabel = partsBudget || oneTime || months <= 0 ? '' : `${months} ${months === 1 ? 'mês' : 'meses'}`;
+  const service = !partsBudget && (kind === 'SERVICO' || kind === 'SPARE_PARTS');
+  const headline = partsBudget
+    ? 'Proposta de Spare Parts / Hard Parts'
+    : service
     ? `Proposta de Serviço${monthLabel ? ` - ${monthLabel}` : ''}`
     : `Proposta de Locação${monthLabel ? ` - ${monthLabel}` : ''}`;
   const monthly = figures.monthly;
@@ -209,15 +212,17 @@ export function buildInternalProposalSheet(
   const uf = String(options?.clientState || '').trim();
   const readjustment = options?.readjustment || 'não definido';
   const sla = options?.slaText || 'não definido';
-  const proposalKind = service ? 'Serviço' : 'Locação';
+  const proposalKind = partsBudget ? 'Spare Parts / Hard Parts' : service ? 'Serviço' : 'Locação';
+  const partsTotal = (proposal.items || []).reduce((sum, item) => sum + Number(item.totalMonthly ?? item.subtotal ?? 0), 0);
+  const shownAmount = partsBudget ? partsTotal : monthly;
   const summaryRows: Array<{ label: string; value: string }> = [
-    { label: 'Proposta', value: `${proposalKind}${monthLabel ? ` - ${monthLabel}` : ''}` },
-    { label: oneTime ? 'Valor total (pagamento único)' : 'Valor mensal', value: money(monthly) },
+    { label: 'Proposta', value: partsBudget ? 'Proposta de Spare Parts / Hard Parts' : `${proposalKind}${monthLabel ? ` - ${monthLabel}` : ''}` },
+    { label: partsBudget || oneTime ? (oneTime && !partsBudget ? 'Valor total (pagamento único)' : 'Valor total') : 'Valor mensal', value: money(shownAmount) },
     { label: 'Prazo de entrega estimado', value: delivery || INTERNAL_FIELD_BLANK },
   ];
   if (freight > 0) summaryRows.push({ label: 'Frete', value: `${money(freight)} (pagamento único)` });
   if (sla && sla !== 'não definido') summaryRows.push({ label: 'SLA', value: sla });
-  if (!oneTime) summaryRows.push({ label: 'Reajuste anual', value: readjustment });
+  if (!oneTime && !partsBudget) summaryRows.push({ label: 'Reajuste anual', value: readjustment });
   const seen = new Set(summaryRows.map((row) => `${row.label}|${row.value}`.toLowerCase()));
   for (const row of rowsFromFreeConditionText(proposal.commercialNotes)) {
     const key = `${row.label}|${row.value}`.toLowerCase();
@@ -241,7 +246,17 @@ export function buildInternalProposalSheet(
     ? readablePaymentCondition(proposal.paymentCondition)
     : String(proposal.paymentCondition || '').trim();
   const subject = service ? 'serviço' : 'locação';
-  const paymentRows = oneTime
+  const paymentRows = partsBudget
+    ? [
+        {
+          due: 'Pagamento único',
+          amount: money(shownAmount),
+          method: payment || INTERNAL_FIELD_BLANK,
+          methodMissing: !payment,
+          note: 'Pagamento único das peças',
+        },
+      ]
+    : oneTime
     ? [
         {
           due: 'Pagamento único',
@@ -282,11 +297,15 @@ export function buildInternalProposalSheet(
     proposalDateLabel: formatIsoDatePt(proposal.proposalDate || proposal.createdAt),
     contractNumber: String(options?.contractNumber || '').trim(),
     headline,
-    monthlyLine: oneTime ? `Valor total (pagamento único) de ${money(monthly)}` : `Valor Mensal de ${money(monthly)}`,
+    monthlyLine: partsBudget
+      ? `Valor total de ${money(shownAmount)}`
+      : oneTime
+        ? `Valor total (pagamento único) de ${money(monthly)}`
+        : `Valor Mensal de ${money(monthly)}`,
     deliveryLine: `Prazo de Entrega Estimado: ${delivery || INTERNAL_FIELD_BLANK}`,
     freightLine: freight > 0 ? `Frete: ${money(freight)} (pagamento único)` : '',
     slaLine: sla === 'não definido' ? '' : sla,
-    readjustmentLine: oneTime ? '' : `Reajuste anual: ${readjustment}`,
+    readjustmentLine: partsBudget || oneTime ? '' : `Reajuste anual: ${readjustment}`,
     summaryRows,
     notices: SETA_INTERNAL_PROPOSAL_NOTICES,
     validityExpiredSince: isProposalValidityExpired(proposal.validUntil) ? (formatProposalValidUntilPtBr(proposal.validUntil) || formatIsoDatePt(proposal.validUntil)) : null,
@@ -300,14 +319,14 @@ export function buildInternalProposalSheet(
     clientCityUf: city || uf ? [city, uf].filter(Boolean).join('/') : INTERNAL_FIELD_BLANK,
     clientPhone: INTERNAL_FIELD_BLANK,
     clientEmail: String(proposal.contactEmail || '').trim() || INTERNAL_FIELD_BLANK,
-    itemsSection: service ? 'SERVIÇOS' : 'PRODUTOS',
+    itemsSection: partsBudget ? 'PEÇAS' : service ? 'SERVIÇOS' : 'PRODUTOS',
     lines,
     qtyTotal,
-    productsMonthly: money(monthly),
-    monthlyPlain: amount(monthly),
+    productsMonthly: money(shownAmount),
+    monthlyPlain: amount(shownAmount),
     freightAmount: money(freight),
     showFreight: freight > 0,
-    totalMonthly: money(monthly),
+    totalMonthly: money(shownAmount),
     paymentRows,
     commercialNote: String(proposal.commercialNotes || '').trim(),
     commercialNoteLines,

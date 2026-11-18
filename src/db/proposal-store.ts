@@ -113,12 +113,12 @@ export function isProductsOnlyProposal(p: AnyP): boolean {
   return p.budgetType === 'PRODUTOS';
 }
 export function isRentalProposal(p: AnyP): boolean {
-  if (p.budgetType === 'PRODUTOS' || p.budgetType === 'SERVICOS') return false;
+  if (p.budgetType === 'PRODUTOS' || p.budgetType === 'SERVICOS' || p.budgetType === 'SPARE_PARTS') return false;
   if (p.budgetType === 'LOCACAO' || p.budgetType === 'CONJUNTO') return true;
   return (Array.isArray(p.items) ? p.items : []).some((i: any) => i && i.fiscalNature === 'LOCACAO_BENS_MOVEIS');
 }
 export function isServiceProposal(p: AnyP): boolean {
-  if (p.budgetType === 'PRODUTOS' || p.budgetType === 'LOCACAO') return false;
+  if (p.budgetType === 'PRODUTOS' || p.budgetType === 'LOCACAO' || p.budgetType === 'SPARE_PARTS') return false;
   if (p.budgetType === 'SERVICOS' || p.budgetType === 'CONJUNTO') return true;
   return (Array.isArray(p.items) ? p.items : []).some(
     (i: any) => i && (i.itemType === 'SERVICE' || i.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM' || i.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA')
@@ -324,6 +324,7 @@ function buildWhere(f: ProposalListFilters, params: unknown[], opts: { skipStatu
     if (t === 'PRODUTOS') where.push('is_products');
     else if (t === 'LOCACAO') where.push('is_rental');
     else if (t === 'SERVICOS') where.push('is_service');
+    else if (t === 'SPARE_PARTS') where.push(`budget_type = 'SPARE_PARTS'`);
   }
   if (f.companyId) {
     params.push(f.companyId);

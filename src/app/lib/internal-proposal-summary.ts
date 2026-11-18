@@ -173,6 +173,7 @@ export function isSparePartsOnlyService(serviceType: string | undefined): boolea
 export function resolveInternalProposalKind(
   proposal: Pick<ErpCommercialProposal, 'budgetType' | 'modality' | 'serviceType'>
 ): InternalProposalKind {
+  if (proposal.budgetType === 'SPARE_PARTS') return 'SPARE_PARTS';
   if (proposal.budgetType === 'PRODUTOS') return 'PRODUTOS';
   if (proposal.budgetType === 'CONJUNTO') return 'CONJUNTO';
   if (proposal.budgetType === 'LOCACAO' || proposal.modality === 'RENTAL') return 'LOCACAO';
@@ -294,13 +295,16 @@ export function toInternalProposalSummary(
   }
 ): InternalProposalSummaryModel {
   const kind = resolveInternalProposalKind(proposal);
+  const partsBudget = proposal.budgetType === 'SPARE_PARTS';
   const avulso = isAvulsoServiceProposal(proposal);
   const recurring =
     !avulso &&
+    !partsBudget &&
     kind !== 'PRODUTOS' &&
     (Number(proposal.monthlyRecurringTotal || 0) > 0 ||
       (proposal.items || []).some((item) => item.isRecurring !== false));
   const copy = kindCopy(kind, recurring);
+  if (partsBudget) copy.kindLabel = 'Proposta de Spare Parts / Hard Parts';
   const months = avulso ? null : monthsOf(proposal);
   const monthly =
     proposal.monthlyRecurringTotal === undefined || proposal.monthlyRecurringTotal === null
@@ -312,7 +316,7 @@ export function toInternalProposalSummary(
       : null;
   const period = avulso
     ? monthly
-    : kind === 'PRODUTOS'
+    : partsBudget || kind === 'PRODUTOS'
       ? proposal.totalContractValue === undefined || proposal.totalContractValue === null
         ? null
         : Number(proposal.totalContractValue)
@@ -320,7 +324,7 @@ export function toInternalProposalSummary(
 
   const termValue = avulso
     ? 'Pagamento único'
-    : kind === 'PRODUTOS'
+    : partsBudget || kind === 'PRODUTOS'
       ? textOrMissing(proposal.deliveryLeadTime || proposal.deliveryForecast)
       : months === null
         ? INTERNAL_FIELD_MISSING
