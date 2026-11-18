@@ -60,6 +60,7 @@ import { saveClientIamUserOverrideIfNewer } from './lib/iam-seal-cache';
 import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
 import SettingsHubPage from './components/SettingsHubPage';
 import type { NavAccessContext, NavTarget } from './lib/hubspot-nav';
+import { resolveActiveRbacUser, resolveNavModuleAccess, readSavedSessionUserId } from './lib/nav-access';
 import type { MarketingHubSubView } from './components/MarketingAndSalesHubSuites';
 import GlobalHeaderSearch, { SearchResultEntry } from './components/GlobalHeaderSearch';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
@@ -163,6 +164,15 @@ export default function HubSpotProCrmApp() {
   const [rbacState, setRbacState] = useState<StiHubRbacState | null>(null);
   const [emailTemplatesState, setEmailTemplatesState] = useState<CrmEmailTemplate[]>([]);
   const [activeRbacUser, setActiveRbacUser] = useState<StiHubUserRecord | null>(null);
+  const [authSession, setAuthSession] = useState<{
+    resolved: boolean;
+    data: {
+      authenticated: boolean;
+      moduleAccess?: { crm?: boolean; erp?: boolean; chamados?: boolean } | null;
+      enabledModules?: string[] | null;
+      user?: StiHubUserRecord | null;
+    } | null;
+  }>({ resolved: false, data: null });
   // Central de Administração: só admin com 2FA (sessão do servidor + matriz rbac.ts). null = carregando => oculto.
   const adminCentralAccess = useErpConfigAccess(activeRbacUser?.id ?? null);
   const canOpenAdminCentralUi = adminCentralAccess?.isAdmin === true;
@@ -273,35 +283,34 @@ export default function HubSpotProCrmApp() {
           if (d.rbac) {
             setRbacState(d.rbac);
             // HOTFIX 29/10: o usuario ativo vem da SESSAO real (cookie HttpOnly), nunca de users[0].
-            let sessionUserId: string | null = null;
+            let sessionPayload: (typeof authSession)['data'] = null;
             try {
               const sr = await fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' });
               const sj = sr.ok ? await sr.json() : null;
-              if (sj?.data?.authenticated === true && sj.data.user?.id) sessionUserId = String(sj.data.user.id);
+              if (sj?.data?.authenticated === true) {
+                sessionPayload = sj.data;
+              } else if (sj?.data) {
+                sessionPayload = { authenticated: false };
+              }
             } catch {
-              sessionUserId = null;
+              sessionPayload = null;
             }
-            setActiveRbacUser((prev) => {
-              if (sessionUserId) {
-                const own = d.rbac.users.find((u: StiHubUserRecord) => u.id === sessionUserId);
-                if (own) return own;
-              }
-              if (prev) {
-                return d.rbac.users.find((u: StiHubUserRecord) => u.id === prev.id) || prev;
-              }
-              if (typeof window !== 'undefined') {
-                try {
-                  const saved = JSON.parse(localStorage.getItem('stihub_active_session_v1') || 'null');
-                  if (saved?.user?.id) {
-                    const matched = d.rbac.users.find((u: StiHubUserRecord) => u.id === saved.user.id);
-                    if (matched) return matched;
-                  }
-                } catch {
-                  // ignore
-                }
-              }
-              return null;
-            });
+            if (sessionPayload) {
+              setAuthSession({ resolved: true, data: sessionPayload });
+            } else {
+              setAuthSession((prev) => (prev.resolved ? prev : { resolved: true, data: null }));
+            }
+            const sessionUser = sessionPayload?.authenticated ? (sessionPayload.user ?? null) : null;
+            setActiveRbacUser((prev) =>
+              resolveActiveRbacUser({
+                users: d.rbac.users,
+                sessionUserId: sessionUser?.id || null,
+                sessionEmail: sessionUser?.email || null,
+                sessionUser,
+                prev,
+                savedUserId: readSavedSessionUserId(),
+              })
+            );
           }
         }
       }
@@ -315,6 +324,31 @@ export default function HubSpotProCrmApp() {
     migrateClientIamStorage();
     fetchAllCrmData();
   }, [fetchAllCrmData]);
+
+  // Resolve a sessão cedo para o menu não ficar vazio à espera do /api/bootstrap.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const sr = await fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' });
+        const sj = sr.ok ? await sr.json() : null;
+        if (cancelled) return;
+        const data = sj?.data ?? null;
+        if (data?.authenticated === true && data.user) {
+          setAuthSession({ resolved: true, data });
+          setActiveRbacUser((prev) => prev ?? data.user);
+        } else if (sr.ok) {
+          setAuthSession({ resolved: true, data: { authenticated: false } });
+        }
+        // Resposta não-OK: mantém pending; o bootstrap ainda pode resolver a sessão.
+      } catch {
+        // Mantém pending: o bootstrap ainda pode resolver a sessão.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ==========================================================================
   // API ACTION HANDLERS (WITH DURABLE JOURNAL & OPTIMISTIC STATE)
@@ -1325,17 +1359,23 @@ export default function HubSpotProCrmApp() {
               : null;
   const canChooseHomeScreen = shouldOfferHomeScreenChoice(userModuleAccess);
 
-  const navAccess: NavAccessContext = useMemo(
-    () => ({
-      moduleAccess: activeRbacUser ? userModuleAccess : { crm: false, erp: false, chamados: false },
+  const navAccess: NavAccessContext = useMemo(() => {
+    const resolved = resolveNavModuleAccess({
+      user: activeRbacUser,
+      session: authSession.data,
+      sessionResolved: authSession.resolved,
+    });
+    return {
+      moduleAccess: resolved.access,
+      permissionsPending: resolved.pending,
       erpConfig: adminCentralAccess,
       itemView: {
+        ...(activeRbacUser?.crmItemPermissions || {}),
         ...(activeRbacUser?.itemPermissions || {}),
         ...(activeRbacUser?.erpItemPermissions || {}),
       },
-    }),
-    [userModuleAccess, adminCentralAccess, activeRbacUser]
-  );
+    };
+  }, [userModuleAccess, adminCentralAccess, activeRbacUser, authSession]);
 
   const openSettingsHub = useCallback(
     (itemId?: string) => {

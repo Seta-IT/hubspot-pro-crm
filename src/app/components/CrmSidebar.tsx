@@ -329,6 +329,14 @@ export default function CrmSidebar({
         </span>
 
         <nav className="px-2 pb-3 space-y-2" data-testid="hubspot-app-nav">
+          {access.permissionsPending && items.length === 0 ? (
+            <div className="space-y-2 px-0.5" data-testid="hubspot-app-nav-pending" aria-busy="true" aria-label="Carregando menu">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-8 rounded-md bg-white/15 animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <>
           <div className="space-y-0.5">
             {homeItem && renderItemButton(homeItem)}
             {pinnedItems.map((item) => renderItemButton(item))}
@@ -364,6 +372,8 @@ export default function CrmSidebar({
               </div>
             );
           })}
+            </>
+          )}
         </nav>
       </div>
 
@@ -382,6 +392,7 @@ export default function CrmSidebar({
             <span className="truncate">Configurações</span>
           </button>
         )}
+        {items.length > 0 && (
         <button
           type="button"
           onClick={() => setMoreOpen((v) => !v)}
@@ -392,7 +403,8 @@ export default function CrmSidebar({
           <span className="flex-1 text-left">Mais</span>
           <ChevronRight className="w-4 h-4 opacity-80" />
         </button>
-        {moreOpen && (
+        )}
+        {items.length > 0 && moreOpen && (
           <div
             className="absolute left-full bottom-0 ml-2 z-50 w-[460px] max-w-[80vw] rounded-xl border border-slate-200 bg-white shadow-2xl overflow-hidden text-slate-800 flex"
             data-testid="nav-more-flyout"

@@ -147,6 +147,8 @@ export interface NavAccessContext {
   erpConfig: ErpConfigAccess | null;
   /** view por item (crm.* / erp.*). Ausente => vale o acesso ao módulo, como hoje. */
   itemView?: Record<string, { view?: boolean } | undefined>;
+  /** Sessão ainda não resolvida: o menu mostra um esqueleto, sem itens clicáveis. */
+  permissionsPending?: boolean;
 }
 
 export interface CurrentNavLocation {
