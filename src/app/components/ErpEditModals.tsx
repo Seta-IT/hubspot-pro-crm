@@ -61,7 +61,7 @@ import {
   formatCpfMask,
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
-import { buildProposalVersionShortUrl, computeProposalTotals, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
+import { buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
 import { useContractAuxiliaryOptions } from '../lib/use-contract-aux-options';
 import {
   computeCustomDueDateClient,
@@ -1203,7 +1203,7 @@ export function ProposalEditModal({
                       onChange={(e) => updateDraft({ contractMonths: Math.max(1, Number(e.target.value) || 24) })}
                       className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-slate-900"
                     >
-                      <option value="1">Avulso / 1 mês</option>
+                      <option value="1">{draft.budgetType === "SERVICOS" ? "Avulso (pagamento único)" : "1 mês"}</option>
                       <option value="6">6 meses</option>
                       <option value="12">12 meses</option>
                       <option value="24">24 meses</option>
@@ -1255,7 +1255,7 @@ export function ProposalEditModal({
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="Valor Mensal de R$"
+                  placeholder={isAvulsoServiceProposal(draft) ? "Valor total (pagamento único) de R$" : "Valor Mensal de R$"}
                   value={draft.introductionText ?? ''}
                   onChange={(e) => updateDraft({ introductionText: e.target.value })}
                   className="w-full px-3 py-2 rounded border border-slate-300"
@@ -1470,22 +1470,24 @@ export function ProposalEditModal({
                     {formatBRL(draft.shippingCost || 0)}
                   </strong>
                 </div>
-                <div className="bg-emerald-50 px-2.5 py-1.5 rounded border border-emerald-200">
-                  <span className="text-[10px] uppercase font-semibold text-emerald-700 block">
-                    Valor Mensal
+                <div className="bg-slate-50 px-2.5 py-1.5 rounded border border-slate-200">
+                  <span className="text-[10px] uppercase font-semibold text-[#1e3a6e] block">
+                    {isAvulsoServiceProposal(draft) ? "Valor total (pagamento único)" : "Valor Mensal"}
                   </span>
-                  <strong className="text-sm font-semibold text-emerald-800">
-                    {formatBRL(draft.monthlyRecurringTotal)}
+                  <strong className="text-sm font-semibold text-[#1e3a6e]">
+                    {formatBRL(isAvulsoServiceProposal(draft) ? (draft.totalContractValue || draft.monthlyRecurringTotal) : draft.monthlyRecurringTotal)}
                   </strong>
                 </div>
+                {!isAvulsoServiceProposal(draft) && (
                 <div className="bg-[#1e3a6e] text-white px-2.5 py-1.5 rounded">
-                  <span className="text-[10px] uppercase font-semibold text-emerald-300 block">
+                  <span className="text-[10px] uppercase font-semibold text-white/80 block">
                     Total ({draft.contractMonths}m)
                   </span>
                   <strong className="text-sm font-semibold text-white">
                     {formatBRL(draft.totalContractValue)}
                   </strong>
                 </div>
+                )}
               </div>
 
               {/* GERADOR AUTOMÁTICO DE PARCELAS */}
@@ -1506,7 +1508,7 @@ export function ProposalEditModal({
                       { label: '12x', n: 12 },
                       { label: '24x', n: 24 },
                       { label: '36x', n: 36 },
-                    ].map((preset) => (
+                    ].filter((preset) => !isAvulsoServiceProposal(draft) || preset.n === 1).map((preset) => (
                       <button
                         key={preset.n}
                         type="button"
@@ -1550,7 +1552,9 @@ export function ProposalEditModal({
                       <option value="PIX">PIX Empresarial</option>
                       <option value="TED">TED / Transferência Bancária</option>
                       <option value="CARTAO_CREDITO">Cartão de Crédito</option>
-                      <option value="FATURAMENTO_MENSAL">Faturamento Mensal (Contrato)</option>
+                      {!isAvulsoServiceProposal(draft) && (
+                        <option value="FATURAMENTO_MENSAL">Faturamento Mensal (Contrato)</option>
+                      )}
                     </select>
                   </div>
                   <div className="sm:col-span-2">
@@ -1646,7 +1650,9 @@ export function ProposalEditModal({
                                 <option value="PIX">PIX Empresarial</option>
                                 <option value="TED">TED Bancária</option>
                                 <option value="CARTAO_CREDITO">Cartão de Crédito</option>
-                                <option value="FATURAMENTO_MENSAL">Faturamento Mensal</option>
+                                {!isAvulsoServiceProposal(draft) && (
+                                  <option value="FATURAMENTO_MENSAL">Faturamento Mensal</option>
+                                )}
                               </select>
                             </td>
                             <td className="py-1.5 px-2.5">
@@ -1924,13 +1930,20 @@ export function ProposalEditModal({
             <div className="flex flex-wrap items-center gap-4">
               <div className="text-right">
                 <span className="block text-[10px] text-slate-500">
-                  Valor mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong> • Setup:{' '}
+                  {isAvulsoServiceProposal(draft) ? (
+                    <>Valor total (pagamento único): <strong>{formatBRL(draft.totalContractValue || draft.monthlyRecurringTotal)}</strong></>
+                  ) : (
+                    <>Valor mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong></>
+                  )}
+                  {' '}• Setup:{' '}
                   <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong> • Frete:{' '}
                   <strong>{formatBRL(draft.shippingCost || 0)}</strong>
                 </span>
+                {!isAvulsoServiceProposal(draft) && (
                 <strong className="text-base font-semibold text-[#1e3a6e]">
                   Valor total ({draft.contractMonths}m): {formatBRL(draft.totalContractValue)}
                 </strong>
+                )}
               </div>
               <button
                 type="submit"

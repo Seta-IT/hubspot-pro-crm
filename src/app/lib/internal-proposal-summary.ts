@@ -11,7 +11,7 @@
  */
 import type { ErpCommercialProposal, ErpProposalItem } from '../../db/types';
 import { formatProposalDisplayCode } from './proposal-number';
-import { resolveProposalSlaOption } from './proposal-share';
+import { isAvulsoServiceProposal, resolveProposalSlaOption } from './proposal-share';
 import { buildInternalProposalSheet, type InternalProposalIssuerInput, type InternalProposalSheet } from './internal-proposal-sheet';
 
 export const INTERNAL_PROPOSAL_PATH_PREFIX = '/interno/proposta';
@@ -294,12 +294,14 @@ export function toInternalProposalSummary(
   }
 ): InternalProposalSummaryModel {
   const kind = resolveInternalProposalKind(proposal);
+  const avulso = isAvulsoServiceProposal(proposal);
   const recurring =
+    !avulso &&
     kind !== 'PRODUTOS' &&
     (Number(proposal.monthlyRecurringTotal || 0) > 0 ||
       (proposal.items || []).some((item) => item.isRecurring !== false));
   const copy = kindCopy(kind, recurring);
-  const months = monthsOf(proposal);
+  const months = avulso ? null : monthsOf(proposal);
   const monthly =
     proposal.monthlyRecurringTotal === undefined || proposal.monthlyRecurringTotal === null
       ? null
@@ -308,15 +310,17 @@ export function toInternalProposalSummary(
     monthly !== null && Number.isFinite(monthly) && months !== null
       ? Math.round(monthly * months * 100) / 100
       : null;
-  const period =
-    kind === 'PRODUTOS'
+  const period = avulso
+    ? monthly
+    : kind === 'PRODUTOS'
       ? proposal.totalContractValue === undefined || proposal.totalContractValue === null
         ? null
         : Number(proposal.totalContractValue)
       : rentalPeriod;
 
-  const termValue =
-    kind === 'PRODUTOS'
+  const termValue = avulso
+    ? 'Pagamento único'
+    : kind === 'PRODUTOS'
       ? textOrMissing(proposal.deliveryLeadTime || proposal.deliveryForecast)
       : months === null
         ? INTERNAL_FIELD_MISSING
@@ -383,15 +387,20 @@ export function toInternalProposalSummary(
     termLabel: copy.termLabel,
     termValue,
     monthlyLabel: monthly === null || !Number.isFinite(monthly) ? INTERNAL_FIELD_MISSING : formatBrl(monthly),
-    periodLabel:
-      kind === 'PRODUTOS' || months === null
+    periodLabel: avulso
+      ? 'Valor total (pagamento único)'
+      : kind === 'PRODUTOS' || months === null
         ? 'Total do período'
         : `Total em ${months} ${months === 1 ? 'mês' : 'meses'}`,
     periodValue: period === null ? INTERNAL_FIELD_MISSING : formatBrl(period),
-    oneTimeCaption: 'Fora da mensalidade. Não entram no total do período.',
+    oneTimeCaption: avulso
+      ? 'Cobrado uma única vez.'
+      : 'Fora da mensalidade. Não entram no total do período.',
     oneTimeRows,
     conditions: [
-      { label: 'Índice de reajuste', value: readjustmentValue(proposal), testId: 'internal-proposal-readjustment' },
+      ...(avulso
+        ? []
+        : [{ label: 'Índice de reajuste', value: readjustmentValue(proposal), testId: 'internal-proposal-readjustment' }]),
       { label: copy.slaLabel, value: slaValue(proposal), testId: 'internal-proposal-sla' },
       // A proposta não tem data de início (startDate é do contrato). Não usar prazo de entrega no lugar.
       { label: 'Início previsto', value: INTERNAL_FIELD_MISSING, testId: 'internal-proposal-start' },

@@ -617,10 +617,25 @@ function monthsMentionedInText(texts: Array<string | null | undefined>): number 
 }
 
 /**
+ * Serviço avulso: a opção do formulário continua gravada como contractMonths === 1.
+ * Locação e produtos com 1 mês não entram aqui.
+ */
+export function isAvulsoServiceProposal(proposal: {
+  budgetType?: string | null;
+  contractMonths?: number | null;
+}): boolean {
+  return (
+    String(proposal.budgetType || '').toUpperCase() === 'SERVICOS' &&
+    Number(proposal.contractMonths) === 1
+  );
+}
+
+/**
  * Valor mensal e prazo exibidos no modal de assinatura e na folha interna.
  * O campo gravado vale quando é positivo. Se o mensal ficou 0 (rascunho ou
  * resposta incompleta) e os itens têm preço, usa a soma das linhas. Se o
  * prazo gravado é 1 e o texto da proposta diz outro número de meses, usa o texto.
+ * Serviço avulso (contractMonths === 1) é pagamento único: sem prazo em meses.
  */
 export function resolveProposalCommercialFigures(proposal: {
   items?: Array<{
@@ -641,7 +656,7 @@ export function resolveProposalCommercialFigures(proposal: {
   introductionText?: string | null;
   title?: string | null;
   paymentCondition?: string | null;
-}): { monthly: number; months: number } {
+}): { monthly: number; months: number; oneTime: boolean } {
   const items = proposal.items || [];
   const rental =
     proposal.budgetType === 'LOCACAO' ||
@@ -651,6 +666,14 @@ export function resolveProposalCommercialFigures(proposal: {
   const recurringSum = recurring.reduce((sum, it) => sum + lineNetAmount(it), 0);
   const allSum = items.reduce((sum, it) => sum + lineNetAmount(it), 0);
   const storedMonthly = Number(proposal.monthlyRecurringTotal || 0);
+  if (isAvulsoServiceProposal(proposal)) {
+    const total = storedMonthly > 0 ? storedMonthly : allSum;
+    return {
+      monthly: Math.round((Number.isFinite(total) ? total : 0) * 100) / 100,
+      months: 0,
+      oneTime: true,
+    };
+  }
   const monthly = storedMonthly > 0 ? storedMonthly : rental ? allSum : recurringSum;
   const storedMonths = Number(proposal.contractMonths || 0);
   const fromText = monthsMentionedInText([
@@ -664,6 +687,7 @@ export function resolveProposalCommercialFigures(proposal: {
   return {
     monthly: Math.round((Number.isFinite(monthly) ? monthly : 0) * 100) / 100,
     months,
+    oneTime: false,
   };
 }
 
@@ -756,9 +780,13 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
           : "PRODUTOS");
 
   const isProductsProposal = inferredBudgetType === "PRODUTOS";
+  const avulsoService = isAvulsoServiceProposal({
+    budgetType: inferredBudgetType,
+    contractMonths,
+  });
   const effectiveContractMonths = isProductsProposal ? 1 : contractMonths;
 
-  const totalContractValue = isProductsProposal
+  const totalContractValue = isProductsProposal || avulsoService
     ? Math.round((monthlyRecurringTotal + oneTimeSetupTotal + shippingCost) * 100) / 100
     : Math.round((monthlyRecurringTotal * effectiveContractMonths + oneTimeSetupTotal + shippingCost) * 100) / 100;
 
