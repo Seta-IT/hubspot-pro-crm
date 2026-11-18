@@ -34,17 +34,18 @@ function memoryHit(bucket: string, limit: number, windowMs: number): boolean {
   return l.hit(bucket);
 }
 
-async function distributedHit(bucket: string, limit: number, windowMs: number): Promise<boolean> {
-  // Store do Postgres (mesma tabela de rate-limit da API v1), quando houver. Falha => so memoria.
+async function distributedHit(bucket: string, limit: number, windowMs: number, failClosed = false): Promise<boolean> {
+  // Store do Postgres (mesma tabela de rate-limit da API v1). Rate-limit de chat falha aberto
+  // (disponibilidade). Consumo do nonce de confirmacao falha fechado: sem store, nao executa de novo.
   try {
     const store = resolveIntegrationDeps().store;
-    if (!store) return true;
+    if (!store) return !failClosed;
     const now = Date.now();
     const start = Math.floor(now / windowMs) * windowMs;
     const r = await store.hitRateLimit(`assistente:${bucket}`, new Date(start).toISOString(), new Date(now).toISOString());
     return r.count <= limit;
   } catch {
-    return true;
+    return !failClosed;
   }
 }
 
@@ -130,9 +131,11 @@ export async function POST(req: NextRequest, { params }: { params: { acao: strin
       const now = Date.now();
       for (const [k, exp] of usedNonces) if (exp < now) usedNonces.delete(k);
       if (usedNonces.has(nonce)) return false;
-      usedNonces.set(nonce, now + ttlMs);
-      // Outras instancias: contador no store; segundo uso do mesmo nonce na janela => recusa.
-      return distributedHit(`nonce:${nonce}`, 1, Math.max(ttlMs, 60_000));
+      // Fail-closed no store: se o rate-limit compartilhado nao estiver disponivel, recusa
+      // em vez de permitir replay do token de confirmacao em outra instancia.
+      const ok = await distributedHit(`nonce:${nonce}`, 1, Math.max(ttlMs, 60_000), true);
+      if (ok) usedNonces.set(nonce, now + ttlMs);
+      return ok;
     },
     async audit(entry) {
       const recibo = signAuditReceipt(secret, { uid: user.uid, ...entry, at: Date.now(), n: randomBytes(8).toString('hex') });
