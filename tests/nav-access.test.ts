@@ -119,6 +119,66 @@ describe('Acesso do menu lateral (sessão e RBAC)', () => {
     assert.equal(found, null);
   });
 
+  test('e-mail parecido não herda módulos de outro usuário', () => {
+    const listed = { id: 'usr-db', email: 'marcello@seta.test' };
+    for (const other of ['marcelo@seta.test', 'marcello@seta.test.br', 'marcello@seta.testx', 'xmarcello@seta.test']) {
+      const found = resolveActiveRbacUser({
+        users: [listed],
+        sessionUserId: 'uid-jwt',
+        sessionEmail: other,
+        sessionUser: { id: 'uid-jwt', email: other },
+      });
+      assert.notEqual(found, listed, other);
+      assert.equal(found?.id, 'uid-jwt');
+    }
+  });
+
+  test('e-mail duplicado na lista RBAC não escolhe o primeiro registro', () => {
+    const first = { id: 'usr-a', email: 'mesmo@seta.test', moduleAccess: { crm: true, erp: true, chamados: true } };
+    const second = { id: 'usr-b', email: 'mesmo@seta.test', moduleAccess: { crm: true, erp: false, chamados: false } };
+    const sessionUser = { id: 'uid-jwt', email: 'mesmo@seta.test' };
+    const found = resolveActiveRbacUser({
+      users: [first, second],
+      sessionUserId: 'uid-jwt',
+      sessionEmail: 'MESMO@seta.test',
+      sessionUser,
+    });
+    assert.equal(found, sessionUser);
+  });
+
+  test('casa e-mail único com diferença só de maiúsculas', () => {
+    const listed = { id: 'usr-db', email: 'Admin@Seta.Test' };
+    const found = resolveActiveRbacUser({
+      users: [listed, { id: 'usr-other', email: 'outro@seta.test' }],
+      sessionUserId: 'uid-jwt-diferente',
+      sessionEmail: 'admin@seta.test',
+      sessionUser: { id: 'uid-jwt-diferente', email: 'admin@seta.test' },
+    });
+    assert.equal(found, listed);
+  });
+
+  test('sem sessão, localStorage ou usuário residual não escolhe ninguém da lista', () => {
+    const found = resolveActiveRbacUser({
+      users: [ADMIN, { id: 'usr-other', email: 'outro@seta.test' }],
+      sessionUserId: null,
+      sessionEmail: null,
+      sessionUser: null,
+      prev: ADMIN,
+      savedUserId: ADMIN.id,
+    });
+    assert.equal(found, null);
+  });
+
+  test('sessão anônima resolvida ignora usuário residual e esvazia o menu', () => {
+    const result = resolveNavModuleAccess({
+      user: ADMIN,
+      session: { authenticated: false },
+      sessionResolved: true,
+    });
+    assert.equal(result.pending, false);
+    assert.deepEqual(result.access, NO_MODULE_ACCESS);
+  });
+
   test('page.tsx e CrmSidebar usam a sessão cedo e o esqueleto pendente', () => {
     const root = process.cwd();
     const page = fs.readFileSync(path.join(root, 'src/app/page.tsx'), 'utf8');

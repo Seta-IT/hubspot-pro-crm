@@ -46,6 +46,10 @@ export function resolveNavModuleAccess(input: {
   session?: NavSessionHint;
   sessionResolved: boolean;
 }): { access: NavModuleAccess; pending: boolean } {
+  // Sessão anônima resolvida: o menu fica vazio, mesmo se houver usuário residual.
+  if (input.sessionResolved && input.session && input.session.authenticated !== true) {
+    return { access: NO_MODULE_ACCESS, pending: false };
+  }
   const fromUser = moduleAccessFromRecord(input.user);
   if (fromUser) return { access: fromUser, pending: false };
   if (input.session?.authenticated === true) {
@@ -72,7 +76,9 @@ function sameEmail(a?: string | null, b?: string | null): boolean {
 /**
  * Escolhe o usuário ativo da sessão (id ou e-mail). Se a lista RBAC vier
  * vazia ou sem o registro, usa o próprio usuário da sessão autenticada.
- * Nunca cai no primeiro da lista.
+ * Nunca cai no primeiro da lista. E-mail só casa se for único e exatamente
+ * igual (case-insensitive). Sem identidade da sessão, não usa prev nem
+ * localStorage — evita atribuição dos módulos de outro usuário.
  */
 export function resolveActiveRbacUser<T extends { id: string; email?: string | null }>(input: {
   users?: T[] | null;
@@ -83,25 +89,36 @@ export function resolveActiveRbacUser<T extends { id: string; email?: string | n
   savedUserId?: string | null;
 }): T | null {
   const users = Array.isArray(input.users) ? input.users : [];
+  const findByEmail = (email?: string | null): T | null => {
+    if (!email) return null;
+    const hits = users.filter((u) => sameEmail(u.email, email));
+    return hits.length === 1 ? hits[0] : null;
+  };
   const find = (id?: string | null, email?: string | null): T | null => {
     if (id) {
       const hit = users.find((u) => sameId(u.id, id));
       if (hit) return hit;
     }
     if (email) {
-      const hit = users.find((u) => sameEmail(u.email, email));
+      const hit = findByEmail(email);
       if (hit) return hit;
     }
     return null;
   };
 
+  const hasSessionIdentity = Boolean(input.sessionUserId || input.sessionEmail || input.sessionUser?.id);
   const fromSession = find(input.sessionUserId, input.sessionEmail);
   if (fromSession) return fromSession;
-  if (input.sessionUser && (input.sessionUserId || input.sessionEmail || input.sessionUser.id)) {
+  if (input.sessionUser && hasSessionIdentity) {
     return input.sessionUser;
   }
-  if (input.prev) return find(input.prev.id, input.prev.email) || input.prev;
-  if (input.savedUserId) return find(input.savedUserId, null);
+  // Sem sessão autenticada: ignora prev e localStorage (fail-closed).
+  if (!hasSessionIdentity) return null;
+  if (input.prev) return find(input.prev.id, input.prev.email);
+  // savedUserId só pode confirmar o mesmo id da sessão, nunca escolher outro.
+  if (input.savedUserId && input.sessionUserId && sameId(input.savedUserId, input.sessionUserId)) {
+    return find(input.savedUserId, null);
+  }
   return null;
 }
 
