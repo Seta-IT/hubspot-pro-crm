@@ -298,6 +298,28 @@ export function buildProposalVersionShortUrl(
   return options?.autoPrint ? `${url}?print=1` : url;
 }
 
+/** Tipo de serviço com o botão [x] Suporte Técnico, ou texto que contém esse nome. */
+export function serviceTypeIncludesTechnicalSupport(serviceType: string | null | undefined): boolean {
+  return /suporte\s+t[eé]cnico/i.test(String(serviceType || ''));
+}
+
+/**
+ * Frete some só em proposta de serviço cujo tipo inclui Suporte Técnico.
+ * Spare Parts, Configuração, Instalação e combinações sem suporte mantêm o frete.
+ */
+export function proposalHidesFreight(proposal: {
+  budgetType?: string | null;
+  serviceType?: string | null;
+}): boolean {
+  if (String(proposal.budgetType || '').toUpperCase() !== 'SERVICOS') return false;
+  return serviceTypeIncludesTechnicalSupport(
+    resolveProposalServiceType({
+      budgetType: 'SERVICOS',
+      serviceType: proposal.serviceType || undefined,
+    })
+  );
+}
+
 export function resolveProposalServiceType(prop: Partial<ErpCommercialProposal>): string {
   const raw = String(prop.serviceType || "").trim();
   if (raw) return raw;
@@ -797,8 +819,12 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
           : "PRODUTOS");
 
   const isProductsProposal = inferredBudgetType === "PRODUTOS";
-  const serviceOnly = inferredBudgetType === "SERVICOS";
-  const shippingCost = serviceOnly ? 0 : rawShippingCost;
+  const shippingCost = proposalHidesFreight({
+    budgetType: inferredBudgetType,
+    serviceType: next.serviceType,
+  })
+    ? 0
+    : rawShippingCost;
   const avulsoService = isAvulsoServiceProposal({
     budgetType: inferredBudgetType,
     contractMonths,

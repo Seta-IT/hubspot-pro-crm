@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { computeProposalTotals } from '../src/app/lib/proposal-share';
+import { computeProposalTotals, proposalHidesFreight } from '../src/app/lib/proposal-share';
 import { toInternalProposalSummary } from '../src/app/lib/internal-proposal-summary';
 import type { ErpCommercialProposal } from '../src/db/types';
 
@@ -42,11 +42,30 @@ function proposal(patch: Partial<ErpCommercialProposal>): ErpCommercialProposal 
   } as ErpCommercialProposal;
 }
 
-describe('Serviço não tem frete nem endereço de entrega', () => {
-  it('zera o frete no total do serviço e mantém em locação e produtos', () => {
-    const servico = computeProposalTotals(proposal({}));
-    assert.equal(servico.shippingCost, 0);
-    assert.equal(servico.totalContractValue, 12000);
+describe('Frete some só com Suporte Técnico', () => {
+  it('zera o frete quando o tipo contém Suporte Técnico e mantém nos demais', () => {
+    for (const serviceType of [
+      'Suporte Técnico',
+      'Suporte Técnico & Spare Parts (Hard Parts)',
+      'Suporte Técnico, Spare Parts / Hard Parts, Configuração e Instalação',
+    ]) {
+      const servico = computeProposalTotals(proposal({ serviceType }));
+      assert.equal(proposalHidesFreight(servico), true, serviceType);
+      assert.equal(servico.shippingCost, 0, serviceType);
+      assert.equal(servico.totalContractValue, 12000, serviceType);
+    }
+
+    for (const serviceType of [
+      'Spare Parts / Hard Parts',
+      'Configuração',
+      'Instalação',
+      'Configuração & Instalação',
+    ]) {
+      const servico = computeProposalTotals(proposal({ serviceType }));
+      assert.equal(proposalHidesFreight(servico), false, serviceType);
+      assert.equal(servico.shippingCost, 80, serviceType);
+      assert.equal(servico.totalContractValue, 12080, serviceType);
+    }
 
     const locacao = computeProposalTotals(
       proposal({
@@ -95,14 +114,21 @@ describe('Serviço não tem frete nem endereço de entrega', () => {
     assert.equal(produtos.totalContractValue, 280);
   });
 
-  it('esconde frete na folha de serviço e conserva o prazo do SLA e o frete da locação', () => {
-    const servico = toInternalProposalSummary(proposal({})).sheet;
+  it('esconde frete na folha só com Suporte Técnico e conserva o prazo do SLA', () => {
+    const servico = toInternalProposalSummary(proposal({ serviceType: 'Suporte Técnico' })).sheet;
     assert.match(servico.deliveryLine, /7 dias úteis/);
     assert.equal(servico.freightLine, '');
     assert.equal(servico.showFreight, false);
     assert.equal(servico.summaryRows.some((row) => row.label === 'Frete'), false);
     assert.equal(servico.paymentRows.some((row) => /frete/i.test(row.note)), false);
     assert.doesNotMatch(servico.clientAddress, /Paulista/);
+
+    const spare = toInternalProposalSummary(
+      proposal({ serviceType: 'Spare Parts / Hard Parts' })
+    ).sheet;
+    assert.match(spare.deliveryLine, /7 dias úteis/);
+    assert.match(spare.freightLine, /80,00/);
+    assert.match(spare.clientAddress, /Paulista/);
 
     const locacao = toInternalProposalSummary(
       proposal({ budgetType: 'LOCACAO', contractMonths: 12 })
@@ -116,8 +142,9 @@ describe('Serviço não tem frete nem endereço de entrega', () => {
       form.indexOf('export function ContractEditModal')
     );
     assert.match(proposalForm, /Prazo de Entrega/);
-    assert.match(proposalForm, /budgetType !== "SERVICOS" && \(/);
+    assert.match(proposalForm, /!proposalHidesFreight\(draft\)/);
     assert.match(proposalForm, /Frete e entrega/);
+    assert.match(proposalForm, /\[x\] \$\{pill\}/);
     const page = src('src/app/proposta/[id]/page.tsx');
     assert.match(page, /hideServiceFreight/);
     assert.match(page, /endere\[cç\]o de entrega/);
