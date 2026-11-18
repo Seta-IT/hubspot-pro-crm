@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { createInMemoryRepository } from '../src/db/repository';
 import { CrmApiRouter } from '../src/api/router';
 import { resolveStiHubSigningSecret, signStiHubSessionToken } from '../src/app/lib/auth';
-import { ASSISTENTE_TOOLS, getTool, toolDefinitionsFor, type ApiCaller, type ApiCallRequest, type AssistenteUser } from '../src/modules/assistente/tools';
+import { ASSISTENTE_TOOLS, buscaCombina, catalogoAcoes, getTool, toolDefinitionsFor, type ApiCaller, type ApiCallRequest, type AssistenteUser } from '../src/modules/assistente/tools';
 import { handleChat, handleExecute, redactSecrets, type AssistenteAuditEntry, type AssistenteDeps } from '../src/modules/assistente/service';
 import { sessionBinding, signActionToken, signAuditReceipt, verifyActionToken } from '../src/modules/assistente/confirmation';
 import { createSessionApiCaller, isAllowedAssistenteRoute } from '../src/modules/assistente/api-caller';
@@ -463,5 +463,102 @@ describe('assistente — cliente OmniRoute', () => {
     assert.equal(c.model, 'nvidia/nemotron-3.5-lightning-30b-a3b');
     assert.equal(c.totalBudgetMs, 80_000);
     assert.equal(c.fallbackModel, 'mistralai/mistral-large-4-1t-a52b');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('assistente — fluxo da proposta (A3C cloud, 36 meses)', () => {
+  const A3 = [
+    { id: 'co-a3c', name: 'A3CLOUD.IT LTDA', cnpj: '10.455.355/0001-29' },
+    { id: 'co-a3', name: 'A3 CLOUD TECNOLOGIA DA INFORMACAO LTDA', cnpj: '11.504.452/0001-27' },
+    { id: 'co-b', name: 'Beta SA', cnpj: '' },
+  ];
+  const PEDIDO = 'gere uma proposta locaçao de 36 meses para A3C cloud de 3 servidores dell r640 com 256Gb de ram e 3 SSDs de 2tb cada';
+  const ITENS = [{ descricao: 'Servidor Dell R640, 256 GB RAM, 3 SSD 2 TB', quantidade: 3, tipo: 'locacao' }];
+  // Busca do servidor e literal (como a rota real): "A3C cloud" nao acha nada; sem search devolve tudo.
+  const companiesRoute = (r: ApiCallRequest) => {
+    const q = new URL(`http://x${r.path}`).searchParams.get('search');
+    const data = q ? A3.filter((c) => c.name.toLowerCase().includes(q.toLowerCase())) : A3;
+    return { status: 200, body: { data } };
+  };
+
+  it('busca tolerante: "A3C cloud" acha A3CLOUD e A3 CLOUD, ignorando espaço, ponto e maiúsculas', () => {
+    assert.equal(buscaCombina('A3C cloud', ['A3CLOUD.IT LTDA']), true);
+    assert.equal(buscaCombina('A3C cloud', ['A3 CLOUD TECNOLOGIA DA INFORMACAO LTDA']), true);
+    assert.equal(buscaCombina('a3cloud.it', ['A3CLOUD.IT LTDA']), true);
+    assert.equal(buscaCombina('A3C cloud', ['Beta SA']), false);
+  });
+
+  it('consultar empresas devolve ao modelo a quantidade, os nomes e o CNPJ', async () => {
+    const { api } = fakeApi({ 'GET /api/companies': companiesRoute });
+    const r = await getTool('consultar')!.executar({ entidade: 'empresas', busca: 'A3C cloud' }, api);
+    assert.equal(r.ok && r.tabela?.linhas.length, 2);
+    assert.match(r.resumoParaModelo, /2 encontrados/);
+    assert.match(r.resumoParaModelo, /A3CLOUD\.IT LTDA \(CNPJ 10\.455\.355\/0001-29\)/);
+    assert.match(r.resumoParaModelo, /A3 CLOUD TECNOLOGIA/);
+  });
+
+  it('turno 1: proposta com 2 empresas possíveis pergunta qual, sem gravar nada', async () => {
+    const { api, calls } = fakeApi({ 'GET /api/companies': companiesRoute });
+    const llm = fakeLlm({ toolCalls: [{ name: 'criar_rascunho_proposta', args: { cliente: 'A3C cloud', prazo_meses: 36, itens: ITENS } }] });
+    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: PEDIDO }] }, deps({ api, llm }));
+    assert.equal(r.body.tipo, 'texto');
+    assert.match(String(r.body.texto), /Encontrei 2 empresas/);
+    assert.match(String(r.body.texto), /A3CLOUD\.IT LTDA/);
+    assert.match(String(r.body.texto), /A3 CLOUD TECNOLOGIA/);
+    assert.match(String(r.body.texto), /Qual delas\?/);
+    assert.equal(calls.filter((c) => c.method === 'POST').length, 0);
+  });
+
+  it('turno 2: com a empresa escolhida, o histórico vai ao modelo e sai o cartão de rascunho que grava 36 meses', async () => {
+    const { api, calls } = fakeApi({
+      'GET /api/companies': companiesRoute,
+      'POST /api/erp/proposals': (r) => ({ status: 201, body: { data: { id: 'prop-9', code: '2001', ...r.body } } }),
+    });
+    const llm = fakeLlm({ toolCalls: [{ name: 'criar_rascunho_proposta', args: { cliente: 'A3CLOUD.IT LTDA', prazo_meses: '36', itens: ITENS } }] });
+    const d = deps({ api, llm });
+    const historico = [
+      { papel: 'usuario' as const, texto: PEDIDO },
+      { papel: 'assistente' as const, texto: 'Encontrei 2 empresas para "A3C cloud": 1) A3CLOUD.IT LTDA (CNPJ 10.455.355/0001-29); 2) A3 CLOUD TECNOLOGIA DA INFORMACAO LTDA (CNPJ 11.504.452/0001-27). Qual delas?' },
+      { papel: 'usuario' as const, texto: 'a primeira' },
+    ];
+    const chat = await handleChat({ mensagens: historico }, d);
+    const enviados = llm.calls[0].messages.map((m: any) => m.content).join('\n');
+    assert.match(enviados, /36 meses para A3C cloud/);
+    assert.match(enviados, /a primeira/);
+    assert.equal(chat.body.tipo, 'proposta');
+    const prop = chat.body.proposta as any;
+    assert.equal(prop.ferramenta, 'criar_rascunho_proposta');
+    const linhas = prop.linhas.join('\n');
+    assert.match(linhas, /Cliente: A3CLOUD\.IT LTDA — CNPJ 10\.455\.355\/0001-29/);
+    assert.match(linhas, /Prazo: 36 meses/);
+    assert.match(linhas, /3 x Servidor Dell R640.*valor a definir/);
+    const ok = await handleExecute({ token: prop.token, confirmar: true }, d);
+    assert.equal(ok.body.ok, true);
+    const post = calls.find((c) => c.method === 'POST')!;
+    assert.equal(post.body?.companyId, 'co-a3c');
+    assert.equal(post.body?.contractMonths, 36);
+    assert.equal(post.body?.budgetType, 'LOCACAO');
+    assert.equal(post.body?.status, 'RASCUNHO');
+    assert.equal((post.body?.items as any[])[0].quantity, 3);
+    assert.equal((post.body?.items as any[])[0].unitPrice, 0);
+  });
+
+  it('uma empresa só: o cartão sai direto no primeiro turno', async () => {
+    const { api } = fakeApi({ 'GET /api/companies': (r) => ({ status: 200, body: { data: r.path.includes('search') ? [] : [A3[0], A3[2]] } }) });
+    const llm = fakeLlm({ toolCalls: [{ name: 'criar_rascunho_proposta', args: { cliente: 'A3C cloud', prazo_meses: 36, itens: ITENS } }] });
+    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: PEDIDO }] }, deps({ api, llm }));
+    assert.equal(r.body.tipo, 'proposta');
+    assert.match((r.body.proposta as any).linhas.join('\n'), /A3CLOUD\.IT LTDA/);
+  });
+
+  it('catálogo genérico: ações com rotas e disponibilidade por módulo; título e valor são opcionais', () => {
+    const cat = catalogoAcoes();
+    assert.ok(cat.every((c) => c.rotas.length > 0));
+    assert.ok(cat.find((c) => c.acao === 'criar_rascunho_proposta')!.rotas.includes('POST /api/erp/proposals'));
+    const def = toolDefinitionsFor(ALL).find((t) => t.function.name === 'criar_rascunho_proposta')!;
+    assert.deepEqual((def.function.parameters as any).required, ['cliente', 'itens']);
+    assert.deepEqual((def.function.parameters as any).properties.itens.items.required, ['descricao', 'quantidade']);
+    assert.equal(ASSISTENTE_TOOLS.every((t) => typeof t.disponivel === 'function'), true);
   });
 });

@@ -4,7 +4,14 @@
 // Cada ferramenta so chama as MESMAS rotas /api que a tela usa, com a sessao do usuario
 // logado (ApiCaller). Nao ha contexto interno confiavel nem atalho no repositorio: o RBAC,
 // a carteira, os modulos e as travas do roteador valem igual a um clique na interface.
-// O modelo nunca recebe os dados devolvidos; recebe so um resumo sem dados (resumoParaModelo).
+// O modelo nunca recebe os dados devolvidos; recebe so um resumo minimo (resumoParaModelo):
+// contagens e, para empresas, nome e CNPJ (dado cadastral publico) para escolher o cliente.
+//
+// Catalogo extensivel: cada acao declara a rota da tela que usa, os modulos exigidos
+// (mesmo RBAC), quando aparece para o usuario (disponivel) e, se precisar, um passo de
+// preparo so-leitura (preparar) que roda ANTES do cartao de confirmacao. Para uma acao
+// nova: escreva o AssistenteTool e inclua em ASSISTENTE_TOOLS; a confirmacao, a
+// auditoria e os limites vem do service sem codigo extra.
 // Fora da etapa 1: nota fiscal, recibo e mensagens a clientes.
 // ============================================================================
 import { z } from 'zod';
@@ -58,6 +65,15 @@ export interface AssistenteTool<A = any> {
   modulos(args: A): ModuleKey[];
   resumo(args: A): ToolSummary;
   executar(args: A, api: ApiCaller): Promise<ToolResult>;
+  /** Rotas da tela que a acao usa (documentacao do catalogo). */
+  rotas: string[];
+  /** Se a acao aparece para este usuario. Padrao: algum modulo exigido pelo tipo de acao. */
+  disponivel(user: AssistenteUser): boolean;
+  /**
+   * Preparo so-leitura antes do cartao (ex.: identificar a empresa). Pode completar os
+   * argumentos ou devolver uma pergunta ao usuario (ex.: "qual das 2 empresas?").
+   */
+  preparar?(args: A, api: ApiCaller): Promise<{ ok: true; args: A } | { ok: false; texto: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +87,33 @@ export function fold(v: unknown): string {
     .trim()
     .toLowerCase();
 }
+
+/** So letras e numeros, sem acento, minusculo: "A3CLOUD.IT Ltda" => "a3clouditltda". */
+export function compact(v: unknown): string {
+  return fold(v).replace(/[^a-z0-9]+/g, '');
+}
+
+const STOPWORDS = new Set(['ltda', 'sa', 'me', 'epp', 'eireli', 'mei', 'cia', 'de', 'da', 'do', 'das', 'dos', 'e', 'empresa', 'cliente']);
+
+/**
+ * Busca tolerante: ignora espacos, pontuacao, acentos e maiusculas. Combina se o texto
+ * compacto contem a busca compacta, ou se contem todas as palavras da busca.
+ * "A3C cloud" combina com "A3CLOUD.IT LTDA" e com "A3 CLOUD TECNOLOGIA".
+ */
+export function buscaCombina(busca: string, textos: unknown[]): boolean {
+  const q = compact(busca);
+  if (!q) return true;
+  const alvo = textos.map(compact).join(' ');
+  if (alvo.includes(q)) return true;
+  const toks = fold(busca)
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t && !STOPWORDS.has(t));
+  const fortes = toks.filter((t) => t.length >= 2);
+  if (!fortes.length) return false;
+  return fortes.every((t) => alvo.includes(t));
+}
+
+const CNPJ_RE = /\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/;
 
 /** 'YYYY-MM-DD...' ou 'DD/MM/YYYY' => 'YYYY-MM-DD' (ou '' se nao reconhecer). */
 export function toIsoDate(v: unknown): string {
@@ -138,6 +181,8 @@ interface EntidadeDef {
   valor?(r: any): number;
   status?(r: any): unknown;
   texto(r: any): unknown[];
+  /** Identificacao minima de um registro para o modelo (so onde ajuda a escolher). */
+  paraModelo?(r: any): string;
   colunas: string[];
   linha(r: any): string[];
 }
@@ -186,6 +231,7 @@ const ENTIDADE_DEFS: Record<Entidade, EntidadeDef> = {
     pick: (b) => b?.data,
     data: (r) => r.createdAt,
     texto: (r) => [r.name, r.cnpj, r.domain, r.city],
+    paraModelo: (r) => `${cut(r.name, 70)}${r.cnpj ? ` (CNPJ ${cut(r.cnpj, 20)})` : ''}`,
     colunas: ['Empresa', 'CNPJ', 'Cidade', 'UF'],
     linha: (r) => [cut(r.name, 60), cut(r.cnpj, 20), cut(r.city, 30), cut(r.state, 4)],
   },
@@ -248,11 +294,11 @@ async function carregarFiltrado(f: Filtro, api: ApiCaller): Promise<{ ok: true; 
   const res = await api({ method: 'GET', path: def.path });
   if (res.status < 200 || res.status >= 300) return { ok: false, res };
   const all = Array.isArray(def.pick(res.body)) ? def.pick(res.body) : [];
-  const busca = f.busca ? fold(f.busca) : '';
+  const busca = f.busca ? compact(f.busca) : '';
   const status = f.status ? fold(f.status) : '';
   const rows = all.filter((r: any) => {
     if (!r || typeof r !== 'object') return false;
-    if (busca && !def.texto(r).some((t) => fold(t).includes(busca))) return false;
+    if (busca && !buscaCombina(f.busca || '', def.texto(r))) return false;
     if (status && def.status && fold(def.status(r)) !== status && !fold(def.status(r)).startsWith(status)) return false;
     if (f.de || f.ate) {
       const d = toIsoDate(def.data(r));
@@ -285,6 +331,8 @@ type ConsultarArgs = z.infer<typeof consultarSchema>;
 
 const consultar: AssistenteTool<ConsultarArgs> = {
   name: 'consultar',
+  rotas: ['GET /api/erp/contracts', 'GET /api/erp/overview', 'GET /api/companies', 'GET /api/contacts', 'GET /api/erp/invoices', 'GET /api/deals'],
+  disponivel: (u) => u.moduleAccess.crm || u.moduleAccess.erp || u.moduleAccess.chamados,
   descricao:
     'Lista registros do STI-hub (contratos, vendas, ordens_servico, empresas, contatos, faturas, negocios) com filtros opcionais de busca, situação e período. Só leitura.',
   tipo: 'leitura',
@@ -309,7 +357,9 @@ const consultar: AssistenteTool<ConsultarArgs> = {
         ? `${rows.length} ${r.def.rotulo} encontrados${rows.length > shown.length ? `, mostrando os ${shown.length} mais recentes` : ''}.`
         : `Nenhum registro de ${r.def.rotulo} encontrado com esses filtros.`,
       tabela: shown.length ? { colunas: r.def.colunas, linhas: shown.map((x) => r.def.linha(x)) } : undefined,
-      resumoParaModelo: `Consulta de ${r.def.rotulo} executada: ${rows.length} registros (exibidos ao usuário, não enviados a você).`,
+      resumoParaModelo: r.def.paraModelo
+        ? `Consulta de ${r.def.rotulo}: ${rows.length} encontrados${rows.length ? `: ${rows.slice(0, 5).map((x) => r.def.paraModelo!(x)).join('; ')}${rows.length > 5 ? '; ...' : ''}` : ''}.`
+        : `Consulta de ${r.def.rotulo} executada: ${rows.length} registros (exibidos ao usuário, não enviados a você).`,
     };
   },
 };
@@ -322,6 +372,8 @@ type RelatorioArgs = z.infer<typeof relatorioSchema>;
 
 const relatorio: AssistenteTool<RelatorioArgs> = {
   name: 'relatorio',
+  rotas: ['GET /api/erp/contracts', 'GET /api/erp/overview', 'GET /api/companies', 'GET /api/contacts', 'GET /api/erp/invoices', 'GET /api/deals'],
+  disponivel: (u) => u.moduleAccess.crm || u.moduleAccess.erp || u.moduleAccess.chamados,
   descricao:
     'Relatório simples: quantidade e soma de valores de um tipo de registro, agrupados por situação (status) ou por mês, com filtros opcionais. Só leitura.',
   tipo: 'leitura',
@@ -375,19 +427,59 @@ const relatorio: AssistenteTool<RelatorioArgs> = {
 // ---------------------------------------------------------------------------
 // Resolucao de empresa (cadastro) pela rota da tela, com a sessao do usuario
 // ---------------------------------------------------------------------------
-async function resolverEmpresa(nome: string, api: ApiCaller): Promise<{ ok: true; company: any } | { ok: false; result: ToolResult }> {
-  const res = await api({ method: 'GET', path: `/api/companies?search=${encodeURIComponent(nome)}&limit=20` });
-  if (res.status < 200 || res.status >= 300) return { ok: false, result: apiError(res, 'consultar o cadastro de empresas') };
-  const list: any[] = Array.isArray(res.body?.data) ? res.body.data : [];
-  const alvo = fold(nome);
-  const digits = nome.replace(/\D+/g, '');
-  const exact = list.filter((c) => fold(c?.name) === alvo || (digits.length === 14 && String(c?.cnpj || '').replace(/\D+/g, '') === digits));
-  const pick = exact.length === 1 ? exact[0] : list.length === 1 ? list[0] : null;
+type ResolucaoEmpresa = { ok: true; company: any } | { ok: false; candidatos: any[]; result: ToolResult };
+
+/**
+ * Identifica a empresa pelo nome ou CNPJ com a rota da tela (sessao do usuario).
+ * Ordem: CNPJ exato; nome compacto igual; uma unica candidata pela busca tolerante.
+ * Se a busca do servidor nao achar nada, filtra a lista completa localmente.
+ */
+export async function resolverEmpresa(nome: string, api: ApiCaller): Promise<ResolucaoEmpresa> {
+  const cnpjMatch = String(nome || '').match(CNPJ_RE);
+  const cnpj = cnpjMatch ? cnpjMatch[0].replace(/\D+/g, '') : String(nome || '').replace(/\D+/g, '').length === 14 ? String(nome).replace(/\D+/g, '') : '';
+  const semCnpj = cnpjMatch ? String(nome).replace(cnpjMatch[0], '').replace(/\bCNPJ\b/gi, '').replace(/[()—–-]+\s*$/g, '').trim() : String(nome || '');
+  const termo = semCnpj || nome;
+  const buscar = async (path: string): Promise<{ erro: ApiCallResponse } | { list: any[] }> => {
+    const res = await api({ method: 'GET', path });
+    if (res.status < 200 || res.status >= 300) return { erro: res };
+    return { list: Array.isArray(res.body?.data) ? res.body.data : [] };
+  };
+  let r = await buscar(`/api/companies?search=${encodeURIComponent(termo)}&limit=20`);
+  if ('erro' in r) return { ok: false, candidatos: [], result: apiError(r.erro, 'consultar o cadastro de empresas') };
+  let list = r.list;
+  const filtra = (l: any[]) => l.filter((c) => c && (buscaCombina(termo, [c.name, c.tradeName, c.legalName]) || (cnpj && String(c.cnpj || '').replace(/\D+/g, '') === cnpj)));
+  let cands = filtra(list);
+  if (!cands.length) {
+    r = await buscar('/api/companies');
+    if ('erro' in r) return { ok: false, candidatos: [], result: apiError(r.erro, 'consultar o cadastro de empresas') };
+    list = r.list;
+    cands = filtra(list);
+  }
+  const porCnpj = cnpj ? list.filter((c) => String(c?.cnpj || '').replace(/\D+/g, '') === cnpj) : [];
+  if (porCnpj.length === 1) return { ok: true, company: porCnpj[0] };
+  const alvo = compact(termo);
+  const exact = cands.filter((c) => compact(c?.name) === alvo);
+  const pick = exact.length === 1 ? exact[0] : cands.length === 1 ? cands[0] : null;
   if (pick) return { ok: true, company: pick };
-  const msg = list.length
-    ? `Encontrei ${list.length} empresas para "${cut(nome, 60)}". Diga qual: ${list.slice(0, 5).map((c) => cut(c?.name, 50)).join('; ')}.`
-    : `Não encontrei a empresa "${cut(nome, 60)}" no cadastro.`;
-  return { ok: false, result: { ok: false, status: 404, mensagem: msg, resumoParaModelo: `Empresa não identificada (${list.length} candidatas). Peça ao usuário o nome exato.` } };
+  const ident = (c: any) => `${cut(c?.name, 60)}${c?.cnpj ? ` (CNPJ ${cut(c.cnpj, 20)})` : ''}`;
+  const msg = cands.length
+    ? `Encontrei ${cands.length} empresas para "${cut(termo, 60)}": ${cands.slice(0, 5).map((c, i) => `${i + 1}) ${ident(c)}`).join('; ')}. Qual delas?`
+    : `Não encontrei a empresa "${cut(termo, 60)}" no cadastro. Informe o nome completo ou o CNPJ.`;
+  return {
+    ok: false,
+    candidatos: cands,
+    result: { ok: false, status: 404, mensagem: msg, resumoParaModelo: `Empresa não identificada (${cands.length} candidatas). ${msg}` },
+  };
+}
+
+/** Texto canonico do cliente depois de identificado (o CNPJ evita ambiguidade na execucao). */
+const clienteCanonico = (c: any) => (c?.cnpj ? `${String(c.name || '').trim()} — CNPJ ${String(c.cnpj).trim()}` : String(c?.name || '').trim());
+
+/** preparar() comum das acoes com cliente: identifica a empresa ou pergunta qual. */
+async function prepararCliente<A extends { cliente: string }>(a: A, api: ApiCaller): Promise<{ ok: true; args: A } | { ok: false; texto: string }> {
+  const emp = await resolverEmpresa(a.cliente, api);
+  if (!emp.ok) return { ok: false, texto: emp.result.mensagem };
+  return { ok: true, args: { ...a, cliente: clienteCanonico(emp.company) } };
 }
 
 // ---------------------------------------------------------------------------
@@ -397,14 +489,16 @@ const itemSchema = z
   .object({
     descricao: shortText(200),
     quantidade: z.number().positive().max(100000),
-    valor_unitario: z.number().min(0).max(100_000_000),
+    /** Opcional: sem valor, o item fica "a definir" (R$ 0) para preencher no ERP. */
+    valor_unitario: z.number().min(0).max(100_000_000).optional(),
     tipo: z.enum(['locacao', 'servico', 'produto']).optional(),
   })
   .strict();
 const propostaSchema = z
   .object({
-    cliente: shortText(120),
-    titulo: shortText(160),
+    cliente: shortText(160),
+    titulo: z.string().trim().max(160).optional(),
+    prazo_meses: z.number().int().min(1).max(120).optional(),
     itens: z.array(itemSchema).min(1).max(30),
     observacoes: z.string().trim().max(1000).optional(),
   })
@@ -412,18 +506,24 @@ const propostaSchema = z
 type PropostaArgs = z.infer<typeof propostaSchema>;
 
 const NATUREZA: Record<string, string> = { locacao: 'LOCACAO_BENS_MOVEIS', servico: 'SERVICO_TECNICO_TI_TELECOM', produto: 'VENDA_EQUIPAMENTO' };
-const totalProposta = (a: PropostaArgs) => a.itens.reduce((s, i) => s + i.quantidade * i.valor_unitario, 0);
+const totalProposta = (a: PropostaArgs) => a.itens.reduce((s, i) => s + i.quantidade * (i.valor_unitario || 0), 0);
+const semValor = (a: PropostaArgs) => a.itens.some((i) => !i.valor_unitario);
+const tituloProposta = (a: PropostaArgs) => a.titulo || `Proposta${a.prazo_meses ? ` de ${a.prazo_meses} meses` : ''}`;
 
 const criarRascunhoProposta: AssistenteTool<PropostaArgs> = {
   name: 'criar_rascunho_proposta',
+  rotas: ['GET /api/companies', 'POST /api/erp/proposals'],
+  disponivel: (u) => u.moduleAccess.erp,
+  preparar: prepararCliente,
   descricao:
-    'Cria uma proposta/orçamento como RASCUNHO no ERP (não envia ao cliente). Exige o nome da empresa cliente já cadastrada, um título e os itens.',
+    'Cria uma proposta/orçamento como RASCUNHO no ERP (não envia ao cliente). Use direto quando pedirem proposta/orçamento: passe o cliente como o usuário escreveu (o sistema identifica a empresa), os itens com quantidade e, se houver, o prazo em meses. Valor unitário é opcional: sem valor, o item fica a definir.',
   tipo: 'gravacao',
   parameters: {
     type: 'object',
     properties: {
-      cliente: { type: 'string', description: 'Nome (ou CNPJ) da empresa cliente cadastrada.' },
-      titulo: { type: 'string', description: 'Título da proposta.' },
+      cliente: { type: 'string', description: 'Nome ou CNPJ do cliente, como o usuário escreveu.' },
+      titulo: { type: 'string', description: 'Título curto da proposta (opcional).' },
+      prazo_meses: { type: 'integer', minimum: 1, maximum: 120, description: 'Prazo do contrato em meses (ex.: 36), se informado.' },
       itens: {
         type: 'array',
         minItems: 1,
@@ -433,16 +533,16 @@ const criarRascunhoProposta: AssistenteTool<PropostaArgs> = {
           properties: {
             descricao: { type: 'string' },
             quantidade: { type: 'number' },
-            valor_unitario: { type: 'number', description: 'Valor unitário em reais.' },
-            tipo: { type: 'string', enum: ['locacao', 'servico', 'produto'] },
+            valor_unitario: { type: 'number', description: 'Valor unitário mensal em reais (opcional; omita se não informado).' },
+            tipo: { type: 'string', enum: ['locacao', 'servico', 'produto'], description: 'Padrão locacao.' },
           },
-          required: ['descricao', 'quantidade', 'valor_unitario'],
+          required: ['descricao', 'quantidade'],
           additionalProperties: false,
         },
       },
       observacoes: { type: 'string', description: 'Observações internas (opcional).' },
     },
-    required: ['cliente', 'titulo', 'itens'],
+    required: ['cliente', 'itens'],
     additionalProperties: false,
   },
   schema: propostaSchema,
@@ -451,9 +551,10 @@ const criarRascunhoProposta: AssistenteTool<PropostaArgs> = {
     titulo: 'Criar rascunho de proposta',
     linhas: [
       `Cliente: ${a.cliente}`,
-      `Título: ${a.titulo}`,
-      ...a.itens.map((i) => `${i.quantidade} x ${i.descricao} (${i.tipo || 'locacao'}) a ${formatBRL(i.valor_unitario)}`),
-      `Total: ${formatBRL(totalProposta(a))}`,
+      `Título: ${tituloProposta(a)}`,
+      ...(a.prazo_meses ? [`Prazo: ${a.prazo_meses} meses`] : []),
+      ...a.itens.map((i) => `${i.quantidade} x ${i.descricao} (${i.tipo || 'locacao'}) a ${i.valor_unitario ? formatBRL(i.valor_unitario) : 'valor a definir'}`),
+      `Total${a.itens.some((i) => (i.tipo || 'locacao') === 'locacao') ? ' mensal' : ''}: ${formatBRL(totalProposta(a))}${semValor(a) ? ' (há itens sem valor; preencha no ERP)' : ''}`,
       ...(a.observacoes ? [`Observações: ${cut(a.observacoes, 200)}`] : []),
       'Situação: rascunho (nada é enviado ao cliente)',
     ],
@@ -465,8 +566,9 @@ const criarRascunhoProposta: AssistenteTool<PropostaArgs> = {
     const budgetType = tipos.size > 1 ? 'CONJUNTO' : tipos.has('servico') ? 'SERVICOS' : tipos.has('produto') ? 'PRODUTOS' : 'LOCACAO';
     const stamp = Date.now();
     const body: Record<string, unknown> = {
-      title: a.titulo,
+      title: tituloProposta(a),
       status: 'RASCUNHO',
+      ...(a.prazo_meses ? { contractMonths: a.prazo_meses } : {}),
       budgetType,
       companyId: emp.company.id,
       companyName: emp.company.name,
@@ -481,13 +583,15 @@ const criarRascunhoProposta: AssistenteTool<PropostaArgs> = {
           fiscalNature: NATUREZA[tipo],
           ncmOrServiceCode: '',
           quantity: i.quantidade,
-          unitPrice: i.valor_unitario,
+          unitPrice: i.valor_unitario || 0,
           discountPercent: 0,
           isRecurring: tipo === 'locacao',
-          totalMonthly: Math.round(i.quantidade * i.valor_unitario * 100) / 100,
+          totalMonthly: Math.round(i.quantidade * (i.valor_unitario || 0) * 100) / 100,
         };
       }),
-      ...(a.observacoes ? { internalNotes: a.observacoes } : {}),
+      ...(a.observacoes || semValor(a)
+        ? { internalNotes: [a.observacoes, semValor(a) ? 'Criada pelo assistente de IA: há itens sem valor unitário, preencher.' : ''].filter(Boolean).join('\n') }
+        : {}),
     };
     const res = await api({ method: 'POST', path: '/api/erp/proposals', body });
     if (res.status < 200 || res.status >= 300) return apiError(res, 'criar a proposta');
@@ -496,7 +600,7 @@ const criarRascunhoProposta: AssistenteTool<PropostaArgs> = {
       ok: true,
       mensagem: `Rascunho de proposta ${p.code ? `#${p.code} ` : ''}criado para ${cut(emp.company.name, 60)}, no total de ${formatBRL(totalProposta(a))}. Nada foi enviado ao cliente.`,
       registro: { tipo: 'proposta', id: String(p.id || ''), codigo: p.code ? String(p.code) : undefined },
-      resumoParaModelo: `Rascunho de proposta criado (código ${p.code || 'n/d'}).`,
+      resumoParaModelo: `Rascunho de proposta criado (código ${p.code || 'n/d'}). Não crie outra para o mesmo pedido.`,
     };
   },
 };
@@ -519,6 +623,8 @@ type ChamadoArgs = z.infer<typeof chamadoSchema>;
 
 const abrirChamado: AssistenteTool<ChamadoArgs> = {
   name: 'abrir_chamado',
+  rotas: ['GET /api/companies', 'POST /api/tickets'],
+  disponivel: (u) => u.moduleAccess.chamados,
   descricao: 'Abre um chamado (ticket) no módulo Chamados. Não envia mensagem ao cliente.',
   tipo: 'gravacao',
   parameters: {
@@ -593,6 +699,9 @@ type OsArgs = z.infer<typeof osSchema>;
 
 const abrirOs: AssistenteTool<OsArgs> = {
   name: 'abrir_os',
+  rotas: ['GET /api/companies', 'GET /api/erp/overview', 'POST /api/erp/service-orders'],
+  disponivel: (u) => u.moduleAccess.erp,
+  preparar: prepararCliente,
   descricao: 'Abre uma ordem de serviço (OS) "Em aberto" no ERP para uma empresa cliente cadastrada.',
   tipo: 'gravacao',
   parameters: {
@@ -678,12 +787,15 @@ export function userCanUseTool(tool: AssistenteTool, args: unknown, user: Assist
   return tool.modulos(args).every((m) => user.moduleAccess[m] === true);
 }
 
-/** Ferramentas oferecidas ao modelo: so as que o usuario tem algum modulo para usar. */
+/** Ferramentas oferecidas ao modelo: so as disponiveis para os modulos do usuario. */
 export function toolDefinitionsFor(user: AssistenteUser): LlmToolDefinition[] {
-  const any = user.moduleAccess.crm || user.moduleAccess.erp || user.moduleAccess.chamados;
-  return ASSISTENTE_TOOLS.filter((t) => {
-    if (t.name === 'abrir_chamado') return user.moduleAccess.chamados;
-    if (t.name === 'criar_rascunho_proposta' || t.name === 'abrir_os') return user.moduleAccess.erp;
-    return any;
-  }).map((t) => ({ type: 'function' as const, function: { name: t.name, description: t.descricao, parameters: t.parameters } }));
+  return ASSISTENTE_TOOLS.filter((t) => t.disponivel(user)).map((t) => ({
+    type: 'function' as const,
+    function: { name: t.name, description: t.descricao, parameters: t.parameters },
+  }));
+}
+
+/** Catalogo legivel (acao, tipo, modulos e rotas) para documentacao e auditoria. */
+export function catalogoAcoes(): Array<{ acao: string; tipo: 'leitura' | 'gravacao'; rotas: string[] }> {
+  return ASSISTENTE_TOOLS.map((t) => ({ acao: t.name, tipo: t.tipo, rotas: [...t.rotas] }));
 }

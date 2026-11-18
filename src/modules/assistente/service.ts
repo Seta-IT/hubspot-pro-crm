@@ -83,10 +83,13 @@ function systemPrompt(user: AssistenteUser, now: number): string {
     'Você é o Assistente do STI-hub, sistema de CRM, ERP e Chamados da Seta Telecom.',
     'Responda sempre em português do Brasil, de forma curta e direta, sem emojis.',
     `Hoje é ${hoje}. Módulos liberados para este usuário: ${mods}.`,
-    'Para qualquer consulta de dados, relatório, rascunho de proposta, abertura de chamado ou de OS, chame UMA ferramenta.',
-    'Você não vê os dados do sistema: o resultado é mostrado direto ao usuário depois que ele confirma. Nunca invente números, nomes ou registros.',
+    'Faça a ação que o usuário pediu. Para consulta, relatório, proposta, chamado ou OS, chame UMA ferramenta por resposta.',
+    'Proposta ou orçamento: chame criar_rascunho_proposta direto, sem consultar empresas antes. Passe o cliente como o usuário escreveu (o sistema identifica a empresa e pergunta se houver mais de uma), o prazo em meses e cada item com descrição e quantidade. Se o valor unitário não foi dito, omita: o item fica a definir. Não peça valores antes de montar o rascunho.',
+    'Ex.: "proposta de locação de 36 meses para X de 3 servidores Dell R640 com 256 GB e 3 SSDs de 2 TB" => criar_rascunho_proposta {cliente:"X", prazo_meses:36, itens:[{descricao:"Servidor Dell R640, 256 GB RAM, 3 SSD 2 TB", quantidade:3, tipo:"locacao"}]}.',
+    'Use o histórico: se o usuário já pediu uma proposta e agora escolheu ou confirmou a empresa (por nome, CNPJ ou número da lista), chame criar_rascunho_proposta com essa empresa e os itens do pedido original.',
+    'Não repita uma consulta que já está no histórico. Resultados chegam como "Resultado: ..." com o mínimo (quantidade e, para empresas, nome e CNPJ); o resto é mostrado direto ao usuário. Nunca invente números, nomes ou registros.',
+    'Se houver mais de uma empresa possível, pergunte qual, listando as opções. Se faltar algo que impeça a ação (ex.: nenhum item), pergunte só isso.',
     'Antes de qualquer ação o usuário confirma num cartão; não diga que algo foi feito, diga que preparou a ação para confirmação.',
-    'Se faltar informação obrigatória (cliente, itens, descrição), pergunte antes de chamar a ferramenta.',
     'Datas sempre no formato AAAA-MM-DD nos argumentos.',
     'Fora do seu escopo nesta etapa: emitir nota fiscal, emitir recibo, enviar e-mail, WhatsApp ou qualquer mensagem a clientes, excluir registros e alterar usuários ou permissões. Se pedirem, explique que ainda não está disponível e indique a tela do sistema.',
     'Nunca peça nem repita senhas, tokens ou chaves.',
@@ -131,6 +134,7 @@ function coerceNumbers(tool: string, args: any): any {
     args.itens = args.itens.map((i: any) => (i && typeof i === 'object' ? { ...i, quantidade: num(i.quantidade), valor_unitario: num(i.valor_unitario) } : i));
   }
   if ((tool === 'consultar' || tool === 'relatorio') && args && 'limite' in args) args.limite = num(args.limite);
+  if (tool === 'criar_rascunho_proposta' && args && 'prazo_meses' in args) args.prazo_meses = num(args.prazo_meses);
   return args;
 }
 
@@ -185,12 +189,26 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
     const falta = tool.modulos(valid.data).filter((m) => !deps.user.moduleAccess[m]).map((m) => MODULO_ROTULO[m]).join(', ');
     return { status: 200, body: { tipo: 'texto', texto: `Seu usuário não tem acesso ao módulo ${falta}, então não posso fazer essa ação.` } };
   }
-  const resumo = tool.resumo(valid.data);
+  // Preparo so-leitura (ex.: identificar a empresa) antes do cartao, com a sessao do usuario.
+  let finalArgs: any = valid.data;
+  if (tool.preparar) {
+    let prep: { ok: true; args: unknown } | { ok: false; texto: string };
+    try {
+      prep = await tool.preparar(valid.data, deps.api);
+    } catch {
+      prep = { ok: false, texto: 'Não consegui consultar o cadastro agora. Tente de novo.' };
+    }
+    if (!prep.ok) return { status: 200, body: { tipo: 'texto', texto: prep.texto } };
+    const again = tool.schema.safeParse(prep.args);
+    if (!again.success) return { status: 200, body: { tipo: 'texto', texto: 'Não consegui preparar essa ação. Pode detalhar?' } };
+    finalArgs = again.data;
+  }
+  const resumo = tool.resumo(finalArgs);
   const { token } = signActionToken(deps.secret, {
     uid,
     sid: deps.sid,
     tool: tool.name,
-    args: valid.data as Record<string, unknown>,
+    args: finalArgs as Record<string, unknown>,
     exp: deps.now() + ASSISTENTE_LIMITS.proposalTtlMs,
   });
   return {
