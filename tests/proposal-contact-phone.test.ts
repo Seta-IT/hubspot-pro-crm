@@ -49,7 +49,8 @@ describe('proposta de SERVICOS de cobranca unica (todos os itens isRecurring=fal
   const src = readFileSync(join(process.cwd(), 'src/app/proposta/[id]/page.tsx'), 'utf8');
   it('detecta servico unico e mostra Valor Total sem /mes nem setup duplicado', () => {
     assert.ok(src.includes('proposal.items.every((i) => i.isRecurring === false)'));
-    assert.ok(src.includes('const showTotalInsteadOfMonthly = isProductsOnly || isOneTimeServices;'));
+    assert.ok(src.includes('const uniquePayment = isOneTimeServices || avulsoService;'));
+    assert.ok(src.includes('const showTotalInsteadOfMonthly = isProductsOnly || uniquePayment;'));
     assert.ok(src.includes('? oneTimeServicesSetupFee > 0'));
     assert.ok(src.includes('Valor Total (Pagamento Único)'));
   });

@@ -1,7 +1,7 @@
 import type { ErpCommercialProposal } from '../../db/types';
 import { DEFAULT_COMPANY_EMITTER_SETTINGS } from '../../modules/erp/daily-sync-service';
 import { formatIssuerAddress, type IssuerAddressInput } from './company-issuer-address';
-import { resolveProposalCommercialFigures } from './proposal-share';
+import { readablePaymentCondition, resolveProposalCommercialFigures } from './proposal-share';
 import { formatProposalValidUntilPtBr, isProposalValidityExpired } from './proposal-validity';
 import {
   FORBIDDEN_TEMPLATE_CNPJ,
@@ -194,7 +194,8 @@ export function buildInternalProposalSheet(
   const issuer = resolveInternalIssuer(options?.issuer);
   const figures = resolveProposalCommercialFigures(proposal);
   const months = figures.months;
-  const monthLabel = months > 0 ? `${months} ${months === 1 ? 'mês' : 'meses'}` : '';
+  const oneTime = figures.oneTime;
+  const monthLabel = !oneTime && months > 0 ? `${months} ${months === 1 ? 'mês' : 'meses'}` : '';
   const service = kind === 'SERVICO' || kind === 'SPARE_PARTS';
   const headline = service
     ? `Proposta de Serviço${monthLabel ? ` - ${monthLabel}` : ''}`
@@ -210,12 +211,12 @@ export function buildInternalProposalSheet(
   const proposalKind = service ? 'Serviço' : 'Locação';
   const summaryRows: Array<{ label: string; value: string }> = [
     { label: 'Proposta', value: `${proposalKind}${monthLabel ? ` - ${monthLabel}` : ''}` },
-    { label: 'Valor mensal', value: money(monthly) },
+    { label: oneTime ? 'Valor total (pagamento único)' : 'Valor mensal', value: money(monthly) },
     { label: 'Prazo de entrega estimado', value: delivery || INTERNAL_FIELD_BLANK },
   ];
   if (freight > 0) summaryRows.push({ label: 'Frete', value: `${money(freight)} (pagamento único)` });
   if (sla && sla !== 'não definido') summaryRows.push({ label: 'SLA', value: sla });
-  summaryRows.push({ label: 'Reajuste anual', value: readjustment });
+  if (!oneTime) summaryRows.push({ label: 'Reajuste anual', value: readjustment });
   const seen = new Set(summaryRows.map((row) => `${row.label}|${row.value}`.toLowerCase()));
   for (const row of rowsFromFreeConditionText(proposal.commercialNotes)) {
     const key = `${row.label}|${row.value}`.toLowerCase();
@@ -235,17 +236,29 @@ export function buildInternalProposalSheet(
     subtotal: amount(Number(item.totalMonthly ?? item.subtotal ?? 0)),
   }));
   const qtyTotal = amount((proposal.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0));
-  const payment = String(proposal.paymentCondition || '').trim();
+  const payment = oneTime
+    ? readablePaymentCondition(proposal.paymentCondition)
+    : String(proposal.paymentCondition || '').trim();
   const subject = service ? 'serviço' : 'locação';
-  const paymentRows = [
-    {
-      due: monthLabel ? `Mensal · ${months} mensalidades` : 'Mensal',
-      amount: money(monthly),
-      method: payment || INTERNAL_FIELD_BLANK,
-      methodMissing: !payment,
-      note: `Mensalidade da ${subject}, reajuste anual pelo ${readjustment}`,
-    },
-  ];
+  const paymentRows = oneTime
+    ? [
+        {
+          due: 'Pagamento único',
+          amount: money(monthly),
+          method: payment || INTERNAL_FIELD_BLANK,
+          methodMissing: !payment,
+          note: `Pagamento único do ${subject}`,
+        },
+      ]
+    : [
+        {
+          due: monthLabel ? `Mensal · ${months} mensalidades` : 'Mensal',
+          amount: money(monthly),
+          method: payment || INTERNAL_FIELD_BLANK,
+          methodMissing: !payment,
+          note: `Mensalidade da ${subject}, reajuste anual pelo ${readjustment}`,
+        },
+      ];
   if (freight > 0) {
     paymentRows.push({
       due: 'Pagamento único',
@@ -268,11 +281,11 @@ export function buildInternalProposalSheet(
     proposalDateLabel: formatIsoDatePt(proposal.proposalDate || proposal.createdAt),
     contractNumber: String(options?.contractNumber || '').trim(),
     headline,
-    monthlyLine: `Valor Mensal de ${money(monthly)}`,
+    monthlyLine: oneTime ? `Valor total (pagamento único) de ${money(monthly)}` : `Valor Mensal de ${money(monthly)}`,
     deliveryLine: `Prazo de Entrega Estimado: ${delivery || INTERNAL_FIELD_BLANK}`,
     freightLine: freight > 0 ? `Frete: ${money(freight)} (pagamento único)` : '',
     slaLine: sla === 'não definido' ? '' : sla,
-    readjustmentLine: `Reajuste anual: ${readjustment}`,
+    readjustmentLine: oneTime ? '' : `Reajuste anual: ${readjustment}`,
     summaryRows,
     notices: SETA_INTERNAL_PROPOSAL_NOTICES,
     validityExpiredSince: isProposalValidityExpired(proposal.validUntil) ? (formatProposalValidUntilPtBr(proposal.validUntil) || formatIsoDatePt(proposal.validUntil)) : null,

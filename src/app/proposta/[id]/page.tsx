@@ -41,6 +41,7 @@ import {
   decodeProposalFromQueryParam,
   inferProposalItemType,
   cleanProposalPaymentCondition,
+  readablePaymentCondition,
   cleanProposalTechnicalClauses,
   PROPOSAL_SLA_OPTIONS,
   resolveProposalSellerContact,
@@ -952,20 +953,27 @@ function PublicProposalPrintContent() {
   const resolvedSla = resolveProposalSlaOption(proposal);
   const hasSelectedSla =
     !isProductsOnly && resolvedSla.id !== "SEM_SLA_ESPECIFICO" && Boolean(resolvedSla.shortLabel);
+  const commercialFigures = resolveProposalCommercialFigures(proposal);
+  const avulsoService = commercialFigures.oneTime;
+  const uniquePayment = isOneTimeServices || avulsoService;
+  const uniquePaymentLabel = avulsoService
+    ? "Valor total (pagamento único)"
+    : "Valor Total (Pagamento Único)";
   const hasContractVigencia =
-    !isProductsOnly && (isRental || proposal.items.some((i) => i.isRecurring !== false));
+    !avulsoService && !isProductsOnly && (isRental || proposal.items.some((i) => i.isRecurring !== false));
   const sellerContact = resolveProposalSellerContact(proposal);
   const displayPaymentCondition =
-    cleanProposalPaymentCondition(proposal.paymentCondition) || "Conforme condições acordadas";
-  const commercialFigures = resolveProposalCommercialFigures(proposal);
+    (avulsoService
+      ? readablePaymentCondition(proposal.paymentCondition)
+      : cleanProposalPaymentCondition(proposal.paymentCondition)) || "Conforme condições acordadas";
   const commercialTotalAmount = isProductsOnly
     ? // Venda: subtotal (itens ja liquidos do desconto do item) - desconto global + frete; sem setup.
       Math.round((productsSubtotal + servicesSubtotal - globalDiscountVal + shippingCost) * 100) / 100
-    : isOneTimeServices
-      ? Number(proposal.totalContractValue || 0)
+    : uniquePayment
+      ? Number(proposal.totalContractValue || commercialFigures.monthly || 0)
       : proposal.monthlyRecurringTotal || proposal.totalContractValue;
   const displaySetupAmount = isOneTimeServices ? oneTimeServicesSetupFee : isolatedSetupTotal;
-  const showTotalInsteadOfMonthly = isProductsOnly || isOneTimeServices;
+  const showTotalInsteadOfMonthly = isProductsOnly || uniquePayment;
 
 
   // Classes de cada modelo vêm do módulo comum (também usado pelo Recibo/Fatura de Locação).
@@ -1209,7 +1217,7 @@ function PublicProposalPrintContent() {
                     : ""}
                 </div>
                 <div className="text-[11px] text-amber-800">
-                  {isOneTimeServices ? (
+                  {uniquePayment ? (
                     <>Valor nesta versão: <strong>{formatBRL(commercialTotalAmount)}</strong> (pagamento único) •{" "}</>
                   ) : (
                     <>
@@ -1361,7 +1369,7 @@ function PublicProposalPrintContent() {
                         <tr>
                           <th className="py-3 px-4 w-36">Versão</th>
                           <th className="py-3 px-4 w-48">Data / Hora &amp; Responsável</th>
-                          <th className="py-3 px-4">Valor Mensal / Resumo</th>
+                          <th className="py-3 px-4">{avulsoService ? "Valor total (pagamento único) / Resumo" : "Valor Mensal / Resumo"}</th>
                           <th className="py-3 px-4 text-right">Ações da Versão</th>
                         </tr>
                       </thead>
@@ -1418,8 +1426,9 @@ function PublicProposalPrintContent() {
 
                               <td className="py-3.5 px-4">
                                 <div className="font-semibold text-emerald-700 text-xs">
-                                  {formatBRL(mrrVal)}/mês • {itemsCount}{" "}
-                                  {itemsCount === 1 ? "item" : "itens"} • {monthsVal} meses
+                                  {avulsoService
+                                    ? `${formatBRL(proposal.totalContractValue || mrrVal)} (pagamento único) • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"}`
+                                    : `${formatBRL(mrrVal)}/mês • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"} • ${monthsVal} meses`}
                                 </div>
                                 <div className="text-[11px] text-slate-600 mt-0.5">
                                   {ver.changeSummary}
@@ -1550,10 +1559,10 @@ function PublicProposalPrintContent() {
                 <div className="font-semibold text-slate-900">{proposal.companyName}</div>
                 <div className="text-slate-600">
                   {proposal.companyCnpj ? <>CNPJ: <strong>{proposal.companyCnpj}</strong> • </> : null}
-                  {isOneTimeServices ? (
+                  {uniquePayment ? (
                     <>
-                      Valor Total (Pagamento Único):{" "}
-                      <strong className="text-emerald-700">{formatBRL(commercialTotalAmount)}</strong>
+                      {uniquePaymentLabel}:{" "}
+                      <strong className="text-[#1e3a6e]">{formatBRL(commercialTotalAmount)}</strong>
                     </>
                   ) : (
                     <>
@@ -1978,10 +1987,10 @@ function PublicProposalPrintContent() {
             <div className={`print-avoid-break grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-5 print:grid-cols-5" : "sm:grid-cols-4 print:grid-cols-4"} gap-2.5 p-3.5 print:p-2 rounded-lg ${stripBoxClass} text-xs`}>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
                 <span className="text-[10px] uppercase text-slate-500 font-semibold block">
-                  {isOneTimeServices ? "Valor Total (Pagamento Único)" : "Valor Mensal"}
+                  {uniquePayment ? uniquePaymentLabel : "Valor Mensal"}
                 </span>
-                <span className="font-semibold text-emerald-700 text-sm">
-                  {isOneTimeServices
+                <span className="font-semibold text-[#1e3a6e] text-sm">
+                  {uniquePayment
                     ? formatBRL(commercialTotalAmount)
                     : `${formatBRL(proposal.monthlyRecurringTotal || commercialTotalAmount)}/mês`}
                 </span>
@@ -2032,7 +2041,14 @@ function PublicProposalPrintContent() {
             </h2>
             {proposal.introductionText && (
               <p className="text-xs text-slate-600 leading-relaxed">
-                {proposal.introductionText}
+                {avulsoService
+                  ? proposal.introductionText
+                      .replace(/valor mensal/gi, "Valor total (pagamento único)")
+                      .replace(/\b1\s*m[eê]s\b/gi, "")
+                      .replace(/reajuste anual(?:\s+pelo)?\s+IPCA/gi, "")
+                      .replace(/\s{2,}/g, " ")
+                      .trim()
+                  : proposal.introductionText}
               </p>
             )}
           </div>
@@ -2143,9 +2159,9 @@ function PublicProposalPrintContent() {
             </div>
             <div className="text-right">
               <span className="text-[10px] uppercase font-semibold text-emerald-700 block">
-                {showTotalInsteadOfMonthly ? "Valor Total" : "Valor Mensal"}
+                {uniquePayment ? uniquePaymentLabel : showTotalInsteadOfMonthly ? "Valor Total" : "Valor Mensal"}
               </span>
-              <span className="text-sm font-semibold text-emerald-700">
+              <span className="text-sm font-semibold text-[#1e3a6e]">
                 {formatBRL(showTotalInsteadOfMonthly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
               </span>
             </div>
@@ -2171,9 +2187,9 @@ function PublicProposalPrintContent() {
               <div className="space-y-1.5">
                 <div>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-[#1e3a6e] block">
-                    {showTotalInsteadOfMonthly ? "Valor Total" : "Valor Mensal"}
+                    {uniquePayment ? uniquePaymentLabel : showTotalInsteadOfMonthly ? "Valor Total" : "Valor Mensal"}
                   </span>
-                  <div className="text-2xl print:text-xl font-semibold text-emerald-700 mt-0.5">
+                  <div className="text-2xl print:text-xl font-semibold text-[#1e3a6e] mt-0.5">
                     {formatBRL(showTotalInsteadOfMonthly ? commercialTotalAmount : proposal.monthlyRecurringTotal || commercialTotalAmount)}
                     {!showTotalInsteadOfMonthly && (
                       <span className="text-xs font-semibold text-slate-500">/mês</span>
@@ -2317,7 +2333,9 @@ function PublicProposalPrintContent() {
                   {isProductsOnly
                     ? "Declaramos estar de acordo com as especificações dos produtos, quantidades, prazo de entrega e condições comerciais descritas nesta Proposta Comercial, autorizando o faturamento e fornecimento pela SETA TELECOM LTDA."
                     : isServices && !isRental
-                      ? `Declaramos estar de acordo com o escopo de ${serviceTypeLabel}, prazos e condições comerciais descritas nesta Proposta de Serviços, autorizando a execução e o faturamento pela SETA TELECOM LTDA.`
+                      ? avulsoService
+                        ? `Declaramos estar de acordo com o escopo de ${serviceTypeLabel} e com o valor total (pagamento único) descrito nesta Proposta de Serviços, autorizando a execução e o faturamento pela SETA TELECOM LTDA.`
+                        : `Declaramos estar de acordo com o escopo de ${serviceTypeLabel}, prazos e condições comerciais descritas nesta Proposta de Serviços, autorizando a execução e o faturamento pela SETA TELECOM LTDA.`
                       : "Declaramos estar de acordo com as especificações técnicas, prazos, fluxo de contratação e condições comerciais descritas nesta Proposta de Locação, autorizando a emissão do respectivo Contrato de Locação pela SETA TELECOM LTDA."}
                 </p>
 

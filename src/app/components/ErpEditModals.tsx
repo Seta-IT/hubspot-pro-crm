@@ -61,7 +61,7 @@ import {
   formatCpfMask,
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
-import { buildProposalVersionShortUrl, computeProposalTotals, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
+import { buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, readablePaymentCondition, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
 import { useContractAuxiliaryOptions } from '../lib/use-contract-aux-options';
 import {
   computeCustomDueDateClient,
@@ -532,6 +532,7 @@ export function ProposalEditModal({
     const perInstallment = Math.floor((baseTotal / count) * 100) / 100;
     const remainder = Math.round((baseTotal - perInstallment * count) * 100) / 100;
 
+    const avulso = isAvulsoServiceProposal(draft);
     const generated: ErpProposalInstallment[] = Array.from({ length: count }, (_, i) => {
       const due = new Date(validBaseDate.getTime() + i * 30 * 86400000);
       const dueStr = due.toISOString().slice(0, 10);
@@ -541,20 +542,27 @@ export function ProposalEditModal({
         dueDate: dueStr,
         amount: amt,
         paymentMethod: method,
-        notes:
-          count === 1
+        notes: avulso
+          ? count === 1
+            ? 'Pagamento único'
+            : `Parcela ${i + 1}/${count} do pagamento único`
+          : count === 1
             ? 'Pagamento à vista'
             : `Parcela ${i + 1}/${count} (${method})`,
       };
     });
 
     setInstallmentCount(count);
+    const dueLabel = generated[0]?.dueDate || firstDueDate;
     updateDraft({
       installments: generated,
-      paymentCondition:
-        count === 1
-          ? `À Vista (${method}) — Vencimento ${generated[0]?.dueDate || firstDueDate}`
-          : `Parcelado em ${count}x de ${formatBRL(perInstallment)} (${method}) — 1º Venc: ${generated[0]?.dueDate || firstDueDate}`,
+      paymentCondition: avulso
+        ? count === 1
+          ? 'À vista — Pagamento único'
+          : `Parcelado em ${count}x de ${formatBRL(perInstallment)} — Pagamento único — 1º venc. ${dueLabel}`
+        : count === 1
+          ? `À Vista (${method}) — Vencimento ${dueLabel}`
+          : `Parcelado em ${count}x de ${formatBRL(perInstallment)} (${method}) — 1º Venc: ${dueLabel}`,
     });
   };
 
@@ -1200,10 +1208,22 @@ export function ProposalEditModal({
                     </label>
                     <select
                       value={[1, 6, 12, 24, 36, 48, 60].includes(Number(draft.contractMonths)) ? String(draft.contractMonths) : "24"}
-                      onChange={(e) => updateDraft({ contractMonths: Math.max(1, Number(e.target.value) || 24) })}
+                      onChange={(e) => {
+                        const contractMonths = Math.max(1, Number(e.target.value) || 24);
+                        const turningAvulso = draft.budgetType === "SERVICOS" && contractMonths === 1;
+                        if (turningAvulso) setInstallmentCount(1);
+                        const rawCondition = String(draft.paymentCondition || "").trim();
+                        const conditionIsSlug = /^a[_ ]?vista$/i.test(rawCondition) || /^pagamento_unico$/i.test(rawCondition);
+                        updateDraft({
+                          contractMonths,
+                          ...(turningAvulso && (!rawCondition || conditionIsSlug)
+                            ? { paymentCondition: "À vista — Pagamento único" }
+                            : {}),
+                        });
+                      }}
                       className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-slate-900"
                     >
-                      <option value="1">Avulso / 1 mês</option>
+                      <option value="1">{draft.budgetType === "SERVICOS" ? "Avulso (pagamento único)" : "1 mês"}</option>
                       <option value="6">6 meses</option>
                       <option value="12">12 meses</option>
                       <option value="24">24 meses</option>
@@ -1255,7 +1275,7 @@ export function ProposalEditModal({
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="Valor Mensal de R$"
+                  placeholder={isAvulsoServiceProposal(draft) ? "Valor total (pagamento único) de R$" : "Valor Mensal de R$"}
                   value={draft.introductionText ?? ''}
                   onChange={(e) => updateDraft({ introductionText: e.target.value })}
                   className="w-full px-3 py-2 rounded border border-slate-300"
@@ -1472,15 +1492,15 @@ export function ProposalEditModal({
                 </div>
                 <div className="bg-emerald-50 px-2.5 py-1.5 rounded border border-emerald-200">
                   <span className="text-[10px] uppercase font-semibold text-emerald-700 block">
-                    Valor Mensal
+                    {isAvulsoServiceProposal(draft) ? "Pagamento único" : "Valor Mensal"}
                   </span>
                   <strong className="text-sm font-semibold text-emerald-800">
-                    {formatBRL(draft.monthlyRecurringTotal)}
+                    {formatBRL(isAvulsoServiceProposal(draft) ? (draft.totalContractValue || draft.monthlyRecurringTotal) : draft.monthlyRecurringTotal)}
                   </strong>
                 </div>
                 <div className="bg-[#1e3a6e] text-white px-2.5 py-1.5 rounded">
-                  <span className="text-[10px] uppercase font-semibold text-emerald-300 block">
-                    Total ({draft.contractMonths}m)
+                  <span className="text-[10px] uppercase font-semibold text-white/80 block">
+                    {isAvulsoServiceProposal(draft) ? "Total" : `Total (${draft.contractMonths}m)`}
                   </span>
                   <strong className="text-sm font-semibold text-white">
                     {formatBRL(draft.totalContractValue)}
@@ -1550,7 +1570,9 @@ export function ProposalEditModal({
                       <option value="PIX">PIX Empresarial</option>
                       <option value="TED">TED / Transferência Bancária</option>
                       <option value="CARTAO_CREDITO">Cartão de Crédito</option>
-                      <option value="FATURAMENTO_MENSAL">Faturamento Mensal (Contrato)</option>
+                      {!isAvulsoServiceProposal(draft) && (
+                        <option value="FATURAMENTO_MENSAL">Faturamento Mensal (Contrato)</option>
+                      )}
                     </select>
                   </div>
                   <div className="sm:col-span-2">
@@ -1570,7 +1592,8 @@ export function ProposalEditModal({
                     </label>
                     <input
                       type="text"
-                      value={draft.paymentCondition}
+                      placeholder={isAvulsoServiceProposal(draft) ? "À vista — Pagamento único" : ""}
+                      value={isAvulsoServiceProposal(draft) ? readablePaymentCondition(draft.paymentCondition) : draft.paymentCondition}
                       onChange={(e) => updateDraft({ paymentCondition: e.target.value })}
                       className="w-full px-2.5 py-1.5 rounded border border-slate-300"
                     />
@@ -1646,7 +1669,9 @@ export function ProposalEditModal({
                                 <option value="PIX">PIX Empresarial</option>
                                 <option value="TED">TED Bancária</option>
                                 <option value="CARTAO_CREDITO">Cartão de Crédito</option>
-                                <option value="FATURAMENTO_MENSAL">Faturamento Mensal</option>
+                                {!isAvulsoServiceProposal(draft) && (
+                                  <option value="FATURAMENTO_MENSAL">Faturamento Mensal</option>
+                                )}
                               </select>
                             </td>
                             <td className="py-1.5 px-2.5">
@@ -1924,12 +1949,19 @@ export function ProposalEditModal({
             <div className="flex flex-wrap items-center gap-4">
               <div className="text-right">
                 <span className="block text-[10px] text-slate-500">
-                  Valor mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong> • Setup:{' '}
+                  {isAvulsoServiceProposal(draft) ? (
+                    <>Pagamento único: <strong>{formatBRL(draft.totalContractValue || draft.monthlyRecurringTotal)}</strong></>
+                  ) : (
+                    <>Valor mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong></>
+                  )}
+                  {' '}• Setup:{' '}
                   <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong> • Frete:{' '}
                   <strong>{formatBRL(draft.shippingCost || 0)}</strong>
                 </span>
                 <strong className="text-base font-semibold text-[#1e3a6e]">
-                  Valor total ({draft.contractMonths}m): {formatBRL(draft.totalContractValue)}
+                  {isAvulsoServiceProposal(draft)
+                    ? <>Total: {formatBRL(draft.totalContractValue)}</>
+                    : <>Valor total ({draft.contractMonths}m): {formatBRL(draft.totalContractValue)}</>}
                 </strong>
               </div>
               <button
