@@ -3,7 +3,9 @@
 // Segredos so do ambiente (OMNIROUTE_API_KEY); nunca logados nem enviados ao cliente.
 // ============================================================================
 
-export const DEFAULT_OMNIROUTE_MODEL = 'minimaxai/minimax-m3.1-flash';
+// minimax-m3.1-flash parou de responder no OmniRoute (18/11: timeout de 90 s no upstream).
+// nemotron-3.5-lightning respondeu o mesmo pedido com ferramentas em 4-7 s.
+export const DEFAULT_OMNIROUTE_MODEL = 'nvidia/nemotron-3.5-lightning-30b-a3b';
 export const DEFAULT_OMNIROUTE_FALLBACK_MODEL = 'mistralai/mistral-large-4-1t-a52b';
 
 export interface AssistenteConfig {
@@ -11,9 +13,17 @@ export interface AssistenteConfig {
   apiKey: string;
   model: string;
   fallbackModel: string;
-  /** Timeout de cada chamada ao OmniRoute (ms). */
+  /** Timeout da chamada ao modelo principal (ms). */
   timeoutMs: number;
+  /**
+   * Orcamento total da conversa com o OmniRoute (ms), principal + reserva. O reserva usa o
+   * que sobrar (pode passar de timeoutMs). Deve caber no maxDuration da rota (90 s).
+   */
+  totalBudgetMs?: number;
 }
+
+/** Orcamento padrao: 80 s, com folga para a rota de maxDuration 90 s. */
+export const DEFAULT_TOTAL_BUDGET_MS = 80_000;
 
 export const ASSISTENTE_LIMITS = {
   /** Mensagens por usuario por minuto (chat). */
@@ -53,5 +63,6 @@ export function readAssistenteConfig(env: NodeJS.ProcessEnv = process.env): Assi
     model: String(env.OMNIROUTE_MODEL || '').trim() || DEFAULT_OMNIROUTE_MODEL,
     fallbackModel: String(env.OMNIROUTE_FALLBACK_MODEL || '').trim() || DEFAULT_OMNIROUTE_FALLBACK_MODEL,
     timeoutMs: clampInt(env.OMNIROUTE_TIMEOUT_MS, 25_000, 3_000, 60_000),
+    totalBudgetMs: clampInt(env.OMNIROUTE_TOTAL_BUDGET_MS, DEFAULT_TOTAL_BUDGET_MS, 10_000, 85_000),
   };
 }

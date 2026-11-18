@@ -18,7 +18,8 @@ import { randomBytes } from 'node:crypto';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// 90 s: principal (OMNIROUTE_TIMEOUT_MS) + reserva com o resto do orcamento de 80 s.
+export const maxDuration = 90;
 
 const NO_STORE = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
 const limiters = new Map<string, SlidingWindowRateLimiter>();

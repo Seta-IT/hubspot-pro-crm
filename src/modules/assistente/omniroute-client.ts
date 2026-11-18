@@ -4,7 +4,7 @@
 // A chave vai so no header Authorization e nunca aparece em erro, log ou resposta.
 // ============================================================================
 import type { AssistenteConfig } from './config';
-import { ASSISTENTE_LIMITS } from './config';
+import { ASSISTENTE_LIMITS, DEFAULT_TOTAL_BUDGET_MS } from './config';
 
 export interface LlmMessage {
   role: 'system' | 'user' | 'assistant';
@@ -61,10 +61,22 @@ export function stripReasoning(text: string): string {
   return String(text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/i, '').trim();
 }
 
-export function createOmniRouteClient(cfg: AssistenteConfig, fetchImpl: FetchLike = (u, i) => fetch(u, i)): LlmClient {
-  async function callModel(model: string, messages: LlmMessage[], tools: LlmToolDefinition[]): Promise<LlmResult> {
+export function createOmniRouteClient(
+  cfg: AssistenteConfig,
+  fetchImpl: FetchLike = (u, i) => fetch(u, i),
+  clock: () => number = () => Date.now(),
+): LlmClient {
+  async function callModel(model: string, messages: LlmMessage[], tools: LlmToolDefinition[], timeoutMs: number): Promise<LlmResult> {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), cfg.timeoutMs);
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await doCall(model, messages, tools, ctrl.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function doCall(model: string, messages: LlmMessage[], tools: LlmToolDefinition[], signal: AbortSignal): Promise<LlmResult> {
     let res: Response;
     try {
       res = await fetchImpl(`${cfg.baseUrl}/chat/completions`, {
@@ -78,13 +90,11 @@ export function createOmniRouteClient(cfg: AssistenteConfig, fetchImpl: FetchLik
           temperature: 0.2,
           max_tokens: ASSISTENTE_LIMITS.maxCompletionTokens,
         }),
-        signal: ctrl.signal,
+        signal,
       });
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') throw new LlmError('LLM_TIMEOUT', 'O provedor de IA demorou demais para responder.');
       throw new LlmError('LLM_UNAVAILABLE', 'Provedor de IA indisponível.');
-    } finally {
-      clearTimeout(timer);
     }
     if (res.status === 401 || res.status === 403) throw new LlmError('LLM_AUTH', 'Credencial do provedor de IA recusada.', res.status);
     if (res.status === 429) throw new LlmError('LLM_RATE_LIMITED', 'Limite do provedor de IA atingido.', 429);
@@ -92,7 +102,8 @@ export function createOmniRouteClient(cfg: AssistenteConfig, fetchImpl: FetchLik
     let json: any;
     try {
       json = await res.json();
-    } catch {
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError' || signal.aborted) throw new LlmError('LLM_TIMEOUT', 'O provedor de IA demorou demais para responder.');
       throw new LlmError('LLM_BAD_RESPONSE', 'Resposta inválida do provedor de IA.');
     }
     const msg = json?.choices?.[0]?.message;
@@ -106,10 +117,17 @@ export function createOmniRouteClient(cfg: AssistenteConfig, fetchImpl: FetchLik
   return {
     async complete(messages, tools) {
       const models = [cfg.model, cfg.fallbackModel].filter((m, i, a) => m && a.indexOf(m) === i);
+      // Orcamento unico: o principal tem ate timeoutMs; o reserva (ultimo) usa todo o resto,
+      // para um modelo lento mas vivo (ex.: mistral-large ~25-35 s) nao estourar por 25 s fixos.
+      const deadline = clock() + (cfg.totalBudgetMs ?? DEFAULT_TOTAL_BUDGET_MS);
       let last: LlmError | null = null;
-      for (const model of models) {
+      for (let i = 0; i < models.length; i++) {
+        const model = models[i];
+        const remaining = deadline - clock();
+        if (remaining < 3_000) break;
+        const timeoutMs = i === models.length - 1 ? remaining : Math.min(cfg.timeoutMs, remaining);
         try {
-          return await callModel(model, messages, tools);
+          return await callModel(model, messages, tools, timeoutMs);
         } catch (err) {
           const e = err instanceof LlmError ? err : new LlmError('LLM_UNAVAILABLE', 'Provedor de IA indisponível.');
           last = e;
@@ -117,7 +135,7 @@ export function createOmniRouteClient(cfg: AssistenteConfig, fetchImpl: FetchLik
           if (!retryable) throw e;
         }
       }
-      throw last || new LlmError('LLM_UNAVAILABLE', 'Provedor de IA indisponível.');
+      throw last || new LlmError('LLM_TIMEOUT', 'O provedor de IA demorou demais para responder.');
     },
   };
 }

@@ -412,6 +412,39 @@ describe('assistente — cliente OmniRoute', () => {
     });
   });
 
+  it('timeout no principal: o reserva usa o resto do orçamento, não só timeoutMs', async () => {
+    let now = 0;
+    const timeouts: Array<{ model: string; ms: number }> = [];
+    const realSetTimeout = globalThis.setTimeout;
+    const c2 = { ...cfg, timeoutMs: 25_000, totalBudgetMs: 80_000 };
+    const client = createOmniRouteClient(
+      c2,
+      async (_u, init) => {
+        const body = JSON.parse(String(init.body));
+        if (body.model === 'm1') {
+          now += 25_000; // principal travou ate o timeout
+          const e = new Error('aborted');
+          e.name = 'AbortError';
+          throw e;
+        }
+        now += 33_000; // reserva lento (mistral-large medido em ~33 s)
+        return new Response(JSON.stringify({ model: 'm2', choices: [{ message: { content: 'ok' } }] }), { status: 200 });
+      },
+      () => now,
+    );
+    (globalThis as any).setTimeout = (fn: () => void, ms: number) => {
+      timeouts.push({ model: timeouts.length ? 'm2' : 'm1', ms });
+      return realSetTimeout(fn, 0x7fffffff);
+    };
+    try {
+      const r = await client.complete([{ role: 'user', content: 'oi' }], []);
+      assert.equal(r.text, 'ok');
+    } finally {
+      (globalThis as any).setTimeout = realSetTimeout;
+    }
+    assert.deepEqual(timeouts, [{ model: 'm1', ms: 25_000 }, { model: 'm2', ms: 55_000 }]);
+  });
+
   it('401 não tenta o reserva (credencial recusada)', async () => {
     let n = 0;
     const client = createOmniRouteClient(cfg, async () => {
@@ -427,7 +460,8 @@ describe('assistente — cliente OmniRoute', () => {
     assert.equal(readAssistenteConfig({ OMNIROUTE_BASE_URL: 'http://exemplo.com/v1', OMNIROUTE_API_KEY: 'k' } as NodeJS.ProcessEnv), null);
     const c = readAssistenteConfig({ OMNIROUTE_BASE_URL: 'https://x.test/v1/', OMNIROUTE_API_KEY: 'k' } as NodeJS.ProcessEnv)!;
     assert.equal(c.baseUrl, 'https://x.test/v1');
-    assert.equal(c.model, 'minimaxai/minimax-m3.1-flash');
+    assert.equal(c.model, 'nvidia/nemotron-3.5-lightning-30b-a3b');
+    assert.equal(c.totalBudgetMs, 80_000);
     assert.equal(c.fallbackModel, 'mistralai/mistral-large-4-1t-a52b');
   });
 });
