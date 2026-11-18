@@ -768,6 +768,7 @@ export default function ClientEmailComposerModal({
                 onChange={setToChips}
                 companyId={payload.companyId}
                 siblingCount={ccChips.length + bccChips.length}
+                excludeEmails={[...ccChips, ...bccChips].map((c) => c.email)}
                 placeholder="Nome ou e-mail"
               />
               <EmailRecipientField
@@ -777,6 +778,7 @@ export default function ClientEmailComposerModal({
                 onChange={setCcChips}
                 companyId={payload.companyId}
                 siblingCount={toChips.length + bccChips.length}
+                excludeEmails={[...toChips, ...bccChips].map((c) => c.email)}
               />
               <EmailRecipientField
                 label="Cco"
@@ -785,6 +787,7 @@ export default function ClientEmailComposerModal({
                 onChange={setBccChips}
                 companyId={payload.companyId}
                 siblingCount={toChips.length + ccChips.length}
+                excludeEmails={[...toChips, ...ccChips].map((c) => c.email)}
               />
               <div className="flex items-center gap-2 py-1.5">
                 <span className="w-16 shrink-0 text-xs font-semibold text-slate-500">Assunto</span>

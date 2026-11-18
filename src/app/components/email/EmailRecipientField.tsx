@@ -10,6 +10,7 @@ import {
   type EmailRecipientChip,
   type RecipientSuggestion,
 } from '../../../modules/erp/email-recipients';
+import { excludeTakenRecipientSuggestions, nextRecipientSuggestionsOpen } from './recipient-suggest';
 
 const SOURCE_LABEL: Record<RecipientSuggestion['source'], string> = {
   company_contact: 'Cliente',
@@ -26,6 +27,7 @@ export default function EmailRecipientField({
   siblingCount,
   maxTotal = MAX_EMAIL_RECIPIENTS,
   placeholder = 'Adicionar e-mail',
+  excludeEmails = [],
 }: {
   label: string;
   testId?: string;
@@ -35,6 +37,7 @@ export default function EmailRecipientField({
   siblingCount: number;
   maxTotal?: number;
   placeholder?: string;
+  excludeEmails?: string[];
 }) {
   const [draft, setDraft] = useState('');
   const [open, setOpen] = useState(false);
@@ -49,7 +52,9 @@ export default function EmailRecipientField({
 
   useEffect(() => {
     const onDoc = (ev: MouseEvent) => {
-      if (!rootRef.current?.contains(ev.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(ev.target as Node)) {
+        setOpen((cur) => nextRecipientSuggestionsOpen(cur, 'outside'));
+      }
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -68,8 +73,7 @@ export default function EmailRecipientField({
         .then((json) => {
           if (!active) return;
           const rows = Array.isArray(json?.data) ? (json.data as RecipientSuggestion[]) : [];
-          const taken = new Set(chips.map((c) => c.email.toLowerCase()));
-          setSuggestions(rows.filter((row) => row.email && !taken.has(row.email.toLowerCase())));
+          setSuggestions(excludeTakenRecipientSuggestions(rows, chips.map((c) => c.email)));
           setHighlight(0);
         })
         .catch(() => {
@@ -82,7 +86,10 @@ export default function EmailRecipientField({
     };
   }, [open, draft, companyId, chips]);
 
-  const visibleSuggestions = useMemo(() => suggestions.slice(0, 12), [suggestions]);
+  const visibleSuggestions = useMemo(
+    () => excludeTakenRecipientSuggestions(suggestions, [...chips.map((c) => c.email), ...excludeEmails]).slice(0, 12),
+    [suggestions, chips, excludeEmails]
+  );
 
   const commitTokens = (raw: string, fromEnter = false) => {
     const { completed, rest } = tokenizeRecipientInput(fromEnter && raw.trim() ? `${raw},` : raw);
@@ -94,7 +101,10 @@ export default function EmailRecipientField({
     onChange(next.chips);
     setDraft(rest);
     setLimitMsg(next.limitReached && completed.length > 0 && next.chips.length === chips.length);
-    if (next.chips.length > chips.length) setSuggestions([]);
+    if (next.chips.length > chips.length) {
+      setSuggestions([]);
+      if (!rest.trim()) setOpen((cur) => nextRecipientSuggestionsOpen(cur, 'select'));
+    }
   };
 
   const pickSuggestion = (row: RecipientSuggestion) => {
@@ -105,6 +115,7 @@ export default function EmailRecipientField({
     onChange(next.chips);
     setDraft('');
     setSuggestions([]);
+    setOpen((cur) => nextRecipientSuggestionsOpen(cur, 'select'));
     setLimitMsg(next.limitReached && next.chips.length === chips.length);
     inputRef.current?.focus();
   };
@@ -153,9 +164,13 @@ export default function EmailRecipientField({
             value={draft}
             disabled={atLimit}
             placeholder={chips.length ? '' : placeholder}
-            onFocus={() => setOpen(true)}
+            onFocus={() => setOpen((cur) => nextRecipientSuggestionsOpen(cur, 'focus'))}
+            onBlur={(e) => {
+              if (rootRef.current?.contains(e.relatedTarget as Node | null)) return;
+              setOpen((cur) => nextRecipientSuggestionsOpen(cur, 'blur'));
+            }}
             onChange={(e) => {
-              setOpen(true);
+              setOpen((cur) => nextRecipientSuggestionsOpen(cur, 'type'));
               commitTokens(e.target.value);
             }}
             onKeyDown={(e) => {
@@ -179,7 +194,8 @@ export default function EmailRecipientField({
                 return;
               }
               if (e.key === 'Escape') {
-                setOpen(false);
+                e.stopPropagation();
+                setOpen((cur) => nextRecipientSuggestionsOpen(cur, 'escape'));
                 return;
               }
               if (e.key === 'Backspace' && !draft && chips.length) {

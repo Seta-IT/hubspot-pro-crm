@@ -59,6 +59,7 @@ import {
 } from './mailbox-client';
 import { CONFIDENTIALITY_NOTE_1, CONFIDENTIALITY_NOTE_2, DEFAULT_SETA_SIGNATURE, SETA_LOGO_ALT, SETA_LOGO_PUBLIC_PATH } from './email-signature';
 import { htmlToPlainText, isEmptyEmailHtml, plainTextToHtml, sanitizeEmailHtml, sanitizeHref } from '../../../modules/email/email-html';
+import { excludeTakenRecipientSuggestions, nextRecipientSuggestionsOpen } from './recipient-suggest';
 import {
   ALLOWED_ATTACHMENT_TYPES,
   MAILBOX_MAX_ATTACHMENT_BYTES,
@@ -209,6 +210,8 @@ export function CrmEmailComposerModal({
   const [showAssoc, setShowAssoc] = useState(false);
   const [showSendMenu, setShowSendMenu] = useState(false);
   const [contactHits, setContactHits] = useState<ComposerContactInput[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const toFieldRef = useRef<HTMLDivElement | null>(null);
   const [enrolling, setEnrolling] = useState(false);
   const [insertingQuote, setInsertingQuote] = useState(false);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -310,6 +313,16 @@ export function CrmEmailComposerModal({
     };
   }, [toQuery]);
 
+  useEffect(() => {
+    const onDoc = (ev: MouseEvent) => {
+      if (!toFieldRef.current?.contains(ev.target as Node)) {
+        setSuggestOpen((cur) => nextRecipientSuggestionsOpen(cur, 'outside'));
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
   const activeAccounts = useMemo(() => (status?.accounts || []).filter((a) => a.status === 'ATIVADO'), [status]);
   const toLine = recipients.map((r) => r.email).join('; ');
   const today = todayYmd(new Date(), COMPOSER_TIMEZONE);
@@ -341,6 +354,7 @@ export function CrmEmailComposerModal({
     setRecipients((cur) => (cur.some((x) => x.email.toLowerCase() === key) ? cur : [...cur, r]));
     setToQuery('');
     setContactHits([]);
+    setSuggestOpen((cur) => nextRecipientSuggestionsOpen(cur, 'select'));
     if (r.contactId && !associations.contactId) {
       setAssociations((a) => ({ ...a, contactId: r.contactId, contactLabel: r.name || r.email }));
     }
@@ -351,6 +365,15 @@ export function CrmEmailComposerModal({
     if (!emails.length) return;
     emails.forEach((email) => addRecipient({ email, name: '', contactId: null }));
   };
+
+  const visibleToSuggestions = useMemo((): ComposerContactInput[] => {
+    const raw: ComposerContactInput[] = contactHits.length
+      ? contactHits
+      : suggestions
+          .filter((email) => email.includes('@'))
+          .map((email) => ({ id: email, email, firstName: '', lastName: '' }));
+    return excludeTakenRecipientSuggestions(raw, recipients.map((r) => r.email)).slice(0, 8);
+  }, [contactHits, suggestions, recipients]);
 
   const syncBodyFromEditor = () => {
     const el = bodyRef.current;
@@ -778,7 +801,7 @@ export function CrmEmailComposerModal({
           <>
             <div className="flex items-start gap-2 border-b border-slate-100 py-1.5">
               <span className="text-xs font-semibold text-slate-500 w-12 shrink-0 pt-1.5">Para</span>
-              <div className="flex-1 min-w-0 relative">
+              <div ref={toFieldRef} className="flex-1 min-w-0 relative">
                 <div className="flex flex-wrap items-center gap-1">
                   {recipients.map((r) => (
                     <span key={r.email} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-slate-100 text-[11px] font-semibold text-slate-700">
@@ -795,8 +818,17 @@ export function CrmEmailComposerModal({
                   ))}
                   <input
                     value={toQuery}
-                    onChange={(e) => setToQuery(e.target.value)}
+                    onChange={(e) => {
+                      setToQuery(e.target.value);
+                      setSuggestOpen((cur) => nextRecipientSuggestionsOpen(cur, 'type'));
+                    }}
                     onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setSuggestOpen((cur) => nextRecipientSuggestionsOpen(cur, 'escape'));
+                        return;
+                      }
                       if (e.key === 'Enter' || e.key === ';' || e.key === ',') {
                         e.preventDefault();
                         addRecipientFromQuery();
@@ -805,14 +837,17 @@ export function CrmEmailComposerModal({
                         setRecipients((cur) => cur.slice(0, -1));
                       }
                     }}
-                    onBlur={() => addRecipientFromQuery()}
+                    onBlur={() => {
+                      addRecipientFromQuery();
+                      setSuggestOpen((cur) => nextRecipientSuggestionsOpen(cur, 'blur'));
+                    }}
                     placeholder={recipients.length ? 'Adicionar destinatário' : 'contato@empresa.com.br'}
                     className="flex-1 min-w-[8rem] text-xs border-0 focus:ring-0 p-0"
                   />
                 </div>
-                {(contactHits.length > 0 || suggestions.length > 0) && (
-                  <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
-                    {(contactHits.length ? contactHits : suggestions.filter((s) => s.includes('@')).map((email) => ({ id: email, email, firstName: '', lastName: '' }))).map((c) => (
+                {suggestOpen && visibleToSuggestions.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl" data-testid="crm-mail-to-suggestions">
+                    {visibleToSuggestions.map((c) => (
                       <button
                         key={`${c.id}-${c.email}`}
                         type="button"
