@@ -1,7 +1,7 @@
 import type { ErpCommercialProposal } from '../../db/types';
 import { DEFAULT_COMPANY_EMITTER_SETTINGS } from '../../modules/erp/daily-sync-service';
 import { formatIssuerAddress, type IssuerAddressInput } from './company-issuer-address';
-import { resolveProposalCommercialFigures } from './proposal-share';
+import { readablePaymentCondition, resolveProposalCommercialFigures } from './proposal-share';
 import { formatProposalValidUntilPtBr, isProposalValidityExpired } from './proposal-validity';
 import {
   FORBIDDEN_TEMPLATE_CNPJ,
@@ -236,7 +236,9 @@ export function buildInternalProposalSheet(
     subtotal: amount(Number(item.totalMonthly ?? item.subtotal ?? 0)),
   }));
   const qtyTotal = amount((proposal.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0));
-  const payment = String(proposal.paymentCondition || '').trim();
+  const payment = oneTime
+    ? readablePaymentCondition(proposal.paymentCondition)
+    : String(proposal.paymentCondition || '').trim();
   const subject = service ? 'serviço' : 'locação';
   const paymentRows = oneTime
     ? [

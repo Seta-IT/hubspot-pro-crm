@@ -530,6 +530,23 @@ export function cleanProposalPaymentCondition(raw: string | undefined): string {
     .trim();
 }
 
+const PAYMENT_CONDITION_SLUGS: Record<string, string> = {
+  a_vista: 'À vista',
+  avista: 'À vista',
+  pagamento_unico: 'Pagamento único',
+};
+
+/** Troca o código cru (ex.: a_vista) pela frase que o cliente lê. Texto já legível permanece. */
+export function readablePaymentCondition(raw: string | null | undefined): string {
+  const text = cleanProposalPaymentCondition(String(raw || ''));
+  if (!text) return '';
+  const slug = text.toLowerCase().replace(/[\s-]+/g, '_');
+  if (PAYMENT_CONDITION_SLUGS[slug]) return PAYMENT_CONDITION_SLUGS[slug];
+  return text
+    .replace(/\ba_vista\b/gi, 'À vista')
+    .replace(/\bpagamento_unico\b/gi, 'Pagamento único');
+}
+
 export function cleanProposalTechnicalClauses(raw: string | undefined): string {
   if (!raw) return '';
   return raw
@@ -802,7 +819,9 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
     sellerName: sellerInfo.name,
     sellerEmail: next.sellerEmail ? sellerInfo.email : sellerInfo.email,
     sellerPhone: next.sellerPhone ? sellerInfo.phone : sellerInfo.phone,
-    paymentCondition: cleanedPaymentCondition || next.paymentCondition || "",
+    paymentCondition: avulsoService
+      ? readablePaymentCondition(cleanedPaymentCondition || next.paymentCondition || "")
+      : cleanedPaymentCondition || next.paymentCondition || "",
     technicalClauses: cleanedTechnicalClauses,
     deliveryLeadTime: resolvedDeliveryLeadTime,
     deliveryForecast: resolvedDeliveryLeadTime,

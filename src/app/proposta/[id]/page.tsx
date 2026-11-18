@@ -41,6 +41,7 @@ import {
   decodeProposalFromQueryParam,
   inferProposalItemType,
   cleanProposalPaymentCondition,
+  readablePaymentCondition,
   cleanProposalTechnicalClauses,
   PROPOSAL_SLA_OPTIONS,
   resolveProposalSellerContact,
@@ -962,7 +963,9 @@ function PublicProposalPrintContent() {
     !avulsoService && !isProductsOnly && (isRental || proposal.items.some((i) => i.isRecurring !== false));
   const sellerContact = resolveProposalSellerContact(proposal);
   const displayPaymentCondition =
-    cleanProposalPaymentCondition(proposal.paymentCondition) || "Conforme condições acordadas";
+    (avulsoService
+      ? readablePaymentCondition(proposal.paymentCondition)
+      : cleanProposalPaymentCondition(proposal.paymentCondition)) || "Conforme condições acordadas";
   const commercialTotalAmount = isProductsOnly
     ? // Venda: subtotal (itens ja liquidos do desconto do item) - desconto global + frete; sem setup.
       Math.round((productsSubtotal + servicesSubtotal - globalDiscountVal + shippingCost) * 100) / 100

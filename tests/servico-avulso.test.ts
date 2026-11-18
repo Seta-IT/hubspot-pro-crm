@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   computeProposalTotals,
   isAvulsoServiceProposal,
+  readablePaymentCondition,
   resolveProposalCommercialFigures,
 } from '../src/app/lib/proposal-share';
 import { toInternalProposalSummary } from '../src/app/lib/internal-proposal-summary';
@@ -162,5 +163,24 @@ describe('Serviço avulso é pagamento único', () => {
     assert.doesNotMatch(form, /Avulso \/ 1 mês/);
     assert.match(page, /Valor total \(pagamento único\)/);
     assert.match(page, /valor total \(pagamento único\) descrito nesta Proposta de Serviços/);
+  });
+
+  it('no formulário, o avulso mostra Pagamento único e Total, e o resumo não fica a_vista', () => {
+    assert.equal(readablePaymentCondition('a_vista'), 'À vista');
+    assert.equal(readablePaymentCondition('pagamento_unico'), 'Pagamento único');
+    assert.equal(readablePaymentCondition('Boleto 30 dias'), 'Boleto 30 dias');
+
+    const rewritten = computeProposalTotals(proposal({ paymentCondition: 'a_vista' }));
+    assert.equal(rewritten.paymentCondition, 'À vista');
+    const mensal = computeProposalTotals(proposal({ contractMonths: 12, paymentCondition: 'a_vista' }));
+    assert.equal(mensal.paymentCondition, 'a_vista');
+
+    const form = src('src/app/components/ErpEditModals.tsx');
+    assert.match(form, /Pagamento único/);
+    assert.match(form, /isAvulsoServiceProposal\(draft\) \? "Total"/);
+    assert.match(form, /À vista — Pagamento único/);
+    assert.match(form, /Parcelado em \$\{count\}x de \$\{formatBRL\(perInstallment\)\} — Pagamento único/);
+    assert.match(form, /label: '2x'/);
+    assert.doesNotMatch(form, /preset\.n === 1/);
   });
 });
