@@ -1332,7 +1332,8 @@ export function ProposalEditModal({
             onItemsChange={(items) => updateDraft({ items })}
           />
 
-          {/* BLOCO 4: TRANSPORTE / FRETE E ENDEREÇO DE ENTREGA */}
+          {/* BLOCO 4: TRANSPORTE / FRETE E ENDEREÇO DE ENTREGA. Serviço não tem frete. */}
+          {draft.budgetType !== "SERVICOS" && (
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center gap-2">
               <Truck className="w-4 h-4 text-[#1e3a6e]" />
@@ -1406,6 +1407,7 @@ export function ProposalEditModal({
 
             </div>
           </div>
+          )}
 
           {/* BLOCO 5: TOTALIZADORES E CONDIÇÃO DE PAGAMENTO / PARCELAS */}
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
@@ -1488,6 +1490,7 @@ export function ProposalEditModal({
                     {formatBRL(draft.oneTimeSetupTotal || 0)}
                   </strong>
                 </div>
+                {draft.budgetType !== "SERVICOS" && (
                 <div>
                   <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                     Frete
@@ -1496,6 +1499,7 @@ export function ProposalEditModal({
                     {formatBRL(draft.shippingCost || 0)}
                   </strong>
                 </div>
+                )}
                 <div className="bg-emerald-50 px-2.5 py-1.5 rounded border border-emerald-200">
                   <span className="text-[10px] uppercase font-semibold text-emerald-700 block">
                     {isAvulsoServiceProposal(draft) ? "Pagamento único" : "Valor Mensal"}
@@ -1962,8 +1966,10 @@ export function ProposalEditModal({
                     <>Valor mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong></>
                   )}
                   {' '}• Setup:{' '}
-                  <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong> • Frete:{' '}
-                  <strong>{formatBRL(draft.shippingCost || 0)}</strong>
+                  <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong>
+                  {draft.budgetType !== "SERVICOS" && (
+                    <> • Frete: <strong>{formatBRL(draft.shippingCost || 0)}</strong></>
+                  )}
                 </span>
                 <strong className="text-base font-semibold text-[#1e3a6e]">
                   {isAvulsoServiceProposal(draft)

@@ -97,7 +97,8 @@ describe('Serviço avulso é pagamento único', () => {
   it('não multiplica o serviço avulso por meses e multiplica a vigência mensal', () => {
     const avulso = computeProposalTotals(proposal({ shippingCost: 40, setupFee: 100 }));
     assert.equal(avulso.contractMonths, 1);
-    assert.equal(avulso.totalContractValue, 1640);
+    assert.equal(avulso.shippingCost, 0);
+    assert.equal(avulso.totalContractValue, 1600);
 
     const mensal = computeProposalTotals(proposal({ contractMonths: 12, shippingCost: 0, setupFee: 0 }));
     assert.equal(mensal.contractMonths, 12);
