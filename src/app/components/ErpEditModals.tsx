@@ -61,7 +61,7 @@ import {
   formatCpfMask,
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
-import { buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, readablePaymentCondition, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
+import { buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, proposalHidesFreight, readablePaymentCondition, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
 import { useContractAuxiliaryOptions } from '../lib/use-contract-aux-options';
 import {
   computeCustomDueDateClient,
@@ -1333,7 +1333,7 @@ export function ProposalEditModal({
           />
 
           {/* BLOCO 4: TRANSPORTE / FRETE E ENDEREÇO DE ENTREGA. Serviço não tem frete. */}
-          {draft.budgetType !== "SERVICOS" && (
+          {!proposalHidesFreight(draft) && (
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center gap-2">
               <Truck className="w-4 h-4 text-[#1e3a6e]" />
@@ -1490,7 +1490,7 @@ export function ProposalEditModal({
                     {formatBRL(draft.oneTimeSetupTotal || 0)}
                   </strong>
                 </div>
-                {draft.budgetType !== "SERVICOS" && (
+                {!proposalHidesFreight(draft) && (
                 <div>
                   <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                     Frete
@@ -1967,7 +1967,7 @@ export function ProposalEditModal({
                   )}
                   {' '}• Setup:{' '}
                   <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong>
-                  {draft.budgetType !== "SERVICOS" && (
+                  {!proposalHidesFreight(draft) && (
                     <> • Frete: <strong>{formatBRL(draft.shippingCost || 0)}</strong></>
                   )}
                 </span>

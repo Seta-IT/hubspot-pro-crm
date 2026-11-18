@@ -42,6 +42,7 @@ import {
   decodeProposalFromQueryParam,
   inferProposalItemType,
   cleanProposalPaymentCondition,
+  proposalHidesFreight,
   readablePaymentCondition,
   cleanProposalTechnicalClauses,
   PROPOSAL_SLA_OPTIONS,
@@ -925,7 +926,7 @@ function PublicProposalPrintContent() {
     isRental,
     isServices,
   } = docHeadings;
-  const hideServiceFreight = isServices && !isRental;
+  const hideServiceFreight = proposalHidesFreight(proposal);
   const shippingCost = hideServiceFreight ? 0 : Number(proposal.shippingCost || 0);
   // PRODUTOS (venda): sem Setup na folha/PDF. Itens de pagamento unico de venda NAO sao setup
   // (o oneTimeSetupTotal deles e a propria soma dos itens; soma-lo dobrava o total). Valores com

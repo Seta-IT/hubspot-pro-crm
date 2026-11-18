@@ -11,7 +11,7 @@
  */
 import type { ErpCommercialProposal, ErpProposalItem } from '../../db/types';
 import { formatProposalDisplayCode } from './proposal-number';
-import { isAvulsoServiceProposal, resolveProposalSlaOption } from './proposal-share';
+import { isAvulsoServiceProposal, proposalHidesFreight, resolveProposalSlaOption } from './proposal-share';
 import { buildInternalProposalSheet, type InternalProposalIssuerInput, type InternalProposalSheet } from './internal-proposal-sheet';
 
 export const INTERNAL_PROPOSAL_PATH_PREFIX = '/interno/proposta';
@@ -332,8 +332,7 @@ export function toInternalProposalSummary(
       : Number(proposal.version);
 
   const showOneTime = kind === 'LOCACAO' || kind === 'CONJUNTO';
-  const serviceKind = kind === 'SERVICO' || kind === 'SPARE_PARTS';
-  const freight = serviceKind ? 0 : Number(proposal.shippingCost || 0);
+  const freight = proposalHidesFreight(proposal) ? 0 : Number(proposal.shippingCost || 0);
   const setup = Number(proposal.setupFee ?? proposal.oneTimeSetupTotal ?? 0);
   const oneTimeRows: InternalProposalMoneyRow[] = [];
   if (showOneTime || freight > 0) {
