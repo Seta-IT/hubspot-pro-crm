@@ -201,7 +201,7 @@ export function buildInternalProposalSheet(
     ? `Proposta de Serviço${monthLabel ? ` - ${monthLabel}` : ''}`
     : `Proposta de Locação${monthLabel ? ` - ${monthLabel}` : ''}`;
   const monthly = figures.monthly;
-  const freight = Number(proposal.shippingCost || 0);
+  const freight = service ? 0 : Number(proposal.shippingCost || 0);
   const delivery = String(proposal.deliveryLeadTime || proposal.deliveryForecast || '').trim();
   const code = String(proposal.code || '').replace(/^#/, '').trim();
   const city = String(options?.clientCity || '').trim();
@@ -294,7 +294,7 @@ export function buildInternalProposalSheet(
     clientLegalName: String(proposal.companyName || '').trim() || INTERNAL_FIELD_BLANK,
     clientTradeName: String(proposal.companyName || '').trim() || INTERNAL_FIELD_BLANK,
     clientCnpj: String(proposal.companyCnpj || '').trim() || INTERNAL_FIELD_BLANK,
-    clientAddress: String(proposal.deliveryAddress || '').trim() || INTERNAL_FIELD_BLANK,
+    clientAddress: service ? INTERNAL_FIELD_BLANK : (String(proposal.deliveryAddress || '').trim() || INTERNAL_FIELD_BLANK),
     clientCep: INTERNAL_FIELD_BLANK,
     clientCityUf: city || uf ? [city, uf].filter(Boolean).join('/') : INTERNAL_FIELD_BLANK,
     clientPhone: INTERNAL_FIELD_BLANK,

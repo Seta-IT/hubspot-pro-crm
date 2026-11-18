@@ -899,7 +899,6 @@ function PublicProposalPrintContent() {
       100;
 
   const totalDiscounts = Math.round((itemDiscountsSum + globalDiscountVal) * 100) / 100;
-  const shippingCost = Number(proposal.shippingCost || 0);
   const isolatedSetupTotal = Number(proposal.oneTimeSetupTotal || 0);
   const contractDurationMonths = Math.max(1, Number(proposal.contractMonths || 24));
   const activeLayout = resolveProposalLayoutKind(proposal.templateStyle);
@@ -926,6 +925,8 @@ function PublicProposalPrintContent() {
     isRental,
     isServices,
   } = docHeadings;
+  const hideServiceFreight = isServices && !isRental;
+  const shippingCost = hideServiceFreight ? 0 : Number(proposal.shippingCost || 0);
   // PRODUTOS (venda): sem Setup na folha/PDF. Itens de pagamento unico de venda NAO sao setup
   // (o oneTimeSetupTotal deles e a propria soma dos itens; soma-lo dobrava o total). Valores com
   // centavos. LOCACAO/SERVICOS seguem exatamente como antes.
@@ -949,6 +950,18 @@ function PublicProposalPrintContent() {
     !isProductsOnly && resolvedSla.id !== "SEM_SLA_ESPECIFICO" && Boolean(resolvedSla.shortLabel);
   const commercialFigures = resolveProposalCommercialFigures(proposal);
   const avulsoService = commercialFigures.oneTime;
+  const shownIntroduction = (hideServiceFreight
+    ? String(proposal.introductionText || "")
+        .split(/\n+/)
+        .filter((line) => !/frete|transportadora|endere[cç]o de entrega/i.test(line))
+        .join("\n")
+    : String(proposal.introductionText || "")
+  )
+    .replace(avulsoService ? /valor mensal/gi : /$^/, avulsoService ? "Valor total (pagamento único)" : "")
+    .replace(avulsoService ? /\b1\s*m[eê]s\b/gi : /$^/, "")
+    .replace(avulsoService ? /reajuste anual(?:\s+pelo)?\s+IPCA/gi : /$^/, "")
+    .replace(avulsoService ? /\s{2,}/g : /$^/, avulsoService ? " " : "")
+    .trim();
   const uniquePayment = isOneTimeServices || avulsoService;
   const uniquePaymentLabel = avulsoService
     ? "Valor total (pagamento único)"
@@ -1878,7 +1891,7 @@ function PublicProposalPrintContent() {
                   {proposal.contactEmail ? ` (${proposal.contactEmail})` : ""}
                 </div>
               )}
-              {proposal.deliveryAddress && (
+              {!hideServiceFreight && proposal.deliveryAddress && (
                 <div className="text-xs text-slate-600">
                   <strong className="text-slate-800">Local de Entrega / Instalação:</strong> {proposal.deliveryAddress}
                 </div>
@@ -2017,6 +2030,7 @@ function PublicProposalPrintContent() {
                   </span>
                 </div>
               )}
+              {!hideServiceFreight && (
               <div>
                 <span className="text-[10px] uppercase text-slate-500 font-semibold block">
                   FRETE R$:
@@ -2025,6 +2039,7 @@ function PublicProposalPrintContent() {
                   {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
                 </span>
               </div>
+              )}
             </div>
           )}
 
@@ -2033,16 +2048,9 @@ function PublicProposalPrintContent() {
             <h2 className="text-sm sm:text-base font-semibold text-slate-900">
               {proposal.title}
             </h2>
-            {proposal.introductionText && (
+            {shownIntroduction && (
               <p className="text-xs text-slate-600 leading-relaxed">
-                {avulsoService
-                  ? proposal.introductionText
-                      .replace(/valor mensal/gi, "Valor total (pagamento único)")
-                      .replace(/\b1\s*m[eê]s\b/gi, "")
-                      .replace(/reajuste anual(?:\s+pelo)?\s+IPCA/gi, "")
-                      .replace(/\s{2,}/g, " ")
-                      .trim()
-                  : proposal.introductionText}
+                {shownIntroduction}
               </p>
             )}
           </div>
@@ -2138,6 +2146,7 @@ function PublicProposalPrintContent() {
                 <span className="block text-[10px] text-slate-500">Taxa única</span>
               </div>
             )}
+            {!hideServiceFreight && (
             <div>
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Frete
@@ -2151,6 +2160,7 @@ function PublicProposalPrintContent() {
                 </span>
               )}
             </div>
+            )}
             <div className="text-right">
               <span className="text-[10px] uppercase font-semibold text-emerald-700 block">
                 {uniquePayment ? uniquePaymentLabel : showTotalInsteadOfMonthly ? "Valor Total" : "Valor Mensal"}
@@ -2197,10 +2207,12 @@ function PublicProposalPrintContent() {
                       <strong className="text-slate-900">{formatBRL(displaySetupAmount)}</strong>
                     </div>
                   )}
+                  {!hideServiceFreight && (
                   <div className="flex items-center justify-between">
                     <span>FRETE R$:</span>
                     <strong className="text-slate-900">{shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}</strong>
                   </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2248,7 +2260,7 @@ function PublicProposalPrintContent() {
           )}
 
           {/* BLOCO 8 E 9: TRANSPORTE/ENTREGA E CLÁUSULAS TÉCNICAS */}
-          {(proposal.shippingCarrier || proposal.deliveryAddress || deliveryLeadTime || shippingCost > 0) && (
+          {!hideServiceFreight && (proposal.shippingCarrier || proposal.deliveryAddress || deliveryLeadTime || shippingCost > 0) && (
             <div className={`print-avoid-break p-3.5 print:p-3 rounded-lg ${softBoxClass} flex flex-wrap items-center justify-between gap-3 text-xs`}>
               <div className="flex items-center gap-2">
                 <Truck className="w-4 h-4 text-[#1e3a6e] shrink-0" />

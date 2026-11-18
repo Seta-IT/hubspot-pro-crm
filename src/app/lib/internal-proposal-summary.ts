@@ -332,7 +332,8 @@ export function toInternalProposalSummary(
       : Number(proposal.version);
 
   const showOneTime = kind === 'LOCACAO' || kind === 'CONJUNTO';
-  const freight = Number(proposal.shippingCost || 0);
+  const serviceKind = kind === 'SERVICO' || kind === 'SPARE_PARTS';
+  const freight = serviceKind ? 0 : Number(proposal.shippingCost || 0);
   const setup = Number(proposal.setupFee ?? proposal.oneTimeSetupTotal ?? 0);
   const oneTimeRows: InternalProposalMoneyRow[] = [];
   if (showOneTime || freight > 0) {

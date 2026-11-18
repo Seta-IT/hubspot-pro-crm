@@ -753,7 +753,7 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
 
   const discountAmount = Math.max(0, Number(next.discountAmount || 0));
   const discountPercentGlobal = Math.max(0, Math.min(100, Number(next.discountPercentGlobal || 0)));
-  const shippingCost = Math.max(0, Number(next.shippingCost || 0));
+  const rawShippingCost = Math.max(0, Number(next.shippingCost || 0));
   const contractMonths = Math.max(1, Number(next.contractMonths || 24));
 
   // Setup isolado do frete:
@@ -797,6 +797,8 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
           : "PRODUTOS");
 
   const isProductsProposal = inferredBudgetType === "PRODUTOS";
+  const serviceOnly = inferredBudgetType === "SERVICOS";
+  const shippingCost = serviceOnly ? 0 : rawShippingCost;
   const avulsoService = isAvulsoServiceProposal({
     budgetType: inferredBudgetType,
     contractMonths,
