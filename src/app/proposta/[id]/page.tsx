@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { ErpCommercialProposal, ErpProposalDigitalSignature, ErpProposalVersionEntry } from '../../../db/types';
 import { formatBRL as formatBRLWhole } from '../../components/ui-helpers';
+import { isoToBrDate } from '../../lib/br-date';
 import { publicDtoToRenderableProposal, type PublicProposalDto } from '../../lib/proposal-public-dto';
 import { buildOpenCrmHref } from '../../lib/home-screen';
 import { SETA_PROPOSAL_HEADER_ADDRESS } from '../../lib/company-issuer-address';
@@ -857,19 +858,12 @@ function PublicProposalPrintContent() {
     );
   }
 
-  const issueDateStr = proposal.proposalDate
-    ? proposal.proposalDate.includes('-')
-      ? new Date(`${proposal.proposalDate.slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR')
-      : proposal.proposalDate
-    : proposal.createdAt
-      ? new Date(proposal.createdAt).toLocaleDateString('pt-BR')
-      : new Date().toLocaleDateString('pt-BR');
+  const issueDateStr =
+    isoToBrDate(proposal.proposalDate) ||
+    isoToBrDate(proposal.createdAt) ||
+    isoToBrDate(new Date().toISOString());
 
-  const validUntilStr = proposal.validUntil
-    ? proposal.validUntil.includes('-') && proposal.validUntil.length >= 10
-      ? new Date(`${proposal.validUntil.slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR')
-      : proposal.validUntil
-    : '15 dias';
+  const validUntilStr = isoToBrDate(proposal.validUntil) || proposal.validUntil || '15 dias';
   const proposalIsExpired = isProposalValidityExpired(proposal.validUntil);
   const expiredBannerText = proposalExpiredRevalidationMessage(proposal.validUntil);
   const expiredSinceLabel = formatProposalValidUntilPtBr(proposal.validUntil) || validUntilStr;
@@ -2239,9 +2233,7 @@ function PublicProposalPrintContent() {
                         {inst.number}ª
                       </td>
                       <td className="py-2 px-3 font-semibold text-slate-800">
-                        {inst.dueDate.includes("-")
-                          ? new Date(`${inst.dueDate.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR")
-                          : inst.dueDate}
+                        {isoToBrDate(inst.dueDate) || inst.dueDate}
                       </td>
                       <td className="py-2 px-3 text-slate-700">{inst.paymentMethod}</td>
                       <td className="py-2 px-3 text-right font-semibold text-slate-900">
