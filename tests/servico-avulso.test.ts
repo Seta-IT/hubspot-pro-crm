@@ -160,7 +160,7 @@ describe('Serviço avulso é pagamento único', () => {
     const page = src('src/app/proposta/[id]/page.tsx');
     const form = src('src/app/components/ErpEditModals.tsx');
     assert.match(form, /Avulso \(pagamento único\)/);
-    assert.match(form, /value="1"/);
+    assert.match(form, /value:\s*'1'/);
     assert.doesNotMatch(form, /Avulso \/ 1 mês/);
     assert.match(page, /Valor total \(pagamento único\)/);
     assert.match(page, /valor total \(pagamento único\) descrito nesta Proposta de Serviços/);
