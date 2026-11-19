@@ -355,9 +355,12 @@ describe('Folha interna segue as mesmas regras da proposta pública', () => {
     assert.equal(model.kind, 'LOCACAO');
     assert.equal(sheet.grandTotalLabel, 'TOTAL MENSAL:');
     assert.equal(sheet.showSetup, true);
+    assert.match(sheet.setupLineLabel, /Setup \/ Ativação \(pagamento único, à parte da mensalidade\)/);
     assert.match(sheet.setupAmount, /800,00/);
     assert.match(sheet.totalMonthly, /2\.000,00/);
     assert.doesNotMatch(sheet.totalMonthly, /2\.800,00|2\.150,00/);
+    assert.match(sheet.summaryRows.find((row) => row.label === 'Setup / Ativação')?.value || '', /à parte da mensalidade/);
+    assert.match(sheet.paymentRows.map((row) => row.note).join(' | '), /não incluso na mensalidade/);
     assert.deepEqual(sheet.clauses, [...SETA_INTERNAL_CLAUSES]);
     assert.equal(sheet.showContractNumber, true);
     assert.match(sheet.contractHint, /contrato de locação/);
@@ -525,6 +528,8 @@ describe('Folha interna e lista usam o mesmo cálculo da proposta pública (4709
     assert.equal(pub.servicesSubtotal, 18600);
     assert.equal(pub.displaySetupAmount, 15800);
     assert.equal(pub.hasSetupSelected, true);
+    assert.equal(pub.setupIncludedInItems, true);
+    assert.equal(pub.showSetupInTotals, false);
     assert.equal(pub.uniquePayment, true);
     assert.equal(pub.commercialTotalAmount, 18600);
     assert.equal(amount.amount, 18600);
@@ -540,8 +545,9 @@ describe('Folha interna e lista usam o mesmo cálculo da proposta pública (4709
     const totalRow = sheet.summaryRows.find((row) => /Valor total \(pagamento único\)/i.test(row.label));
     assert.match((totalRow?.value || '').replace(/\u00A0/g, ' '), /R\$ 18\.600,00/);
     assert.match(sheet.totalMonthly.replace(/\u00A0/g, ' '), /R\$ 18\.600,00/);
-    assert.equal(sheet.showSetup, true);
-    assert.match(sheet.setupAmount.replace(/\u00A0/g, ' '), /R\$ 15\.800,00/);
+    assert.equal(sheet.showSetup, false);
+    assert.equal(sheet.summaryRows.some((row) => /Serviço/i.test(row.label) && /15\.800/.test(row.value)), false);
+    assert.doesNotMatch(html, /Serviço \(pagamento único\):/);
     assert.equal(sheet.paymentRows.length, 1);
     assert.match(sheet.paymentRows[0].amount.replace(/\u00A0/g, ' '), /R\$ 18\.600,00/);
     assert.doesNotMatch(html, /34\.400,00/);
@@ -583,18 +589,83 @@ describe('Folha interna e lista usam o mesmo cálculo da proposta pública (4709
       ],
     });
     const pub = resolveProposalCommercialPresentation(proposal);
+    const amount = resolveProposalAmountDisplay(proposal);
     const sheet = toInternalProposalSummary(proposal).sheet;
     assert.equal(pub.commercialTotalAmount, 2500);
+    assert.equal(pub.uniquePayment, true);
     assert.equal(pub.hasSetupSelected, false);
-    assert.equal(resolveProposalAmountDisplay(proposal).amount, 2500);
+    assert.equal(amount.amount, 2500);
+    assert.equal(amount.suffix, '');
+    assert.equal(amount.oneTime, true);
+    assert.equal(amount.label, 'Pagamento único');
     assert.equal(sheet.lines.length, 1);
     assert.match(sheet.totalMonthly.replace(/\u00A0/g, ' '), /R\$ 2\.500,00/);
+    assert.match(sheet.monthlyLine, /pagamento único/i);
+    assert.doesNotMatch(sheet.monthlyLine, /\/mês|Valor Mensal/i);
+    assert.equal(sheet.grandTotalLabel, 'TOTAL:');
     assert.equal(sheet.showSetup, false);
     assert.equal(sheet.paymentRows.length, 1);
+    assert.equal(sheet.paymentRows[0].due, 'Pagamento único');
     assert.match(sheet.paymentRows[0].amount.replace(/\u00A0/g, ' '), /R\$ 2\.500,00/);
   });
 
-  it('folha pública, folha interna e lista compartilham resolveProposalCommercialPresentation', () => {
+  it('serviço avulso não mostra a linha Serviço quando o valor já está nos itens (4709)', () => {
+    const proposal = live4709();
+    const page = src('src/app/proposta/[id]/page.tsx');
+    assert.match(page, /commercialView\.showSetupInTotals/);
+    assert.match(page, /showFreightInTotals/);
+    assert.match(page, /showDiscountInTotals/);
+    const sheet = toInternalProposalSummary(proposal).sheet;
+    const html = buildInternalProposalPrintHtml(toInternalProposalSummary(proposal)).replace(/\u00A0/g, ' ');
+    assert.equal(resolveProposalCommercialPresentation(proposal).showSetupInTotals, false);
+    assert.equal(sheet.showSetup, false);
+    assert.match(html, /SERVIÇOS:/);
+    assert.match(html, /18\.600,00/);
+    assert.doesNotMatch(html, /Serviço \(pagamento único\):\s*R\$\s*15\.800,00/);
+  });
+
+  it('serviço com taxa extra (fora dos itens) continua mostrando a linha que soma no total', () => {
+    const proposal = baseProposal({
+      budgetType: 'SERVICOS',
+      contractMonths: 1,
+      monthlyRecurringTotal: 0,
+      oneTimeSetupTotal: 0,
+      setupFee: 2000,
+      shippingCost: 0,
+      totalContractValue: 12000,
+      productsSubtotal: 0,
+      servicesSubtotal: 10000,
+      items: [
+        {
+          id: 'i1',
+          sku: '',
+          description: 'Serviço técnico',
+          fiscalNature: 'SERVICO_TECNICO_TI_TELECOM',
+          ncmOrServiceCode: '',
+          quantity: 1,
+          unitPrice: 10000,
+          discountPercent: 0,
+          isRecurring: false,
+          itemType: 'SERVICE',
+          subtotal: 10000,
+          totalMonthly: 10000,
+        },
+      ],
+    });
+    const pub = resolveProposalCommercialPresentation(proposal);
+    const sheet = toInternalProposalSummary(proposal).sheet;
+    assert.equal(pub.isOneTimeServices, true);
+    assert.equal(pub.displaySetupAmount, 2000);
+    assert.equal(pub.setupIncludedInItems, false);
+    assert.equal(pub.showSetupInTotals, true);
+    assert.equal(pub.commercialTotalAmount, 12000);
+    assert.equal(sheet.showSetup, true);
+    assert.match(sheet.setupLineLabel, /Serviço \(pagamento único\)/);
+    assert.match(sheet.setupAmount.replace(/\u00A0/g, ' '), /R\$ 2\.000,00/);
+    assert.match(sheet.totalMonthly.replace(/\u00A0/g, ' '), /R\$ 12\.000,00/);
+  });
+
+    it('folha pública, folha interna e lista compartilham resolveProposalCommercialPresentation', () => {
     const page = src('src/app/proposta/[id]/page.tsx');
     const sheet = src('src/app/lib/internal-proposal-sheet.ts');
     const share = src('src/app/lib/proposal-share.ts');

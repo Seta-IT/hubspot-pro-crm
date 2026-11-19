@@ -166,7 +166,7 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
           </table>
           <div className="ml-auto w-[270px] border border-t-0 border-[#cdd7e6] text-[11px]">
             <div className="flex justify-between border-b border-[#e5eaf2] px-2 py-0.5"><span>{sheet.itemsTotalLabel}</span><span>{sheet.productsMonthly}</span></div>
-            {sheet.showSetup ? <div className="flex justify-between border-b border-[#e5eaf2] px-2 py-0.5"><span>{sheet.setupLabel} (pagamento único):</span><span>{sheet.setupAmount}</span></div> : null}
+            {sheet.showSetup ? <div className="flex justify-between border-b border-[#e5eaf2] px-2 py-0.5"><span>{sheet.setupLineLabel}:</span><span>{sheet.setupAmount}</span></div> : null}
             {sheet.showFreight ? <div className="flex justify-between border-b border-[#e5eaf2] px-2 py-0.5"><span>FRETE (pagamento único):</span><span>{sheet.freightAmount}</span></div> : null}
             <div className="flex justify-between px-2 py-0.5 font-bold text-[#1e3a6e]" data-testid="internal-proposal-monthly"><span>{sheet.grandTotalLabel}</span><span>{sheet.totalMonthly}</span></div>
           </div>
