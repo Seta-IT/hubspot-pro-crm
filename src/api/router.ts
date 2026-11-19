@@ -5621,11 +5621,11 @@ export class CrmApiRouter {
           const compA = this.repo.getCompanyById(primaryId);
           const compB = this.repo.getCompanyById(duplicateId);
           if (compA && compB && haveConflictingCnpjs(compA.cnpj, compB.cnpj)) {
+            // 422 Unprocessable Entity: regra fiscal — CNPJs distintos jamais são unificados (nem matriz/filial ou mesmo grupo econômico)
             return {
-              status: 400,
+              status: 422,
               body: {
-                error:
-                  'Bloqueio Fiscal: Empresas com CNPJs diferentes não podem ser unificadas (cada CNPJ possui personalidade jurídica e faturamento próprios).',
+                error: `Bloqueio Fiscal: as empresas "${compA.name}" (CNPJ ${compA.cnpj}) e "${compB.name}" (CNPJ ${compB.cnpj}) possuem CNPJs diferentes e não podem ser unificadas, mesmo que compartilhem domínio, grupo econômico ou sejam matriz/filial (cada CNPJ possui personalidade jurídica e faturamento próprios).`,
                 code: 'CONFLICTING_CNPJ_MERGE_BLOCKED',
                 primaryCnpj: compA.cnpj,
                 duplicateCnpj: compB.cnpj,
@@ -5645,7 +5645,7 @@ export class CrmApiRouter {
         } catch (mergeErr) {
           const msg = mergeErr instanceof Error ? mergeErr.message : 'Erro ao mesclar registros.';
           return {
-            status: msg.includes('Bloqueio Fiscal') ? 400 : 404,
+            status: msg.includes('Bloqueio Fiscal') ? 422 : 404,
             body: { error: msg },
           };
         }

@@ -41,6 +41,32 @@ interface HubSpotTasksQueueViewProps {
   companies: Company[];
   onOpenContactDrawer: (contactId: string) => void;
   onOpenCompanyDrawer: (companyId: string) => void;
+  /** Notifica o shell (ex.: contador atrasadas/hoje da navegação) quando a lista muda. */
+  onTasksChanged?: (tasks: CrmTask[]) => void;
+}
+
+/** Estado do Queue Player/filtros persistido na sessão para retomar a fila após abrir a ficha 360° em outro módulo. */
+const QUEUE_SESSION_KEY = 'stihub_tasks_queue_player_v1';
+type QueueSessionState = {
+  playingQueue?: boolean;
+  currentQueueIndex?: number;
+  queueFilter?: string;
+  dueFilter?: 'ALL' | 'OVERDUE' | 'TODAY' | 'UPCOMING' | 'COMPLETED';
+  typeFilter?: string;
+  priorityFilter?: string;
+  ownerFilter?: string;
+};
+function loadQueueSession(): QueueSessionState {
+  if (typeof window === 'undefined') return {};
+  try {
+    return JSON.parse(window.sessionStorage.getItem(QUEUE_SESSION_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+function localTodayYmd(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
 export default function HubSpotTasksQueueView({
@@ -48,20 +74,42 @@ export default function HubSpotTasksQueueView({
   companies,
   onOpenContactDrawer,
   onOpenCompanyDrawer,
+  onTasksChanged,
 }: HubSpotTasksQueueViewProps) {
+  const [savedSession] = useState<QueueSessionState>(() => loadQueueSession());
   const [tasks, setTasks] = useState<EnrichedCrmTask[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
-  const [queueFilter, setQueueFilter] = useState<string>('ALL');
-  const [dueFilter, setDueFilter] = useState<'ALL' | 'OVERDUE' | 'TODAY' | 'UPCOMING' | 'COMPLETED'>('ALL');
-  const [typeFilter, setTypeFilter] = useState<string>('ALL');
-  const [priorityFilter, setPriorityFilter] = useState<string>('ALL');
-  const [ownerFilter, setOwnerFilter] = useState<string>('ALL');
+  const [queueFilter, setQueueFilter] = useState<string>(savedSession.queueFilter || 'ALL');
+  const [dueFilter, setDueFilter] = useState<'ALL' | 'OVERDUE' | 'TODAY' | 'UPCOMING' | 'COMPLETED'>(
+    savedSession.dueFilter || 'ALL'
+  );
+  const [typeFilter, setTypeFilter] = useState<string>(savedSession.typeFilter || 'ALL');
+  const [priorityFilter, setPriorityFilter] = useState<string>(savedSession.priorityFilter || 'ALL');
+  const [ownerFilter, setOwnerFilter] = useState<string>(savedSession.ownerFilter || 'ALL');
 
   // Queue Player (HubSpot Play Queue Mode)
-  const [playingQueue, setPlayingQueue] = useState<boolean>(false);
-  const [currentQueueIndex, setCurrentQueueIndex] = useState<number>(0);
+  const [playingQueue, setPlayingQueue] = useState<boolean>(!!savedSession.playingQueue);
+  const [currentQueueIndex, setCurrentQueueIndex] = useState<number>(savedSession.currentQueueIndex || 0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const state: QueueSessionState = {
+        playingQueue,
+        currentQueueIndex,
+        queueFilter,
+        dueFilter,
+        typeFilter,
+        priorityFilter,
+        ownerFilter,
+      };
+      window.sessionStorage.setItem(QUEUE_SESSION_KEY, JSON.stringify(state));
+    } catch {
+      // ignore
+    }
+  }, [playingQueue, currentQueueIndex, queueFilter, dueFilter, typeFilter, priorityFilter, ownerFilter]);
 
   // Create Modal
   const [showNewTaskModal, setShowNewTaskModal] = useState(false);
@@ -97,7 +145,12 @@ export default function HubSpotTasksQueueView({
     fetchTasks();
   }, []);
 
-  const todayYmd = new Date().toISOString().slice(0, 10);
+  useEffect(() => {
+    if (!loading) onTasksChanged?.(tasks);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, loading]);
+
+  const todayYmd = localTodayYmd();
 
   const filteredTasks = tasks.filter((t) => {
     if (queueFilter !== 'ALL' && t.queueName !== queueFilter) return false;

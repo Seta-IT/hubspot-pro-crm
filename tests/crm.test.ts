@@ -46,11 +46,14 @@ import {
 import {
   detectDuplicateContacts,
   detectDuplicateCompanies,
+  detectProtectedBranchCompanies,
+  haveConflictingCnpjs,
   jaroWinklerSimilarity,
   levenshteinSimilarity,
 } from '../src/modules/data-health/deduplication';
 import { createInMemoryRepository } from './helpers/legacy-proposal-fixtures';
 import { CrmApiRouter } from '../src/api/router';
+import { DataHealthService } from '../src/modules/data-health/health-service';
 
 describe('1. Validação & Padronização (validators.ts)', () => {
   it('valida sintaxe de e-mail, domínios descartáveis e corporativos vs gratuitos', () => {
@@ -193,7 +196,7 @@ describe('3. Detecção de Duplicados Exata & Fuzzy + Merge Inteligente', () => 
     assert.equal(totvsPair!.confidenceScore, 100);
   });
 
-  it('bloqueia detecção de duplicidade e rejeita merge (400) entre empresas com CNPJs diferentes mesmo com mesmo domínio (Matriz e Filial)', async () => {
+  it('bloqueia detecção de duplicidade e rejeita merge (422) entre empresas com CNPJs diferentes mesmo com mesmo domínio (Matriz e Filial)', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
 
@@ -225,7 +228,7 @@ describe('3. Detecção de Duplicados Exata & Fuzzy + Merge Inteligente', () => 
       'Empresas com CNPJs diferentes jamais devem ser listadas como duplicadas'
     );
 
-    // 2. Verifica que tentativa forçada de merge via API retorna 400 Bad Request (Bloqueio Fiscal)
+    // 2. Verifica que tentativa forçada de merge via API retorna 422 (Bloqueio Fiscal)
     const mergeAttempt = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/data-health/merge',
@@ -235,7 +238,7 @@ describe('3. Detecção de Duplicados Exata & Fuzzy + Merge Inteligente', () => 
         duplicateId: filial.id,
       },
     });
-    assert.equal(mergeAttempt.status, 400);
+    assert.equal(mergeAttempt.status, 422);
     const errBody = mergeAttempt.body as { error: string };
     assert.ok(errBody.error.includes('Bloqueio Fiscal'));
   });
@@ -4548,5 +4551,122 @@ describe('Rótulo do módulo de chamados: STI HUB Desk Service', () => {
     const iam = fsx.readFileSync('src/app/components/StiHubAdminRbacPanel.tsx', 'utf8');
     assert.ok(iam.includes("'Módulo 3: STI HUB Desk Service'"));
     assert.ok(!iam.includes("'Módulo 3: Sistema de Chamados'"));
+  });
+});
+
+// ============================================================================
+// 17. Regra fiscal: CNPJs diferentes JAMAIS são unificados 
+// ============================================================================
+describe('17. Regra Fiscal de CNPJ (sem merge entre CNPJs distintos) ', () => {
+  const createPair = async (router: CrmApiRouter) => {
+    const a = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'POST',
+      path: '/api/companies',
+      body: { name: 'Grupo Alfa Telecom Ltda', domain: 'grupoalfa.com.br', cnpj: '11.222.333/0001-81' },
+    });
+    const b = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'POST',
+      path: '/api/companies',
+      body: { name: 'Grupo Alfa Telecom Ltda', domain: 'grupoalfa.com.br', cnpj: '04.252.011/0001-10' },
+    });
+    assert.equal(a.status, 201);
+    assert.equal(b.status, 201);
+    return {
+      a: (a.body as { data: { id: string; cnpj: string } }).data,
+      b: (b.body as { data: { id: string; cnpj: string } }).data,
+    };
+  };
+
+  it('haveConflictingCnpjs normaliza para dígitos e só conflita quando ambos estão preenchidos', () => {
+    assert.equal(haveConflictingCnpjs('11.222.333/0001-81', '11222333000181'), false);
+    assert.equal(haveConflictingCnpjs('11.222.333/0001-81', '04.252.011/0001-10'), true);
+    assert.equal(haveConflictingCnpjs('11.222.333/0001-81', ''), false);
+    assert.equal(haveConflictingCnpjs(null, '04.252.011/0001-10'), false);
+  });
+
+  it('mesmo nome + mesmo domínio com CNPJs diferentes não vira par duplicado; aparece só como "mesmo grupo econômico" informativo', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const { a, b } = await createPair(router);
+
+    const dups = detectDuplicateCompanies(repo.listCompanies(), repo.listContacts(), repo.listDeals(), repo.listTimelineEvents());
+    assert.equal(
+      dups.some((p) => [p.primary.id, p.duplicate.id].sort().join('|') === [a.id, b.id].sort().join('|')),
+      false
+    );
+
+    const protectedPairs = detectProtectedBranchCompanies(repo.listCompanies());
+    const info = protectedPairs.find((p) => [p.companyA.id, p.companyB.id].sort().join('|') === [a.id, b.id].sort().join('|'));
+    assert.ok(info, 'par deve ser sinalizado como informativo');
+    assert.match(info!.sharedDomainOrGroup, /grupo econômico/i);
+
+    // Matriz/filial (mesma raiz de CNPJ, sem domínio) também é apenas informativo
+    const branchPairs = detectProtectedBranchCompanies([
+      { ...repo.getCompanyById(a.id)!, id: 'mx', name: 'Beta Matriz', domain: null, cnpj: '53.113.791/0001-22' },
+      { ...repo.getCompanyById(a.id)!, id: 'fx', name: 'Zeta Unidade Norte', domain: null, cnpj: '53.113.791/0002-03' },
+    ]);
+    assert.equal(branchPairs.length, 1);
+    assert.match(branchPairs[0].sharedDomainOrGroup, /matriz\/filial/);
+
+    // Health summary não lista DUPLICATE_COMPANY para o par
+    const dupsPayload = await router.dispatch({ method: 'GET', path: '/api/data-health/duplicates' });
+    if (dupsPayload.status === 200) {
+      const body = dupsPayload.body as { data: { companyDuplicates: Array<{ primary: { id: string }; duplicate: { id: string } }> } };
+      assert.equal(
+        (body.data.companyDuplicates || []).some((p) => [p.primary.id, p.duplicate.id].includes(a.id) && [p.primary.id, p.duplicate.id].includes(b.id)),
+        false
+      );
+    }
+  });
+
+  it('POST /api/data-health/merge e /api/companies/merge retornam 422 com mensagem em português e não alteram os registros', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const { a, b } = await createPair(router);
+
+    for (const p of ['/api/data-health/merge', '/api/companies/merge']) {
+      const res = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+        method: 'POST',
+        path: p,
+        body: { entityType: 'COMPANY', primaryId: a.id, duplicateId: b.id },
+      });
+      assert.equal(res.status, 422, `${p} deve retornar 422`);
+      const err = (res.body as { error: string; code?: string });
+      assert.match(err.error, /CNPJs diferentes/);
+      assert.match(err.error, /não podem ser unificadas/);
+      assert.equal(err.code, 'CONFLICTING_CNPJ_MERGE_BLOCKED');
+    }
+    assert.ok(repo.getCompanyById(a.id));
+    assert.ok(repo.getCompanyById(b.id));
+  });
+
+  it('mergeRecords lança Bloqueio Fiscal e autoCleanDatabase não unifica CNPJs distintos (inclusive transitivamente)', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const { a, b } = await createPair(router);
+    // Terceira empresa sem CNPJ (ponte entre A e B por nome/domínio)
+    const c = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'POST',
+      path: '/api/companies',
+      body: { name: 'Grupo Alfa Telecom Ltda', domain: 'grupoalfa.com.br' },
+    });
+    assert.equal(c.status, 201);
+
+    const svc = new DataHealthService();
+    assert.throws(
+      () => svc.mergeRecords(repo, { entityType: 'COMPANY', primaryId: a.id, duplicateId: b.id }),
+      /Bloqueio Fiscal/
+    );
+
+    svc.autoCleanDatabase(repo, { minConfidence: 75, autoEnrich: false });
+    const ca = repo.getCompanyById(a.id);
+    const cb = repo.getCompanyById(b.id);
+    assert.ok(ca && cb, 'autoClean nunca pode remover uma das empresas com CNPJ distinto');
+    assert.notEqual(
+      String(ca!.cnpj).replace(/\D/g, ''),
+      String(cb!.cnpj).replace(/\D/g, '')
+    );
+    // Seed TOTVS (mesmo CNPJ) continua sendo unificada normalmente
+    assert.ok(!repo.getCompanyById('comp-totvs-dup'));
   });
 });

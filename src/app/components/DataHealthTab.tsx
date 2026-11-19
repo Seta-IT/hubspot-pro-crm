@@ -18,7 +18,11 @@ import {
 } from 'lucide-react';
 import { Company, Contact, ServiceTicket } from '../../db/types';
 import { ErpOverviewPayload } from './ErpGestaoClickTab';
-import { detectProtectedBranchCompanies, DuplicateCandidatePair } from '../../modules/data-health/deduplication';
+import {
+  detectProtectedBranchCompanies,
+  DuplicateCandidatePair,
+  haveConflictingCnpjs,
+} from '../../modules/data-health/deduplication';
 import { AutoCleanResult, DataHealthSummaryReport } from '../../modules/data-health/health-service';
 import { formatBRL } from './ui-helpers';
 
@@ -125,6 +129,11 @@ export default function DataHealthTab({
     primaryId: string,
     duplicateId: string
   ) => {
+    if (entityType === 'COMPANY') {
+      const a = companies.find((c) => c.id === primaryId);
+      const b = companies.find((c) => c.id === duplicateId);
+      if (a && b && haveConflictingCnpjs(a.cnpj, b.cnpj)) return; // Bloqueio Fiscal: CNPJs distintos
+    }
     const key = `${entityType}-${primaryId}-${duplicateId}`;
     setMergingKey(key);
     try {
@@ -166,6 +175,12 @@ export default function DataHealthTab({
   const incompleteCompanies = companies.filter((c) => c.completenessScore < 65);
   const invalidContacts = contacts.filter((c) => !c.isValidEmail || (c.phone && !c.isValidPhone));
   const protectedBranches = detectProtectedBranchCompanies(companies);
+  // REGRA FISCAL (defesa no cliente): par com CNPJs distintos nunca recebe botão de merge,
+  // mesmo que o payload de duplicidades esteja desatualizado em relação aos CNPJs atuais.
+  const currentCompanyCnpj = (c: Company) => companies.find((x) => x.id === c.id)?.cnpj ?? c.cnpj;
+  const mergeableCompanyDuplicates = (duplicates?.companyDuplicates || []).filter(
+    (p) => !haveConflictingCnpjs(currentCompanyCnpj(p.primary), currentCompanyCnpj(p.duplicate))
+  );
 
   const statusBadgeColor =
     summary?.statusLabel === 'EXCELLENT'
@@ -1017,14 +1032,14 @@ export default function DataHealthTab({
               </div>
 
               {/* Company Duplicates */}
-              {duplicates.companyDuplicates.length > 0 && (
+              {mergeableCompanyDuplicates.length > 0 && (
                 <div className="space-y-4">
                   <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                     <Building2 className="w-4 h-4 text-[#1e3a6e]" />
-                    Duplicidades de Empresas Detectadas ({duplicates.companyDuplicates.length})
+                    Duplicidades de Empresas Detectadas ({mergeableCompanyDuplicates.length})
                   </h3>
 
-                  {duplicates.companyDuplicates.map((pair) => {
+                  {mergeableCompanyDuplicates.map((pair) => {
                     const key = `COMPANY-${pair.primary.id}-${pair.duplicate.id}`;
                     const isMerging = mergingKey === key;
 

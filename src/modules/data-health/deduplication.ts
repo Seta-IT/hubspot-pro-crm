@@ -495,11 +495,19 @@ export function detectProtectedBranchCompanies(companies: Company[]): ProtectedB
       const n1 = normalizeCompanyNameForComparison(c1.name);
       const n2 = normalizeCompanyNameForComparison(c2.name);
       const sim = Math.max(jaroWinklerSimilarity(n1, n2), levenshteinSimilarity(n1, n2));
-      if (sameDom || sim >= 0.85) {
+      // Matriz/filial: mesma raiz de CNPJ (8 primeiros dígitos) — apenas informativo, nunca mesclável
+      const root1 = normalizeCnpjDigits(c1.cnpj).slice(0, 8);
+      const root2 = normalizeCnpjDigits(c2.cnpj).slice(0, 8);
+      const sameRoot = root1.length === 8 && root1 === root2;
+      if (sameDom || sim >= 0.85 || sameRoot) {
         pairs.push({
           companyA: c1,
           companyB: c2,
-          sharedDomainOrGroup: sameDom ? `@${dom1.domain}` : 'Mesmo Grupo Econômico',
+          sharedDomainOrGroup: sameDom
+            ? `Mesmo grupo econômico (@${dom1.domain})`
+            : sameRoot
+              ? `Mesmo grupo econômico (matriz/filial — raiz CNPJ ${root1})`
+              : 'Mesmo grupo econômico',
           reason: `Bloqueio Fiscal: CNPJs distintos (${c1.cnpj} vs ${c2.cnpj}) não podem ser unificados.`,
         });
       }
