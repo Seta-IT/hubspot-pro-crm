@@ -444,19 +444,34 @@ export async function resolverEmpresa(nome: string, api: ApiCaller): Promise<Res
     if (res.status < 200 || res.status >= 300) return { erro: res };
     return { list: Array.isArray(res.body?.data) ? res.body.data : [] };
   };
+  const digits = (v: unknown) => String(v || '').replace(/\D+/g, '');
   let r = await buscar(`/api/companies?search=${encodeURIComponent(termo)}&limit=20`);
   if ('erro' in r) return { ok: false, candidatos: [], result: apiError(r.erro, 'consultar o cadastro de empresas') };
   let list = r.list;
-  const filtra = (l: any[]) => l.filter((c) => c && (buscaCombina(termo, [c.name, c.tradeName, c.legalName]) || (cnpj && String(c.cnpj || '').replace(/\D+/g, '') === cnpj)));
+  const filtra = (l: any[]) => l.filter((c) => c && (buscaCombina(termo, [c.name, c.tradeName, c.legalName]) || (cnpj && digits(c.cnpj) === cnpj)));
   let cands = filtra(list);
-  if (!cands.length) {
+  const porCnpjEm = (l: any[]) => (cnpj ? l.filter((c) => digits(c?.cnpj) === cnpj) : []);
+  // Com CNPJ, se a busca por nome não trouxer a empresa certa, amplia para a lista visível.
+  if (!cands.length || (cnpj && porCnpjEm(list).length !== 1)) {
     r = await buscar('/api/companies');
     if ('erro' in r) return { ok: false, candidatos: [], result: apiError(r.erro, 'consultar o cadastro de empresas') };
     list = r.list;
     cands = filtra(list);
   }
-  const porCnpj = cnpj ? list.filter((c) => String(c?.cnpj || '').replace(/\D+/g, '') === cnpj) : [];
-  if (porCnpj.length === 1) return { ok: true, company: porCnpj[0] };
+  const porCnpj = porCnpjEm(list);
+  // CNPJ nos argumentos (cartão/token) prevalece: nunca cai no nome de outra empresa.
+  if (cnpj) {
+    if (porCnpj.length === 1) return { ok: true, company: porCnpj[0] };
+    const identCnpj = (c: any) => `${cut(c?.name, 60)}${c?.cnpj ? ` (CNPJ ${cut(c.cnpj, 20)})` : ''}`;
+    const msgCnpj = porCnpj.length
+      ? `Encontrei ${porCnpj.length} empresas com o CNPJ informado: ${porCnpj.slice(0, 5).map((c, i) => `${i + 1}) ${identCnpj(c)}`).join('; ')}. Qual delas?`
+      : 'Não encontrei a empresa com o CNPJ informado no cadastro visível. Informe o nome completo ou confira o CNPJ.';
+    return {
+      ok: false,
+      candidatos: porCnpj,
+      result: { ok: false, status: 404, mensagem: msgCnpj, resumoParaModelo: `Empresa não identificada pelo CNPJ (${porCnpj.length} candidatas).` },
+    };
+  }
   const alvo = compact(termo);
   const exact = cands.filter((c) => compact(c?.name) === alvo);
   const pick = exact.length === 1 ? exact[0] : cands.length === 1 ? cands[0] : null;

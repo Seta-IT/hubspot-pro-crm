@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { createInMemoryRepository } from '../src/db/repository';
 import { CrmApiRouter } from '../src/api/router';
 import { resolveStiHubSigningSecret, signStiHubSessionToken } from '../src/app/lib/auth';
-import { ASSISTENTE_TOOLS, buscaCombina, catalogoAcoes, getTool, toolDefinitionsFor, type ApiCaller, type ApiCallRequest, type AssistenteUser } from '../src/modules/assistente/tools';
+import { ASSISTENTE_TOOLS, buscaCombina, catalogoAcoes, getTool, resolverEmpresa, toolDefinitionsFor, type ApiCaller, type ApiCallRequest, type AssistenteUser } from '../src/modules/assistente/tools';
 import { handleChat, handleExecute, redactSecrets, type AssistenteAuditEntry, type AssistenteDeps } from '../src/modules/assistente/service';
 import { sessionBinding, signActionToken, signAuditReceipt, verifyActionToken } from '../src/modules/assistente/confirmation';
 import { createSessionApiCaller, isAllowedAssistenteRoute } from '../src/modules/assistente/api-caller';
@@ -550,6 +550,28 @@ describe('assistente — fluxo da proposta (A3C cloud, 36 meses)', () => {
     const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: PEDIDO }] }, deps({ api, llm }));
     assert.equal(r.body.tipo, 'proposta');
     assert.match((r.body.proposta as any).linhas.join('\n'), /A3CLOUD\.IT LTDA/);
+  });
+
+  it('CNPJ no cliente prevalece: a busca por nome não troca para outra empresa', async () => {
+    const { api } = fakeApi({
+      'GET /api/companies': (r) => {
+        const q = new URL(`http://x${r.path}`).searchParams.get('search');
+        // A busca pelo nome devolve só a outra empresa; a lista completa tem as duas.
+        if (q) return { status: 200, body: { data: [A3[1]] } };
+        return { status: 200, body: { data: A3 } };
+      },
+    });
+    const emp = await resolverEmpresa('A3CLOUD.IT LTDA — CNPJ 10.455.355/0001-29', api);
+    assert.equal(emp.ok, true);
+    if (emp.ok) assert.equal(emp.company.id, 'co-a3c');
+  });
+
+  it('CNPJ assinado ausente no cadastro visível não cai em empresa de nome parecido', async () => {
+    const { api } = fakeApi({
+      'GET /api/companies': () => ({ status: 200, body: { data: [A3[1]] } }),
+    });
+    const emp = await resolverEmpresa('A3CLOUD.IT LTDA — CNPJ 10.455.355/0001-29', api);
+    assert.equal(emp.ok, false);
   });
 
   it('catálogo genérico: ações com rotas e disponibilidade por módulo; título e valor são opcionais', () => {
