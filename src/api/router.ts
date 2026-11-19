@@ -47,6 +47,7 @@ import {
   syncStateToPostgres,
 } from '../db/postgres';
 import {
+  countSetaDeskTickets,
   createSetaDeskPipeline,
   isLegacyDemoServiceTicket,
   isSetaDeskPostgresEnabled,
@@ -59,6 +60,7 @@ import {
   type SetaDeskBaseline,
 } from '../db/setadesk-store';
 import { canManageSetaDeskPipelines, parseSetaDeskPipelineWrite } from './setadesk-pipeline-guards';
+import { paginateTickets, parseTicketsPageParams, setaDeskLoadPlanForRoute } from './setadesk-route-plan';
 import { isSetaDeskEmailDirectRoute, matchMarkViewedPath, SETADESK_EMAIL_POLL_PATH } from '../modules/setadesk-email/routes';
 import { isSetaDeskEmailIntakeEnabled, resolveSetaDeskGraphConfig } from '../modules/setadesk-email/config';
 import { createSetaDeskGraphClient, type SetaDeskFetch } from '../modules/setadesk-email/graph-app-client';
@@ -1357,29 +1359,38 @@ export class CrmApiRouter {
     await this.ensureCompanyEmitterHydrated();
 
     // SetaDesk: chamados vem das tabelas setadesk_* (fonte de verdade) quando ha Postgres.
-    // Rotas /api/tickets* e, com permissao de Chamados, /api/bootstrap e /api/state.
-    // Rota publica nunca dispara o load. O baseline (e o sync posterior) so vale em /api/tickets*.
+    // E1 (18/11): o crm_state_v1 nao guarda mais serviceTickets; a lista em memoria comeca vazia
+    // e cada rota carrega so o que usa (setaDeskLoadPlanForRoute). /api/tickets* carrega todos;
+    // bootstrap/state so com permissao de Chamados e sem historico; portal so a chave informada.
+    // Nao ha mais reconciliacao com o legado do JSON no caminho quente (reconcileLegacy: false).
     let setaDeskBaseline: SetaDeskBaseline | null = null;
     let setaDeskLoaded = false;
     const ticketRoute = shouldLoadSetaDeskTicketsForRoute(method, cleanPath);
     const bootstrapPath = isSetaDeskBootstrapPath(cleanPath);
     const chamadosAccess = this.hasChamadosTicketAccess(query, { trustedInternal });
+    const routePlan = ticketRoute || bootstrapPath ? null : setaDeskLoadPlanForRoute(method, cleanPath, query, body);
+    if (this.isSingletonRepo && isPostgresEnabled()) {
+      // Nunca reaproveita chamados de uma requisicao anterior nem do arquivo local.
+      this.repo.replaceServiceTickets([]);
+    }
     if (
       this.isSingletonRepo &&
       isSetaDeskPostgresEnabled() &&
-      (ticketRoute || (bootstrapPath && chamadosAccess))
+      (ticketRoute || (bootstrapPath && chamadosAccess) || routePlan)
     ) {
       try {
-        const loaded = await loadSetaDeskTickets(
-          ticketRoute ? this.repo.getState().serviceTickets || [] : [],
-          bootstrapPath && !ticketRoute ? { includeComments: false, reconcileLegacy: false } : undefined
-        );
+        const loadOptions = ticketRoute
+          ? { reconcileLegacy: false }
+          : bootstrapPath
+            ? { includeComments: false, reconcileLegacy: false }
+            : { includeComments: routePlan!.includeComments, reconcileLegacy: false, keys: routePlan!.refs };
+        const loaded = await loadSetaDeskTickets([], loadOptions);
         if (loaded) {
           this.repo.replaceServiceTickets(loaded.tickets);
           setaDeskLoaded = true;
-          if (ticketRoute) setaDeskBaseline = loaded.baseline;
+          if (ticketRoute || routePlan?.sync) setaDeskBaseline = loaded.baseline;
         }
-        const needed = setaDeskBaseline ? ticketKeysNeededForRoute(method, cleanPath, body) : 0;
+        const needed = setaDeskBaseline ? this.setaDeskTicketKeysNeeded(method, cleanPath, body) : 0;
         const reservePipelineId =
           body && typeof body === 'object' && typeof (body as { pipelineId?: unknown }).pipelineId === 'string'
             ? String((body as { pipelineId: string }).pipelineId)
@@ -1395,6 +1406,13 @@ export class CrmApiRouter {
             : '[SetaDesk] Postgres indisponivel; usando estado local:',
           (err as Error)?.message || err
         );
+        // Rota que grava chamado sem a fonte de verdade: 503 (nunca grava em cima de lista vazia).
+        if (routePlan?.sync && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+          return {
+            status: 503,
+            body: { error: 'Chamados temporariamente indisponíveis. Tente de novo em instantes.', code: 'SETADESK_STORE_UNAVAILABLE' },
+          };
+        }
       }
     }
 
@@ -1534,6 +1552,41 @@ export class CrmApiRouter {
   /** Gravacao no Neon so no repositorio singleton com Postgres configurado (isolado para teste). */
   private canPersistToPostgres(): boolean {
     return this.isSingletonRepo && isPostgresEnabled();
+  }
+
+  /**
+   * E1: quantas chaves reservar na sequencia antes da rota. Nas rotas publicas que criam chamado
+   * (portal e formulario), so reserva quando o corpo de fato vai abrir um chamado, para nao gastar
+   * numeros da fila com envios invalidos.
+   */
+  /**
+   * E1: contagem de chamados para telas do CRM/ERP. Com Postgres, conta nas setadesk_* (o JSON nao
+   * tem mais a lista); sem Postgres, a lista em memoria. Falha de leitura => null (nao inventa zero).
+   */
+  private async countServiceTicketsForReport(): Promise<number | null> {
+    if (this.isSingletonRepo && isSetaDeskPostgresEnabled()) {
+      try {
+        return await countSetaDeskTickets();
+      } catch (err) {
+        console.error('[SetaDesk] Falha ao contar chamados:', (err as Error)?.message || err);
+        return null;
+      }
+    }
+    return this.repo.listServiceTickets().length;
+  }
+
+  private setaDeskTicketKeysNeeded(method: string, cleanPath: string, body: Record<string, unknown>): number {
+    if (method === 'POST' && cleanPath === '/api/portal/tickets') {
+      const subject = String(body?.subject || '').trim();
+      const email = String(body?.email || '').trim().toLowerCase();
+      return subject && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? 1 : 0;
+    }
+    if (method === 'POST' && cleanPath === '/api/forms/submit') {
+      const formId = String(body?.formId || 'form-enterprise-demo');
+      const form = this.repo.getWebFormById(formId) || this.repo.listWebForms()[0];
+      return form && (form.autoCreateTicket || form.targetType === 'SUPPORT_TICKET') ? 1 : 0;
+    }
+    return ticketKeysNeededForRoute(method, cleanPath, body || {});
   }
 
   private async persistStateToPostgres(): Promise<ApiResponse | null> {
@@ -4583,7 +4636,7 @@ export class CrmApiRouter {
               workflows: state.workflows.length,
               sequences: state.sequences.length,
               webForms: (state.webForms || []).length,
-              serviceTickets: (state.serviceTickets || []).length,
+              serviceTickets: await this.countServiceTicketsForReport(),
             },
           },
         };
@@ -6260,14 +6313,20 @@ export class CrmApiRouter {
               contract: t.contractId ? contracts.get(t.contractId) || null : null,
               serviceOrder: t.serviceOrderId ? serviceOrders.get(t.serviceOrderId) || null : null,
             }))
-            .filter((t) => !searchQ || ticketMatchesSearchServer(t, searchQ))
-            .map((t) => maskTicketForResponse(t));
+            .filter((t) => !searchQ || ticketMatchesSearchServer(t, searchQ));
 
+          // E1: lista paginada (limit 1..500, padrao 100; offset ou cursor). total = filtrados.
+          const page = paginateTickets(enrichedTickets, parseTicketsPageParams(query));
           return {
             status: 200,
             body: {
-              data: enrichedTickets,
-              total: enrichedTickets.length,
+              data: page.data.map((t) => maskTicketForResponse(t)),
+              total: page.total,
+              limit: page.limit,
+              offset: page.offset,
+              hasMore: page.hasMore,
+              nextOffset: page.nextOffset,
+              nextCursor: page.nextCursor,
               kpis,
             },
           };
@@ -10775,7 +10834,7 @@ export class CrmApiRouter {
               crmCompaniesMapped: this.repo.listCompanies().length,
               crmContactsMapped: this.repo.listContacts().length,
               crmDealsMapped: this.repo.listDeals().length,
-              chamadosMapped: this.repo.listServiceTickets().length,
+              chamadosMapped: (await this.countServiceTicketsForReport()) ?? 0,
             },
             incrementalNewOrUpdated: Number(body.incrementalCount || 7),
             cursorTimestamp: nowIso,

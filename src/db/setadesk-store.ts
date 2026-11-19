@@ -460,8 +460,17 @@ export async function alignSequenceToAtLeast(client: PoolClient, minNextValue: n
 export type LoadSetaDeskTicketsOptions = {
   /** Padrao true. No bootstrap da fila, false evita trazer o historico de cada chamado. */
   includeComments?: boolean;
-  /** Padrao true. No bootstrap da fila, false evita gravar legado/seed nesta leitura. */
+  /**
+   * Padrao false (E1, 18/11): o crm_state_v1 nao guarda mais chamados, entao nao ha legado a
+   * reconciliar no caminho quente. So o script de migracao passa true, de forma explicita.
+   */
   reconcileLegacy?: boolean;
+  /**
+   * Carga parcial: so os chamados com estas referencias (id, key ou legacy_key, sem diferenciar
+   * maiusculas).
+   * Lista vazia => nenhum chamado (rotas que so criam). undefined => todos.
+   */
+  keys?: string[];
 };
 
 /** Le os chamados das tabelas SetaDesk. */
@@ -470,19 +479,37 @@ export async function loadSetaDeskTickets(
   options?: LoadSetaDeskTicketsOptions
 ): Promise<{ tickets: ServiceTicket[]; baseline: SetaDeskBaseline } | null> {
   const includeComments = options?.includeComments !== false;
-  const reconcileLegacy = options?.reconcileLegacy !== false;
+  const reconcileLegacy = options?.reconcileLegacy === true;
+  const keys = Array.isArray(options?.keys)
+    ? Array.from(new Set(options!.keys.map((k) => String(k || '').trim().toUpperCase()).filter(Boolean))).slice(0, 500)
+    : null;
   const pool = getPostgresPool();
   if (!pool) return null;
+  if (keys && keys.length === 0) return { tickets: [], baseline: buildBaseline([]) };
   await ensureSetaDeskSchema(pool);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const readAll = async () => ({
-      t: await client.query(`SELECT * FROM setadesk_tickets ORDER BY created_at DESC, key DESC`),
-      c: includeComments
-        ? await client.query(`SELECT * FROM setadesk_ticket_comments ORDER BY created_at ASC, id ASC`)
-        : { rows: [] as Record<string, unknown>[] },
-    });
+    const readAll = async () => {
+      const t = keys
+        ? await client.query(
+            `SELECT * FROM setadesk_tickets
+              WHERE UPPER(id) = ANY($1::text[]) OR UPPER(key) = ANY($1::text[]) OR UPPER(legacy_key) = ANY($1::text[])
+              ORDER BY created_at DESC, key DESC`,
+            [keys]
+          )
+        : await client.query(`SELECT * FROM setadesk_tickets ORDER BY created_at DESC, key DESC`);
+      const ids = t.rows.map((r) => String(r.id));
+      const c = !includeComments || (keys && ids.length === 0)
+        ? { rows: [] as Record<string, unknown>[] }
+        : keys
+          ? await client.query(
+              `SELECT * FROM setadesk_ticket_comments WHERE ticket_id = ANY($1::text[]) ORDER BY created_at ASC, id ASC`,
+              [ids]
+            )
+          : await client.query(`SELECT * FROM setadesk_ticket_comments ORDER BY created_at ASC, id ASC`);
+      return { t, c };
+    };
     let { t: tRes, c: cRes } = await readAll();
     const current = new Map<string, string>(
       tRes.rows.map((r) => [String(r.id), iso(r.updated_at) || ''])
@@ -509,6 +536,15 @@ export async function loadSetaDeskTickets(
   } finally {
     client.release();
   }
+}
+
+/** Total de chamados nas tabelas SetaDesk (contadores do CRM/ERP sem carregar a lista). */
+export async function countSetaDeskTickets(): Promise<number | null> {
+  const pool = getPostgresPool();
+  if (!pool) return null;
+  await ensureSetaDeskSchema(pool);
+  const r = await pool.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM setadesk_tickets`);
+  return Number(r.rows[0]?.n || 0);
 }
 
 async function resolvePipelineForReserve(
