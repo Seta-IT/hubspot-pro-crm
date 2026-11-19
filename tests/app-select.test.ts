@@ -25,10 +25,10 @@ describe('AppSelect — navegação e posicionamento', () => {
 
   it('localiza opção pelo prefixo digitado, pulando itens desabilitados', () => {
     const options = [
-      { label: 'Boleto Bancário Híbrido PIX' },
-      { label: 'PIX Empresarial' },
-      { label: 'TED / Transferência Bancária' },
-      { label: 'Cartão de Crédito', disabled: true },
+      { label: 'Boleto' },
+      { label: 'Pix' },
+      { label: 'Ted / Transferência' },
+      { label: 'Cheque', disabled: true },
     ];
     assert.equal(findSelectOptionByQuery(options, 'pix'), 1);
     assert.equal(findSelectOptionByQuery(options, 't'), 2);
@@ -71,7 +71,10 @@ describe('Droplist do orçamento e da fatura no padrão visual do sistema', () =
     const paymentSlice = modal.slice(paymentStart, paymentStart + 1800);
     assert.ok(paymentSlice.includes('<AppSelect'));
     assert.ok(!paymentSlice.includes('<select'));
-    assert.ok(paymentSlice.includes('Boleto Bancário Híbrido PIX'));
+    assert.ok(paymentSlice.includes('proposalPaymentMethodOptions'));
+    assert.ok(!paymentSlice.includes('Boleto Bancário Híbrido PIX'));
+    assert.ok(!paymentSlice.includes('CARTAO_CREDITO'));
+    assert.ok(!paymentSlice.includes('Cartão de Crédito'));
     assert.ok(select.includes("role=\"listbox\""));
     assert.ok(select.includes("'Escape'"));
     assert.ok(select.includes('bg-[#e8eef6] text-[#1e3a6e]'));

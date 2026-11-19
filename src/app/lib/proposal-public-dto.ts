@@ -13,6 +13,7 @@ import type {
   ErpFiscalNature,
   ErpProposalStatus,
 } from '../../db/types';
+import { displayPaymentConditionText, proposalPaymentMethodLabel } from './proposal-payment-method';
 
 export interface PublicProposalItemDto {
   description: string;
@@ -164,8 +165,8 @@ export function toPublicProposalDto(p: ErpCommercialProposal): PublicProposalDto
       number: num(i.number),
       dueDate: String(i.dueDate || ''),
       amount: num(i.amount),
-      paymentMethod: String(i.paymentMethod || ''),
-      notes: optStr(i.notes),
+      paymentMethod: proposalPaymentMethodLabel(String(i.paymentMethod || '')),
+      notes: optStr(i.notes) ? displayPaymentConditionText(i.notes) : optStr(i.notes),
     })),
     productsSubtotal: optNum(p.productsSubtotal),
     servicesSubtotal: optNum(p.servicesSubtotal),
@@ -177,7 +178,7 @@ export function toPublicProposalDto(p: ErpCommercialProposal): PublicProposalDto
     oneTimeSetupTotal: num(p.oneTimeSetupTotal),
     totalContractValue: num(p.totalContractValue),
     contractMonths: Math.max(1, num(p.contractMonths, 1)),
-    paymentCondition: String(p.paymentCondition || ''),
+    paymentCondition: displayPaymentConditionText(p.paymentCondition || ''),
     readjustmentIndex: p.readjustmentIndex ?? null,
     deliveryLeadTime: optStr(p.deliveryLeadTime),
     deliveryForecast: optStr(p.deliveryForecast),

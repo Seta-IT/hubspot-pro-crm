@@ -19,7 +19,7 @@ import {
   UserCheck,
   Edit3,
   Truck,
-  CreditCard,
+  Landmark,
   History,
   Clock,
   RotateCcw,
@@ -30,6 +30,7 @@ import { ErpCommercialProposal, ErpProposalDigitalSignature, ErpProposalVersionE
 import { formatBRL as formatBRLWhole } from '../../components/ui-helpers';
 import { isoToBrDate } from '../../lib/br-date';
 import { publicDtoToRenderableProposal, type PublicProposalDto } from '../../lib/proposal-public-dto';
+import { displayPaymentConditionText, proposalPaymentMethodLabel } from '../../lib/proposal-payment-method';
 import { buildOpenCrmHref } from '../../lib/home-screen';
 import { SETA_PROPOSAL_HEADER_ADDRESS } from '../../lib/company-issuer-address';
 import {
@@ -973,9 +974,11 @@ function PublicProposalPrintContent() {
     !avulsoService && !saleLike && (isRental || proposal.items.some((i) => i.isRecurring !== false));
   const sellerContact = resolveProposalSellerContact(proposal);
   const displayPaymentCondition =
-    (avulsoService
-      ? readablePaymentCondition(proposal.paymentCondition)
-      : cleanProposalPaymentCondition(proposal.paymentCondition)) || "Conforme condições acordadas";
+    displayPaymentConditionText(
+      avulsoService
+        ? readablePaymentCondition(proposal.paymentCondition)
+        : cleanProposalPaymentCondition(proposal.paymentCondition)
+    ) || "Conforme condições acordadas";
   const commercialTotalAmount = saleLike
     ? // Venda: subtotal (itens ja liquidos do desconto do item) - desconto global + frete; sem setup.
       Math.round((productsSubtotal + servicesSubtotal - globalDiscountVal + shippingCost) * 100) / 100
@@ -2228,7 +2231,7 @@ function PublicProposalPrintContent() {
             <div className={`print-avoid-break border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
               <div className={`${tableHeaderBgClass} px-4 py-2 flex items-center justify-between text-xs font-semibold`}>
                 <span className="inline-flex items-center gap-1.5">
-                  <CreditCard className="w-4 h-4 text-[#1e3a6e]" />
+                  <Landmark className="w-4 h-4 text-[#1e3a6e]" />
                   CONDIÇÕES DE PAGAMENTO E CRONOGRAMA DE PARCELAS ({proposal.installments.length}x)
                 </span>
                 <span className="text-[11px] text-slate-600">{displayPaymentCondition}</span>
@@ -2252,11 +2255,11 @@ function PublicProposalPrintContent() {
                       <td className="py-2 px-3 font-semibold text-slate-800">
                         {isoToBrDate(inst.dueDate) || inst.dueDate}
                       </td>
-                      <td className="py-2 px-3 text-slate-700">{inst.paymentMethod}</td>
+                      <td className="py-2 px-3 text-slate-700">{proposalPaymentMethodLabel(inst.paymentMethod)}</td>
                       <td className="py-2 px-3 text-right font-semibold text-slate-900">
                         {formatBRL(inst.amount)}
                       </td>
-                      <td className="py-2 px-3 text-slate-600">{inst.notes || "—"}</td>
+                      <td className="py-2 px-3 text-slate-600">{inst.notes ? displayPaymentConditionText(inst.notes) : "—"}</td>
                     </tr>
                   ))}
                 </tbody>
