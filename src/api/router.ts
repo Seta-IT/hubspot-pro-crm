@@ -122,6 +122,7 @@ import {
   enqueueCampaign,
   marketingPreflight,
   processMarketingQueue,
+  resolveReviewSend,
   sendMarketingTest,
   type MarketingDeps,
 } from '../modules/marketing/campaign-dispatcher';
@@ -1211,6 +1212,20 @@ export class CrmApiRouter {
       const max = Number(body.maxSends);
       const result = await processMarketingQueue(this.repo, deps, { maxSends: Number.isFinite(max) && max > 0 ? max : undefined });
       return { status: 200, body: { data: result } };
+    }
+    const reviewMatch = cleanPath.match(/^\/api\/marketing\/campaigns\/([A-Za-z0-9_.:-]{1,120})\/review$/);
+    if (reviewMatch && method === 'POST') {
+      const priv = this.marketingPrivilege(query, ctx);
+      if (!priv.allowed) return forbidden(priv);
+      const decision = String(body.decision || '');
+      if (!['MARK_SENT', 'REQUEUE', 'DISCARD'].includes(decision)) return { status: 400, body: { error: 'Decisão inválida.' } };
+      const r = await resolveReviewSend(this.repo, deps, {
+        campaignId: reviewMatch[1],
+        contactId: String(body.contactId || ''),
+        decision: decision as 'MARK_SENT' | 'REQUEUE' | 'DISCARD',
+        actor: priv.actor || 'Sistema STI-hub',
+      });
+      return r.ok ? { status: 200, body: { data: r } } : { status: 409, body: { error: r.error } };
     }
     const funnelMatch = cleanPath.match(/^\/api\/marketing\/campaigns\/([A-Za-z0-9_.:-]{1,120})\/funnel$/);
     if (funnelMatch && method === 'GET') {

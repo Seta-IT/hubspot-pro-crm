@@ -70,6 +70,8 @@ interface Funnel {
   unsubscribes: number;
   skipped: number;
   failed: number;
+  needsReview: number;
+  reviewItems: Array<{ contactId: string; email: string; reason: string | null; updatedAt: string }>;
   rates: Record<string, number>;
 }
 
@@ -148,6 +150,17 @@ export default function MarketingCampaignStudio({ campaigns }: { campaigns: Mark
   }, [campaigns, campaignId]);
 
   const flash = (tone: 'ok' | 'err', text: string) => setMsg({ tone, text });
+
+  useEffect(() => {
+    if (tab !== 'FUNNEL' || !campaignId) return;
+    let cancelled = false;
+    api<Funnel>(`/api/marketing/campaigns/${encodeURIComponent(campaignId)}/funnel`).then((r) => {
+      if (!cancelled && r.ok && r.data) setFunnel(r.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, campaignId]);
 
   const openTemplate = async (id: string) => {
     const r = await api<{ template: TemplateRow; versions: VersionRow[] }>(`/api/marketing/templates/${id}`);
@@ -238,6 +251,15 @@ export default function MarketingCampaignStudio({ campaigns }: { campaigns: Mark
       const r = await api<Funnel>(`/api/marketing/campaigns/${encodeURIComponent(campaignId)}/funnel`);
       if (!r.ok || !r.data) return flash('err', r.error || 'Falha ao carregar o funil.');
       setFunnel(r.data);
+    });
+
+  const resolveReview = (contactId: string, decision: 'MARK_SENT' | 'REQUEUE' | 'DISCARD') =>
+    run(async () => {
+      const r = await api(`/api/marketing/campaigns/${encodeURIComponent(campaignId)}/review`, { method: 'POST', body: JSON.stringify({ contactId, decision }) });
+      if (!r.ok) return flash('err', r.error || 'Falha ao registrar a decisão.');
+      flash('ok', decision === 'MARK_SENT' ? 'Marcado como enviado.' : decision === 'REQUEUE' ? 'Reenvio liberado: volta para a fila.' : 'Envio descartado.');
+      const f = await api<Funnel>(`/api/marketing/campaigns/${encodeURIComponent(campaignId)}/funnel`);
+      if (f.ok && f.data) setFunnel(f.data);
     });
 
   const move = (from: number, to: number) => {
@@ -608,6 +630,32 @@ export default function MarketingCampaignStudio({ campaigns }: { campaigns: Mark
                   {rate !== null && <div className="text-slate-500">{rate}%</div>}
                 </div>
               ))}
+            </div>
+          )}
+          {funnel && funnel.needsReview > 0 && (
+            <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-3 py-2 space-y-2">
+              <div className="font-semibold">Envios para revisar ({funnel.needsReview})</div>
+              <p>
+                O envio foi interrompido no meio e pode ou não ter saído. Confira no painel do provedor antes de decidir. O sistema não reenvia sozinho; uma tarefa foi criada na fila
+                &quot;Campanhas de Marketing&quot;.
+              </p>
+              <ul className="space-y-1">
+                {funnel.reviewItems.map((it) => (
+                  <li key={it.contactId} className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono">{it.email}</span>
+                    <span className="text-amber-800">{formatDateTimeBR(it.updatedAt)}</span>
+                    <button type="button" disabled={busy} onClick={() => resolveReview(it.contactId, 'MARK_SENT')} className={`${btn} bg-white border border-amber-300`}>
+                      Saiu: marcar como enviado
+                    </button>
+                    <button type="button" disabled={busy} onClick={() => resolveReview(it.contactId, 'REQUEUE')} className={`${btn} bg-white border border-amber-300`}>
+                      Não saiu: liberar reenvio
+                    </button>
+                    <button type="button" disabled={busy} onClick={() => resolveReview(it.contactId, 'DISCARD')} className={`${btn} bg-white border border-amber-300`}>
+                      Descartar
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
           {funnel && (

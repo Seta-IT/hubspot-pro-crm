@@ -476,6 +476,53 @@ describe('Fase 3: envio real ponta a ponta (ESP, DNS e trava mockados)', () => {
     assert.equal(esp.calls.length, 2);
   });
 
+  it('envio interrompido no meio => "para revisar" com tarefa; nunca reenvia sozinho; pessoa decide', async () => {
+    const repo = createInMemoryRepository();
+    const contacts = synthetic(repo);
+    const store = new MemoryMarketingStore();
+    const lock = new MemoryLockStore();
+    const esp = fakeFetch();
+    let nowMs = Date.parse('2026-11-19T15:00:00.000Z');
+    const mk = (): MarketingDeps => ({ store, mailbox: new MemoryMailboxStore(), env: baseEnv(), esp: { fetch: esp.fetchFn }, lock, resolver: resolverFrom(GOOD_DNS), sleep: async () => undefined, origin: ORIGIN, now: () => new Date(nowMs) });
+    const { template } = await createTemplate(store, { name: 'T', purpose: 'NEWSLETTER_TECNICA', subject: 'S', blocks: BLOCKS }, 'a@x.test');
+    await submitTemplateForReview(store, template.id, 'a@x.test');
+    await approveTemplate(store, template.id, 'b@x.test');
+    const { enqueueCampaign, resolveReviewSend, campaignFunnel } = await import('../src/modules/marketing/campaign-dispatcher');
+    await enqueueCampaign(repo, mk(), { campaignId: 'cmp-1', templateId: template.id, contacts: [contacts[0], contacts[1]] });
+    // Simula queda da instancia: linha ficou em SENDING (e a reserva global ficou com o dono antigo).
+    await store.updateSend('cmp-1', contacts[0].id, { status: 'SENDING', updatedAt: new Date(nowMs).toISOString() });
+    await lock.acquire('mktsend:cmp-1:' + contacts[0].id, 'instancia-morta', 45 * 86400000);
+    const tasksBefore = repo.listTasks().length;
+    // Menos de 1h: nada acontece com a linha presa; o outro contato sai.
+    const r1 = await processMarketingQueue(repo, mk());
+    assert.equal(r1.sent, 1);
+    assert.equal(r1.needsReview, 0);
+    nowMs += 61 * 60000;
+    const r2 = await processMarketingQueue(repo, mk());
+    assert.equal(r2.needsReview, 1);
+    assert.equal(r2.sent, 0);
+    const s = (await store.getSend('cmp-1', contacts[0].id))!;
+    assert.equal(s.status, 'NEEDS_REVIEW');
+    assert.equal(s.reason, 'SEND_INTERRUPTED');
+    assert.ok(s.reviewTaskId);
+    assert.equal(repo.listTasks().length, tasksBefore + 1);
+    const f = await campaignFunnel(mk(), 'cmp-1');
+    assert.equal(f.needsReview, 1);
+    assert.equal(f.reviewItems[0].email, contacts[0].email);
+    // Proximas execucoes nao reenviam nem duplicam a tarefa.
+    nowMs += 10 * 60000;
+    assert.equal((await processMarketingQueue(repo, mk())).sent, 0);
+    assert.equal(esp.calls.length, 1);
+    // Decisao humana: nao saiu => libera reenvio (nova geracao da reserva) => sai uma vez.
+    const res = await resolveReviewSend(repo, mk(), { campaignId: 'cmp-1', contactId: contacts[0].id, decision: 'REQUEUE', actor: 'b@x.test' });
+    assert.equal(res.ok, true);
+    assert.equal(repo.getTaskById(s.reviewTaskId!)?.status, 'COMPLETED');
+    assert.equal((await processMarketingQueue(repo, mk())).sent, 1);
+    assert.equal(esp.calls.length, 2);
+    assert.equal((await processMarketingQueue(repo, mk())).sent, 0);
+    assert.equal((await resolveReviewSend(repo, mk(), { campaignId: 'cmp-1', contactId: contacts[0].id, decision: 'MARK_SENT', actor: 'b@x.test' })).ok, false, 'so envio em revisao');
+  });
+
   it('webhook: hard bounce e reclamacao => supressao permanente; reentrega idempotente; funil atualizado', async () => {
     const { router, esp, contacts, repo } = makeRouter(baseEnv());
     const tpl = await approvedTemplate(router);
@@ -618,5 +665,20 @@ describe('Fase 3: envio real ponta a ponta (ESP, DNS e trava mockados)', () => {
   it('UI sem emojis', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src/app/components/MarketingCampaignStudio.tsx'), 'utf8');
     assert.ok(!/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(src));
+  });
+});
+
+describe('Fase 3: SQL do rastreio (regressao encontrada no Postgres real)', () => {
+  it('recordOpen/recordClick tipam os parametros numericos (sem "operator is not unique: unknown - unknown")', async () => {
+    const { PostgresMailboxStore } = await import('../src/modules/email/mailbox-store');
+    const seen: string[] = [];
+    const q = { query: async (text: string) => { seen.push(text); return { rows: [], rowCount: 0 }; } };
+    const st = new PostgresMailboxStore(q as never);
+    await st.recordOpen('t'.repeat(22), Date.now());
+    await st.recordClick('t'.repeat(22), 0, Date.now());
+    const open = seen.find((t) => t.includes('open_count = open_count + 1'))!;
+    assert.ok(open.includes('$2::double precision - $3::double precision'));
+    const click = seen.find((t) => t.includes('click_count = click_count + 1'))!;
+    assert.ok(click.includes('$3::double precision'));
   });
 });

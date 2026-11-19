@@ -40,7 +40,8 @@ export interface MarketingTemplateVersion {
   createdAt: string;
 }
 
-export type MarketingSendStatus = 'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'BOUNCED' | 'COMPLAINED' | 'FAILED' | 'SKIPPED';
+/** NEEDS_REVIEW: envio interrompido no meio (pode ou nao ter saido). Nunca reenvia sozinho; tarefa + alerta na tela. */
+export type MarketingSendStatus = 'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'BOUNCED' | 'COMPLAINED' | 'FAILED' | 'SKIPPED' | 'NEEDS_REVIEW';
 
 export interface MarketingSend {
   campaignId: string;
@@ -63,6 +64,11 @@ export interface MarketingSend {
   complainedAt: string | null;
   unsubscribedAt: string | null;
   updatedAt: string;
+  /** Geracao da reserva global (incrementa quando uma pessoa libera o reenvio de um envio em revisao). */
+  claimGeneration?: number;
+  reviewTaskId?: string | null;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
 }
 
 export type MarketingEventType = 'SENT' | 'DELIVERED' | 'DELIVERY_DELAYED' | 'BOUNCED_HARD' | 'BOUNCED_SOFT' | 'COMPLAINED' | 'OPENED' | 'CLICKED' | 'UNSUBSCRIBED';
@@ -93,6 +99,8 @@ export interface MarketingStore {
   listSendsByCampaign(campaignId: string): Promise<MarketingSend[]>;
   findSendByProviderMessageId(id: string): Promise<MarketingSend | null>;
   countSentSince(sinceIso: string): Promise<number>;
+  /** Envios presos em SENDING com updatedAt <= beforeIso (execucao interrompida). */
+  listStaleSending(beforeIso: string, limit: number): Promise<MarketingSend[]>;
 
   /** false se o provider_event_id ja foi processado (webhook repetido). */
   recordEvent(e: MarketingEvent): Promise<boolean>;
@@ -169,6 +177,9 @@ export class MemoryMarketingStore implements MarketingStore {
   }
   async countSentSince(sinceIso: string) {
     return [...this.sends.values()].filter((s) => s.sentAt && s.sentAt >= sinceIso).length;
+  }
+  async listStaleSending(beforeIso: string, limit: number) {
+    return [...this.sends.values()].filter((s) => s.status === 'SENDING' && s.updatedAt <= beforeIso).slice(0, limit).map(clone);
   }
   async recordEvent(e: MarketingEvent) {
     if (this.events.has(e.providerEventId)) return false;
@@ -300,6 +311,13 @@ export class PostgresMarketingStore implements MarketingStore {
   async countSentSince(sinceIso: string) {
     const r = await (await this.db()).query(`SELECT count(*)::int AS n FROM mkt_sends WHERE sent_at >= $1`, [sinceIso]);
     return Number(r.rows[0]?.n || 0);
+  }
+  async listStaleSending(beforeIso: string, limit: number) {
+    const r = await (await this.db()).query(
+      `SELECT data FROM mkt_sends WHERE status = 'SENDING' AND (data->>'updatedAt') <= $1 ORDER BY (data->>'updatedAt') ASC LIMIT $2`,
+      [beforeIso, Math.max(1, Math.min(limit, 1000))]
+    );
+    return r.rows.map((x: any) => x.data as MarketingSend);
   }
   async recordEvent(e: MarketingEvent) {
     const r = await (await this.db()).query(

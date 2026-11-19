@@ -546,8 +546,10 @@ export class PostgresMailboxStore implements MailboxStore {
   async recordOpen(trackingId: string, now = Date.now()) {
     const db = await this.db();
     const r = await db.query(
-      `UPDATE crm_email_messages SET open_count = open_count + 1, last_opened_at = to_timestamp($2 / 1000.0)
-       WHERE tracking_id = $1 AND occurred_at < to_timestamp(($2 - $3) / 1000.0) RETURNING id`,
+      // 19/11 (validado em Postgres real): sem os casts, "$2 - $3" (dois parametros sem tipo) falha com
+      // "operator is not unique: unknown - unknown" e nenhuma abertura era gravada.
+      `UPDATE crm_email_messages SET open_count = open_count + 1, last_opened_at = to_timestamp($2::double precision / 1000.0)
+       WHERE tracking_id = $1 AND occurred_at < to_timestamp(($2::double precision - $3::double precision) / 1000.0) RETURNING id`,
       [trackingId, now, OPEN_GRACE_MS]
     );
     if (r.rowCount) await db.query(`INSERT INTO crm_email_tracking_events (tracking_id, kind) VALUES ($1, 'OPEN')`, [trackingId]);
@@ -555,8 +557,8 @@ export class PostgresMailboxStore implements MailboxStore {
   async recordClick(trackingId: string, linkIndex: number, now = Date.now()) {
     const db = await this.db();
     const r = await db.query(
-      `UPDATE crm_email_messages SET click_count = click_count + 1, last_clicked_at = to_timestamp($3 / 1000.0)
-       WHERE tracking_id = $1 AND jsonb_array_length(links) > $2 RETURNING links ->> $2::int AS url`,
+      `UPDATE crm_email_messages SET click_count = click_count + 1, last_clicked_at = to_timestamp($3::double precision / 1000.0)
+       WHERE tracking_id = $1 AND jsonb_array_length(links) > $2::int RETURNING links ->> $2::int AS url`,
       [trackingId, linkIndex, now]
     );
     const url = r.rows[0]?.url;

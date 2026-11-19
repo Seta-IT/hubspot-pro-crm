@@ -44,9 +44,86 @@ export const MARKETING_SEND_CLAIM_STALE_MS = 60 * 60 * 1000;
 export const MARKETING_MAX_ATTEMPTS = 3;
 export const MARKETING_RUN_BUDGET_MS = 240 * 1000;
 
-export function marketingSendClaimKey(campaignId: string, contactId: string): string {
+export function marketingSendClaimKey(campaignId: string, contactId: string, generation = 0): string {
   const safe = (s: string) => s.replace(/[^A-Za-z0-9:._@-]/g, '_').slice(0, 90);
-  return `mktsend:${safe(campaignId)}:${safe(contactId)}`;
+  return `mktsend:${safe(campaignId)}:${safe(contactId)}${generation > 0 ? `:g${generation}` : ''}`;
+}
+
+export const MARKETING_REVIEW_QUEUE = 'Campanhas de Marketing';
+
+/**
+ * Envio interrompido (pode ter saido ou nao): vira NEEDS_REVIEW com tarefa para o dono da campanha.
+ * Nunca reenvia sozinho; a pessoa decide (marcar como enviado, liberar reenvio ou descartar).
+ */
+async function markNeedsReview(repo: CrmRepository, deps: MarketingDeps, send: MarketingSend, reason: string, nowIso: string): Promise<void> {
+  const campaign = repo.getMarketingCampaignById(send.campaignId);
+  const contact = repo.getContactById(send.contactId);
+  let taskId: string | null = send.reviewTaskId || null;
+  if (!taskId) {
+    try {
+      taskId = repo.createTask({
+        title: `Conferir envio da campanha "${campaign?.name || send.campaignId}" para ${send.email}`,
+        notes:
+          'O envio foi interrompido no meio e pode ou não ter saído. Confira no painel do provedor (ESP) e decida em ' +
+          'E-mail Marketing > Funil de entregabilidade > Envios para revisar: marcar como enviado, liberar reenvio ou descartar. ' +
+          'O sistema não reenvia automaticamente.',
+        type: 'TODO',
+        priority: 'HIGH',
+        status: 'NOT_STARTED',
+        queueName: MARKETING_REVIEW_QUEUE,
+        dueDate: nowIso.slice(0, 10),
+        dueTime: '10:00',
+        assignedTo: campaign?.ownerName || contact?.ownerName || 'Marcelo Lopes Mira',
+        contactId: contact?.id ?? null,
+        companyId: contact?.companyId ?? null,
+      }).id;
+    } catch {
+      taskId = null;
+    }
+  }
+  await deps.store.updateSend(send.campaignId, send.contactId, { status: 'NEEDS_REVIEW', reason, reviewTaskId: taskId, updatedAt: nowIso });
+}
+
+export type ReviewDecision = 'MARK_SENT' | 'REQUEUE' | 'DISCARD';
+
+/** Decisao humana sobre um envio em revisao. REQUEUE usa nova geracao da reserva (a antiga fica). */
+export async function resolveReviewSend(
+  repo: CrmRepository,
+  deps: MarketingDeps,
+  input: { campaignId: string; contactId: string; decision: ReviewDecision; actor: string }
+): Promise<{ ok: boolean; error?: string; status?: MarketingSend['status'] }> {
+  const send = await deps.store.getSend(input.campaignId, input.contactId);
+  if (!send) return { ok: false, error: 'Envio não encontrado.' };
+  if (send.status !== 'NEEDS_REVIEW') return { ok: false, error: 'Este envio não está em revisão.' };
+  const iso = (deps.now || (() => new Date()))().toISOString();
+  const base = { reviewedBy: input.actor, reviewedAt: iso, updatedAt: iso };
+  let status: MarketingSend['status'];
+  if (input.decision === 'MARK_SENT') {
+    status = 'SENT';
+    await deps.store.updateSend(send.campaignId, send.contactId, { ...base, status, reason: 'CONFIRMADO_MANUALMENTE', sentAt: send.sentAt || send.updatedAt });
+    const campaign = repo.getMarketingCampaignById(send.campaignId);
+    if (campaign) repo.updateMarketingCampaign(campaign.id, { sentCount: (campaign.sentCount || 0) + 1 });
+  } else if (input.decision === 'REQUEUE') {
+    status = 'QUEUED';
+    await deps.store.updateSend(send.campaignId, send.contactId, {
+      ...base,
+      status,
+      reason: 'REENVIO_LIBERADO',
+      nextAttemptAt: iso,
+      claimGeneration: (send.claimGeneration || 0) + 1,
+    });
+  } else {
+    status = 'FAILED';
+    await deps.store.updateSend(send.campaignId, send.contactId, { ...base, status, reason: 'DESCARTADO_NA_REVISAO' });
+  }
+  if (send.reviewTaskId) {
+    try {
+      repo.updateTask(send.reviewTaskId, { status: 'COMPLETED' });
+    } catch {
+      // tarefa pode ter sido removida
+    }
+  }
+  return { ok: true, status };
 }
 
 export interface MarketingDeps {
@@ -288,13 +365,14 @@ export interface MarketingRunResult {
   skippedContacts: number;
   failed: number;
   requeued: number;
+  needsReview: number;
   stoppedReason: string | null;
 }
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export async function processMarketingQueue(repo: CrmRepository, deps: MarketingDeps, opts: { maxSends?: number } = {}): Promise<MarketingRunResult> {
-  const result: MarketingRunResult = { mode: 'SIMULATION', skipped: null, problems: [], examined: 0, sent: 0, skippedContacts: 0, failed: 0, requeued: 0, stoppedReason: null };
+  const result: MarketingRunResult = { mode: 'SIMULATION', skipped: null, problems: [], examined: 0, sent: 0, skippedContacts: 0, failed: 0, requeued: 0, needsReview: 0, stoppedReason: null };
   const env = deps.env || process.env;
   if (!isMarketingLiveSendEnabled(env)) {
     result.skipped = 'LIVE_SEND_DISABLED';
@@ -363,6 +441,13 @@ async function runQueue(
   const spacingMs = Math.ceil(60000 / config.maxPerMinute);
   const versions = new Map<string, MarketingTemplateVersion | null>();
 
+  // Envios presos em SENDING ha mais de 1h (execucao caiu no meio): revisao humana, nunca reenvio.
+  const staleBefore = new Date(nowFn().getTime() - MARKETING_SEND_CLAIM_STALE_MS).toISOString();
+  for (const stuck of await deps.store.listStaleSending(staleBefore, 200)) {
+    await markNeedsReview(repo, deps, stuck, 'SEND_INTERRUPTED', nowFn().toISOString());
+    result.needsReview++;
+  }
+
   const due = await deps.store.listDueSends(nowFn().toISOString(), maxSends);
   for (const queued of due) {
     if (result.sent >= maxSends) break;
@@ -409,7 +494,7 @@ async function runQueue(
     }
 
     // Reserva global por (campanha, contato) ANTES do envio.
-    const claimKey = marketingSendClaimKey(send.campaignId, send.contactId);
+    const claimKey = marketingSendClaimKey(send.campaignId, send.contactId, send.claimGeneration || 0);
     let claimed = false;
     try {
       claimed = await lock.acquire(claimKey, owner, MARKETING_SEND_CLAIM_TTL_MS);
@@ -420,9 +505,9 @@ async function runQueue(
     if (!claimed) {
       const info = await lock.peek(claimKey).catch(() => null);
       if (info && lockClock() - info.acquiredAt > MARKETING_SEND_CLAIM_STALE_MS) {
-        // Reservado ha mais de 1h sem confirmacao: pode ter saido. Nunca reenvia.
-        await deps.store.updateSend(send.campaignId, send.contactId, { status: 'FAILED', reason: 'SEND_UNCERTAIN', updatedAt: nowIso });
-        result.failed++;
+        // Reservado ha mais de 1h sem confirmacao: pode ter saido. Revisao humana, nunca reenvia.
+        await markNeedsReview(repo, deps, send, 'SEND_UNCERTAIN', nowIso);
+        result.needsReview++;
       }
       continue;
     }
@@ -655,6 +740,8 @@ export interface CampaignFunnel {
   unsubscribes: number;
   skipped: number;
   failed: number;
+  needsReview: number;
+  reviewItems: Array<{ contactId: string; email: string; reason: string | null; updatedAt: string; reviewTaskId: string | null }>;
   rates: { delivery: number; bounce: number; complaint: number; open: number; click: number; unsubscribe: number };
 }
 
@@ -702,6 +789,11 @@ export async function campaignFunnel(deps: MarketingDeps, campaignId: string): P
     unsubscribes,
     skipped: sends.filter((s) => s.status === 'SKIPPED').length,
     failed: sends.filter((s) => s.status === 'FAILED').length,
+    needsReview: sends.filter((s) => s.status === 'NEEDS_REVIEW').length,
+    reviewItems: sends
+      .filter((s) => s.status === 'NEEDS_REVIEW')
+      .slice(0, 200)
+      .map((s) => ({ contactId: s.contactId, email: s.email, reason: s.reason, updatedAt: s.updatedAt, reviewTaskId: s.reviewTaskId || null })),
     rates: {
       delivery: pct(delivered, sent),
       bounce: pct(bounces, sent),
