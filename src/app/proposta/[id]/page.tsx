@@ -61,6 +61,7 @@ import {
   resolveProposalDeliveryLeadTime,
   resolveProposalDocumentHeadings,
   resolveProposalLayoutKind,
+  proposalSetupFeeLabel,
 } from '../../lib/proposal-share';
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
@@ -987,6 +988,8 @@ function PublicProposalPrintContent() {
       ? Number(proposal.totalContractValue || commercialFigures.monthly || 0)
       : proposal.monthlyRecurringTotal || proposal.totalContractValue;
   const displaySetupAmount = isOneTimeServices ? oneTimeServicesSetupFee : isolatedSetupTotal;
+  const setupFeeLabel = proposalSetupFeeLabel(proposal);
+  const setupFeeIsolatedLabel = proposalSetupFeeLabel(proposal, 'isolated');
   const showTotalInsteadOfMonthly = saleLike || uniquePayment;
 
 
@@ -2030,7 +2033,7 @@ function PublicProposalPrintContent() {
               {hasSetupSelected && (
                 <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
                   <span className="text-[10px] uppercase text-amber-800 font-semibold block">
-                    Setup / Ativação
+                    {setupFeeLabel}
                   </span>
                   <span className="font-semibold text-amber-900">
                     {formatBRL(displaySetupAmount)}
@@ -2145,7 +2148,7 @@ function PublicProposalPrintContent() {
             {hasSetupSelected && (
               <div>
                 <span className="text-[10px] uppercase font-semibold text-amber-800 block">
-                  Setup / Ativação
+                  {setupFeeLabel}
                 </span>
                 <strong className="text-sm font-semibold text-amber-900">
                   {formatBRL(displaySetupAmount)}
@@ -2212,7 +2215,7 @@ function PublicProposalPrintContent() {
                 <div className="pt-1.5 border-t border-slate-200 space-y-0.5 text-[11px] text-slate-600">
                   {hasSetupSelected && (
                     <div className="flex items-center justify-between">
-                      <span>Taxa de Setup (Isolada):</span>
+                      <span>{setupFeeIsolatedLabel}</span>
                       <strong className="text-slate-900">{formatBRL(displaySetupAmount)}</strong>
                     </div>
                   )}
