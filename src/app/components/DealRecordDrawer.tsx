@@ -544,7 +544,7 @@ export default function DealRecordDrawer({
       company: patch.companyId ? companies.find((c) => c.id === patch.companyId) || deal.company : deal.company,
       customProperties: patch.customProperties as EnrichedDeal['customProperties'],
     });
-    const word = kind === 'contacts' ? 'Contato' : kind === 'companies' ? 'Empresa' : kind === 'tickets' ? 'Chamado' : 'Negócio';
+    const word = kind === 'contacts' ? 'Contato' : kind === 'companies' ? 'Empresa' : kind === 'tickets' ? 'STI HUB Desk Service' : 'Negócio';
     onShowToast?.(ids.length > 1 ? `${ids.length} registros associados ao negócio.` : `${word} associado(a) ao negócio.`);
     if (onRefreshAll) await onRefreshAll();
   };

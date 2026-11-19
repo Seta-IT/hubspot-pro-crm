@@ -31,7 +31,7 @@ export const ASSOCIATION_LABELS: Record<
   contacts: { singular: 'Contato', plural: 'Contatos', addTitle: 'Adicionar Contato existente', createTitle: 'Criar Contato', searchPlaceholder: 'Pesquisar Contatos' },
   companies: { singular: 'Empresa', plural: 'Empresas', addTitle: 'Adicionar Empresa existente', createTitle: 'Criar Empresa', searchPlaceholder: 'Pesquisar Empresas' },
   deals: { singular: 'Negócio', plural: 'Negócios', addTitle: 'Adicionar Negócio existente', createTitle: 'Criar Negócio', searchPlaceholder: 'Pesquisar Negócios' },
-  tickets: { singular: 'Chamado', plural: 'Chamados', addTitle: 'Adicionar Chamado existente', createTitle: 'Criar Chamado', searchPlaceholder: 'Pesquisar Chamados' },
+  tickets: { singular: 'STI HUB Desk Service', plural: 'STI HUB Desk Service', addTitle: 'Adicionar STI HUB Desk Service existente', createTitle: 'Criar STI HUB Desk Service', searchPlaceholder: 'Pesquisar STI HUB Desk Service' },
 };
 
 const ROUTE: Record<AssociationKind, string> = {
@@ -113,7 +113,7 @@ export const CREATE_HINT: Record<AssociationKind, string> = {
   contacts: 'Comece inserindo o nome, o e-mail ou ambos do(a) Contato.',
   companies: 'Comece inserindo o nome ou o domínio da Empresa.',
   deals: 'Comece inserindo o nome do Negócio.',
-  tickets: 'Comece inserindo o assunto do Chamado.',
+  tickets: 'Comece inserindo o assunto do STI HUB Desk Service.',
 };
 
 export function createSecondaryEnabled(kind: AssociationKind, values: Record<string, string>): boolean {
