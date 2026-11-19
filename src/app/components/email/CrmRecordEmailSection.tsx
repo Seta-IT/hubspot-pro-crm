@@ -153,7 +153,7 @@ export function EmailTimelineItem({ item }: { item: TimelineEmailView }) {
         </div>
         <div className="flex items-center gap-1.5">
           <span className={TAG_GRAY}>{sent ? 'Enviado' : 'Recebido'}</span>
-          {item.source === 'HUBSPOT' && <span className={TAG_GRAY}>HubSpot</span>}
+          {item.source === 'HUBSPOT' && <span className={TAG_GRAY}>STI HUB CRM</span>}
         </div>
       </div>
       <div className="text-[11px] font-semibold text-slate-500">

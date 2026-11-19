@@ -1547,7 +1547,7 @@ export default function StiHubAdminRbacPanel({
               </h3>
             </div>
             <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold">
-              100% Sincronizado com HubSpot v3 + GestãoClick #118887
+              100% Sincronizado com STI HUB CRM + STI HUB ERP
             </span>
           </div>
 
@@ -2314,7 +2314,7 @@ export default function StiHubAdminRbacPanel({
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div>
               <span className="text-[10px] font-semibold uppercase text-emerald-700 block">
-                SINCRONIZAÇÃO AUTOMÁTICA DIÁRIA • GESTÃOCLICK (#118887) &rarr; STI-HUB (/api/erp/daily-sync)
+                SINCRONIZAÇÃO AUTOMÁTICA DIÁRIA • ERP DE ORIGEM &rarr; STI HUB ERP (/api/erp/daily-sync)
               </span>
               <h3 className="text-base font-semibold text-slate-900">
                 Motor Incremental Diário (07h00 EDT) &amp; Histórico de Execuções
@@ -2645,12 +2645,12 @@ export default function StiHubAdminRbacPanel({
                       [
                         {
                           id: 'CRM' as const,
-                          title: 'Módulo 1: CRM (HubSpot)',
+                          title: 'Módulo 1: STI HUB CRM',
                           desc: 'Contatos, Empresas, Funil Kanban, Marketing & Data Health',
                         },
                         {
                           id: 'ERP' as const,
-                          title: 'Módulo 2: ERP (GestãoClick)',
+                          title: 'Módulo 2: STI HUB ERP',
                           desc: 'Cadastros, Propostas #4695, Contratos, Financeiro, Fiscal, Estoque & PDV',
                         },
                         {
@@ -3434,9 +3434,9 @@ export default function StiHubAdminRbacPanel({
                         />
                         <span>
                           {mod === 'CRM'
-                            ? 'CRM (HubSpot)'
+                            ? 'STI HUB CRM'
                             : mod === 'ERP'
-                              ? 'ERP (GestãoClick)'
+                              ? 'STI HUB ERP'
                               : 'Sistema de Chamados'}
                         </span>
                       </label>
@@ -3449,7 +3449,7 @@ export default function StiHubAdminRbacPanel({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="rounded-xl border border-slate-200 p-3.5 space-y-2 bg-slate-50/50">
                   <div className="font-semibold text-[#0d2b4e] border-b border-slate-200 pb-1">
-                    Painel 1: Permissões CRM / HubSpot
+                    Painel 1: Permissões STI HUB CRM
                   </div>
                   <div className="flex items-center justify-between">
                     <span>Escopo de Carteira CRM:</span>

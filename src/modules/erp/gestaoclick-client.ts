@@ -584,7 +584,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
         ? razaoSocial
         : nomeFantasia && !/^\d{2}\.\d{3}/.test(nomeFantasia)
           ? nomeFantasia
-          : razaoSocial || nomeFantasia || `Cliente GestãoClick #${gcId}`;
+          : razaoSocial || nomeFantasia || `Cliente de origem #${gcId}`;
 
     const cnpj = String(c.cnpj || '').trim() || null;
     const email = String(c.email || c.email_acesso || '').trim();
@@ -611,7 +611,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       name: displayName,
       domain: domainFromEmail,
       cnpj,
-      industry: 'Clientes B2B & Locação Seta Telecom (GestãoClick)',
+      industry: 'Clientes B2B & Locação Seta Telecom (STI HUB ERP)',
       size: '51-200 funcionários',
       annualRevenue: 15_000_000,
       city,
@@ -741,7 +741,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       items.push({
         id: `gc-prop-item-${gcId}-1`,
         sku: `GC-ORC-${codigo}`,
-        description: `Solução de Locação de Infraestrutura Telecom & TI (Orçamento GestãoClick #${codigo})`,
+        description: `Solução de Locação de Infraestrutura Telecom & TI (Orçamento de origem #${codigo})`,
         fiscalNature: 'LOCACAO_BENS_MOVEIS',
         ncmOrServiceCode: 'NCM 8517.62.59',
         quantity: 1,
@@ -776,7 +776,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       totalContractValue: totalVal * contractMonths + Number(o.valor_frete || 0),
       commercialNotes:
         introducao.slice(0, 360) ||
-        'Proposta Comercial sincronizada ao vivo do GestãoClick (Seta Telecom Matriz #118887). Dispensa de ISSQN em locação de bens móveis (LC 116/03 e Súmula Vinculante 31 STF).',
+        'Proposta Comercial importada do ERP de origem (Seta Telecom Matriz #118887). Dispensa de ISSQN em locação de bens móveis (LC 116/03 e Súmula Vinculante 31 STF).',
       technicalClauses:
         String(o.observacoes || '').slice(0, 400) ||
         'Remessa dos equipamentos mediante NF-e CFOP 5.908/6.908 permanecendo sob propriedade da Seta Telecom durante a vigência.',
@@ -834,8 +834,8 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
         id: `eq-gc-${gcId}-1`,
         skuGestaoClick: isLocacao ? `GC-LOC-${codigo}` : `GC-SRV-${codigo}`,
         description: isLocacao
-          ? `Infraestrutura Telecom Locada — Contrato GestãoClick #${codigo}`
-          : `Prestação de Serviço — Contrato GestãoClick #${codigo}`,
+          ? `Infraestrutura Telecom Locada — Contrato de origem #${codigo}`
+          : `Prestação de Serviço — Contrato de origem #${codigo}`,
         serialNumber: `SN-GC-${codigo}-101`,
         ncm: '8517.62.59',
         quantity: 1,
@@ -885,8 +885,8 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       remessaNfeNumber: remessaAttr,
       remessaCfop: '5.908',
       legalBasisNote: isLocacao
-        ? `Contrato de Locação sincronizado do GestãoClick (Tipo LO • Centro de Custo: ${centroCusto}). Não incidência de ISSQN conforme Veto ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF.`
-        : `Contrato de Prestação de Serviço sincronizado do GestãoClick (Tipo CO • Centro de Custo: ${centroCusto}). Serviço sujeito ao ISSQN conforme LC 116/2003.`,
+        ? `Contrato de Locação importado do ERP de origem (Tipo LO • Centro de Custo: ${centroCusto}). Não incidência de ISSQN conforme Veto ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF.`
+        : `Contrato de Prestação de Serviço importado do ERP de origem (Tipo CO • Centro de Custo: ${centroCusto}). Serviço sujeito ao ISSQN conforme LC 116/2003.`,
       lastBilledCompetence: '10/2026',
       createdAt: `${startDate}T12:00:00.000Z`,
       updatedAt: `${startDate}T12:00:00.000Z`,
@@ -930,7 +930,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       companyId: r.cliente_id ? `comp-gc-${String(r.cliente_id)}` : null,
       companyName,
       companyCnpj: resolveClientCnpj(r, companyName),
-      companyAddress: 'São Paulo/SP — Sincronizado via GestãoClick',
+      companyAddress: 'São Paulo/SP — Importado do ERP de origem',
       rentalContractId: null,
       proposalId: null,
       dealId: null,

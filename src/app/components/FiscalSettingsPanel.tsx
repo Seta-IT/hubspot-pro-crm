@@ -650,7 +650,7 @@ export default function FiscalSettingsPanel({ onShowToast }: { onShowToast: (msg
             <p className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded p-2">{FISCAL_PRODUCTION_GESTAOCLICK_WARNING}</p>
             <label className="flex items-start gap-2 text-xs text-slate-800">
               <input type="checkbox" checked={productionAck} onChange={(e) => setProductionAck(e.target.checked)} className="mt-0.5" />
-              Confirmo que o GestaoClick vai parar de emitir {DOC_LABEL[pendingProduction]} nesta série e que tenho autorização para emitir em produção.
+              Confirmo que o ERP de origem vai parar de emitir {DOC_LABEL[pendingProduction]} nesta série e que tenho autorização para emitir em produção.
             </label>
             <p className="text-[10px] text-slate-500">A troca só vale depois de “Salvar configurações” e fica registrada na auditoria.</p>
             <div className="flex justify-end gap-2">

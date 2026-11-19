@@ -1433,7 +1433,7 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
     required: false,
     hubspotSynced: true,
     gestaoClickSynced: false,
-    description: 'Identifica o papel decisório do contato na conta B2B (sincronizado do HubSpot #4369067).',
+    description: 'Identifica o papel decisório do contato na conta B2B (sincronizado do STI HUB CRM).',
   },
   {
     id: 'cf-cont-persona',
@@ -1526,14 +1526,14 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
   {
     id: 'cf-comp-gc-id',
     internalName: 'gestaoclick_client_id',
-    label: 'ID do Cliente no GestãoClick (#118887)',
+    label: 'ID do Cliente no ERP de origem',
     objectType: 'COMPANY',
     groupName: 'Integração ERP-GROK',
     dataType: 'TEXT',
     required: false,
     hubspotSynced: true,
     gestaoClickSynced: true,
-    description: 'Chave externa de sincronização bidirecional com o ERP GestãoClick.',
+    description: 'Chave externa de sincronização bidirecional com o ERP de origem.',
   },
 
   // DEAL PROPERTIES (Sales Hub Portal #4369067)
@@ -1655,9 +1655,9 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
   {
     id: 'cf-prop-channel',
     internalName: 'canal_venda_gc',
-    label: 'Canal de Venda (GestãoClick)',
+    label: 'Canal de Venda (STI HUB ERP)',
     objectType: 'PROPOSAL',
-    groupName: 'Orçamentos GestãoClick',
+    groupName: 'Orçamentos STI HUB ERP',
     dataType: 'ENUM_SELECT',
     options: ['Cliente Recorrente', 'Prospecção Ativa B2B', 'Indicação Comercial', 'Licitação'],
     required: true,
@@ -1747,7 +1747,7 @@ export const INITIAL_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     category: 'CRM_SERVICE',
     subjectTemplate: '[Seta Telecom • NOC 24x7] Atualização do Protocolo #{{chamado.protocolo}} — {{empresa.razao_social}}',
     bodyTemplate:
-      'Olá, {{contato.nome}},\n\nNossa equipe de Engenharia NOC N2 atualizou o chamado #{{chamado.protocolo}} (O.S. GestãoClick vinculada):\n\n• Equipamento (S/N): {{chamado.serial}}\n• Status SLA: No Prazo (Atendimento Prioritário)\n• Parecer Técnico: {{chamado.resolucao}}\n\nAcompanhe em tempo real no Portal do Cliente: https://sti-hub.vercel.app/portal?ticket={{chamado.protocolo}}\n\nAtenciosamente,\nNOC 24x7 • SETA TELECOM LTDA',
+      'Olá, {{contato.nome}},\n\nNossa equipe de Engenharia NOC N2 atualizou o chamado #{{chamado.protocolo}} (O.S. do STI HUB ERP vinculada):\n\n• Equipamento (S/N): {{chamado.serial}}\n• Status SLA: No Prazo (Atendimento Prioritário)\n• Parecer Técnico: {{chamado.resolucao}}\n\nAcompanhe em tempo real no Portal do Cliente: https://sti-hub.vercel.app/portal?ticket={{chamado.protocolo}}\n\nAtenciosamente,\nNOC 24x7 • SETA TELECOM LTDA',
     variables: ['{{contato.nome}}', '{{empresa.razao_social}}', '{{chamado.protocolo}}', '{{chamado.serial}}', '{{chamado.resolucao}}'],
     updatedAt: '2026-10-26T15:00:00.000Z',
   },

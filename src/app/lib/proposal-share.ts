@@ -1084,7 +1084,7 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
           const tm = Number(it.tm ?? it.sb ?? fallbackTotal);
           return {
             id: `item-${idx + 1}`,
-            sku: it.k || `GC-${idx + 1}`,
+            sku: it.k || `ITEM-${idx + 1}`,
             description: it.d || 'Item da Proposta',
             itemType,
             unit: normalizeProposalItemUnit(it.un, itemType),

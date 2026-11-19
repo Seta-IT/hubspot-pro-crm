@@ -156,7 +156,7 @@ export const SETA_ERP_TEN_PILLARS: SetaErpPillarItem[] = [
   {
     num: 10,
     title: 'Integrações e IA',
-    subtitle: 'Conector Ao Vivo GestãoClick ERP-GROK, Servidor MCP e Copiloto IA',
+    subtitle: 'Conector Ao Vivo STI HUB ERP, Servidor MCP e Copiloto IA',
     metrics: 'API + MCP Online',
     section: 'CONFIGURACOES',
     subId: 'CFG_GERAIS',

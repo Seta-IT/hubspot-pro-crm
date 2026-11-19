@@ -2050,7 +2050,7 @@ export default function ServiceDeskTab({
                   <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs font-semibold">
                     <Wrench className="w-3.5 h-3.5 text-indigo-600" />
                     <span>
-                      O.S. GestãoClick Vinculada: <strong>#{linkedServiceOrder.code}</strong> ({linkedServiceOrder.status})
+                      O.S. STI HUB ERP Vinculada: <strong>#{linkedServiceOrder.code}</strong> ({linkedServiceOrder.status})
                     </span>
                   </div>
                 ) : (
@@ -2061,7 +2061,7 @@ export default function ServiceDeskTab({
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-50"
                   >
                     <Wrench className="w-3.5 h-3.5 text-accent" />
-                    {creatingOs ? 'Gerando O.S. no ERP...' : 'Gerar O.S. Técnica (ERP GestãoClick)'}
+                    {creatingOs ? 'Gerando O.S. no ERP...' : 'Gerar O.S. Técnica (STI HUB ERP)'}
                   </button>
                 )}
 

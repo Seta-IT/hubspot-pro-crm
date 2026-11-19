@@ -985,7 +985,7 @@ export default function ErpGestaoClickTab({
   if (!erpData) {
     return (
       <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-8 text-center text-sm text-[#516f90]">
-        Carregando módulo ERP Brasil, Propostas, Locação &amp; GestãoClick...
+        Carregando STI HUB ERP: Propostas, Locação &amp; Contratos...
       </div>
     );
   }
@@ -1059,13 +1059,13 @@ export default function ErpGestaoClickTab({
     try {
       const res = await fetch('/api/erp/gestaoclick/sync', { method: 'POST' });
       if (res.ok) {
-        onShowToast('Sincronização bidirecional GestãoClick + Seta Telecom concluída!');
+        onShowToast('Sincronização do STI HUB ERP concluída!');
         await onRefresh();
       } else {
-        onShowToast(gestaoClickDeniedMessage(res.status, 'sync') || 'Não foi possível sincronizar o GestãoClick agora.');
+        onShowToast(gestaoClickDeniedMessage(res.status, 'sync') || 'Não foi possível sincronizar o STI HUB ERP agora.');
       }
     } catch {
-      onShowToast('Não foi possível sincronizar o GestãoClick agora.');
+      onShowToast('Não foi possível sincronizar o STI HUB ERP agora.');
     } finally {
       setSyncingGc(false);
     }
@@ -1859,14 +1859,14 @@ export default function ErpGestaoClickTab({
           estimatedHeight={460}
           className="max-h-[70vh]"
           testId="proposal-gestao-click-menu"
-          title="Mais opções do orçamento (GestãoClick)"
+          title="Mais opções do orçamento (STI HUB ERP)"
           renderTrigger={({ ref, open, toggle }) => (
             <button
               ref={ref}
               type="button"
               onClick={toggle}
-              title="Mais opções do orçamento (GestãoClick)"
-              aria-label="Mais opções do orçamento (GestãoClick)"
+              title="Mais opções do orçamento (STI HUB ERP)"
+              aria-label="Mais opções do orçamento (STI HUB ERP)"
               aria-expanded={open}
               aria-haspopup="menu"
               className={`w-8 h-8 rounded border inline-flex items-center justify-center transition cursor-pointer shadow-2xs ${
@@ -7104,7 +7104,7 @@ export default function ErpGestaoClickTab({
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
               {activeSubId === 'CFG_LOGS' && (
                 <p data-testid="status-integracao-gestaoclick" className="text-xs font-semibold text-slate-600">
-                  Integração GestãoClick: loja {gestaoClickConfig.storeName || 'Matriz'} • {gestaoClickConfig.mcpStatus === 'OFFLINE' ? 'desconectada' : gestaoClickConfig.mcpStatus === 'NOT_CONFIGURED' ? 'não configurada' : 'conectada'}
+                  Integração STI HUB ERP: loja {gestaoClickConfig.storeName || 'Matriz'} • {gestaoClickConfig.mcpStatus === 'OFFLINE' ? 'desconectada' : gestaoClickConfig.mcpStatus === 'NOT_CONFIGURED' ? 'não configurada' : 'conectada'}
                 </p>
               )}
               {rbacState && (

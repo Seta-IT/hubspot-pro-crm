@@ -95,10 +95,10 @@ const INITIAL_CAMPAIGNS: MarketingCampaign[] = [
   },
   {
     id: 'cmp-3',
-    name: 'SD-WAN FortiGate Dual-WAN, Renovação & Spare Parts Base GestãoClick (#118887)',
+    name: 'SD-WAN FortiGate Dual-WAN, Renovação & Spare Parts Base STI HUB ERP',
     objective: 'Expansão de contratos ativos, renovação 24/36m e oferta de redundância BGP/SD-WAN.',
     status: 'IN_PROGRESS',
-    channel: 'E-mail Marketing Base GestãoClick (#118887)',
+    channel: 'E-mail Marketing Base STI HUB ERP',
     sendingProvider: 'MARKETING_ESP',
     utmCampaign: 'sdwan-fortigate-renovacao-gc',
     budgetBrl: 8500,
@@ -158,7 +158,7 @@ const INITIAL_SEGMENTS: MarketingSegment[] = [
   },
   {
     id: 'seg-clientes-locacao-gc',
-    name: 'Carteira Ativa Locação & Contratos GestãoClick (#118887)',
+    name: 'Carteira Ativa Locação & Contratos STI HUB ERP',
     description: 'Base de clientes com contrato de locação/serviços ativo para renovação e spare parts.',
     type: 'STATIC',
     filterExpression: "lifecyclestage = 'CUSTOMER' AND gestaoclick_contract_active = true",
@@ -386,7 +386,7 @@ export function MarketingHubSuiteTop({
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs flex flex-wrap items-center justify-between gap-3">
         <div>
           <span className="text-[10px] font-semibold uppercase text-accent block">
-            STI-hub • Email Marketing, Cadências &amp; Sales Engagement (HubSpot Pro + Mailchimp — Seta Telecom)
+            STI-hub • Email Marketing, Cadências &amp; Sales Engagement (STI HUB CRM + Mailchimp — Seta Telecom)
           </span>
           <h2 className="text-base sm:text-lg font-semibold text-slate-900">
             Marketing Hub &amp; Sales Engagement — Campanhas, Audiências ABM, UTMs, LGPD &amp; Receita
@@ -678,7 +678,7 @@ export function MarketingHubSuiteTop({
               },
               {
                 title: 'Upgrade Tecnológico: Licença Cisco ISR 4400 (SL-44-SEC-K9) & SD-WAN',
-                audience: 'Segmento: Clientes Recorrentes GestãoClick (720 contatos)',
+                audience: 'Segmento: Clientes Recorrentes STI HUB ERP (720 contatos)',
                 provider: 'Provedor Marketing ESP (SPF/DKIM/DMARC Alinhado)',
                 openRate: '51,2% (Sinal Observado)',
                 ctr: '18,6% (Cliques Humanos)',
@@ -941,7 +941,7 @@ export function SalesHubProToolsStrip({
             Sales Hub Pro
           </span>
           <span className="font-semibold text-slate-700">
-            Ferramentas Avançadas de Vendas HubSpot:
+            Ferramentas Avançadas de Vendas STI HUB CRM:
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1024,7 +1024,7 @@ export function SalesHubProToolsStrip({
           <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2.5">
             <div className="font-semibold text-[#1e3a6e] flex items-center gap-1.5">
               <Calendar className="w-4 h-4" />
-              Links de Agendamento Comercial (HubSpot Meetings)
+              Links de Agendamento Comercial (STI HUB CRM Meetings)
             </div>
             {[
               { name: 'Agenda Executiva — Marcelo Lopes Mira (30 min)', url: 'https://sti-hub.vercel.app/reuniao/marcelo-mira' },

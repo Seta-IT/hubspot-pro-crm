@@ -297,7 +297,7 @@ export default function GestaoClickDashboard({
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-white border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Sincronizando...' : 'Sincronizar GestãoClick'}
+            {syncing ? 'Sincronizando...' : 'Sincronizar STI HUB ERP'}
           </button>
           )}
           <span className="text-xs text-slate-500">Início</span>

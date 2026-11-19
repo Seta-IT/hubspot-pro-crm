@@ -496,7 +496,7 @@ export default function FormsBuilderTab({
             }`}
           >
             <UploadCloud className="w-3.5 h-3.5" />
-            Migração &amp; Sync HubSpot / GestãoClick
+            Migração &amp; Sync STI HUB CRM / STI HUB ERP
           </button>
         </div>
 
@@ -517,15 +517,15 @@ export default function FormsBuilderTab({
             <div>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
                 <UploadCloud className="w-3.5 h-3.5" />
-                HubSpot API v3 &amp; Ponte Bidirecional GestãoClick ERP (#118887)
+                API do CRM de origem &amp; Ponte Bidirecional STI HUB ERP
               </span>
               <h2 className="text-lg font-semibold text-slate-900 mt-2">
-                Assistente de Migração &amp; Sincronização HubSpot - STI-hub - GestãoClick
+                Assistente de Migração &amp; Sincronização CRM de origem - STI HUB CRM - STI HUB ERP
               </h2>
               <p className="text-xs text-slate-600 mt-0.5">
                 Importa Contatos (`firstname`, `lastname`, `email`), Empresas (`domain`, `cnpj`),
                 Negócios (`dealname`, `amount`) e Tickets (`hs_ticket_priority`) aplicando
-                deduplicação, enriquecimento por domínio e vínculo com clientes do GestãoClick.
+                deduplicação, enriquecimento por domínio e vínculo com clientes do STI HUB ERP.
               </p>
             </div>
           </div>
@@ -534,7 +534,7 @@ export default function FormsBuilderTab({
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  HubSpot Private App Token (ou Simulação de Payload Oficial v3)
+                  Token de API do CRM de origem (ou Simulação de Payload v3)
                 </label>
                 <input
                   type="text"
@@ -563,18 +563,18 @@ export default function FormsBuilderTab({
                 <RefreshCw className={`w-4 h-4 ${migratingHs ? 'animate-spin' : ''}`} />
                 {migratingHs
                   ? 'Importando & Higienizando Registros...'
-                  : 'Importar Lote Enterprise do HubSpot Agora'}
+                  : 'Importar Lote Enterprise do CRM de origem Agora'}
               </button>
 
               {/* Matriz de Mapeamento Triplo */}
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
                 <div className="font-semibold text-slate-800 uppercase tracking-wider text-[11px]">
-                  Matriz de Sincronização (HubSpot v3 - STI-hub - GestãoClick ERP)
+                  Matriz de Sincronização (CRM de origem - STI HUB CRM - STI HUB ERP)
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-[11px] font-semibold text-slate-600 border-b border-slate-200 pb-1">
-                  <span>HubSpot CRM</span>
+                  <span>STI HUB CRM</span>
                   <span>STI-hub (Local/PG)</span>
-                  <span>GestãoClick ERP</span>
+                  <span>STI HUB ERP</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-700">
                   <span>Companies (`cnpj`)</span>
@@ -601,7 +601,7 @@ export default function FormsBuilderTab({
 
             <div className="bg-slate-900 text-slate-200 rounded-2xl p-5 space-y-3 border border-slate-800">
               <div className="text-xs font-semibold text-[#ff987f] uppercase tracking-wider">
-                O que este lote sincroniza (Preview HubSpot CRM v3)
+                O que este lote sincroniza (Preview do CRM de origem)
               </div>
               <ul className="text-xs space-y-2 text-slate-300">
                 <li>
@@ -640,7 +640,7 @@ export default function FormsBuilderTab({
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-semibold text-slate-900">
-                  Dicionário Completo de Menus, Tabelas ({GESTAOCLICK_ALL_76_ENDPOINTS.length} Recursos MCP/REST) &amp; Campos — GestãoClick #118887 - HubSpot v3
+                  Dicionário Completo de Menus, Tabelas ({GESTAOCLICK_ALL_76_ENDPOINTS.length} Recursos MCP/REST) &amp; Campos — STI HUB ERP - STI HUB CRM
                 </h3>
                 <p className="text-xs text-slate-600">
                   Mapeamento 1:1 de todas as tabelas, campos raiz, sub-objetos aninhados e contagens reais da Seta Telecom (GET /api/erp/gestaoclick/schema).
@@ -777,7 +777,7 @@ export default function FormsBuilderTab({
                           </strong>
                         </div>
                         <div className="p-2.5 rounded-xl bg-slate-800/70">
-                          <span className="text-slate-400 block">Espelhamento HubSpot CRM v3:</span>
+                          <span className="text-slate-400 block">Espelhamento do CRM de origem:</span>
                           <strong className="text-indigo-300 font-mono">
                             {activeSchema.hubspotMapping?.object || 'ERP Nativo STI-hub'}
                           </strong>

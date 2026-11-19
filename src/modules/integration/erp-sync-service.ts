@@ -229,7 +229,7 @@ export async function handleErpSyncRun(req: IntegrationHttpRequest, deps: ErpSyn
     }
     if (!liveSource) {
       await audit(store, { ...authed, statusCode: 502, errorCode: 'GESTAOCLICK_UNAVAILABLE', details: { ...authed.details, durationMs, counts }, now: deps.now() });
-      return problem(502, 'GESTAOCLICK_UNAVAILABLE', 'GestaoClick indisponivel ou sem credenciais no servidor: nenhum dado novo foi importado.', {}, keyRate.headers);
+      return problem(502, 'GESTAOCLICK_UNAVAILABLE', 'ERP de origem indisponivel ou sem credenciais no servidor: nenhum dado novo foi importado.', {}, keyRate.headers);
     }
 
     await audit(store, { ...authed, statusCode: 200, details: { ...authed.details, durationMs, counts, recordsSynced, forceRefresh: input.forceRefresh !== false }, now: deps.now() });

@@ -3020,7 +3020,7 @@ export class CrmRepository {
       name: input.name.trim(),
       slug: slugBase || `form-${Date.now()}`,
       title: input.title || input.name.trim(),
-      description: input.description || 'Formulário integrado ao HubSpot Pro CRM.',
+      description: input.description || 'Formulário integrado ao STI HUB CRM.',
       targetType: input.targetType || 'LEAD_CAPTURE',
       fields:
         input.fields && input.fields.length > 0
@@ -4295,10 +4295,10 @@ export class CrmRepository {
     }
     ticket.comments.push({
       id: `cmt-os-${Date.now()}`,
-      author: 'Integração NOC - GestãoClick ERP',
+      author: 'Integração NOC - STI HUB ERP',
       authorRole: 'AGENT',
       isInternal: true,
-      body: `Ordem de Serviço Técnica O.S. #${newOs.code} gerada automaticamente no GestãoClick ERP para a fila "${newOs.technicianName}"${ticket.equipmentSerial ? ` (Equipamento/Circuito: ${ticket.equipmentSerial})` : ''}.`,
+      body: `Ordem de Serviço Técnica O.S. #${newOs.code} gerada automaticamente no STI HUB ERP para a fila "${newOs.technicianName}"${ticket.equipmentSerial ? ` (Equipamento/Circuito: ${ticket.equipmentSerial})` : ''}.`,
       createdAt: new Date().toISOString(),
     });
     ticket.updatedAt = new Date().toISOString();
@@ -7310,7 +7310,7 @@ export class CrmRepository {
       id: `sync-gc-${Date.now()}`,
       timestamp: nowIso,
       status: 'SUCCESS',
-      summary: `Sincronização GestãoClick concluída com sucesso: ${erp.catalog.length} equipamentos/serviços, ${erp.proposals.length} propostas comerciais, ${erp.rentalContracts.length} contratos de locação e ${erp.invoices.length} faturas/recibos atualizados.`,
+      summary: `Sincronização STI HUB ERP concluída com sucesso: ${erp.catalog.length} equipamentos/serviços, ${erp.proposals.length} propostas comerciais, ${erp.rentalContracts.length} contratos de locação e ${erp.invoices.length} faturas/recibos atualizados.`,
       recordsSynced: totalSynced,
     });
 
@@ -7354,7 +7354,7 @@ export class CrmRepository {
         name: gcComp.name,
         domain: gcComp.domain || null,
         cnpj: gcComp.cnpj || null,
-        industry: gcComp.industry || 'B2B & Locação Telecom (GestãoClick)',
+        industry: gcComp.industry || 'B2B & Locação Telecom (STI HUB ERP)',
         size: gcComp.size || '51-200 funcionários',
         annualRevenue: gcComp.annualRevenue || 15_000_000,
         city: gcComp.city || 'São Paulo',
@@ -7363,7 +7363,7 @@ export class CrmRepository {
         completenessScore: 88,
         enrichedAt: now,
         lastActivityAt: now,
-        enrichmentSource: 'GestãoClick ERP API (Matriz #118887)',
+        enrichmentSource: 'STI HUB ERP',
         ownerName: gcComp.ownerName || 'Marcelo Lopes Mira',
         isTargetAccount: true,
         icpTier: 'TIER_1',
@@ -7414,7 +7414,7 @@ export class CrmRepository {
           isUnworked: false,
           companyId: comp?.id || null,
           enrichedAt: now,
-          enrichmentSource: 'GestãoClick ERP API',
+          enrichmentSource: 'STI HUB ERP',
           nextBestAction: null,
           customProperties: {
             gestaoClickClientId: gcCont.gestaoClickClientId,
@@ -7522,7 +7522,7 @@ export class CrmRepository {
     erp.gestaoClickConfig.users = snapshot.users;
     erp.gestaoClickConfig.lastSyncAt = snapshot.fetchedAt;
 
-    const historySummary = `Sincronização Ao Vivo GestãoClick [ERP-GROK • Loja ${snapshot.store.nome} #${snapshot.store.id} • MCP ${snapshot.mcpStatus}]: ${snapshot.totals.clientes} clientes, ${snapshot.totals.produtos} produtos, ${snapshot.totals.servicos} serviços, ${snapshot.totals.orcamentos} orçamentos, ${snapshot.totals.contratos} contratos de locação, ${snapshot.totals.recebimentos} recebimentos e ${snapshot.totals.pagamentos} pagamentos na base real.`;
+    const historySummary = `Sincronização Ao Vivo STI HUB ERP [Loja ${snapshot.store.nome} #${snapshot.store.id} • MCP ${snapshot.mcpStatus}]: ${snapshot.totals.clientes} clientes, ${snapshot.totals.produtos} produtos, ${snapshot.totals.servicos} serviços, ${snapshot.totals.orcamentos} orçamentos, ${snapshot.totals.contratos} contratos de locação, ${snapshot.totals.recebimentos} recebimentos e ${snapshot.totals.pagamentos} pagamentos na base real.`;
 
     if (
       !erp.gestaoClickConfig.syncHistory.length ||

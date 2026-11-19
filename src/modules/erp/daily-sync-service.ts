@@ -132,7 +132,7 @@ export const INITIAL_SYNC_LOGS: ErpSyncRunLog[] = [
     cursorTimestamp: '2026-10-26T10:00:00.000Z',
     status: 'SUCCESS',
     summary:
-      'Limpeza total de dados fictícios concluída (48 mocks removidos). Carga inicial 100% real do GestãoClick Loja Matriz #118887 concluída: 1.184 clientes, 101 fornecedores, 14 funcionários, 786 produtos, 39 serviços, 2.077 orçamentos (#4695 Mundivox), 295 vendas, 344 contratos de locação (0% ISS SV 31 STF), 196 lançamentos financeiros e 1.378 O.S. mapeados para CRM, ERP e Chamados.',
+      'Limpeza total de dados fictícios concluída (48 mocks removidos). Carga inicial 100% real do ERP de origem concluída: 1.184 clientes, 101 fornecedores, 14 funcionários, 786 produtos, 39 serviços, 2.077 orçamentos (#4695 Mundivox), 295 vendas, 344 contratos de locação (0% ISS SV 31 STF), 196 lançamentos financeiros e 1.378 O.S. mapeados para CRM, ERP e Chamados.',
   },
   {
     runId: 'SYNC-GC-20261026-INC-002',
@@ -224,7 +224,7 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
       'Wesley Brito (#1026185 — Engenharia & Almoxarifado)',
       'Dauana Magnavita de Alencar (#1063375 — Administrativo & Fiscal)',
     ],
-    requiredFieldsVerified: ['ID GestãoClick', 'Nome Completo', 'Cargo / Departamento', 'E-mail Corporativo', 'Perfil RBAC'],
+    requiredFieldsVerified: ['ID no ERP de origem', 'Nome Completo', 'Cargo / Departamento', 'E-mail Corporativo', 'Perfil RBAC'],
     cnpjFiscalLockCheck: 'N/A (Pessoas Físicas / Colaboradores internos)',
     relationalIntegrityCheck: 'Vinculados como Vendedores em Orçamentos/Vendas e Técnicos Responsáveis nas 1.378 O.S.',
     validationStatus: 'PASSOU',
@@ -280,7 +280,7 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
     cnpjFiscalLockCheck: 'CNPJ do destinatário validado e impresso no PDF A4 timbrado.',
     relationalIntegrityCheck: 'Conversão em 1 clique para Contrato de Locação + Fatura e espelhamento no Kanban CRM.',
     validationStatus: 'PASSOU',
-    auditorNotes: 'Layout 9 blocos idêntico ao GestãoClick #4695 + link público PDF A4 validado.',
+    auditorNotes: 'Layout 9 blocos idêntico ao orçamento de referência #4695 + link público PDF A4 validado.',
     verifiedAt: '26/10/2026',
   },
   {

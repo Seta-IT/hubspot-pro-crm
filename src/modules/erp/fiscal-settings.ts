@@ -42,7 +42,7 @@ export const FISCAL_PRODUCTION_SEED: ReadonlyArray<{ modelo: string; serie: stri
   ]);
 
 export const FISCAL_PRODUCTION_GESTAOCLICK_WARNING =
-  'Atenção: ao emitir em PRODUÇÃO pelo ERP, o GestaoClick deve PARAR de emitir na mesma série. ' +
+  'Atenção: ao emitir em PRODUÇÃO pelo ERP, o ERP de origem deve PARAR de emitir na mesma série. ' +
   'Duas origens emitindo na mesma série geram números duplicados e rejeição na SEFAZ/prefeitura.';
 
 export const FISCAL_TAX_REGIME_NOTE = 'aguardando confirmação';

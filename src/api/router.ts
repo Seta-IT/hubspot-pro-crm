@@ -7078,7 +7078,7 @@ export class CrmApiRouter {
           ? [
               {
                 properties: {
-                  subject: 'Migração de Webhooks legados HubSpot v3 para HubSpot Pro CRM (iFood)',
+                  subject: 'Migração de Webhooks legados para o STI HUB CRM (iFood)',
                   content: 'Validar chaves de API e fila de eventos em produção após importação.',
                   hs_ticket_priority: 'HIGH',
                   hs_pipeline_stage: 'OPEN',
@@ -7247,7 +7247,7 @@ export class CrmApiRouter {
 
           this.repo.createServiceTicket({
             subject,
-            description: String(p.content || p.description || 'Importado via HubSpot Service Hub.'),
+            description: String(p.content || p.description || 'Importado do Desk Service de origem.'),
             // Pacote J (4): valores do HubSpot fora do enum do STI-hub => padrao (nunca grava cru).
             priority: (TICKET_CREATE_ENUMS.priority.includes(String(p.hs_ticket_priority || '')) ? p.hs_ticket_priority : 'HIGH') as TicketPriority,
             status: (TICKET_CREATE_ENUMS.status.includes(String(p.hs_pipeline_stage || '')) ? p.hs_pipeline_stage : 'OPEN') as TicketStatus,
@@ -7271,7 +7271,7 @@ export class CrmApiRouter {
           body: {
             data: {
               success: true,
-              source: body.accessToken ? 'HubSpot Private App API (v3)' : 'HubSpot CRM Payload Importer',
+              source: body.accessToken ? 'API do CRM de origem (v3)' : 'Importador de payload do CRM de origem',
               companiesImported,
               contactsImported,
               dealsImported,
@@ -8545,7 +8545,7 @@ export class CrmApiRouter {
             return {
               status: priv.authenticated ? 403 : 401,
               body: {
-                error: 'Permissão negada: a sincronização diária do GestãoClick exige 2FA e perfil administrador ou controle total do ERP.',
+                error: 'Permissão negada: a sincronização diária do STI HUB ERP exige 2FA e perfil administrador ou controle total do ERP.',
                 code: 'ERP_DAILY_SYNC_FORBIDDEN',
               },
             };
@@ -8758,7 +8758,7 @@ export class CrmApiRouter {
           return {
             status: 400,
             body: {
-              error: `Campo(s) não aceito(s) na sincronização GestãoClick: ${gcForbidden.join(', ')}. As credenciais vêm só do servidor.`,
+              error: `Campo(s) não aceito(s) na sincronização STI HUB ERP: ${gcForbidden.join(', ')}. As credenciais vêm só do servidor.`,
               code: 'GESTAOCLICK_CREDENTIALS_IN_BODY',
             },
           };
@@ -8776,7 +8776,7 @@ export class CrmApiRouter {
             return {
               status: gcSess && gcSess.authenticated ? 403 : 401,
               body: {
-                error: 'Permissão negada: a sincronização GestãoClick exige 2FA e perfil administrador ou controle total do ERP.',
+                error: 'Permissão negada: a sincronização STI HUB ERP exige 2FA e perfil administrador ou controle total do ERP.',
                 code: 'GESTAOCLICK_SYNC_FORBIDDEN',
               },
             };
@@ -8821,7 +8821,7 @@ export class CrmApiRouter {
           return {
             status: gcPriv.authenticated ? 403 : 401,
             body: {
-              error: 'Permissão negada: alterar a configuração fiscal/GestãoClick exige 2FA e perfil administrador ou controle total do ERP.',
+              error: 'Permissão negada: alterar a configuração fiscal/STI HUB ERP exige 2FA e perfil administrador ou controle total do ERP.',
               code: 'GESTAOCLICK_CONFIG_FORBIDDEN',
             },
           };
@@ -8834,7 +8834,7 @@ export class CrmApiRouter {
               error:
                 parsedCfg.code === 'GESTAOCLICK_CONFIG_EMPTY'
                   ? 'Nenhum campo editável informado.'
-                  : `Campo(s) não aceito(s) ou inválido(s) na configuração GestãoClick: ${parsedCfg.fields.join(', ')}. Editáveis: razão social, CNPJ, inscrições municipal/estadual, nome da loja, regime tributário, alíquota de ISS (0 a 5%) e NF mensal automática de locação (true/false).`,
+                  : `Campo(s) não aceito(s) ou inválido(s) na configuração STI HUB ERP: ${parsedCfg.fields.join(', ')}. Editáveis: razão social, CNPJ, inscrições municipal/estadual, nome da loja, regime tributário, alíquota de ISS (0 a 5%) e NF mensal automática de locação (true/false).`,
               code: parsedCfg.code,
               fields: parsedCfg.fields,
             },
@@ -10991,7 +10991,7 @@ export class CrmApiRouter {
             incrementalNewOrUpdated: Number(body.incrementalCount || 7),
             cursorTimestamp: nowIso,
             status: 'SUCCESS',
-            summary: `Sincronização incremental diária concluída (${elapsed}ms): base GestãoClick Loja Matriz #118887 reconciliada com os schemas de CRM, ERP e Chamados.`,
+            summary: `Sincronização incremental diária concluída (${elapsed}ms): base STI HUB ERP reconciliada com os schemas de CRM, ERP e Chamados.`,
           };
           this.syncLogs.unshift(newLog);
           return {

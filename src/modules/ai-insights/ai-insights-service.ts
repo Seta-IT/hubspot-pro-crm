@@ -508,7 +508,7 @@ export class AiInsightsService {
       `Previsão Ponderada de Receita: R$ ${weightedPipelineValue.toLocaleString('pt-BR')} em aberto + R$ ${closedWonValue.toLocaleString('pt-BR')} já fechados (Forecast Comprometido: R$ ${committedForecast.toLocaleString('pt-BR')}).`,
       `Gargalo Principal do Funil: R$ ${revenueAtRisk.toLocaleString('pt-BR')} estão retidos em negócios com estagnação crítica nas etapas finais (Proposta e Negociação).`,
       `Oportunidades Ocultas: ${hiddenOpportunities.length} conta(s)/decisor(es) de alto fit (potencial estimado de R$ ${unlockableRevenue.toLocaleString('pt-BR')}) prontos para abertura imediata de negócio.`,
-      `Saúde da Base (${health.globalHealthScore}/100) & ERP GestãoClick: MRR de Locação ativo em R$ ${erpOverview.kpis.monthlyRentalMrr.toLocaleString('pt-BR')}/mês (${erpOverview.kpis.activeContractsCount} contratos) com R$ ${erpOverview.kpis.issSavedBySv31Stf.toLocaleString('pt-BR')} economizados em ISS (Súmula Vinculante 31 STF).`,
+      `Saúde da Base (${health.globalHealthScore}/100) & STI HUB ERP: MRR de Locação ativo em R$ ${erpOverview.kpis.monthlyRentalMrr.toLocaleString('pt-BR')}/mês (${erpOverview.kpis.activeContractsCount} contratos) com R$ ${erpOverview.kpis.issSavedBySv31Stf.toLocaleString('pt-BR')} economizados em ISS (Súmula Vinculante 31 STF).`,
     ];
 
     let analystAnswer: string | undefined;
@@ -573,7 +573,7 @@ export class AiInsightsService {
       q.includes('fatura') ||
       q.includes('contrato')
     ) {
-      return `Diagnóstico ERP GestãoClick & Fiscal (Seta Telecom): Você possui ${erpKpis.activeContractsCount} contratos de locação ativos gerando MRR de R$ ${erpKpis.monthlyRentalMrr.toLocaleString('pt-BR')}/mês (TCV contratado de R$ ${erpKpis.totalContractedTcv.toLocaleString('pt-BR')}). Graças à segregação de Fatura de Locação (LC 116/03 + Súmula Vinculante 31 STF, 0% ISS), a economia tributária acumulada é de R$ ${erpKpis.issSavedBySv31Stf.toLocaleString('pt-BR')}. Há R$ ${erpKpis.totalReceivablesOpen.toLocaleString('pt-BR')} em contas a receber em aberto.`;
+      return `Diagnóstico STI HUB ERP & Fiscal (Seta Telecom): Você possui ${erpKpis.activeContractsCount} contratos de locação ativos gerando MRR de R$ ${erpKpis.monthlyRentalMrr.toLocaleString('pt-BR')}/mês (TCV contratado de R$ ${erpKpis.totalContractedTcv.toLocaleString('pt-BR')}). Graças à segregação de Fatura de Locação (LC 116/03 + Súmula Vinculante 31 STF, 0% ISS), a economia tributária acumulada é de R$ ${erpKpis.issSavedBySv31Stf.toLocaleString('pt-BR')}. Há R$ ${erpKpis.totalReceivablesOpen.toLocaleString('pt-BR')} em contas a receber em aberto.`;
     }
 
     if (q.includes('gargalo') || q.includes('etapa') || q.includes('funil')) {

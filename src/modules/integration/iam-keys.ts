@@ -118,7 +118,7 @@ export async function handleIamIntegrationKeys(req: IntegrationHttpRequest, deps
       if (!scopes.ok) {
         await log(400, 'iam.integration_keys.create', null, scopes.code);
         return problem(400, scopes.code, scopes.code === 'SCOPE_BLOCKED'
-          ? 'Escopo bloqueado pela politica CISO (IAM/Admin, DELETE, merge, Sequencias, Fiscal/Financeiro ou GestaoClick).'
+          ? 'Escopo bloqueado pela politica CISO (IAM/Admin, DELETE, merge, Sequencias, Fiscal/Financeiro ou integracao com o ERP de origem).'
           : 'Escopo inexistente no catalogo.', { invalid: scopes.invalid });
       }
       const mismatch = scopes.scopes.filter((s) => {

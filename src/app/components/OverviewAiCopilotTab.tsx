@@ -695,7 +695,7 @@ export default function OverviewAiCopilotTab({
                   Contatos &amp; Empresas por <span className="text-[#0091ae]">ciclo de vida</span> (CRM)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Qualificação da carteira comercial no Portal HubSpot #4369067
+                  Qualificação da carteira comercial no STI HUB CRM
                 </p>
               </div>
               <span className="text-xs font-semibold text-[#0091ae] inline-flex items-center gap-1 shrink-0">

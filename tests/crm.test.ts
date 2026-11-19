@@ -3765,7 +3765,7 @@ describe("Padronização da Arquitetura de Navegação nos 3 Sistemas (CRM, ERP 
     assert.ok(pageSrc.includes("Saúde Chamados:"));
 
     // 2. Sidebars corporativas em blocos nos 3 sistemas (ERP, CRM e Chamados)
-    assert.ok(gcSidebarSrc.includes("MÓDULO ERP • GESTÃOCLICK"));
+    assert.ok(gcSidebarSrc.includes("MÓDULO • STI HUB ERP"));
     assert.ok(gcSidebarSrc.includes("COMERCIAL & LOCAÇÃO"));
     assert.ok(gcSidebarSrc.includes("OPERAÇÃO & TÉCNICO"));
     assert.ok(gcSidebarSrc.includes("FINANCEIRO, FISCAL & GOVERNANÇA"));
@@ -4505,5 +4505,26 @@ describe('Busca global: orçamentos pelo número (fonte da tela) e ranking por c
     const page = fs.readFileSync(path.join(process.cwd(), 'src/app/page.tsx'), 'utf8');
     assert.match(page, /proposalsServerSearch=\{erpData\?\.proposalsStorage === 'table'\}/);
     assert.match(page, /salesOrders=\{erpData\?\.salesOrders \|\| \[\]\}/);
+  });
+});
+
+describe('Textos visíveis: só STI HUB ERP / STI HUB CRM / STI HUB Desk Service', () => {
+  it('a busca global ainda aceita "GC-ORC-4709" (código gravado não muda)', () => {
+    const e = buildProposalSearchEntry({ id: 'prop-gc-55', code: 'GC-ORC-4709', companyName: 'A3CLOUD.IT LTDA', title: 'Proposta', totalContractValue: 1, monthlyRecurringTotal: 1, status: 'ENVIADA' } as any);
+    const res = filterGlobalSearchEntries({ allEntries: [e], query: 'GC-ORC-4709', systemFilter: 'ALL', selectedCategories: ['PROPOSALS'] });
+    assert.equal(res.length, 1);
+    assert.equal(rankGlobalSearchEntries(res, 'GC-ORC-4709')[0].entityId, 'prop-gc-55');
+  });
+  it('cabeçalho, título da página e textos do assistente sem GestãoClick/HubSpot', () => {
+    const fsx = require('node:fs') as typeof import('node:fs');
+    const page = fsx.readFileSync('src/app/page.tsx', 'utf8');
+    assert.ok(page.includes('<span className="font-semibold text-white">STI HUB ERP</span>'));
+    assert.ok(!page.includes('GestãoClick ERP-GROK'));
+    assert.ok(!page.includes('MCP Online'));
+    const layout = fsx.readFileSync('src/app/layout.tsx', 'utf8');
+    assert.doesNotMatch(layout, /Gest[ãa]o ?Click|HubSpot/i);
+    const tools = fsx.readFileSync('src/modules/assistente/tools.ts', 'utf8');
+    const literais = tools.match(/'[^'\n]*'|`[^`]*`/g) || [];
+    assert.deepEqual(literais.map((s) => s.replace(/\$\{[^}]*\}/g, '')).filter((s) => /Gest[ãa]o ?Click|HubSpot/.test(s)), []);
   });
 });

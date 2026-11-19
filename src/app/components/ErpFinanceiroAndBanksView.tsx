@@ -68,7 +68,7 @@ const BANK_FILTERS = ['TODAS', 'Banco Inter', 'Banco Itaú', 'Conta Integrada'];
 const CORPORATE_ACCOUNTS = [
   { name: 'Banco Inter', code: '#237906', kind: 'Conta Corrente PJ (sincronizada)' },
   { name: 'Banco Itaú', code: '#142155', kind: 'Conta Corrente PJ (sincronizada)' },
-  { name: 'Conta Integrada', code: '#710407', kind: 'Conta Integrada GestãoClick (sincronizada)' },
+  { name: 'Conta Integrada', code: '#710407', kind: 'Conta Integrada STI HUB ERP (sincronizada)' },
   { name: 'Caixinha', code: 'CX-01', kind: 'Caixa interno / fundo fixo' },
   { name: 'Seta Imp', code: 'SI-02', kind: 'Conta de importação' },
   { name: 'Inter Aplicações', code: 'IA-03', kind: 'Aplicação financeira' },

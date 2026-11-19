@@ -996,7 +996,7 @@ export default function HubSpotProCrmApp() {
     if (res.ok) {
       const json = await res.json();
       showToast(
-        `Migração HubSpot concluída! +${json.data?.companiesImported} empresas, +${json.data?.contactsImported} contatos e +${json.data?.dealsImported} deals!`
+        `Migração do CRM de origem concluída! +${json.data?.companiesImported} empresas, +${json.data?.contactsImported} contatos e +${json.data?.dealsImported} deals!`
       );
       await fetchAllCrmData();
       return json.data as HubSpotMigrationReport;
@@ -1079,7 +1079,7 @@ export default function HubSpotProCrmApp() {
       const json = await res.json();
       if (json.data?.ticket) recordUpsertedTicket(json.data.ticket);
       const osCode = json.data?.serviceOrder?.code || 'ERP';
-      showToast(`O.S. Técnica #${osCode} gerada no GestãoClick ERP e vinculada ao chamado!`);
+      showToast(`O.S. Técnica #${osCode} gerada no STI HUB ERP e vinculada ao chamado!`);
       await fetchAllCrmData();
     }
   };
@@ -1583,10 +1583,6 @@ export default function HubSpotProCrmApp() {
     return { inUse: recordUsageTotal(counts) > 0, usageText: formatRecordUsageText(counts) };
   };
 
-  const gcStoreLabel = erpData?.gestaoClickConfig?.storeName
-    ? `${erpData.gestaoClickConfig.storeName} #${erpData.gestaoClickConfig.storeId || "118887"}`
-    : "Matriz #118887";
-
   return (
     <div data-system={headerSystem} data-testid="sti-shell" className="min-h-screen flex flex-col bg-[#f5f8fa] text-[#33475b] overflow-x-hidden">
       {/* ====================================================================
@@ -1624,8 +1620,8 @@ export default function HubSpotProCrmApp() {
 
             <div className="hidden lg:flex items-center gap-1.5 pl-3 border-l border-white/15 text-[11px] text-white/85">
               <span className="w-2 h-2 rounded-full bg-[#5fd4c3]" />
-              <span className="font-semibold text-white">GestãoClick ERP-GROK</span>
-              <span className="text-white/70">({gcStoreLabel} • MCP Online)</span>
+              <span className="font-semibold text-white">STI HUB ERP</span>
+              <span className="text-white/70">(Online)</span>
             </div>
           </div>
 
@@ -1853,7 +1849,7 @@ export default function HubSpotProCrmApp() {
             <button
               type="button"
               onClick={() => fetchAllCrmData()}
-              title="Sincronizar dados com o Servidor & GestãoClick"
+              title="Sincronizar dados com o Servidor & STI HUB ERP"
               className="p-1.5 rounded-[4px] bg-white/10 hover:bg-white/15 border border-white/20 text-white transition cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loadingAll ? "animate-spin text-[#c9dafa]" : ""}`} />

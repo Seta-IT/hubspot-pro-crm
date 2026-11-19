@@ -2068,7 +2068,7 @@ export function createSeedErpState(): ErpDatabaseState {
           timestamp: daysAgoIso(0),
           status: 'SUCCESS',
           summary:
-            'Sincronização GestãoClick (Credencial ERP-GROK • Loja Matriz #118887): 1.184 clientes, 786 produtos, 39 serviços, 2.077 orçamentos, 344 contratos de locação e 196 lançamentos financeiros mapeados.',
+            'Sincronização STI HUB ERP (Loja Matriz #118887): 1.184 clientes, 786 produtos, 39 serviços, 2.077 orçamentos, 344 contratos de locação e 196 lançamentos financeiros mapeados.',
           recordsSynced: 4922,
         },
       ],

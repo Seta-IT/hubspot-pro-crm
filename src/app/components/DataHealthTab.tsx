@@ -720,7 +720,7 @@ export default function DataHealthTab({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#1e3a6e]/15 text-[#1e3a6e] border border-[#1e3a6e]/30">
-              AUDITORIA PORTAL HUBSPOT 4369067 • SETA TELECOM
+              AUDITORIA STI HUB CRM • SETA TELECOM
             </span>
             <span className="text-xs font-semibold text-slate-500">
               44 proprietários mapeados (3 ativos hoje vs. 41 ex-vendedores inativos)

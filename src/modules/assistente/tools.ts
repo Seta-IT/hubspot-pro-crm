@@ -933,7 +933,7 @@ const consultarPropostas: AssistenteTool<PropostasArgs> = {
                 linhas: itens.slice(0, 60).map((i, idx) => [String(idx + 1), cut(i.description, 70), String(i.quantity ?? 1), formatBRL(i.unitPrice), cobrancaItem(i), formatBRL(i.subtotal ?? i.totalMonthly)]),
               }
             : undefined,
-          resumoParaModelo: `Proposta ${numeroProposta(p)} encontrada: cliente ${cut(p.companyName, 60)}; situação ${statusProposta(p.status)}; total ${formatBRL(totalPropostaRegistro(p))}; prazo ${Number(p.contractMonths || 0)} meses; ${propostaDoGestaoClick(p) ? 'origem GestãoClick; ' : ''}itens: ${resumoItens(p) || 'nenhum'}.`,
+          resumoParaModelo: `Proposta ${numeroProposta(p)} encontrada: cliente ${cut(p.companyName, 60)}; situação ${statusProposta(p.status)}; total ${formatBRL(totalPropostaRegistro(p))}; prazo ${Number(p.contractMonths || 0)} meses; ${propostaDoGestaoClick(p) ? 'importada do ERP de origem; ' : ''}itens: ${resumoItens(p) || 'nenhum'}.`,
         };
       }
       if (loc.status !== 404) return { ok: false, status: loc.status, mensagem: loc.texto, resumoParaModelo: `Falhou: ${loc.texto}` };
@@ -1066,7 +1066,7 @@ function bloqueioEdicao(p: any): string | null {
   return null;
 }
 
-export const AVISO_PROPOSTA_GESTAOCLICK = 'Atenção: proposta do GestãoClick. A alteração fica só no STI-hub e não vai para o GestãoClick.';
+export const AVISO_PROPOSTA_GESTAOCLICK = 'Atenção: proposta importada do ERP de origem. A alteração fica só no STI HUB ERP e não vai para o sistema de origem.';
 
 const totaisLinha = (rot: string, t: any) =>
   `${rot}: mensal ${formatBRL(t?.monthlyRecurringTotal)}, único ${formatBRL(Number(t?.oneTimeSetupTotal || 0) + Number(t?.shippingCost || 0))}, contrato ${formatBRL(t?.totalContractValue)}`;
@@ -1179,7 +1179,7 @@ const editarProposta: AssistenteTool<EditarPropostaArgs> = {
     const d = put.body?.data || {};
     return {
       ok: true,
-      mensagem: `Proposta ${numeroProposta(p)} atualizada. Total do contrato: ${formatBRL(d.totalContractValue ?? ed.depois.totalContractValue)}. Nada foi enviado ao cliente.${propostaDoGestaoClick(p) ? ' A alteração ficou só no STI-hub; o GestãoClick não foi alterado.' : ''}`,
+      mensagem: `Proposta ${numeroProposta(p)} atualizada. Total do contrato: ${formatBRL(d.totalContractValue ?? ed.depois.totalContractValue)}. Nada foi enviado ao cliente.${propostaDoGestaoClick(p) ? ' A alteração ficou só no STI HUB ERP; o sistema de origem não foi alterado.' : ''}`,
       registro: { tipo: 'proposta', id: String(p.id), codigo: String(p.code || '') },
       resumoParaModelo: `Proposta ${numeroProposta(p)} atualizada (${ed.mudancas.length} mudanças). Não repita a edição.`,
     };

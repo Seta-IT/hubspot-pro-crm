@@ -484,14 +484,14 @@ export default function AdminSettingsCenterTab({
               STI-hub • Governança &amp; Configuração Global
             </span>
             <span className="px-2.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold">
-              ● HubSpot #4369067 + GestãoClick #118887
+              ● STI HUB CRM + STI HUB ERP
             </span>
           </div>
           <h1 className="text-lg sm:text-xl font-semibold text-slate-900 mt-1">
             Central de Administração, Campos Customizáveis, Modelos de E-mail &amp; Permissões RBAC
           </h1>
           <p className="text-xs text-slate-500">
-            Configure o disparo de e-mails (SMTP/Resend), gerencie todas as propriedades customizadas do HubSpot e do ERP, edite templates e defina permissões granulares por usuário.
+            Configure o disparo de e-mails (SMTP/Resend), gerencie todas as propriedades customizadas do STI HUB CRM e do ERP, edite templates e defina permissões granulares por usuário.
           </p>
         </div>
 
@@ -781,7 +781,7 @@ export default function AdminSettingsCenterTab({
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-slate-900">
-                Propriedades Mapeadas do HubSpot Portal #4369067 &amp; GestãoClick #118887 ({filteredFields.length})
+                Propriedades Mapeadas do STI HUB CRM &amp; STI HUB ERP ({filteredFields.length})
               </h3>
               <div className="flex flex-wrap gap-1.5">
                 {(['ALL', 'CONTACT', 'COMPANY', 'DEAL', 'TICKET', 'PROPOSAL', 'CONTRACT'] as const).map(
@@ -808,7 +808,7 @@ export default function AdminSettingsCenterTab({
                 <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
                   <tr>
                     <th className="py-2.5 px-3">Rótulo (Label)</th>
-                    <th className="py-2.5 px-3">Nome Interno HubSpot/API</th>
+                    <th className="py-2.5 px-3">Nome Interno (API)</th>
                     <th className="py-2.5 px-3">Objeto</th>
                     <th className="py-2.5 px-3">Tipo</th>
                     <th className="py-2.5 px-3">Grupo</th>
@@ -836,12 +836,12 @@ export default function AdminSettingsCenterTab({
                       <td className="py-2.5 px-3 space-x-1">
                         {f.hubspotSynced && (
                           <span className="px-2 py-0.5 rounded bg-orange-50 text-[#1e3a6e] border border-orange-200 text-[10px] font-semibold">
-                            HubSpot #4369067
+                            STI HUB CRM
                           </span>
                         )}
                         {f.gestaoClickSynced && (
                           <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-semibold">
-                            GestãoClick ERP
+                            STI HUB ERP
                           </span>
                         )}
                       </td>

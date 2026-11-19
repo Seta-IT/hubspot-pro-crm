@@ -33,7 +33,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_1',
       ownerName: 'Marcelo Lopes Mira',
       enrichedAt: daysAgoIso(1),
-      enrichmentSource: 'Receita Federal (RFB) • GestãoClick #118887 (Orçamento #4695)',
+      enrichmentSource: 'Receita Federal (RFB) • STI HUB ERP (Orçamento #4695)',
       customProperties: {
         tradeName: 'MUNDIVOX TELECOM',
         customerType: 'Pessoa Jurídica',
@@ -81,7 +81,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_1',
       ownerName: 'Marcelo Mira',
       enrichedAt: daysAgoIso(1),
-      enrichmentSource: 'Receita Federal (RFB) • GestãoClick #118887',
+      enrichmentSource: 'Receita Federal (RFB) • STI HUB ERP',
       customProperties: {
         tradeName: '01.936.069/0001-94',
         customerType: 'Pessoa jurídica',
@@ -122,7 +122,7 @@ export function createInitialSeedState(): CrmDatabaseState {
             uploadedAt: '26/10/2026',
           },
         ],
-        notes: 'Cliente corporativo estratégico cadastrado via integração Receita Federal (RFB) & Serasa Experian no GestãoClick.',
+        notes: 'Cliente corporativo estratégico cadastrado via integração Receita Federal (RFB) & Serasa Experian no STI HUB ERP.',
       },
       lastActivityAt: daysAgoIso(1),
       createdAt: daysAgoIso(5),
@@ -144,7 +144,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_1',
       ownerName: 'Marcelo Mira',
       enrichedAt: daysAgoIso(2),
-      enrichmentSource: 'Receita Federal (RFB) • GestãoClick #118887',
+      enrichmentSource: 'Receita Federal (RFB) • STI HUB ERP',
       customProperties: {
         tradeName: '2S INOVACOES',
         customerType: 'Pessoa jurídica',
@@ -176,7 +176,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_1',
       ownerName: 'Marcelo Lopes Mira',
       enrichedAt: daysAgoIso(5),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       customProperties: {
         tier: 'Enterprise',
         accountExecutive: 'Marcelo Lopes Mira',
@@ -202,7 +202,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_1',
       ownerName: 'Marcelo Lopes Mira',
       enrichedAt: daysAgoIso(10),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       customProperties: {
         tier: 'Enterprise',
         erpPartner: true,
@@ -255,7 +255,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_1',
       ownerName: 'Evelyn Ternero Seta Telecom',
       enrichedAt: daysAgoIso(7),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       customProperties: {
         tier: 'Enterprise',
         accountExecutive: 'Evelyn Ternero Seta Telecom',
@@ -281,7 +281,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_2',
       ownerName: 'Marcelo Lopes Mira',
       enrichedAt: daysAgoIso(4),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       customProperties: {
         tier: 'Mid-Market',
         accountExecutive: 'Marcelo Lopes Mira',
@@ -396,7 +396,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       isUnworked: false,
       companyId: 'comp-nubank',
       enrichedAt: daysAgoIso(5),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       nextBestAction: {
         actionType: 'MEETING',
         title: 'Alinhar aprovação final com comitê executivo',
@@ -473,7 +473,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       isUnworked: false,
       companyId: 'comp-totvs',
       enrichedAt: daysAgoIso(8),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       nextBestAction: {
         actionType: 'PROPOSAL',
         title: 'Revisar escopo técnico da POC Enterprise',
@@ -514,7 +514,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       isUnworked: false,
       companyId: 'comp-vtex',
       enrichedAt: daysAgoIso(7),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       nextBestAction: {
         actionType: 'FOLLOW_UP',
         title: 'Destravar Proposta Comercial (19 dias sem retorno)',
@@ -636,7 +636,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       isUnworked: false,
       companyId: 'comp-rdstation',
       enrichedAt: daysAgoIso(4),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       nextBestAction: {
         actionType: 'EMAIL',
         title: 'Apresentar plano de expansão (Upsell Q4)',
@@ -1139,7 +1139,7 @@ export function createInitialSeedState(): CrmDatabaseState {
     },
     {
       id: 'deal-rdstation-won',
-      title: 'RD Station - Licenciamento Anual HubSpot Pro Suite',
+      title: 'RD Station - Licenciamento Anual STI HUB CRM Suite',
       value: 168000,
       currency: 'BRL',
       pipelineId: 'pipe-enterprise-b2b',
@@ -2159,7 +2159,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       id: 'form-enterprise-demo',
       name: 'Diagnóstico Enterprise & Solicitação de Demo',
       slug: 'diagnostico-enterprise-demo',
-      title: 'Solicite uma Demonstração Executiva do HubSpot Pro CRM',
+      title: 'Solicite uma Demonstração Executiva do STI HUB CRM',
       description:
         'Formulário de alta conversão do site principal. Qualifica o lead automaticamente, enriquece o domínio corporativo e abre negócio no funil comercial.',
       targetType: 'DEMO_REQUEST',
@@ -3139,10 +3139,10 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
     },
     {
       id: 'cmp-3',
-      name: 'SD-WAN FortiGate Dual-WAN, Renovação & Spare Parts Base GestãoClick (#118887)',
+      name: 'SD-WAN FortiGate Dual-WAN, Renovação & Spare Parts Base STI HUB ERP',
       objective: 'Expansão de contratos ativos, renovação 24/36m e oferta de redundância BGP/SD-WAN na carteira Seta Telecom.',
       status: 'IN_PROGRESS',
-      channel: 'E-mail Marketing Base GestãoClick (#118887)',
+      channel: 'E-mail Marketing Base STI HUB ERP',
       sendingProvider: 'MARKETING_ESP',
       utmCampaign: 'sdwan-fortigate-renovacao-gc',
       budgetBrl: 8500,
@@ -3212,7 +3212,7 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
     },
     {
       id: 'seg-clientes-locacao-gc',
-      name: 'Carteira Ativa Locação & Contratos GestãoClick (#118887)',
+      name: 'Carteira Ativa Locação & Contratos STI HUB ERP',
       description: 'Base de clientes com contrato de locação/serviços ativo para campanhas de renovação, aditivos e spare parts.',
       type: 'STATIC',
       filterExpression: "lifecyclestage = 'CUSTOMER' AND gestaoclick_contract_active = true",

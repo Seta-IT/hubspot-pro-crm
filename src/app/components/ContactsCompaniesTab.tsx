@@ -524,7 +524,7 @@ export default function ContactsCompaniesTab({
         const ow = normalizeSearch(c.ownerName || (c.customProperties?.ownerName as string) || c.ownerId);
         if (!ow.includes('evelyn')) return false;
       } else if (activeSegment === 'GESTAOCLICK') {
-        if (!c.id.startsWith('cont-gc-') && !c.customProperties?.gestaoClickClientId && !c.enrichmentSource?.includes('GestãoClick')) return false;
+        if (!c.id.startsWith('cont-gc-') && !c.customProperties?.gestaoClickClientId && !c.enrichmentSource?.includes('GestãoClick') && !c.enrichmentSource?.includes('STI HUB ERP')) return false;
       } else if (activeSegment === 'ABM') {
         if (!c.company?.isTargetAccount && c.buyingRole !== 'DECISOR') return false;
       }
@@ -593,7 +593,8 @@ export default function ContactsCompaniesTab({
       if (
         !comp.id.startsWith('comp-gc-') &&
         !comp.customProperties?.gestaoClickClientId &&
-        !comp.enrichmentSource?.includes('GestãoClick')
+        !comp.enrichmentSource?.includes('GestãoClick') &&
+        !comp.enrichmentSource?.includes('STI HUB ERP')
       ) {
         return false;
       }
@@ -677,7 +678,7 @@ export default function ContactsCompaniesTab({
                 }`}
               >
                 <CheckSquare className="w-3.5 h-3.5 text-accent" />
-                Tarefas &amp; Follow-up HubSpot
+                Tarefas &amp; Follow-up STI HUB CRM
               </button>
             </div>
             <span className="text-xs text-[#516f90]">
@@ -689,7 +690,7 @@ export default function ContactsCompaniesTab({
               <strong className="text-[#33475b]">
                 {subView === "CONTACTS" ? contacts.length : companies.length}
               </strong>{" "}
-              registros sincronizados (HubSpot #4369067 + GestãoClick #118887)
+              registros sincronizados (STI HUB CRM + STI HUB ERP
             </span>
           </div>
 
@@ -734,7 +735,7 @@ export default function ContactsCompaniesTab({
               { id: "ALL", label: subView === "CONTACTS" ? `Todos os Contatos (${contacts.length})` : `Todas as Empresas (${companies.length})` },
               { id: "MARCELO", label: "Minha Carteira — Marcelo Mira" },
               { id: "EVELYN", label: "Carteira — Evelyn Ternero" },
-              { id: "GESTAOCLICK", label: "Sincronizados GestãoClick (#118887)" },
+              { id: "GESTAOCLICK", label: "Sincronizados STI HUB ERP" },
               { id: "ABM", label: "Decisores & Contas Alvo ABM" },
             ].map((tab) => {
               const active = activeSegment === tab.id;

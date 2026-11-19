@@ -734,11 +734,11 @@ describe('assistente — propostas: localizar 4709 e acrescentar despesa', () =>
     const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'adicione 2800 na 4709' }] }, d);
     assert.equal(r.body.tipo, 'proposta');
     const linhas = (r.body.proposta as any).linhas as string[];
-    assert.equal(linhas.filter((l) => l === 'Atenção: proposta do GestãoClick. A alteração fica só no STI-hub e não vai para o GestãoClick.').length, 1);
+    assert.equal(linhas.filter((l) => l === 'Atenção: proposta importada do ERP de origem. A alteração fica só no STI HUB ERP e não vai para o sistema de origem.').length, 1);
     assert.equal(calls.filter((c) => c.method === 'PATCH').length, 0);
     const ok = await handleExecute({ token: (r.body.proposta as any).token, confirmar: true }, d);
     assert.equal(ok.body.ok, true);
-    assert.match(String(ok.body.mensagem), /ficou só no STI-hub/);
+    assert.match(String(ok.body.mensagem), /ficou só no STI HUB ERP/);
     const patch = calls.filter((c) => c.method === 'PATCH');
     assert.equal(patch.length, 1);
     assert.equal(patch[0].path, '/api/erp/proposals/prop-gc-98765');
@@ -748,7 +748,7 @@ describe('assistente — propostas: localizar 4709 e acrescentar despesa', () =>
   it('proposta do STI-hub: sem o aviso do GestãoClick', async () => {
     const { api } = propApi();
     const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'adicione 2800 na 4709' }] }, deps({ api, llm: fakeLlm({ toolCalls: [EDIT_CALL] }) }));
-    assert.doesNotMatch((r.body.proposta as any).linhas.join('\n'), /GestãoClick/);
+    assert.doesNotMatch((r.body.proposta as any).linhas.join('\n'), /ERP de origem/);
   });
 
   it('proposta do GestãoClick convertida ou recusada continua bloqueada', async () => {
