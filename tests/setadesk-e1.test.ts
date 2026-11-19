@@ -108,7 +108,7 @@ describe('E1 - plano de carga por rota', () => {
     assert.deepEqual(setaDeskLoadPlanForRoute('POST', '/api/migration/hubspot', {}, {})?.refs, []);
     assert.deepEqual(setaDeskLoadPlanForRoute('POST', '/api/communications/send-email', {}, { ticketId: 'tkt-1' })?.refs, ['tkt-1']);
     assert.equal(setaDeskLoadPlanForRoute('POST', '/api/communications/send-email', {}, {}), null);
-    assert.deepEqual(setaDeskLoadPlanForRoute('DELETE', '/api/companies/c1', {}, {}), { includeComments: false, sync: false });
+    assert.deepEqual(setaDeskLoadPlanForRoute('DELETE', '/api/companies/c1', {}, {})?.usageCheck, { kind: 'company', id: 'c1' });
     assert.equal(setaDeskLoadPlanForRoute('GET', '/api/companies', {}, {}), null);
     assert.equal(setaDeskLoadPlanForRoute('GET', '/api/erp/overview', {}, {}), null);
     assert.equal(setaDeskLoadPlanForRoute('PATCH', '/api/deals/d1', {}, {}), null);
@@ -219,5 +219,96 @@ describe('E1 - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     assert.equal(none.tickets.length, 0);
     const all = (await store.loadSetaDeskTickets([]))!;
     assert.equal(await store.countSetaDeskTickets(), all.tickets.length);
+  });
+
+  it('checagem de uso no DELETE le so os chamados com O.S. do registro', async () => {
+    const base = (await store.loadSetaDeskTickets([]))!;
+    const repo = createInMemoryRepository();
+    repo.replaceServiceTickets(base.tickets);
+    repo.createServiceTicket({ subject: 'Com OS', key: 'TEC-811', id: 'tkt-e1-os', companyId: 'cmp-e1', serviceOrderId: 'os-1' } as never);
+    repo.createServiceTicket({ subject: 'Sem OS', key: 'TEC-812', id: 'tkt-e1-sem-os', companyId: 'cmp-e1' } as never);
+    await store.syncSetaDeskTickets(repo.getState().serviceTickets, base.baseline);
+    const refs = (await store.loadSetaDeskTicketUsageRefs('company', 'cmp-e1'))!;
+    assert.deepEqual(refs.map((r) => r.serviceOrderId), ['os-1']);
+    assert.deepEqual(await store.loadSetaDeskTicketUsageRefs('contact', 'ninguem'), []);
+  });
+});
+
+describe('E1 - CISO: DELETE so na allowlist e portal em tempo constante', () => {
+  it('DELETE publico, de auth, health e caminho desconhecido => null', async () => {
+    const { setaDeskLoadPlanForRoute: plan } = await import('../src/api/setadesk-route-plan');
+    for (const path of [
+      '/api/portal/tickets/TEC-1',
+      '/api/portal/tickets',
+      '/api/portal/tickets/TEC-1/reply',
+      '/api/auth/logout',
+      '/api/auth/session',
+      '/api/health',
+      '/api/rota-que-nao-existe',
+      '/api/companies',
+      '/api/companies/c1/extra',
+      '/api/deals/d1',
+      '/api/erp/proposals/p1',
+      '/api/tickets/TEC-1',
+    ]) {
+      assert.equal(plan('DELETE', path, {}, {}), null, path);
+    }
+  });
+
+  it('allowlist: so empresa e contato, sem carga antes da rota', async () => {
+    const mod = await import('../src/api/setadesk-route-plan');
+    assert.deepEqual(mod.SETADESK_USAGE_CHECK_DELETE_ROUTES.map((r) => r.kind), ['company', 'contact']);
+    assert.deepEqual(mod.setaDeskLoadPlanForRoute('DELETE', '/api/companies/c-1', {}, {}), {
+      refs: [],
+      includeComments: false,
+      sync: false,
+      usageCheck: { kind: 'company', id: 'c-1' },
+    });
+    assert.deepEqual(mod.setaDeskLoadPlanForRoute('DELETE', '/api/contacts/ct%201', {}, {})?.usageCheck, { kind: 'contact', id: 'ct 1' });
+    assert.equal(mod.setaDeskLoadPlanForRoute('DELETE', '/api/contacts/%E0%A4%A', {}, {}), null);
+  });
+
+  it('rotas com piso de tempo: consulta, resposta e CSAT do portal', async () => {
+    const { isPortalTicketLookupRoute: f } = await import('../src/api/setadesk-route-plan');
+    assert.equal(f('GET', '/api/portal/tickets'), true);
+    assert.equal(f('POST', '/api/portal/tickets/TEC-1/reply'), true);
+    assert.equal(f('POST', '/api/portal/tickets/TEC-1/csat'), true);
+    assert.equal(f('POST', '/api/portal/tickets'), false);
+    assert.equal(f('GET', '/api/tickets'), false);
+  });
+
+  it('findPortalTicketByKeyAndEmail compara com registro ficticio quando nao ha chamado', async () => {
+    const pa = await import('../src/api/portal-access');
+    let calls = 0;
+    const emailOf = () => {
+      calls += 1;
+      return 'c@x.com';
+    };
+    assert.equal(pa.findPortalTicketByKeyAndEmail([], emailOf, '\u0000sem-chamado', 'c@x.com'), null, 'ficticio nunca confere');
+    assert.equal(calls, 1, 'sem chamado, faz a mesma comparacao que com 1 chamado');
+    const repo = createInMemoryRepository();
+    const t = repo.listServiceTickets()[0];
+    assert.equal(pa.findPortalTicketByKeyAndEmail([t], () => 'c@x.com', t.key, 'c@x.com')?.id, t.id);
+  });
+
+  it('existe e nao existe respondem com o mesmo piso de tempo e o mesmo erro', async () => {
+    const repo = createInMemoryRepository();
+    const contact = repo.listContacts().find((c) => c.email)!;
+    const t = repo.createServiceTicket({ subject: 'Piso', key: 'TEC-950', contactId: contact.id });
+    const router = new CrmApiRouter(repo);
+    router.portalLookupTimeFloorMs = 120;
+    const call = async (key: string, email: string) => {
+      const t0 = Date.now();
+      const r = await router.dispatch({ method: 'GET', path: '/api/portal/tickets', query: { key, email, _clientIp: `10.9.${Math.floor(Math.random() * 200)}.1` } });
+      return { r, ms: Date.now() - t0 };
+    };
+    const ok = await call(t.key, contact.email);
+    const wrongEmail = await call(t.key, 'outra@pessoa.com');
+    const missing = await call('TEC-999999', contact.email);
+    assert.equal(ok.r.status, 200);
+    assert.equal(wrongEmail.r.status, 404);
+    assert.equal(missing.r.status, 404);
+    assert.deepEqual(wrongEmail.r.body, missing.r.body, 'erro generico identico');
+    for (const x of [ok, wrongEmail, missing]) assert.ok(x.ms >= 115, `piso respeitado (${x.ms} ms)`);
   });
 });

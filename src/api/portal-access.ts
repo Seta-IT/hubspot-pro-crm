@@ -5,7 +5,10 @@
 //  1. Nunca se lista sem filtro: GET /api/portal/tickets exige `key` (chave do chamado)
 //     E `email` (e-mail do contato). Sem um deles => 400. Busca livre (`search`) nao existe mais.
 //  2. Comparacao exata da chave e do e-mail (e-mail sem diferenciar maiusculas), em tempo
-//     constante (SHA-256 + timingSafeEqual), percorrendo TODOS os chamados (sem curto-circuito).
+//     constante (SHA-256 + timingSafeEqual), sem curto-circuito. Desde a E1 (18/11) a rota
+//     carrega das setadesk_* so o chamado da chave (0 ou 1 linha, mesmas consultas nos dois
+//     casos); sem chamado compara com um registro ficticio, e o router aplica um piso de tempo
+//     (PORTAL_LOOKUP_TIME_FLOOR_MS) na resposta, igual para "existe" e "nao existe".
 //  3. Erro generico e identico para chave inexistente, e-mail errado ou chamado sem contato:
 //     nao revela se o chamado existe.
 //  4. Rate-limit por IP E por chave do chamado (janelas deslizantes em memoria, por instancia).
@@ -103,6 +106,8 @@ export function toPortalPublicTicketDto(t: ServiceTicket): PortalPublicTicketDto
   };
 }
 
+const PORTAL_DUMMY_TICKET = Object.freeze({ key: '\u0000sem-chamado', contactId: null }) as unknown as ServiceTicket;
+
 /**
  * Localiza o chamado SO se chave E e-mail do contato conferem. Percorre todos os chamados e
  * compara sempre os dois campos (sem curto-circuito), para nao vazar existencia por tempo.
@@ -116,8 +121,11 @@ export function findPortalTicketByKeyAndEmail(
   const k = normalizePortalKey(key);
   const e = normalizePortalEmail(email);
   let found: ServiceTicket | null = null;
-  for (const t of tickets) {
-    const keyOk = constantTimeEqual(String(t.key || ''), k);
+  // E1: o portal carrega so o chamado da chave (0 ou 1). Sem chamado, compara com um registro
+  // ficticio que nunca confere, para "existe" e "nao existe" fazerem o mesmo trabalho.
+  const candidates = tickets.length ? tickets : [PORTAL_DUMMY_TICKET];
+  for (const t of candidates) {
+    const keyOk = constantTimeEqual(String(t.key || ''), k) && t !== PORTAL_DUMMY_TICKET;
     const contactEmail = normalizePortalEmail(contactEmailOf(t) || '');
     // Sem e-mail de contato no chamado => nunca confere (compara com valor impossivel).
     const emailOk = constantTimeEqual(contactEmail || '\u0000sem-contato', e);

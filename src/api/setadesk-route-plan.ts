@@ -4,10 +4,15 @@
 // O crm_state_v1 nao guarda mais serviceTickets. Toda rota que le ou grava chamado
 // precisa carregar das tabelas setadesk_* (fonte de verdade), no menor recorte possivel:
 //   - /api/tickets*: todos (comportamento anterior), com baseline e sync;
-//   - portal publico: so o chamado da chave informada (1 linha), nunca a lista;
+//   - portal publico (consulta, resposta, CSAT): so o chamado da chave informada, no
+//     maximo 1 linha, nunca a lista. A resposta tem caminho igual para "existe" e
+//     "nao existe": comparacao em tempo constante e piso de tempo (PORTAL_LOOKUP_TIME_FLOOR_MS);
 //   - rotas que so criam (portal, formulario, importacao HubSpot): nenhum chamado, com sync;
 //   - e-mail do CRM vinculado a chamado: so aquele chamado, com sync;
-//   - DELETE de cadastro (checagem de uso): todos sem historico, somente leitura.
+//   - DELETE de cadastro: so a allowlist SETADESK_USAGE_CHECK_DELETE_ROUTES (empresa e contato,
+//     os unicos cuja checagem "registro em uso" olha chamados). Nada e carregado antes da rota:
+//     depois da autenticacao, o handler faz uma consulta pontual (loadSetaDeskTicketUsageRefs).
+//     Qualquer outro DELETE (portal, auth, health, caminho desconhecido) => null.
 // O bootstrap continua com a regra propria (permissao de Chamados, sem comentarios).
 // ============================================================================
 
@@ -17,7 +22,33 @@ export type SetaDeskRouteLoadPlan = {
   includeComments: boolean;
   /** true => guarda baseline e grava as mudancas nas setadesk_* depois da rota. */
   sync: boolean;
+  /**
+   * DELETE de cadastro: nao carrega nada antes da rota; o handler (ja autenticado) consulta so
+   * os chamados que referenciam o registro.
+   */
+  usageCheck?: { kind: SetaDeskUsageCheckKind; id: string };
 };
+
+export type SetaDeskUsageCheckKind = 'company' | 'contact';
+
+/**
+ * Allowlist explicita: rotas autenticadas cujo DELETE checa uso por chamados
+ * (countRecordUsage so olha chamados para empresa e contato).
+ */
+export const SETADESK_USAGE_CHECK_DELETE_ROUTES: ReadonlyArray<{ kind: SetaDeskUsageCheckKind; pattern: RegExp }> = [
+  { kind: 'company', pattern: /^\/api\/companies\/([^/]+)$/ },
+  { kind: 'contact', pattern: /^\/api\/contacts\/([^/]+)$/ },
+];
+
+/** Piso de tempo das rotas do portal que localizam chamado por chave + e-mail. */
+export const PORTAL_LOOKUP_TIME_FLOOR_MS = 400;
+
+/** Rotas publicas do portal que respondem "existe/nao existe" (recebem o piso de tempo). */
+export function isPortalTicketLookupRoute(method: string, cleanPath: string): boolean {
+  const m = String(method || '').toUpperCase();
+  if (cleanPath === '/api/portal/tickets') return m === 'GET';
+  return m === 'POST' && PORTAL_ACTION_RE.test(cleanPath);
+}
 
 const PORTAL_ACTION_RE = /^\/api\/portal\/tickets\/([^/]+)\/(reply|csat)$/;
 
@@ -64,9 +95,18 @@ export function setaDeskLoadPlanForRoute(
     const ref = cleanRef(b.ticketId);
     return ref ? { refs: [ref], includeComments: true, sync: true } : null;
   }
-  // Checagem "registro em uso" (empresa, contato, negocio, contrato...): le, nao grava chamados.
-  if (m === 'DELETE' && cleanPath.startsWith('/api/') && !cleanPath.startsWith('/api/tickets')) {
-    return { includeComments: false, sync: false };
+  if (m === 'DELETE') {
+    for (const r of SETADESK_USAGE_CHECK_DELETE_ROUTES) {
+      const hit = cleanPath.match(r.pattern);
+      if (!hit) continue;
+      let id: string | null = null;
+      try {
+        id = cleanRef(decodeURIComponent(hit[1]));
+      } catch {
+        id = null;
+      }
+      return id ? { refs: [], includeComments: false, sync: false, usageCheck: { kind: r.kind, id } } : null;
+    }
   }
   return null;
 }

@@ -49,6 +49,7 @@ import {
 import {
   countSetaDeskTickets,
   createSetaDeskPipeline,
+  loadSetaDeskTicketUsageRefs,
   isLegacyDemoServiceTicket,
   isSetaDeskPostgresEnabled,
   listSetaDeskPipelines,
@@ -60,7 +61,14 @@ import {
   type SetaDeskBaseline,
 } from '../db/setadesk-store';
 import { canManageSetaDeskPipelines, parseSetaDeskPipelineWrite } from './setadesk-pipeline-guards';
-import { paginateTickets, parseTicketsPageParams, setaDeskLoadPlanForRoute } from './setadesk-route-plan';
+import {
+  isPortalTicketLookupRoute,
+  paginateTickets,
+  parseTicketsPageParams,
+  PORTAL_LOOKUP_TIME_FLOOR_MS,
+  setaDeskLoadPlanForRoute,
+  type SetaDeskUsageCheckKind,
+} from './setadesk-route-plan';
 import { isSetaDeskEmailDirectRoute, matchMarkViewedPath, SETADESK_EMAIL_POLL_PATH } from '../modules/setadesk-email/routes';
 import { isSetaDeskEmailIntakeEnabled, resolveSetaDeskGraphConfig } from '../modules/setadesk-email/config';
 import { createSetaDeskGraphClient, type SetaDeskFetch } from '../modules/setadesk-email/graph-app-client';
@@ -552,8 +560,10 @@ export interface ApiRequest {
 }
 
 /**
- * loadSetaDeskTickets so roda em rotas autenticadas de chamados.
- * Qualquer rota publica (portal, auth, proposta, health, etc.) fica de fora.
+ * Carga COMPLETA dos chamados (loadSetaDeskTickets sem filtro): so rotas autenticadas de
+ * chamados (/api/tickets*). Rota publica nunca carrega a lista. Exceções, todas parciais e
+ * definidas em setadesk-route-plan.ts: o portal publico carrega no maximo o chamado da chave
+ * informada (com tempo constante na resposta) e as rotas que so criam chamado nao leem nada.
  */
 export function shouldLoadSetaDeskTicketsForRoute(method: string, path: string): boolean {
   const clean = (path || '/').replace(/\/+$/, '') || '/';
@@ -1246,13 +1256,39 @@ export class CrmApiRouter {
     };
   }
 
-  private rejectIfRecordInUse(kind: RecordUsageKind, ref: RecordUsageRef): ApiResponse | null {
-    const counts = countRecordUsage(kind, ref, this.recordUsageSources());
+  private rejectIfRecordInUse(
+    kind: RecordUsageKind,
+    ref: RecordUsageRef,
+    overrides?: Partial<RecordUsageSources>
+  ): ApiResponse | null {
+    const counts = countRecordUsage(kind, ref, { ...this.recordUsageSources(), ...(overrides || {}) });
     if (recordUsageTotal(counts) <= 0) return null;
     return { status: 409, body: recordInUseBody(counts) };
   }
 
+  /**
+   * Piso de tempo (ms) das rotas do portal que localizam chamado por chave + e-mail. Producao:
+   * PORTAL_LOOKUP_TIME_FLOOR_MS. Na suite de testes o padrao e 0 (os testes de tempo ligam).
+   */
+  portalLookupTimeFloorMs = process.env.NODE_ENV === 'test' ? 0 : PORTAL_LOOKUP_TIME_FLOOR_MS;
+
   async dispatch(req: ApiRequest): Promise<ApiResponse> {
+    const startedAt = Date.now();
+    const method = String(req.method || '').toUpperCase();
+    const cleanPath = (String(req.path || '/').split('?')[0].replace(/\/+$/, '') || '/');
+    if (!isPortalTicketLookupRoute(method, cleanPath)) return this.dispatchInner(req);
+    // Portal: caminho igual para "existe" e "nao existe" (comparacao constante + piso de tempo).
+    let response: ApiResponse;
+    try {
+      response = await this.dispatchInner(req);
+    } finally {
+      const wait = startedAt + this.portalLookupTimeFloorMs - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    }
+    return response;
+  }
+
+  private async dispatchInner(req: ApiRequest): Promise<ApiResponse> {
     const method = req.method.toUpperCase();
     const rawUrl = req.path || "/";
     const [pathname, queryString] = rawUrl.split("?");
@@ -1376,7 +1412,7 @@ export class CrmApiRouter {
     if (
       this.isSingletonRepo &&
       isSetaDeskPostgresEnabled() &&
-      (ticketRoute || (bootstrapPath && chamadosAccess) || routePlan)
+      (ticketRoute || (bootstrapPath && chamadosAccess) || (routePlan && !routePlan.usageCheck))
     ) {
       try {
         const loadOptions = ticketRoute
@@ -1573,6 +1609,28 @@ export class CrmApiRouter {
       }
     }
     return this.repo.listServiceTickets().length;
+  }
+
+  /**
+   * E1: chamados que referenciam a empresa/contato (so os com O.S.), lidos das setadesk_* DEPOIS
+   * da autenticacao da rota. Sem Postgres: lista em memoria. Falha de leitura => 503 (nunca
+   * apaga sem checar o uso).
+   */
+  private async ticketUsageOverrides(
+    kind: SetaDeskUsageCheckKind,
+    id: string
+  ): Promise<Partial<RecordUsageSources> | ApiResponse> {
+    if (!(this.isSingletonRepo && isSetaDeskPostgresEnabled())) return {};
+    try {
+      const refs = await loadSetaDeskTicketUsageRefs(kind, id);
+      return refs ? { tickets: refs } : {};
+    } catch (err) {
+      console.error('[SetaDesk] Falha ao checar uso por chamados:', (err as Error)?.message || err);
+      return {
+        status: 503,
+        body: { error: 'Não foi possível verificar os chamados vinculados agora (nada foi apagado). Tente de novo.', code: 'SETADESK_STORE_UNAVAILABLE' },
+      };
+    }
   }
 
   private setaDeskTicketKeysNeeded(method: string, cleanPath: string, body: Record<string, unknown>): number {
@@ -4776,7 +4834,9 @@ export class CrmApiRouter {
           if (!existing) {
             return { status: 404, body: { error: 'Contato não encontrado.' } };
           }
-          const blocked = this.rejectIfRecordInUse('contact', { id: existing.id, email: existing.email });
+          const usage = await this.ticketUsageOverrides('contact', existing.id);
+          if ('status' in usage) return usage;
+          const blocked = this.rejectIfRecordInUse('contact', { id: existing.id, email: existing.email }, usage);
           if (blocked) return blocked;
           const deleted = this.repo.deleteContact(id);
           if (!deleted) {
@@ -4899,7 +4959,9 @@ export class CrmApiRouter {
           if (!existing) {
             return { status: 404, body: { error: 'Empresa não encontrada.' } };
           }
-          const blocked = this.rejectIfRecordInUse('company', { id: existing.id, name: existing.name, cnpj: existing.cnpj });
+          const usage = await this.ticketUsageOverrides('company', existing.id);
+          if ('status' in usage) return usage;
+          const blocked = this.rejectIfRecordInUse('company', { id: existing.id, name: existing.name, cnpj: existing.cnpj }, usage);
           if (blocked) return blocked;
           const deleted = this.repo.deleteCompany(id);
           if (!deleted) {
