@@ -374,7 +374,7 @@ export default function AdminSettingsCenterTab({
           to: testRecipient,
           cc: smtpUser,
           subject: `[STI-hub Diagnóstico] Validação Oficial de Disparo de E-mail — Seta Telecom`,
-          body: `Teste de validação de envio de e-mail executado na Central de Administração do STI-hub.\n\n• Remetente: ${senderName} <${smtpUser}>\n• Servidor SMTP / Relay: ${smtpHost}:${smtpPort} (TLS Ativo)\n• Módulos Habilitados: Propostas PDF, Chamados NOC, Boletos Inter/Itaú, Recibos de Locação (SV 31 STF) e Notas Fiscais.`,
+          body: `Teste de validação de envio de e-mail executado na Central de Administração do STI-hub.\n\n• Remetente: ${senderName} <${smtpUser}>\n• Servidor SMTP / Relay: ${smtpHost}:${smtpPort} (TLS Ativo)\n• Módulos Habilitados: Propostas PDF, STI HUB Desk Service, Boletos Inter/Itaú, Recibos de Locação (SV 31 STF) e Notas Fiscais.`,
         }),
       });
       if (!res.ok) {
@@ -946,7 +946,7 @@ export default function AdminSettingsCenterTab({
                     <option value="ERP_FINANCE_FISCAL">ERP • Boleto / Recibo Locação / NF</option>
                     <option value="CRM_SALES">CRM • Sales Hub / Prospecção</option>
                     <option value="CRM_MARKETING">CRM • Marketing Hub / ABM</option>
-                    <option value="CRM_SERVICE">CRM • Service Desk / NOC</option>
+                    <option value="CRM_SERVICE">STI HUB Desk Service / NOC</option>
                   </select>
                 </div>
               </div>
@@ -1262,7 +1262,7 @@ export default function AdminSettingsCenterTab({
                 {/* 2. Tipos de Conta por Sistema */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
                   <div>
-                    <label className="block font-semibold text-[#0d2b4e] mb-1">Tipo de Conta no CRM &amp; Chamados:</label>
+                    <label className="block font-semibold text-[#0d2b4e] mb-1">Tipo de Conta no CRM &amp; STI HUB Desk Service:</label>
                     <select
                       value={effCrm}
                       onChange={(e) => {
@@ -1304,7 +1304,7 @@ export default function AdminSettingsCenterTab({
                 {/* 3. Permissões Visualizar | Editar | Deletar para Todos os Sistemas */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <div className="border border-slate-200 rounded-xl overflow-hidden">
-                    <div className="bg-[#0d2b4e] text-white px-3 py-2 font-semibold">Permissões no Sistema CRM &amp; Chamados ({CRM_MODULE_ITEMS_CATALOG.length} itens)</div>
+                    <div className="bg-[#0d2b4e] text-white px-3 py-2 font-semibold">Permissões no Sistema CRM &amp; STI HUB Desk Service ({CRM_MODULE_ITEMS_CATALOG.length} itens)</div>
                     <div className="max-h-64 overflow-y-auto">
                       <table className="w-full text-left text-[11px]">
                         <thead className="bg-slate-100 text-slate-600 uppercase text-[9px]">
@@ -1424,7 +1424,7 @@ export default function AdminSettingsCenterTab({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
                       <div>
                         <label className="block font-semibold text-[#0d2b4e] mb-1">
-                          1. Tipo de Conta no CRM (Sales / Marketing / Chamados):
+                          1. Tipo de Conta no CRM (Sales / Marketing / STI HUB Desk Service):
                         </label>
                         <select
                           value={newUserCrmRole}

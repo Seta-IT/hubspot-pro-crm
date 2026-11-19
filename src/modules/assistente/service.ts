@@ -79,9 +79,9 @@ const execSchema = z.object({ token: z.string().min(10).max(16_000), confirmar: 
 function systemPrompt(user: AssistenteUser, now: number): string {
   const d = new Date(now);
   const hoje = d.toISOString().slice(0, 10);
-  const mods = [user.moduleAccess.crm && 'CRM', user.moduleAccess.erp && 'ERP', user.moduleAccess.chamados && 'Chamados'].filter(Boolean).join(', ') || 'nenhum';
+  const mods = [user.moduleAccess.crm && 'CRM', user.moduleAccess.erp && 'ERP', user.moduleAccess.chamados && 'STI HUB Desk Service'].filter(Boolean).join(', ') || 'nenhum';
   return [
-    'Você é o Assistente do STI-hub, sistema de CRM, ERP e Chamados da Seta Telecom.',
+    'Você é o Assistente do STI-hub, sistema da Seta Telecom com STI HUB CRM, STI HUB ERP e STI HUB Desk Service.',
     'Responda sempre em português do Brasil, de forma curta e direta, sem emojis.',
     `Hoje é ${hoje}. Módulos liberados para este usuário: ${mods}.`,
     'Faça a ação que o usuário pediu. Para consulta, relatório, proposta, chamado ou OS, chame UMA ferramenta por resposta.',
@@ -142,7 +142,7 @@ function coerceNumbers(tool: string, args: any): any {
   return args;
 }
 
-const MODULO_ROTULO: Record<string, string> = { crm: 'CRM', erp: 'ERP', chamados: 'Chamados' };
+const MODULO_ROTULO: Record<string, string> = { crm: 'CRM', erp: 'ERP', chamados: 'STI HUB Desk Service' };
 
 // ---------------------------------------------------------------------------
 // Chat

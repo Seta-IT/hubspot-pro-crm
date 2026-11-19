@@ -360,7 +360,7 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
     moduleKey: 'ORDENS_SERVICO_CHAMADOS',
     moduleName: '11. Ordens de Serviço (O.S.) & Chamados NOC',
     totalCount: 1378,
-    targetDestination: 'ERP > 8. OS e Suporte & Item de Topo 3: Chamados (Service Hub)',
+    targetDestination: 'ERP > 8. OS e Suporte & Item de Topo 3: STI HUB Desk Service',
     sampleRecords: [
       'OS #1518 — BEMISA PARTICIPACOES S.A. (Técnico: Michelle da Rocha • R$ 5.429,40)',
       'OS #1517 — CASA FORTIS INVESTIMENTOS E PARTICIPACOES S.A. (R$ 2.890,00)',
@@ -371,7 +371,7 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
     cnpjFiscalLockCheck: 'Vinculadas ao cliente e contrato de locação ativo.',
     relationalIntegrityCheck: 'Sincronizadas entre a fila de Chamados (NOC N1/N2/N3 SLA) e Ordens de Serviço de campo.',
     validationStatus: 'PASSOU',
-    auditorNotes: '1.378 O.S. reais sincronizadas e integradas ao módulo de Chamados.',
+    auditorNotes: '1.378 O.S. reais sincronizadas e integradas ao STI HUB Desk Service.',
     verifiedAt: '26/10/2026',
   },
 ];

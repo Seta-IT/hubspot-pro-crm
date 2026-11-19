@@ -723,7 +723,7 @@ export default function ServiceDeskTab({
               className="text-left min-w-0 cursor-pointer group"
             >
               <span className="text-[10px] font-semibold uppercase tracking-wider text-accent group-hover:text-accent transition block truncate">
-                MÓDULO CHAMADOS • SERVICE HUB
+                MÓDULO • STI HUB DESK SERVICE
               </span>
               <span className="text-[10px] text-slate-500 font-semibold block truncate">
                 NOC 24x7, Filas &amp; RMA Locação
@@ -733,7 +733,7 @@ export default function ServiceDeskTab({
               <button
                 type="button"
                 onClick={closeMobile}
-                aria-label="Fechar Menu Chamados"
+                aria-label="Fechar Menu STI HUB Desk Service"
                 className="p-1.5 rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
@@ -742,8 +742,8 @@ export default function ServiceDeskTab({
               <button
                 type="button"
                 onClick={() => setSidebarCollapsed((v) => !v)}
-                title="Recolher menu lateral de Chamados"
-                aria-label="Recolher menu lateral de Chamados"
+                title="Recolher menu lateral do STI HUB Desk Service"
+                aria-label="Recolher menu lateral do STI HUB Desk Service"
                 className="p-1.5 rounded-md text-slate-500 hover:text-accent hover:bg-slate-100 transition cursor-pointer shrink-0"
               >
                 <PanelLeftClose className="w-4 h-4" />
@@ -994,7 +994,7 @@ export default function ServiceDeskTab({
         </div>
 
         <div className="p-2.5 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5">
-          <div className="font-semibold text-accent">CHAMADOS • NOC 24x7</div>
+          <div className="font-semibold text-accent">STI HUB DESK SERVICE • NOC 24x7</div>
           <div>SLA no Prazo: {kpis.slaComplianceRate}%</div>
           <div>5 Filas Operacionais Telecom</div>
         </div>
@@ -1013,13 +1013,13 @@ export default function ServiceDeskTab({
             className="md:hidden inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-accent text-white text-xs font-semibold shadow-xs cursor-pointer"
           >
             <Menu className="w-4 h-4" />
-            <span>Menu Chamados</span>
+            <span>Menu STI HUB Desk Service</span>
           </button>
           <button
             type="button"
             onClick={() => setSidebarCollapsed((v) => !v)}
             className="hidden md:inline-flex p-1.5 rounded border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 cursor-pointer"
-            title="Recolher/Expandir menu lateral de Chamados"
+            title="Recolher/Expandir menu lateral do STI HUB Desk Service"
           >
             <Menu className="w-4 h-4" />
           </button>
@@ -1032,7 +1032,7 @@ export default function ServiceDeskTab({
               }}
               className="font-semibold text-accent hover:underline cursor-pointer"
             >
-              Chamados (NOC 24x7)
+              STI HUB Desk Service (NOC 24x7)
             </button>
             <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
             <span className="font-semibold text-slate-700">
@@ -1147,7 +1147,7 @@ export default function ServiceDeskTab({
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
               <div>
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 block">
-                  DASHBOARD EXCLUSIVO • SISTEMA 3: CHAMADOS (NOC &amp; SERVICE DESK)
+                  DASHBOARD EXCLUSIVO • SISTEMA 3: STI HUB DESK SERVICE (NOC)
                 </span>
                 <h3 className="text-base font-semibold text-slate-900">
                   Indicadores de Atendimento, Cumprimento de SLA (FRT/MTTR) e Carga por Fila NOC
@@ -2235,7 +2235,7 @@ export default function ServiceDeskTab({
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <Ticket className="w-4 h-4 text-accent" />
-                Abrir Novo Chamado no Service Desk (NOC Seta Telecom)
+                Abrir Novo Chamado no STI HUB Desk Service (NOC Seta Telecom)
               </h3>
               <button
                 type="button"

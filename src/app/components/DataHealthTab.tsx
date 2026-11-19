@@ -194,7 +194,7 @@ export default function DataHealthTab({
             {resolvedScope === 'ERP'
               ? 'ERP'
               : resolvedScope === 'CHAMADOS'
-                ? 'GOVERNANÇA DE DADOS EXCLUSIVA • MÓDULO CHAMADOS / NOC'
+                ? 'GOVERNANÇA DE DADOS EXCLUSIVA • MÓDULO STI HUB DESK SERVICE / NOC'
                 : 'GOVERNANÇA DE DADOS EXCLUSIVA • MÓDULO CRM (SALES & MARKETING HUB)'}
           </span>
           <h3 className="text-sm sm:text-base font-semibold text-slate-900">
@@ -225,7 +225,7 @@ export default function DataHealthTab({
                 </div>
                 <div className="space-y-1.5">
                   <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-emerald-300 text-[10px] font-semibold uppercase">
-                    AUDITORIA EXCLUSIVA DA BASE DE CHAMADOS (SERVICE DESK &amp; NOC)
+                    AUDITORIA EXCLUSIVA DA BASE DE CHAMADOS (STI HUB DESK SERVICE &amp; NOC)
                   </span>
                   <h2 className="text-lg sm:text-xl font-semibold">
                     Diagnóstico de Qualidade de Protocolos, Vínculo de Clientes, S/N e Filas NOC

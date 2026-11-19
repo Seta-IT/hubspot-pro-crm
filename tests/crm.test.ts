@@ -3775,7 +3775,7 @@ describe("Padronização da Arquitetura de Navegação nos 3 Sistemas (CRM, ERP 
     assert.ok(crmSidebarSrc.includes("MARKETING &amp; AUTOMAÇÃO"));
     assert.ok(crmSidebarSrc.includes("GOVERNANÇA CRM"));
 
-    assert.ok(sdSrc.includes("MÓDULO CHAMADOS • SERVICE HUB"));
+    assert.ok(sdSrc.includes("MÓDULO • STI HUB DESK SERVICE"));
     assert.ok(sdSrc.includes("ATENDIMENTO &amp; FILAS NOC"));
     assert.ok(sdSrc.includes("QUALIDADE &amp; AUDITORIA"));
     assert.ok(sdSrc.includes("Fila de Chamados (5 Visões)"));
@@ -4526,5 +4526,21 @@ describe('Textos visíveis: só STI HUB ERP / STI HUB CRM / STI HUB Desk Service
     const tools = fsx.readFileSync('src/modules/assistente/tools.ts', 'utf8');
     const literais = tools.match(/'[^'\n]*'|`[^`]*`/g) || [];
     assert.deepEqual(literais.map((s) => s.replace(/\$\{[^}]*\}/g, '')).filter((s) => /Gest[ãa]o ?Click|HubSpot/.test(s)), []);
+  });
+});
+
+describe('Rótulo do módulo de chamados: STI HUB Desk Service', () => {
+  it('menu, seletor "BUSCAR EM", tela inicial e IAM usam STI HUB Desk Service; ids e chaves não mudam', () => {
+    const fsx = require('node:fs') as typeof import('node:fs');
+    const page = fsx.readFileSync('src/app/page.tsx', 'utf8');
+    assert.ok(page.includes("id: 'SERVICE_DESK',\n            label: 'STI HUB Desk Service',"));
+    const search = fsx.readFileSync('src/app/components/GlobalHeaderSearch.tsx', 'utf8');
+    assert.ok(search.includes("{ id: 'CHAMADOS', label: 'STI HUB Desk Service' }"));
+    assert.ok(search.includes("label: 'Chamados / Tickets'"), 'pill do registro continua "Chamados / Tickets"');
+    const home = fsx.readFileSync('src/app/lib/home-screen.ts', 'utf8');
+    assert.ok(home.includes("{ id: 'CHAMADOS', label: 'STI HUB Desk Service',"));
+    const iam = fsx.readFileSync('src/app/components/StiHubAdminRbacPanel.tsx', 'utf8');
+    assert.ok(iam.includes("'Módulo 3: STI HUB Desk Service'"));
+    assert.ok(!iam.includes("'Módulo 3: Sistema de Chamados'"));
   });
 });

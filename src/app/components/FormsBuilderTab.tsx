@@ -129,7 +129,7 @@ const SIMULATOR_PRESETS: Array<{
     },
   },
   {
-    label: 'Chamado Crítico NOC P1 (Service Desk)',
+    label: 'Chamado Crítico NOC P1 (STI HUB Desk Service)',
     values: {
       firstName: 'Fernanda',
       lastName: 'Costa',
@@ -593,7 +593,7 @@ export default function FormsBuilderTab({
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-700">
                   <span>Tickets (`priority`)</span>
-                  <span>Service Desk SLA</span>
+                  <span>STI HUB Desk Service SLA</span>
                   <span>`/ordens_servicos` (O.S.)</span>
                 </div>
               </div>
@@ -614,7 +614,7 @@ export default function FormsBuilderTab({
                   • <strong>Negócios no Funil Kanban:</strong> R$ 420.000 (iFood) + R$ 390.000 (WEG).
                 </li>
                 <li>
-                  • <strong>Chamado no Service Desk:</strong> Ticket de migração de Webhooks com SLA ativo.
+                  • <strong>Chamado no STI HUB Desk Service:</strong> Ticket de migração de Webhooks com SLA ativo.
                 </li>
               </ul>
 
@@ -824,7 +824,7 @@ export default function FormsBuilderTab({
                         }`}
                       >
                         {form.targetType === 'SUPPORT_TICKET'
-                          ? 'Portal Service Desk (Abre Ticket JSM)'
+                          ? 'Portal STI HUB Desk Service (Abre Ticket JSM)'
                           : form.targetType === 'DEMO_REQUEST'
                             ? 'Fundo de Funil (Cria SQL + Deal)'
                             : 'Captura Inbound (Cria MQL)'}
@@ -1074,7 +1074,7 @@ export default function FormsBuilderTab({
                       {lastSimResult.ticketKey && (
                         <div className="flex items-center justify-between">
                           <span>
-                            • Chamado Técnico criado no Service Desk:{' '}
+                            • Chamado Técnico criado no STI HUB Desk Service:{' '}
                             <strong className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800">
                               {lastSimResult.ticketKey}
                             </strong>
@@ -1085,7 +1085,7 @@ export default function FormsBuilderTab({
                               onClick={onNavigateToServiceDesk}
                               className="inline-flex items-center gap-1 text-purple-700 font-semibold hover:underline"
                             >
-                              Abrir no Service Desk <ArrowUpRight className="w-3.5 h-3.5" />
+                              Abrir no STI HUB Desk Service <ArrowUpRight className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
@@ -1271,7 +1271,7 @@ export default function FormsBuilderTab({
                   >
                     <option value="LEAD_CAPTURE">Captura de Lead (Inbound)</option>
                     <option value="DEMO_REQUEST">Solicitação de Demo / Cotação Locação</option>
-                    <option value="SUPPORT_TICKET">Portal de Chamados (Service Desk)</option>
+                    <option value="SUPPORT_TICKET">Portal de Chamados (STI HUB Desk Service)</option>
                   </select>
                 </div>
 
@@ -1385,7 +1385,7 @@ export default function FormsBuilderTab({
                     checked={newAutoTicket || newTargetType === 'SUPPORT_TICKET'}
                     onChange={(e) => setNewAutoTicket(e.target.checked)}
                   />
-                  Abrir chamado automaticamente no Service Desk (JSM)
+                  Abrir chamado automaticamente no STI HUB Desk Service (JSM)
                 </label>
               </div>
 

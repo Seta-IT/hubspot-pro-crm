@@ -945,7 +945,7 @@ export default function HubSpotProCrmApp() {
       if (ticket) recordUpsertedTicket(ticket);
       showToast(
         ticket
-          ? `Formulário convertido! Chamado [${ticket.key}] aberto automaticamente no Service Desk!`
+          ? `Formulário convertido! Chamado [${ticket.key}] aberto automaticamente no STI HUB Desk Service!`
           : deal
             ? `Formulário convertido! Lead enriquecido e negócio "${deal.title}" aberto!`
             : `Formulário convertido! Lead ${contact?.firstName || ''} criado e enriquecido!`
@@ -1025,7 +1025,7 @@ export default function HubSpotProCrmApp() {
     if (res.ok) {
       const json = await res.json();
       if (json.data) recordUpsertedTicket(json.data);
-      showToast(`Chamado [${json.data?.key}] aberto no Service Desk com SLA ativo!`);
+      showToast(`Chamado [${json.data?.key}] aberto no STI HUB Desk Service com SLA ativo!`);
       await fetchAllCrmData();
     }
   };
@@ -1061,7 +1061,7 @@ export default function HubSpotProCrmApp() {
     });
     if (res.ok) {
       recordDeletedTicket(ticketIdOrKey);
-      showToast(`Chamado removido do Service Desk.`);
+      showToast(`Chamado removido do STI HUB Desk Service.`);
       await fetchAllCrmData();
     }
   };
@@ -1448,7 +1448,7 @@ export default function HubSpotProCrmApp() {
     setHomeScreenPreference(screenId);
     setShowHomeScreenModal(false);
     const label = screenId
-      ? `${getHomeScreen(screenId).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(screenId).system} - ${getHomeScreen(screenId).label}`
+      ? `${getHomeScreen(screenId).system === 'CHAMADOS' ? 'STI HUB Desk Service' : getHomeScreen(screenId).system} - ${getHomeScreen(screenId).label}`
       : 'Visão Geral do primeiro sistema permitido';
     try {
       const res = await fetch('/api/me/preferences', {
@@ -1513,8 +1513,8 @@ export default function HubSpotProCrmApp() {
       ? [
           {
             id: 'SERVICE_DESK',
-            label: 'Chamados',
-            shortLabel: 'Chamados',
+            label: 'STI HUB Desk Service',
+            shortLabel: 'STI HUB Desk Service',
             icon: Ticket,
             isActive: activeModule === 'SERVICE_DESK',
             onClick: () => {
@@ -1531,7 +1531,7 @@ export default function HubSpotProCrmApp() {
       : isCrmActive
         ? 'CRM'
         : activeModule === 'SERVICE_DESK'
-          ? 'Chamados'
+          ? 'STI HUB Desk Service'
           : activeModule === 'SETTINGS_HUB'
             ? 'Configurações'
             : 'Visão Geral';
@@ -2293,7 +2293,7 @@ export default function HubSpotProCrmApp() {
               initialItemId={settingsItemId}
               homeScreenLabel={
                 homeScreenPreference && systemHasAccess(getHomeScreen(homeScreenPreference).system, userModuleAccess)
-                  ? `${getHomeScreen(homeScreenPreference).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(homeScreenPreference).system} - ${getHomeScreen(homeScreenPreference).label}`
+                  ? `${getHomeScreen(homeScreenPreference).system === 'CHAMADOS' ? 'STI HUB Desk Service' : getHomeScreen(homeScreenPreference).system} - ${getHomeScreen(homeScreenPreference).label}`
                   : canChooseHomeScreen
                     ? 'Não definida (Visão Geral do primeiro sistema)'
                     : 'Apenas um sistema disponível'
@@ -2805,7 +2805,7 @@ export default function HubSpotProCrmApp() {
           onOpenAdminIam={canOpenAdminCentralUi ? () => setActiveModule("ADMIN_RBAC") : undefined}
           homeScreenLabel={
             homeScreenPreference && systemHasAccess(getHomeScreen(homeScreenPreference).system, userModuleAccess)
-              ? `${getHomeScreen(homeScreenPreference).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(homeScreenPreference).system} - ${getHomeScreen(homeScreenPreference).label}`
+              ? `${getHomeScreen(homeScreenPreference).system === 'CHAMADOS' ? 'STI HUB Desk Service' : getHomeScreen(homeScreenPreference).system} - ${getHomeScreen(homeScreenPreference).label}`
               : canChooseHomeScreen
                 ? 'Não definida (Visão Geral do primeiro sistema)'
                 : 'Apenas um sistema disponível'

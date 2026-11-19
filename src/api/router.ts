@@ -1457,7 +1457,7 @@ export class CrmApiRouter {
         if (routePlan?.sync && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
           return {
             status: 503,
-            body: { error: 'Chamados temporariamente indisponíveis. Tente de novo em instantes.', code: 'SETADESK_STORE_UNAVAILABLE' },
+            body: { error: 'STI HUB Desk Service temporariamente indisponível. Tente de novo em instantes.', code: 'SETADESK_STORE_UNAVAILABLE' },
           };
         }
       }
@@ -6489,7 +6489,7 @@ export class CrmApiRouter {
             return {
               status: 400,
               body: {
-                error: `Valor inválido em: ${badTicketEnums.join(', ')}. Use os valores do Service Desk (status: ${TICKET_CREATE_ENUMS.status.join(', ')}).`,
+                error: `Valor inválido em: ${badTicketEnums.join(', ')}. Use os valores do STI HUB Desk Service (status: ${TICKET_CREATE_ENUMS.status.join(', ')}).`,
                 code: 'TICKET_CREATE_FIELD_INVALID',
                 fields: badTicketEnums,
               },
@@ -10991,7 +10991,7 @@ export class CrmApiRouter {
             incrementalNewOrUpdated: Number(body.incrementalCount || 7),
             cursorTimestamp: nowIso,
             status: 'SUCCESS',
-            summary: `Sincronização incremental diária concluída (${elapsed}ms): base STI HUB ERP reconciliada com os schemas de CRM, ERP e Chamados.`,
+            summary: `Sincronização incremental diária concluída (${elapsed}ms): base STI HUB ERP reconciliada com os schemas de CRM, ERP e STI HUB Desk Service.`,
           };
           this.syncLogs.unshift(newLog);
           return {

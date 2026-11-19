@@ -164,7 +164,7 @@ export const CRM_MODULE_ITEMS_CATALOG: ModuleItemCrudPermission[] = [
     itemId: 'chamados.filas_noc',
     system: 'CRM',
     module: 'CHAMADOS',
-    moduleLabel: 'Service Hub & Chamados NOC',
+    moduleLabel: 'STI HUB Desk Service & NOC',
     itemLabel: 'Central de Chamados & Filas NOC (N1, N2, N3, RMA & Faturamento)',
     view: true,
     edit: true,
@@ -174,7 +174,7 @@ export const CRM_MODULE_ITEMS_CATALOG: ModuleItemCrudPermission[] = [
     itemId: 'chamados.sla_notas_os',
     system: 'CRM',
     module: 'CHAMADOS',
-    moduleLabel: 'Service Hub & Chamados NOC',
+    moduleLabel: 'STI HUB Desk Service & NOC',
     itemLabel: 'Gestão de SLA Dinâmico, Notas Técnicas Internas & Conversão em O.S.',
     view: true,
     edit: true,
@@ -184,7 +184,7 @@ export const CRM_MODULE_ITEMS_CATALOG: ModuleItemCrudPermission[] = [
     itemId: 'chamados.portal_csat',
     system: 'CRM',
     module: 'CHAMADOS',
-    moduleLabel: 'Service Hub & Chamados NOC',
+    moduleLabel: 'STI HUB Desk Service & NOC',
     itemLabel: 'Portal Externo do Cliente (/portal) & Avaliação CSAT',
     view: true,
     edit: true,
@@ -656,7 +656,7 @@ export interface ErpRoleDefinitionMatrix {
 export const CRM_ROLES_CATALOG: Record<CrmAccountRole, CrmRoleDefinitionMatrix> = {
   CRM_ADMIN: {
     role: 'CRM_ADMIN',
-    label: 'Administrador CRM (Acesso Total CRM & Chamados)',
+    label: 'Administrador CRM (Acesso Total CRM & STI HUB Desk Service)',
     badgeColor: 'bg-emerald-600 text-white',
     description:
       'Controle total (Visualizar, Editar e Deletar) em todos os módulos e itens do CRM (Sales Hub, Marketing Hub, Workflows DAG, Data Health, Chamados NOC e Administração CRM).',
@@ -701,7 +701,7 @@ export const CRM_ROLES_CATALOG: Record<CrmAccountRole, CrmRoleDefinitionMatrix> 
   },
   CRM_SERVICE_NOC: {
     role: 'CRM_SERVICE_NOC',
-    label: 'Atendimento, Service Hub & Engenharia NOC',
+    label: 'Atendimento, STI HUB Desk Service & Engenharia NOC',
     badgeColor: 'bg-purple-600 text-white',
     description:
       'Controle total da Central de Chamados JSM (Filas NOC N1/N2/N3, RMA e Faturamento), SLA Dinâmico, Notas Internas e Portal do Cliente (/portal).',
@@ -1049,7 +1049,7 @@ export const RBAC_ROLES_CATALOG: Record<StiHubRole, RolePermissionsMatrix> = {
     label: 'Engenharia NOC, Chamados & Ordens de Serviço',
     badgeColor: 'bg-purple-600 text-white',
     description:
-      'Acesso total ao Service Desk (Tickets/SLA 24x7), ERP Ordens de Serviço (1.378 O.S.) e consulta de Números de Série (S/N) no Estoque.',
+      'Acesso total ao STI HUB Desk Service (Tickets/SLA 24x7), ERP Ordens de Serviço (1.378 O.S.) e consulta de Números de Série (S/N) no Estoque.',
     portfolioScope: 'ALL',
     maxDiscountPercent: 0,
     itemPermissions: buildDefaultItemPermissionsForRole('SUPPORT_NOC_OS'),
@@ -1618,7 +1618,7 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
     internalName: 'hs_ticket_priority',
     label: 'Severidade SLA do Chamado',
     objectType: 'TICKET',
-    groupName: 'Service Hub & NOC 24x7',
+    groupName: 'STI HUB Desk Service & NOC 24x7',
     dataType: 'ENUM_SELECT',
     options: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'],
     required: true,
@@ -1643,7 +1643,7 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
     internalName: 'hs_resolution',
     label: 'Laudo Técnico de Resolução',
     objectType: 'TICKET',
-    groupName: 'Service Hub & NOC 24x7',
+    groupName: 'STI HUB Desk Service & NOC 24x7',
     dataType: 'TEXT',
     required: false,
     hubspotSynced: true,
@@ -1743,7 +1743,7 @@ export const INITIAL_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
   {
     id: 'tpl-crm-service-sla',
     code: 'CRM_SERVICE_SLA_UPDATE',
-    name: 'Service Hub — Resposta de Chamado NOC 24x7 & Atualização de O.S.',
+    name: 'STI HUB Desk Service — Resposta de Chamado NOC 24x7 & Atualização de O.S.',
     category: 'CRM_SERVICE',
     subjectTemplate: '[Seta Telecom • NOC 24x7] Atualização do Protocolo #{{chamado.protocolo}} — {{empresa.razao_social}}',
     bodyTemplate:

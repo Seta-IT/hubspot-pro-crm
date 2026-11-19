@@ -2185,11 +2185,11 @@ export function createInitialSeedState(): CrmDatabaseState {
     },
     {
       id: 'form-support-portal',
-      name: 'Portal do Cliente — Abertura de Chamado Técnico (Service Desk)',
+      name: 'Portal do Cliente — Abertura de Chamado Técnico (STI HUB Desk Service)',
       slug: 'portal-suporte-tecnico',
       title: 'Central de Ajuda & Suporte Técnico Enterprise (SLA 24x7)',
       description:
-        'Formulário embedado no Portal do Cliente e dentro do SaaS. Abre automaticamente um ticket rastreado com SLA no Service Desk (JSM).',
+        'Formulário embedado no Portal do Cliente e dentro do SaaS. Abre automaticamente um ticket rastreado com SLA no STI HUB Desk Service (JSM).',
       targetType: 'SUPPORT_TICKET',
       fields: [
         { name: 'firstName', label: 'Seu Nome', type: 'TEXT', required: true, placeholder: 'Nome completo' },

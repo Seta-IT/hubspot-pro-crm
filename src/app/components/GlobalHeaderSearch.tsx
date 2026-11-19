@@ -575,7 +575,7 @@ export default function GlobalHeaderSearch({
         system: 'CHAMADOS',
         title: `${tk.key} - ${displayTicketSubject(tk.subject)}`,
         matchKeys: [tk.key].filter(Boolean),
-        subtitle: `Chamado • CHAMADOS${compName ? ` • ${compName}` : ''} • Fila: ${tk.assignee} • ${tk.status}`,
+        subtitle: `Chamado • STI HUB Desk Service${compName ? ` • ${compName}` : ''} • Fila: ${tk.assignee} • ${tk.status}`,
         searchHaystack: buildTicketSearchHaystack({
           key: tk.key,
           subject: tk.subject,
@@ -777,7 +777,7 @@ export default function GlobalHeaderSearch({
                     { id: 'ALL', label: 'Todos os Sistemas' },
                     { id: 'CRM', label: 'CRM' },
                     { id: 'ERP', label: 'ERP' },
-                    { id: 'CHAMADOS', label: 'Chamados' },
+                    { id: 'CHAMADOS', label: 'STI HUB Desk Service' },
                   ] as Array<{ id: SearchSystemFilter; label: string }>
                 ).map((sys) => {
                   const isAct = systemFilter === sys.id;

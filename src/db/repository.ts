@@ -4012,7 +4012,7 @@ export class CrmRepository {
       id: input.id || `tkt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       key: nextKey,
       subject: input.subject.trim(),
-      description: (input.description || 'Chamado registrado no Service Desk.').trim(),
+      description: (input.description || 'Chamado registrado no STI HUB Desk Service.').trim(),
       category,
       priority,
       status: input.status || 'OPEN',
@@ -4059,7 +4059,7 @@ export class CrmRepository {
       companyId: ticket.companyId,
       dealId: ticket.dealId,
       metadata: { ticketId: ticket.id, ticketKey: ticket.key, priority: ticket.priority },
-      actor: 'Service Desk (NOC Seta Telecom)',
+      actor: 'STI HUB Desk Service (NOC Seta Telecom)',
     });
 
     this.save();

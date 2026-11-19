@@ -659,7 +659,7 @@ const abrirChamado: AssistenteTool<ChamadoArgs> = {
   name: 'abrir_chamado',
   rotas: ['GET /api/companies', 'POST /api/tickets'],
   disponivel: (u) => u.moduleAccess.chamados,
-  descricao: 'Abre um chamado (ticket) no módulo Chamados. Não envia mensagem ao cliente.',
+  descricao: 'Abre um chamado (ticket) no STI HUB Desk Service. Não envia mensagem ao cliente.',
   tipo: 'gravacao',
   parameters: {
     type: 'object',

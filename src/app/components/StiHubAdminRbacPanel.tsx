@@ -619,7 +619,7 @@ export default function StiHubAdminRbacPanel({
       }
       onShowToast(
         screenId
-          ? `Tela inicial de ${user.name}: ${getHomeScreen(screenId).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(screenId).system} - ${getHomeScreen(screenId).label}.`
+          ? `Tela inicial de ${user.name}: ${getHomeScreen(screenId).system === 'CHAMADOS' ? 'STI HUB Desk Service' : getHomeScreen(screenId).system} - ${getHomeScreen(screenId).label}.`
           : `Tela inicial de ${user.name} restaurada para o padrão do sistema.`
       );
       await onRefresh();
@@ -763,7 +763,7 @@ export default function StiHubAdminRbacPanel({
     const exists = current.includes(mod);
     const next = exists ? current.filter((m) => m !== mod) : [...current, mod];
     if (next.length === 0) {
-      onShowToast('O usuário deve ter ao menos 1 módulo habilitado (CRM, ERP ou Chamados).');
+      onShowToast('O usuário deve ter ao menos 1 módulo habilitado (CRM, ERP ou STI HUB Desk Service).');
       return;
     }
     await handleUpdateUserInline(user, {
@@ -1204,7 +1204,7 @@ export default function StiHubAdminRbacPanel({
                           </span>
                           {chamadosFull && (
                             <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
-                              Chamados: Full Control
+                              STI HUB Desk Service: Full Control
                             </span>
                           )}
                         </div>
@@ -1214,7 +1214,7 @@ export default function StiHubAdminRbacPanel({
                           const saved = isHomeScreenId(u.homeScreen) ? u.homeScreen : null;
                           const savedAllowed = saved ? systemHasAccess(getHomeScreen(saved).system, moduleAccessFromUser(u)) : false;
                           const savedLabel = saved
-                            ? `${getHomeScreen(saved).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(saved).system} - ${getHomeScreen(saved).label}`
+                            ? `${getHomeScreen(saved).system === 'CHAMADOS' ? 'STI HUB Desk Service' : getHomeScreen(saved).system} - ${getHomeScreen(saved).label}`
                             : 'Padrão do sistema';
                           if (!canAdminHomeScreen) {
                             return <span className="text-[11px] font-semibold text-slate-600">{savedLabel}</span>;
@@ -1237,7 +1237,7 @@ export default function StiHubAdminRbacPanel({
                                   const group = options.filter((o) => o.system === sys);
                                   if (group.length === 0) return null;
                                   return (
-                                    <optgroup key={sys} label={sys === 'CHAMADOS' ? 'Chamados' : sys}>
+                                    <optgroup key={sys} label={sys === 'CHAMADOS' ? 'STI HUB Desk Service' : sys}>
                                       {group.map((o) => (
                                         <option key={o.id} value={o.id}>
                                           {o.label}
@@ -2628,7 +2628,7 @@ export default function StiHubAdminRbacPanel({
                         onClick={() => setMods(['CHAMADOS'])}
                         className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-semibold hover:bg-slate-100 cursor-pointer"
                       >
-                        Apenas Chamados
+                        Apenas STI HUB Desk Service
                       </button>
                       <button
                         type="button"
@@ -2655,8 +2655,8 @@ export default function StiHubAdminRbacPanel({
                         },
                         {
                           id: 'CHAMADOS' as const,
-                          title: 'Módulo 3: Sistema de Chamados',
-                          desc: 'Service Desk NOC N1/N2/N3, SLA Dinâmico & Atendimento',
+                          title: 'Módulo 3: STI HUB Desk Service',
+                          desc: 'STI HUB Desk Service: NOC N1/N2/N3, SLA Dinâmico & Atendimento',
                         },
                       ]
                     ).map((m) => {
@@ -2697,7 +2697,7 @@ export default function StiHubAdminRbacPanel({
                   <div className="rounded-xl border border-slate-200 p-4 space-y-2.5 bg-slate-50/50">
                     <div className="font-semibold text-[#0d2b4e] border-b border-slate-200 pb-2 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold">Painel 1: Permissões CRM &amp; Chamados</span>
+                        <span className="font-semibold">Painel 1: Permissões CRM &amp; STI HUB Desk Service</span>
                         {isModuleFullControl(editingUser, 'CRM') && (
                           <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold">
                             Full Control CRM Ativo
@@ -2725,7 +2725,7 @@ export default function StiHubAdminRbacPanel({
                           }}
                           className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-semibold cursor-pointer"
                         >
-                          Full Control — Chamados
+                          Full Control — STI HUB Desk Service
                         </button>
                       </div>
                     </div>
@@ -3001,7 +3001,7 @@ export default function StiHubAdminRbacPanel({
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-100 border border-slate-200">
                         <div>
                           <label className="block font-semibold text-[#0d2b4e] mb-1">
-                            Tipo de Conta no Sistema CRM &amp; Chamados:
+                            Tipo de Conta no Sistema CRM &amp; STI HUB Desk Service:
                           </label>
                           <select
                             value={effCrmRole}
@@ -3056,7 +3056,7 @@ export default function StiHubAdminRbacPanel({
                         {/* Tabela Sistema CRM & Chamados */}
                         <div className="border border-slate-200 rounded-xl overflow-hidden">
                           <div className="bg-[#0d2b4e] text-white px-3.5 py-2 font-semibold flex items-center justify-between">
-                            <span>Permissões no CRM &amp; Chamados ({CRM_MODULE_ITEMS_CATALOG.length} itens)</span>
+                            <span>Permissões no CRM &amp; STI HUB Desk Service ({CRM_MODULE_ITEMS_CATALOG.length} itens)</span>
                             <span className="text-[10px] text-orange-300">{effCrmRole}</span>
                           </div>
                           <div className="max-h-72 overflow-y-auto divide-y divide-slate-200">
@@ -3197,7 +3197,7 @@ export default function StiHubAdminRbacPanel({
                   IAM SETA TELECOM • NOVO COLABORADOR COM ESCOPO MODULAR &amp; 2FA
                 </span>
                 <h3 className="text-base font-semibold text-slate-900">
-                  + Cadastrar Novo Usuário na Matriz IAM (CRM, ERP &amp; Chamados)
+                  + Cadastrar Novo Usuário na Matriz IAM (CRM, ERP &amp; STI HUB Desk Service)
                 </h3>
               </div>
               <button
@@ -3305,7 +3305,7 @@ export default function StiHubAdminRbacPanel({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3.5 rounded-xl bg-blue-50/50 border border-blue-200">
                 <div>
                   <label className="block font-semibold text-[#0d2b4e] mb-1">
-                    Tipo de Conta no CRM (Exclusivo CRM &amp; Chamados):
+                    Tipo de Conta no CRM (Exclusivo CRM &amp; STI HUB Desk Service):
                   </label>
                   <select
                     value={newUserCrmRole}
@@ -3399,14 +3399,14 @@ export default function StiHubAdminRbacPanel({
                       onClick={() => setNewUserModules(['CHAMADOS'])}
                       className="px-2 py-1 rounded bg-white border border-slate-300 text-[10px] font-semibold cursor-pointer"
                     >
-                      Apenas Chamados
+                      Apenas STI HUB Desk Service
                     </button>
                     <button
                       type="button"
                       onClick={() => setNewUserModules(['CRM', 'ERP', 'CHAMADOS'])}
                       className="px-2 py-1 rounded bg-[#0d2b4e] text-white text-[10px] font-semibold cursor-pointer"
                     >
-                      CRM + ERP + Chamados
+                      CRM + ERP + STI HUB Desk Service
                     </button>
                   </div>
                 </div>
@@ -3437,7 +3437,7 @@ export default function StiHubAdminRbacPanel({
                             ? 'STI HUB CRM'
                             : mod === 'ERP'
                               ? 'STI HUB ERP'
-                              : 'Sistema de Chamados'}
+                              : 'STI HUB Desk Service'}
                         </span>
                       </label>
                     );

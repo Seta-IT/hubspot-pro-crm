@@ -136,7 +136,7 @@ export const SETA_ERP_TEN_PILLARS: SetaErpPillarItem[] = [
   {
     num: 8,
     title: 'OS e suporte',
-    subtitle: 'Ordens de Serviço Técnicas Integradas ao NOC Service Desk SLA',
+    subtitle: 'Ordens de Serviço Técnicas Integradas ao NOC STI HUB Desk Service SLA',
     metrics: '1.378 O.S. • SLA 94%',
     section: 'ORDENS_SERVICOS',
     subId: 'OS_GERENCIAR',
