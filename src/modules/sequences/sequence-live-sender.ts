@@ -188,6 +188,8 @@ export interface SequenceRunResult {
 }
 
 export interface SequenceRunDeps {
+  /** Fase 6: melhor horario do contato (engajamento humano). So usado se a cadencia ligar a otimizacao. */
+  sendTimeFor?: (contactId: string, notBefore: Date) => Promise<{ at: string; localDisplay: string; source: string } | null>;
   /** Executado dentro da trava, depois do envio (Fase 5: sincronizar aberturas/cliques rastreados). */
   afterRun?: () => Promise<void>;
   mailer: SequenceMailer;
@@ -585,6 +587,21 @@ async function runLive(
     if (allowlist && !allowlist.has(to)) {
       markPending('NOT_IN_TEST_ALLOWLIST', 'Destinatário fora da lista de teste (SEQUENCES_TEST_RECIPIENTS); envio real retido.', { delayDays: 1, logAction: 'LIVE_SEND_BLOCKED' });
       continue;
+    }
+
+    // f2) Fase 6: otimizacao de horario (uma vez por passo; ate 24 h, sempre na janela comercial).
+    if (seq.sendTimeOptimization && deps.sendTimeFor && base.reasonCode !== 'SEND_TIME_OPTIMIZED') {
+      const sug = await deps.sendTimeFor(enr.contactId, now).catch(() => null);
+      const atMs = sug ? Date.parse(sug.at) : NaN;
+      if (sug && atMs > now.getTime() + 5 * 60_000 && atMs <= now.getTime() + 24 * 3600_000) {
+        enr.nextStepDueAt = new Date(atMs).toISOString();
+        enr.nextScheduledExecutionAt = enr.nextStepDueAt;
+        upsertDelivery(enr, { ...base, status: 'SCHEDULED', reasonCode: 'SEND_TIME_OPTIMIZED', reason: `Horário otimizado: ${sug.localDisplay} (${sug.source}).`, updatedAt: nowIso });
+        repo.saveSequenceEnrollment(enr);
+        out.deferred++;
+        bump(out, 'SEND_TIME_OPTIMIZED');
+        continue;
+      }
     }
 
     // g) Dono e caixa Outlook.

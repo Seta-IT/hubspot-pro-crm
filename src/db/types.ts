@@ -469,7 +469,8 @@ export type SequenceStepDeliveryReasonCode =
   | 'EXIT_RULE'
   | 'PROVIDER_ERROR'
   | 'SEND_UNCERTAIN'
-  | 'MANUAL_STEP';
+  | 'MANUAL_STEP'
+  | 'SEND_TIME_OPTIMIZED';
 
 export interface SequenceStepDelivery {
   stepOrder: number;
@@ -550,6 +551,8 @@ export interface EmailSequenceVersionSnapshot {
 export interface EmailSequence {
   id: string;
   name: string;
+  /** Fase 6: otimizacao de horario de envio (engajamento humano do contato), dentro da janela. */
+  sendTimeOptimization?: boolean;
   description: string;
   category: 'OUTBOUND' | 'INBOUND_NURTURE' | 'FOLLOW_UP' | 'REENGAGEMENT';
   isActive: boolean;

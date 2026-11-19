@@ -119,6 +119,13 @@ import { classifySignal } from '../modules/analytics/signal-classifier';
 import { MemorySignalStore, getDefaultSignalStore, type SignalStore } from '../modules/analytics/signal-store';
 import { syncSequenceEngagement } from '../modules/analytics/engagement-sync';
 import { handleAnalyticsRoute } from './analytics-routes';
+import { buildSendTimeScheduler, handleEnterpriseRoute } from './enterprise-routes';
+import { MemoryExperimentStore, getDefaultExperimentStore, type ExperimentStore } from '../modules/enterprise/experiment-store';
+import { MemoryAiSuggestionStore, getDefaultAiSuggestionStore, type AiSuggestionStore } from '../modules/enterprise/ai-marketing';
+import { tickExperiments } from '../modules/enterprise/experiments';
+import { collectHumanEngagement, resolveSendWindow, SEND_TIME_SOURCE_LABELS, suggestForContact } from '../modules/enterprise/send-time';
+import { readAssistenteConfig } from '../modules/assistente/config';
+import { createOmniRouteClient, type LlmClient } from '../modules/assistente/omniroute-client';
 import { MemoryWorkflowStore, getDefaultWorkflowStore, type WorkflowStore } from '../modules/workflows/dag/store';
 import {
   WORKFLOW_CRON_PATH,
@@ -1086,7 +1093,7 @@ export class CrmApiRouter {
 
   constructor(
     repo?: CrmRepository,
-    options?: { certificateStore?: CertificateStore; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike; marketing?: MarketingRouterOptions; workflows?: WorkflowsRouterOptions; signalStore?: SignalStore }
+    options?: { certificateStore?: CertificateStore; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike; marketing?: MarketingRouterOptions; workflows?: WorkflowsRouterOptions; signalStore?: SignalStore; enterprise?: { experiments?: ExperimentStore; ai?: AiSuggestionStore; llm?: LlmClient | null } }
   ) {
     this.isSingletonRepo = !repo;
     this.repo = repo || getRepository();
@@ -1100,6 +1107,32 @@ export class CrmApiRouter {
     this.workflowOptions = options?.workflows || {};
     this.workflowStore = this.workflowOptions.store || (!repo ? getDefaultWorkflowStore() : new MemoryWorkflowStore());
     this.signalStore = options?.signalStore || (!repo ? getDefaultSignalStore() : new MemorySignalStore());
+    this.experimentStore = options?.enterprise?.experiments || (!repo ? getDefaultExperimentStore() : new MemoryExperimentStore());
+    this.aiSuggestionStore = options?.enterprise?.ai || (!repo ? getDefaultAiSuggestionStore() : new MemoryAiSuggestionStore());
+    this.injectedLlm = options?.enterprise?.llm;
+  }
+
+  /** Fase 6: testes A/B, sugestoes de IA (aprovacao humana) e cliente do provedor de IA. */
+  private readonly experimentStore: ExperimentStore;
+  private readonly aiSuggestionStore: AiSuggestionStore;
+  private readonly injectedLlm: LlmClient | null | undefined;
+  private aiClient(): LlmClient | null {
+    if (this.injectedLlm !== undefined) return this.injectedLlm;
+    // Nunca em teste: sem chamada real a provedor pago (a suite injeta um cliente simulado).
+    if (process.env.NODE_ENV === 'test') return null;
+    const cfg = readAssistenteConfig(this.marketingOptions.env || process.env);
+    return cfg ? createOmniRouteClient(cfg) : null;
+  }
+  private experimentTick(deps: { store: MarketingStore }) {
+    return async () => {
+      const env = this.marketingOptions.env || process.env;
+      const now = (this.marketingOptions.now || (() => new Date()))();
+      const exps = await this.experimentStore.listByStatus(['TESTING']);
+      if (!exps.length) return;
+      const audience = [...new Set(exps.flatMap((e) => (e.sendTimeOptimization ? e.holdoutContactIds : [])))];
+      const sched = audience.length ? await buildSendTimeScheduler(this.repo, this.signalStore, env, now, audience) : null;
+      await tickExperiments(this.repo, { store: deps.store, experiments: this.experimentStore, signals: this.signalStore, env, now: () => now }, sched?.scheduleFor);
+    };
   }
 
   /** Fase 5: sinais de engajamento classificados (crm_engagement_signals). */
@@ -1214,8 +1247,30 @@ export class CrmApiRouter {
     if (cleanPath === MARKETING_CRON_PATH && method === 'GET') {
       const cronOk = query._fromHttpBridge === '1' && query._cronAuthorized === '1';
       if (!ctx.trustedInternal && !cronOk) return { status: query._sessionToken ? 403 : 401, body: { error: 'Forbidden' } };
-      const result = await processMarketingQueue(this.repo, deps);
+      const result = await processMarketingQueue(this.repo, deps, { beforeQueue: this.experimentTick(deps) });
       return { status: 200, body: { data: result } };
+    }
+
+    // Fase 6: testes A/B, horario de envio, agendamento, IA e central de preferencias -----------
+    {
+      const ent = await handleEnterpriseRoute(this.repo, method, cleanPath, query, body, ctx, {
+        marketing: deps,
+        experiments: this.experimentStore,
+        signals: this.signalStore,
+        ai: this.aiSuggestionStore,
+        llm: () => this.aiClient(),
+        env: this.marketingOptions.env || process.env,
+        now: this.marketingOptions.now || (() => new Date()),
+        privilege: () => this.marketingPrivilege(query, ctx),
+        audit: (e) => {
+          try {
+            this.repo.appendSecurityAuditLog({ ...e, actorName: e.actorEmail, module: 'CRM' });
+          } catch {
+            // auditoria nunca derruba a rota
+          }
+        },
+      });
+      if (ent) return ent;
     }
 
     // Rotas internas (so contexto confiavel do servidor; nunca HTTP) ------------------------------
@@ -1336,7 +1391,7 @@ export class CrmApiRouter {
       const priv = this.marketingPrivilege(query, ctx);
       if (!priv.allowed) return forbidden(priv);
       const max = Number(body.maxSends);
-      const result = await processMarketingQueue(this.repo, deps, { maxSends: Number.isFinite(max) && max > 0 ? max : undefined });
+      const result = await processMarketingQueue(this.repo, deps, { maxSends: Number.isFinite(max) && max > 0 ? max : undefined, beforeQueue: this.experimentTick(deps) });
       return { status: 200, body: { data: result } };
     }
     const reviewMatch = cleanPath.match(/^\/api\/marketing\/campaigns\/([A-Za-z0-9_.:-]{1,120})\/review$/);
@@ -1382,8 +1437,22 @@ export class CrmApiRouter {
       } else {
         return { status: 400, body: { error: 'Informe o segmento (segmentId) ou os contatos (contactIds).' } };
       }
+      // Fase 6: agendamento por data/hora (horario de Brasilia) e/ou otimizacao de horario por contato.
+      const env = this.marketingOptions.env || process.env;
+      const nowD = (this.marketingOptions.now || (() => new Date()))();
+      let scheduleAtIso: string | null = null;
+      if (body.scheduleAt) {
+        const raw = String(body.scheduleAt);
+        const ms = Date.parse(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw) ? `${raw}:00-03:00` : raw);
+        if (!Number.isFinite(ms) || ms <= nowD.getTime() || ms > nowD.getTime() + 180 * 86400000) {
+          return { status: 400, body: { error: 'Data/hora de agendamento inválida (futura, até 180 dias; horário de Brasília).' } };
+        }
+        scheduleAtIso = new Date(ms).toISOString();
+      }
+      const sto = body.sendTimeOptimization === true ? await buildSendTimeScheduler(this.repo, this.signalStore, env, scheduleAtIso ? new Date(scheduleAtIso) : nowD, contacts.map((c) => c.id)) : null;
+      const scheduleFor = sto ? sto.scheduleFor : scheduleAtIso ? () => ({ at: scheduleAtIso!, by: 'AGENDAMENTO' as const }) : undefined;
       return wrap(async () => {
-        const r = await enqueueCampaign(this.repo, deps, { campaignId: campaign.id, templateId, contacts });
+        const r = await enqueueCampaign(this.repo, deps, { campaignId: campaign.id, templateId, contacts, scheduleFor });
         return {
           status: 200,
           body: {
@@ -1401,6 +1470,9 @@ export class CrmApiRouter {
               blockedSuppressedCount: r.blockedCount,
               blockedContacts: r.blockedContacts,
               deliveredContacts: [],
+              scheduledAt: scheduleAtIso,
+              sendTimeOptimization: Boolean(sto),
+              sendTimeSources: sto?.sources || null,
             },
           },
         };
@@ -5771,6 +5843,15 @@ export class CrmApiRouter {
           afterRun: async () => {
             engagement = await syncSequenceEngagement(this.repo, this.signalStore);
           },
+          // Fase 6: horario otimizado por contato (so cadencias com a opcao ligada).
+          sendTimeFor: (() => {
+            let eng: Awaited<ReturnType<typeof collectHumanEngagement>> | null = null;
+            return async (contactId: string, notBefore: Date) => {
+              if (!eng) eng = await collectHumanEngagement(this.repo, this.signalStore, notBefore);
+              const s = suggestForContact(this.repo, eng, contactId, notBefore, resolveSendWindow(process.env));
+              return { at: s.at, localDisplay: s.localDisplay, source: SEND_TIME_SOURCE_LABELS[s.source] };
+            };
+          })(),
           mailer: createGraphSequenceMailer(mailboxDeps, String(query._origin || '') || undefined),
           persist: this.canPersistToPostgres() ? () => this.persistSequenceClaim() : undefined,
           reloadState: this.canPersistToPostgres() ? () => this.reloadStateForSequenceRun() : undefined,

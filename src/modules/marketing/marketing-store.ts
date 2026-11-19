@@ -69,6 +69,14 @@ export interface MarketingSend {
   reviewTaskId?: string | null;
   reviewedBy?: string | null;
   reviewedAt?: string | null;
+  /** Fase 6: teste A/B/multivariado (variante sorteada; TEST = grupo de teste, ROLLOUT = vencedor ao restante). */
+  experimentId?: string | null;
+  variantId?: string | null;
+  abPhase?: 'TEST' | 'ROLLOUT' | null;
+  /** Fase 6: assunto da variante (sobrepoe o assunto do modelo aprovado). */
+  subjectOverride?: string | null;
+  /** Fase 6: horario escolhido por agendamento ou otimizacao de horario (fonte e motivo, sem dado pessoal). */
+  scheduledBy?: 'AGENDAMENTO' | 'HORARIO_OTIMIZADO' | null;
 }
 
 export type MarketingEventType = 'SENT' | 'DELIVERED' | 'DELIVERY_DELAYED' | 'BOUNCED_HARD' | 'BOUNCED_SOFT' | 'COMPLAINED' | 'OPENED' | 'CLICKED' | 'UNSUBSCRIBED';

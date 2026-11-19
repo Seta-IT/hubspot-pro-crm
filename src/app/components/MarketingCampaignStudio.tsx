@@ -10,6 +10,7 @@ import {
   type TemplateBlockType,
 } from '../../modules/marketing/template-blocks';
 import { formatDateTimeBR } from './ui-helpers';
+import MarketingEnterprisePanel from './MarketingEnterprisePanel';
 
 // ============================================================================
 // Fase 3 (19/11/2026) — Estúdio de campanhas reais: modelos em blocos (arrastar e soltar para
@@ -100,7 +101,7 @@ const newBlock = (type: TemplateBlockType): TemplateBlock => ({
 });
 
 export default function MarketingCampaignStudio({ campaigns }: { campaigns: MarketingCampaign[] }) {
-  const [tab, setTab] = useState<'TEMPLATES' | 'SEND' | 'DOMAIN' | 'FUNNEL'>('TEMPLATES');
+  const [tab, setTab] = useState<'TEMPLATES' | 'SEND' | 'DOMAIN' | 'FUNNEL' | 'ADVANCED'>('TEMPLATES');
   const [status, setStatus] = useState<LiveStatus | null>(null);
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
@@ -123,6 +124,9 @@ export default function MarketingCampaignStudio({ campaigns }: { campaigns: Mark
   const [segments, setSegments] = useState<Array<{ id: string; name: string }>>([]);
   const [segmentId, setSegmentId] = useState('');
   const [sendTemplateId, setSendTemplateId] = useState('');
+  // Fase 6: agendamento (horario de Brasilia) e otimizacao de horario por contato.
+  const [scheduleAt, setScheduleAt] = useState('');
+  const [optimizeTime, setOptimizeTime] = useState(false);
   const [funnel, setFunnel] = useState<Funnel | null>(null);
 
   const editing = useMemo(() => templates.find((t) => t.id === editingId) || null, [templates, editingId]);
@@ -230,12 +234,20 @@ export default function MarketingCampaignStudio({ campaigns }: { campaigns: Mark
 
   const dispatchLive = () =>
     run(async () => {
-      const r = await api<{ queuedCount: number; alreadyQueuedCount: number; blockedSuppressedCount: number }>('/api/marketing/campaigns/dispatch', {
+      const r = await api<{ queuedCount: number; alreadyQueuedCount: number; blockedSuppressedCount: number; scheduledAt: string | null; sendTimeOptimization: boolean }>('/api/marketing/campaigns/dispatch', {
         method: 'POST',
-        body: JSON.stringify({ campaignId, templateId: sendTemplateId, segmentId }),
+        body: JSON.stringify({ campaignId, templateId: sendTemplateId, segmentId, scheduleAt: scheduleAt || undefined, sendTimeOptimization: optimizeTime }),
       });
       if (!r.ok || !r.data) return flash('err', r.error || 'Envio bloqueado.');
-      flash('ok', `Na fila: ${r.data.queuedCount}. Já enfileirados antes: ${r.data.alreadyQueuedCount}. Bloqueados (LGPD/supressão/allowlist): ${r.data.blockedSuppressedCount}.`);
+      const when = r.data.sendTimeOptimization ? ' Horário otimizado por contato.' : r.data.scheduledAt ? ` Agendado para ${formatDateTimeBR(r.data.scheduledAt)} (horário de Brasília).` : '';
+      flash('ok', `Na fila: ${r.data.queuedCount}. Já enfileirados antes: ${r.data.alreadyQueuedCount}. Bloqueados (LGPD/supressão/allowlist): ${r.data.blockedSuppressedCount}.${when}`);
+    });
+
+  const cancelScheduled = () =>
+    run(async () => {
+      const r = await api<{ cancelled: number }>(`/api/marketing/campaigns/${encodeURIComponent(campaignId)}/cancel-scheduled`, { method: 'POST', body: '{}' });
+      if (!r.ok || !r.data) return flash('err', r.error || 'Falha ao cancelar o agendamento.');
+      flash('ok', `Envios agendados cancelados: ${r.data.cancelled}.`);
     });
 
   const processNow = () =>
@@ -307,6 +319,7 @@ export default function MarketingCampaignStudio({ campaigns }: { campaigns: Mark
             ['SEND', 'Envio real'],
             ['DOMAIN', 'Domínio remetente'],
             ['FUNNEL', 'Funil de entregabilidade'],
+            ['ADVANCED', 'Recursos avançados'],
           ] as const
         ).map(([id, label]) => (
           <button key={id} type="button" onClick={() => setTab(id)} className={`${btn} ${tab === id ? 'bg-[#1e3a6e] text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
@@ -530,9 +543,20 @@ export default function MarketingCampaignStudio({ campaigns }: { campaigns: Mark
               ))}
             </select>
           </label>
+          <label className="block space-y-1">
+            <span className="font-semibold text-slate-700">Agendar para (horário de Brasília, opcional)</span>
+            <input type="datetime-local" className={input} value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+          </label>
+          <label className="flex items-center gap-2 text-slate-700">
+            <input type="checkbox" checked={optimizeTime} onChange={(e) => setOptimizeTime(e.target.checked)} />
+            Otimizar horário por contato (engajamento humano, janela comercial; sem dados usa segmento, base ou 10h em dia útil)
+          </label>
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={busy || !status?.ready || !sendTemplateId || !segmentId} onClick={dispatchLive} className={`${btn} bg-[#1e3a6e] text-white`}>
-              Colocar na fila de envio
+              {scheduleAt || optimizeTime ? 'Agendar envio' : 'Colocar na fila de envio'}
+            </button>
+            <button type="button" disabled={busy || !campaignId} onClick={cancelScheduled} className={`${btn} bg-white border border-slate-300 text-slate-700`}>
+              Cancelar envios agendados
             </button>
             <button type="button" disabled={busy || !status?.ready} onClick={processNow} className={`${btn} bg-slate-100 text-slate-700`}>
               Processar fila agora
@@ -665,6 +689,7 @@ export default function MarketingCampaignStudio({ campaigns }: { campaigns: Mark
           )}
         </div>
       )}
+      {tab === 'ADVANCED' && <MarketingEnterprisePanel campaigns={campaigns} approvedTemplates={approved.map((t) => ({ id: t.id, name: t.name, version: t.approvedVersion! }))} segments={segments} />}
     </div>
   );
 }

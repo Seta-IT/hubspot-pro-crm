@@ -206,6 +206,6 @@ export async function forwardToCrmRouter(
  * verificaram a credencial propria (token de descadastro / assinatura do webhook). Usa o mesmo
  * router singleton (carrega e grava o estado no Postgres como qualquer mutacao).
  */
-export async function dispatchTrustedMarketing(path: '/api/marketing/esp-events' | '/api/marketing/unsubscribe-apply', body: Record<string, unknown>): Promise<ApiResponse> {
+export async function dispatchTrustedMarketing(path: '/api/marketing/esp-events' | '/api/marketing/unsubscribe-apply' | '/api/marketing/preferences-state' | '/api/marketing/preferences-apply', body: Record<string, unknown>): Promise<ApiResponse> {
   return router.dispatch({ method: 'POST', path, query: {}, body, context: TRUSTED_INTERNAL_CONTEXT });
 }

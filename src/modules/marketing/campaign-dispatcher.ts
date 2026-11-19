@@ -230,6 +230,8 @@ export function composeMarketingEmail(input: {
   origin: string;
   idempotencyKey: string;
   subjectPrefix?: string;
+  /** Fase 6: assunto da variante do teste A/B (texto puro; variaveis {{firstName}} etc. aceitas). */
+  subjectOverride?: string | null;
 }): ComposedMarketingEmail {
   const { config, version } = input;
   const trackingId = newTrackingId();
@@ -254,7 +256,7 @@ export function composeMarketingEmail(input: {
     `${escapeHtml(config.fromName)} - ${escapeHtml(address)}</div>`;
   const footerText = `Você recebe este e-mail porque autorizou comunicações de ${purposeLabel} da ${config.fromName}.\nDescadastrar-se: ${unsubscribeUrl}\n${config.fromName} - ${address}`;
   const fromName = config.fromName.replace(/["<>\r\n]/g, '');
-  const subject = `${input.subjectPrefix || ''}${version.subject}`.replace(/[\r\n]+/g, ' ');
+  const subject = `${input.subjectPrefix || ''}${input.subjectOverride || version.subject}`.replace(/[\r\n]+/g, ' ');
   const message: EspMessage = {
     from: `${fromName} <${config.fromEmail}>`,
     to: input.to,
@@ -294,7 +296,13 @@ export interface EnqueueResult {
 export async function enqueueCampaign(
   repo: CrmRepository,
   deps: MarketingDeps,
-  input: { campaignId: string; templateId: string; contacts: Contact[] }
+  input: {
+    campaignId: string;
+    templateId: string;
+    contacts: Contact[];
+    /** Fase 6: horario por contato (agendamento ou otimizacao de horario). Ausente = agora. */
+    scheduleFor?: (contactId: string) => { at: string; by: 'AGENDAMENTO' | 'HORARIO_OTIMIZADO' } | null;
+  }
 ): Promise<EnqueueResult> {
   const env = deps.env || process.env;
   const now = (deps.now || (() => new Date()))();
@@ -332,6 +340,11 @@ export async function enqueueCampaign(
       unsubscribedAt: null,
       updatedAt: now.toISOString(),
     });
+    const sched = input.scheduleFor?.(c.id);
+    if (sched && Date.parse(sched.at) > now.getTime()) {
+      rows[rows.length - 1].nextAttemptAt = new Date(sched.at).toISOString();
+      rows[rows.length - 1].scheduledBy = sched.by;
+    }
   }
   const r = await deps.store.enqueueSends(rows);
   return {
@@ -371,7 +384,12 @@ export interface MarketingRunResult {
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-export async function processMarketingQueue(repo: CrmRepository, deps: MarketingDeps, opts: { maxSends?: number } = {}): Promise<MarketingRunResult> {
+export async function processMarketingQueue(
+  repo: CrmRepository,
+  deps: MarketingDeps,
+  /** beforeQueue (Fase 6): roda dentro da trava, depois de reler o estado (testes A/B: vencedor e envio ao restante). */
+  opts: { maxSends?: number; beforeQueue?: () => Promise<void> } = {}
+): Promise<MarketingRunResult> {
   const result: MarketingRunResult = { mode: 'SIMULATION', skipped: null, problems: [], examined: 0, sent: 0, skippedContacts: 0, failed: 0, requeued: 0, needsReview: 0, stoppedReason: null };
   const env = deps.env || process.env;
   if (!isMarketingLiveSendEnabled(env)) {
@@ -405,6 +423,13 @@ export async function processMarketingQueue(repo: CrmRepository, deps: Marketing
       } catch {
         result.skipped = 'STATE_RELOAD_FAILED';
         return result;
+      }
+    }
+    if (opts.beforeQueue) {
+      try {
+        await opts.beforeQueue();
+      } catch {
+        result.problems.push('Avaliação dos testes A/B falhou nesta execução.');
       }
     }
     await runQueue(repo, deps, pre.config, lock, owner, result, opts);
@@ -523,6 +548,7 @@ async function runQueue(
       unsubscribeSecret: secret,
       origin,
       idempotencyKey: `mkt-${send.campaignId}-${send.contactId}`.slice(0, 250),
+      subjectOverride: send.subjectOverride || null,
     });
     await deps.store.updateSend(send.campaignId, send.contactId, { status: 'SENDING', attempts: send.attempts + 1, trackingId: composed.trackingId, updatedAt: nowIso });
     try {

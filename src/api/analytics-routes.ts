@@ -36,15 +36,18 @@ export interface AnalyticsRouteDeps {
 export const EXPORT_MAX_ROWS = 20000;
 const DAY = 86400000;
 
-interface Actor {
+export interface Actor {
   email: string;
   name: string;
   restricted: boolean;
   erpAllowed: boolean;
   canSee: (contactId: string) => boolean;
+  /** Fase 6: escopo por empresa (algum contato/negocio da empresa e do usuario). */
+  canSeeCompany: (companyId: string) => boolean;
+  isAdmin: boolean;
 }
 
-function resolveActor(repo: CrmRepository, query: Query, ctx: { trustedInternal: boolean }): Actor | Resp {
+export function resolveActor(repo: CrmRepository, query: Query, ctx: { trustedInternal: boolean }): Actor | Resp {
   if (ctx.trustedInternal) return { status: 403, body: { error: 'Recurso disponível só para usuários.' } };
   const tok = query._sessionToken;
   const sess = tok ? repo.resolveSessionFromToken(tok) : null;
@@ -70,6 +73,8 @@ function resolveActor(repo: CrmRepository, query: Query, ctx: { trustedInternal:
     restricted,
     erpAllowed: isAdmin || modules.erp === true,
     canSee: (contactId: string) => canSeeRecordInScope(repo, actor, { contactId }),
+    canSeeCompany: (companyId: string) => canSeeRecordInScope(repo, actor, { companyId }),
+    isAdmin,
   };
 }
 

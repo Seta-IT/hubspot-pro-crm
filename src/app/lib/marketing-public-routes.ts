@@ -16,6 +16,14 @@ export type TrustedMarketingDispatch = (
   path: '/api/marketing/esp-events' | '/api/marketing/unsubscribe-apply',
   body: Record<string, unknown>
 ) => Promise<{ status: number; body: unknown }>;
+/** Fase 6: central de preferencias (mesmo despacho interno; caminhos extras). */
+type PreferencesDispatch = (path: '/api/marketing/preferences-state' | '/api/marketing/preferences-apply', body: Record<string, unknown>) => Promise<{ status: number; body: unknown }>;
+interface PreferencesState {
+  maskedEmail: string;
+  globallyUnsubscribed: boolean;
+  purposes: Array<{ id: string; label: string; subscribed: boolean }>;
+  note?: string | null;
+}
 
 export interface PlainResponse {
   status: number;
@@ -57,18 +65,40 @@ export async function handleUnsubscribeRequest(
   if (!claims) return page(400, 'Link inválido', '<p>Este link de descadastro é inválido ou foi alterado.</p>');
   const label = MARKETING_PURPOSE_LABELS[claims.purpose];
   const method = input.method.toUpperCase();
+  const prefDispatch = dispatch as unknown as PreferencesDispatch;
+  const btn = 'display:block;width:100%;margin:8px 0;padding:10px;border-radius:6px;font-size:14px;cursor:pointer';
   if (method === 'GET') {
-    const btn = 'display:block;width:100%;margin:8px 0;padding:10px;border-radius:6px;font-size:14px;cursor:pointer';
+    // Fase 6: central de preferencias completa por finalidade (GET nunca altera nada).
+    const st = await prefDispatch('/api/marketing/preferences-state', { claims }).catch(() => null);
+    const data = st && st.status === 200 ? ((st.body as { data?: PreferencesState }).data ?? null) : null;
+    const center = data
+      ? `<form method="post" style="margin:0 0 16px;padding:12px;border:1px solid #e2e8f0;border-radius:6px"><input type="hidden" name="action" value="SAVE">` +
+        `<p style="margin:0 0 8px;font-size:14px">Escolha o que deseja receber em ${escapeHtml(data.maskedEmail)}:</p>` +
+        data.purposes
+          .map((p) => `<label style="display:block;margin:6px 0;font-size:14px"><input type="checkbox" name="purpose" value="${escapeHtml(p.id)}"${p.subscribed ? ' checked' : ''}${data.globallyUnsubscribed ? ' disabled' : ''}> ${escapeHtml(p.label)}</label>`)
+          .join('') +
+        (data.globallyUnsubscribed ? `<p style="font-size:13px;color:#64748b">Você está descadastrado de todo o marketing. Para voltar a receber, fale com a Seta Telecom.</p>` : `<button type="submit" style="${btn};background:#0f172a;color:#fff;border:0">Salvar preferências</button>`) +
+        `</form>`
+      : '';
     return page(
       200,
       'Preferências de e-mail',
-      `<p>Confirme o descadastro. Nada muda até você escolher uma opção.</p>` +
+      center +
+        `<p>Ou confirme o descadastro. Nada muda até você escolher uma opção.</p>` +
         `<form method="post"><input type="hidden" name="scope" value="PURPOSE"><button type="submit" style="${btn};background:#0f172a;color:#fff;border:0">Não quero mais receber: ${escapeHtml(label)}</button></form>` +
         `<form method="post"><input type="hidden" name="scope" value="ALL_MARKETING"><button type="submit" style="${btn};background:#fff;color:#0f172a;border:1px solid #cbd5e1">Não quero receber nenhum e-mail de marketing</button></form>`
     );
   }
   if (method !== 'POST') return page(405, 'Método não permitido', '<p>Use o link do e-mail.</p>');
   const params = new URLSearchParams(String(input.formBody || '').slice(0, 2000));
+  if (params.get('action') === 'SAVE') {
+    const purposes = params.getAll('purpose').slice(0, 10);
+    const res = await prefDispatch('/api/marketing/preferences-apply', { claims, purposes }).catch(() => ({ status: 503, body: null }));
+    if (res.status >= 500) return page(503, 'Tente novamente', '<p>Não foi possível registrar agora. Tente novamente em instantes.</p>');
+    const d = (res.body as { data?: PreferencesState } | null)?.data;
+    const list = (d?.purposes || []).map((p) => `<li>${escapeHtml(p.label)}: ${p.subscribed ? 'recebendo' : 'não recebe'}</li>`).join('');
+    return page(200, 'Preferências salvas', `<p>Suas preferências foram atualizadas e valem imediatamente.</p><ul style="font-size:14px">${list}</ul>${d?.note ? `<p style="font-size:13px;color:#64748b">${escapeHtml(d.note)}</p>` : ''}`);
+  }
   const scope = params.get('scope') === 'ALL_MARKETING' ? 'ALL_MARKETING' : 'PURPOSE';
   const res = await dispatch('/api/marketing/unsubscribe-apply', { claims, scope });
   if (res.status >= 500) return page(503, 'Tente novamente', '<p>Não foi possível registrar agora. Tente novamente em instantes.</p>');
