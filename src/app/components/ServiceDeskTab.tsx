@@ -47,6 +47,9 @@ import {
 } from '../../db/types';
 import { formatDateTimeBR, formatRelativeDays } from './ui-helpers';
 import { displayTicketCommentBody, displayTicketCompanyCnpj, displayTicketDescription, displayTicketSubject, looksLikeCnpjOrAccountQuery, normalizeTicketSearchText, ticketMatchesSearch } from '../lib/setadesk-ticket-search';
+
+/** E1: tamanho da pagina das listas de chamados na tela. */
+const TICKET_LIST_PAGE_SIZE = 50;
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import DataHealthTab from './DataHealthTab';
 import { ShieldCheck } from 'lucide-react';
@@ -477,6 +480,30 @@ export default function ServiceDeskTab({
     }
     return true;
   });
+
+  // E1: a lista e a grade mostram os chamados em paginas (50 por vez), com "Carregar mais".
+  const [listPageLimit, setListPageLimit] = useState(TICKET_LIST_PAGE_SIZE);
+  useEffect(() => {
+    setListPageLimit(TICKET_LIST_PAGE_SIZE);
+  }, [searchQuery, priorityFilter, slaFilter, queueFilter, categoryFilter, pipelineFilter, linkedOsOnlyFilter, viewMode]);
+  const pagedTickets = filteredTickets.slice(0, listPageLimit);
+  const ticketsPageFooter =
+    filteredTickets.length > TICKET_LIST_PAGE_SIZE ? (
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-3 border-t border-slate-200 bg-slate-50 text-xs">
+        <span className="font-semibold text-slate-600">
+          Mostrando {pagedTickets.length} de {filteredTickets.length} chamados
+        </span>
+        {pagedTickets.length < filteredTickets.length && (
+          <button
+            type="button"
+            onClick={() => setListPageLimit((n) => n + TICKET_LIST_PAGE_SIZE)}
+            className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 font-semibold cursor-pointer"
+          >
+            Carregar mais
+          </button>
+        )}
+      </div>
+    ) : null;
 
   const listedTicket =
     tickets.find((t) => t.id === selectedTicketId || t.key === selectedTicketId) || null;
@@ -1524,7 +1551,7 @@ export default function ServiceDeskTab({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs">
-                    {filteredTickets.map((t) => (
+                    {pagedTickets.map((t) => (
                       <tr
                         key={t.id}
                         onClick={() => setSelectedTicketId(t.id)}
@@ -1582,13 +1609,14 @@ export default function ServiceDeskTab({
                   </tbody>
                 </table>
               </div>
+              {ticketsPageFooter}
             </div>
           )}
 
           {/* MODO 3: GRADE COMPACTA (CARDS OTIMIZADOS PARA CELULAR & FIELD SERVICE) */}
           {viewMode === 'COMPACT_GRID' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {filteredTickets.map((t) => (
+              {pagedTickets.map((t) => (
                 <div
                   key={t.id}
                   onClick={() => setSelectedTicketId(t.id)}
@@ -1628,6 +1656,9 @@ export default function ServiceDeskTab({
                 </div>
               ))}
             </div>
+          )}
+          {viewMode === 'COMPACT_GRID' && ticketsPageFooter && (
+            <div className="mt-3 bg-white rounded-xl border border-slate-200 overflow-hidden">{ticketsPageFooter}</div>
           )}
 
           {/* MODO 4: LINHA DO TEMPO SLA (AGRUPADO POR URGÊNCIA E VENCIMENTO DO SLA) */}
