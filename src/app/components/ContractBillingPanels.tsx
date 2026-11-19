@@ -15,6 +15,7 @@ import { isIssuedInvoiceStatus } from "../../modules/erp/invoice-send-attachment
 import { ContractAuxiliaryOptions, ContractBillingRunOptions, RECEIPT_DRAFT_BANNER_TEXT, buildDraftReceiptHtml, computeCustomDueDateClient, computeUpcomingRecurringCycles, downloadContractBillingHistoryReportOnDemand, downloadContractInvoicesCsvOnDemand, downloadContractVersionPdfOnDemand, downloadInvoicePdfOnDemand, loadReceiptTemplateStyle, saveReceiptTemplateStyle, matchInvoicesForContract } from "../lib/contract-billing-utils";
 import { useContractAuxiliaryOptions } from "../lib/use-contract-aux-options";
 import { ProposalTemplateSelect } from "./ProposalTemplateSelect";
+import { AppSelect } from "./AppSelect";
 import { EmailSendHistoryPanel } from "./EmailSendHistoryPanel";
 
 type Weekday = 'NONE' | 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY';
@@ -795,9 +796,19 @@ export function InvoiceExtraFieldsPanel({ draft, setDraft }: { draft: ErpFiscalI
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div>
           <label className="block font-semibold text-slate-700 mb-1">Modalidade de Frete</label>
-          <select value={draft.freightModality || 'CIF_EMITENTE'} onChange={(e) => set({ freightModality: e.target.value as ErpFiscalInvoice['freightModality'] })} className="w-full px-3 py-2 rounded border bg-white">
-            <option value="CIF_EMITENTE">CIF</option><option value="FOB_DESTINATARIO">FOB</option><option value="TERCEIROS">Terceiros</option><option value="PROPRIO_SETA">Próprio Seta</option><option value="SEM_FRETE">Sem frete</option>
-          </select>
+          <AppSelect
+            ariaLabel="Modalidade de Frete"
+            value={draft.freightModality || 'CIF_EMITENTE'}
+            onChange={(v) => set({ freightModality: v as ErpFiscalInvoice['freightModality'] })}
+            className="w-full px-3 py-2 rounded border bg-white"
+            options={[
+              { value: 'CIF_EMITENTE', label: 'CIF' },
+              { value: 'FOB_DESTINATARIO', label: 'FOB' },
+              { value: 'TERCEIROS', label: 'Terceiros' },
+              { value: 'PROPRIO_SETA', label: 'Próprio Seta' },
+              { value: 'SEM_FRETE', label: 'Sem frete' },
+            ]}
+          />
         </div>
         {field('Transportadora', 'deliveryCarrier')}
         {field('Rastreio / CT-e', 'freightTrackingCode')}
@@ -808,9 +819,17 @@ export function InvoiceExtraFieldsPanel({ draft, setDraft }: { draft: ErpFiscalI
         <div><label className="block font-semibold text-slate-700 mb-1">Regra: prazo base (dias)</label><input type="number" min={0} value={draft.customDueOffsetDays ?? ''} onChange={(e) => { const off = Number(e.target.value) || 0; const c = computeCustomDueDateClient({ baseDate: draft.issueDate, offsetDays: off, targetWeekday: draft.customDueTargetWeekday || 'NONE' }); set({ customDueOffsetDays: off, customDueRuleLabel: c.ruleLabel, dueDate: c.dueDateIso }); }} className="w-full px-3 py-2 rounded border" /></div>
         <div>
           <label className="block font-semibold text-slate-700 mb-1">Ajustar para dia da semana</label>
-          <select value={draft.customDueTargetWeekday || 'NONE'} onChange={(e) => { const wd = e.target.value as Weekday; const c = computeCustomDueDateClient({ baseDate: draft.issueDate, offsetDays: Number(draft.customDueOffsetDays ?? 0), targetWeekday: wd }); set({ customDueTargetWeekday: wd, customDueRuleLabel: c.ruleLabel, dueDate: c.dueDateIso }); }} className="w-full px-3 py-2 rounded border bg-white">
-            {WEEKDAY_OPTIONS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
-          </select>
+          <AppSelect
+            ariaLabel="Ajustar para dia da semana"
+            value={draft.customDueTargetWeekday || 'NONE'}
+            onChange={(v) => {
+              const wd = v as Weekday;
+              const c = computeCustomDueDateClient({ baseDate: draft.issueDate, offsetDays: Number(draft.customDueOffsetDays ?? 0), targetWeekday: wd });
+              set({ customDueTargetWeekday: wd, customDueRuleLabel: c.ruleLabel, dueDate: c.dueDateIso });
+            }}
+            className="w-full px-3 py-2 rounded border bg-white"
+            options={WEEKDAY_OPTIONS.map((w) => ({ value: w.id, label: w.label }))}
+          />
         </div>
         <div className="flex items-end text-[11px] font-semibold text-slate-800">{rule ? `Vencimento calculado: ${rule.dueDateBr} (${rule.weekdayLabelPt}) • ${rule.ruleLabel}` : 'Sem regra customizada'}</div>
       </div>
