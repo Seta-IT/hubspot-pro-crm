@@ -327,7 +327,7 @@ function getModalityBadgeMeta(modality: ErpContractModality) {
       };
     default:
       return {
-        label: "Locação Pura (0% ISS — SV 31 STF)",
+        label: "Locação (0% ISS — SV 31 STF)",
         cls: "bg-emerald-50 text-emerald-800 border border-emerald-200",
       };
   }
@@ -4753,7 +4753,7 @@ export default function ErpGestaoClickTab({
               ))}
               <span
                 className="ml-auto inline-flex items-center text-slate-400"
-                title="Locação pura de bens móveis: sem ISSQN (veto ao item 3.01 da LC 116/2003 e Súmula Vinculante 31 do STF). NFS-e de serviços técnicos (LC 116, item 01.07): retenção de IRRF 1,5% e CSRF 4,65% (PIS 0,65% + COFINS 3% + CSLL 1%). Detalhes em Opções auxiliares."
+                title="Locação de bens móveis: sem ISSQN (veto ao item 3.01 da LC 116/2003 e Súmula Vinculante 31 do STF). NFS-e de serviços técnicos (LC 116, item 01.07): retenção de IRRF 1,5% e CSRF 4,65% (PIS 0,65% + COFINS 3% + CSLL 1%). Detalhes em Opções auxiliares."
               >
                 <HelpCircle className="w-4 h-4" aria-label="Regras fiscais das notas de serviços" />
               </span>
@@ -4862,7 +4862,7 @@ export default function ErpGestaoClickTab({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
               <div className="p-4 rounded border border-slate-200 bg-white space-y-1">
                 <div className="font-semibold text-slate-900 text-xs">
-                  1. Locação Pura de Bens Móveis (0% ISS)
+                  1. Locação de Bens Móveis (0% ISS)
                 </div>
                 <p className="text-slate-700">
                   <strong>Base Legal:</strong> Veto Presidencial ao item 3.01 da LC 116/2003 + Súmula Vinculante nº 31 do STF + Lei 8.846/1994 art. 1º.
@@ -4929,7 +4929,7 @@ export default function ErpGestaoClickTab({
                   <tr>
                     <td className="py-2 px-3 font-mono font-semibold text-slate-800">N/A (SV 31 STF)</td>
                     <td className="py-2 px-3 font-semibold">Fatura Locação</td>
-                    <td className="py-2 px-3">Locação pura de bens móveis (Dispensa NFS-e — LC 116/03)</td>
+                    <td className="py-2 px-3">Locação de bens móveis (Dispensa NFS-e — LC 116/03)</td>
                     <td className="py-2 px-3">0% ISSQN (SV 31 STF)</td>
                     <td className="py-2 px-3">CST 01 (0,65% / 3,00%)</td>
                     <td className="py-2 px-3 text-slate-700">Gera contas a receber (valor líquido)</td>
@@ -6001,7 +6001,7 @@ export default function ErpGestaoClickTab({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
                   <div className="p-4 rounded border border-slate-200 bg-slate-50 space-y-1.5">
                     <div className="font-semibold text-[#1e3a6e] text-[11px]">Grupos de Clientes B2B</div>
-                    <div>• Contas Enterprise Locação Pura</div>
+                    <div>• Contas Enterprise Locação</div>
                     <div>• Indústria, Logística &amp; Varejo</div>
                     <div>• Call Centers &amp; Operações Voz IP</div>
                   </div>

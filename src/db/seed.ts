@@ -1206,7 +1206,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       lastActivityAt: daysAgoIso(1),
       closedAt: daysAgoIso(5),
       lostReason: null,
-      wonReason: 'Locação pura aprovada com isenção de ISS (SV 31 STF)',
+      wonReason: 'Locação aprovada com isenção de ISS (SV 31 STF)',
       nextBestAction: {
         actionType: 'PROPOSAL',
         title: 'Acompanhar faturamento mensal no módulo ERP',
@@ -1773,9 +1773,9 @@ export function createInitialSeedState(): CrmDatabaseState {
           delayDays: 0,
           delayHours: 0,
           waitForEvent: 'NONE',
-          subject: 'Locação Pura de Servidores, Switches & Spare Parts (0% ISS — SV 31 STF) para {{companyName}}',
+          subject: 'Locação de Servidores, Switches & Spare Parts (0% ISS — SV 31 STF) para {{companyName}}',
           bodyTemplate:
-            'Olá {{firstName}}, tudo bem? Na Seta Telecom apoiamos empresas do porte da {{companyName}} na substituição de CAPEX por Locação Pura de Servidores Dell/Cisco, PABX IP e Contratos de Spare Parts com SLA NOC 24x7 e 0% de ISSQN (Súmula Vinculante 31 STF).',
+            'Olá {{firstName}}, tudo bem? Na Seta Telecom apoiamos empresas do porte da {{companyName}} na substituição de CAPEX por Locação de Servidores Dell/Cisco, PABX IP e Contratos de Spare Parts com SLA NOC 24x7 e 0% de ISSQN (Súmula Vinculante 31 STF).',
           stepType: 'AUTO_EMAIL',
           condition: 'ALWAYS',
           sentCount: 38,
@@ -2513,7 +2513,7 @@ Diretoria Comercial • SETA TELECOM LTDA (SETA | IT)`,
 
 Estou passando para acompanhar a avaliação da nossa Proposta Comercial enviada para a {{company.name}}.
 
-Lembrando que estruturamos o modelo em Locação Pura de Bens Móveis (LC 116/03 + Súmula Vinculante 31 do STF), garantindo economia tributária direta (isenção de ISSQN) e substituição expressa de hardware pelo nosso NOC.
+Lembrando que estruturamos o modelo em Locação de Bens Móveis (LC 116/03 + Súmula Vinculante 31 do STF), garantindo economia tributária direta (isenção de ISSQN) e substituição expressa de hardware pelo nosso NOC.
 
 Conseguimos alinhar uma rápida call amanhã para revisar a minuta contratual e o cronograma de ativação (NF-e Remessa CFOP 5.908)?
 
@@ -2593,7 +2593,7 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
       name: "Amparo Legal Isenção ISS Locação (LC 116/03 + SV 31 STF)",
       category: "Fiscal & Jurídico",
       content:
-        "Enquadramento Tributário (0% ISSQN): Operação de Locação Pura de Bens Móveis (Art. 565 do Código Civil), sem fornecimento de mão de obra. Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da Lei Complementar nº 116/2003 e Súmula Vinculante nº 31 do STF, acompanhada de NF-e de Remessa em Locação (CFOP 5.908/6.908).",
+        "Enquadramento Tributário (0% ISSQN): Operação de Locação de Bens Móveis (Art. 565 do Código Civil), sem fornecimento de mão de obra. Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da Lei Complementar nº 116/2003 e Súmula Vinculante nº 31 do STF, acompanhada de NF-e de Remessa em Locação (CFOP 5.908/6.908).",
       usageCount: 48,
       createdAt: daysAgoIso(45),
       updatedAt: daysAgoIso(2),
@@ -2922,7 +2922,7 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
       id: 'mktemail-6',
       name: 'Locação de Soluções Tecnológicas Completas para o seu Negó-',
       subject: 'Locação de Soluções Tecnológicas Completas para o seu Negócio (Lote #3)',
-      preheader: 'Reduza custos tributários com locação pura de equipamentos (SV 31 STF).',
+      preheader: 'Reduza custos tributários com locação de equipamentos (SV 31 STF).',
       status: 'SENT',
       emailType: 'REGULAR',
       sendingProvider: 'MARKETING_ESP',
@@ -3085,7 +3085,7 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
   const marketingCampaigns: NonNullable<CrmDatabaseState['marketingCampaigns']> = [
     {
       id: 'cmp-1',
-      name: 'Campanha ABM Q4 — Substituição CAPEX por Locação Pura (0% ISS — SV 31 STF)',
+      name: 'Campanha ABM Q4 — Substituição CAPEX por Locação (0% ISS — SV 31 STF)',
       objective: 'Gerar oportunidades de locação recorrente de servidores, switches PoE e FortiGate SD-WAN em contas Enterprise Tier 1.',
       status: 'ACTIVE',
       channel: 'LinkedIn Ads + E-mail ABM + Landing Page',
@@ -3229,9 +3229,9 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
   const marketingLandingPages: NonNullable<CrmDatabaseState['marketingLandingPages']> = [
     {
       id: 'lp-locacao-sv31',
-      name: 'LP Executiva — Locação Pura de Servidores, PABX IP & SD-WAN (0% ISS SV 31 STF)',
+      name: 'LP Executiva — Locação de Servidores, PABX IP & SD-WAN (0% ISS SV 31 STF)',
       slug: 'locacao-equipamentos-ti-telecom-sv31',
-      title: 'Substitua CAPEX por Locação Pura com 0% de ISSQN e SLA NOC 24x7',
+      title: 'Substitua CAPEX por Locação com 0% de ISSQN e SLA NOC 24x7',
       subtitle: 'Simule a redução imediata de TCO em servidores, switches PoE, terminais IP Yealink e firewalls FortiGate.',
       formId: 'form-enterprise-demo',
       campaignId: 'cmp-1',

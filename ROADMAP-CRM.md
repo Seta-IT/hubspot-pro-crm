@@ -30,7 +30,7 @@
 - **Quotas, Metas & Comissões MRR (`SalesHubProSuite` — `QUOTAS_COMMISSIONS`)**:
   - Acompanhamento individual de metas de MRR Novo e TCV por executivo da Seta Telecom (`Marcéllo Lopes Mira`, `Michelle da Rocha`, `Evelyn Ternero`), aceleradores de comissão para contratos de 24/36 meses e atingimento de quota em tempo real.
 - **Playbooks de Vendas B2B (`PLAYBOOKS`)**:
-  - Roteiros interativos de descoberta e fechamento telecom/TI (Substituição CAPEX por Locação Pura SV 31 STF, Qualificação PABX IP Cloud/Yealink, Objeções Jurídicas e SLA NOC) com checklist e geração automática de nota estruturada na timeline do negócio.
+  - Roteiros interativos de descoberta e fechamento telecom/TI (Substituição CAPEX por Locação SV 31 STF, Qualificação PABX IP Cloud/Yealink, Objeções Jurídicas e SLA NOC) com checklist e geração automática de nota estruturada na timeline do negócio.
 - **Agendador Executivo de Reuniões (`MEETINGS_SCHEDULER`)**:
   - Links públicos de agendamento (`/reuniao/marcello-mira`, `/reuniao/engenharia-seta`) sincronizados com a agenda comercial e criação automática de evento `MEETING` na timeline.
 - **Cadências Automatizadas (`SequencesSection.tsx` / `/api/sequences`)**:
@@ -41,7 +41,7 @@
 ## 3. Marketing Hub ABM (`MarketingAndSalesHubSuites.tsx` + `FormsBuilderTab.tsx`)
 
 - **Campanhas & Atribuição de ROI Multi-Touch (`CAMPAIGNS_ROI`)**:
-  - Gestão de campanhas B2B (ABM Q4 Locação Pura 0% ISS, Modernização PABX IP & Gateways SIP, Webinar SD-WAN & Segurança) com rastreamento de orçamento, sessões, contatos gerados, MQLs, SQLs, negócios atribuídos e **ROI em R$**.
+  - Gestão de campanhas B2B (ABM Q4 Locação 0% ISS, Modernização PABX IP & Gateways SIP, Webinar SD-WAN & Segurança) com rastreamento de orçamento, sessões, contatos gerados, MQLs, SQLs, negócios atribuídos e **ROI em R$**.
 - **E-mail Marketing ABM (`EMAIL_MARKETING`)**:
   - Disparo segmentado de newsletters técnicas e campanhas ABM com métricas de taxa de entrega, abertura (`Open Rate`), cliques (`CTR`) e respostas.
 - **Listas Ativas & Lead Scoring Preditivo (`SEGMENTS_SCORING`)**:
@@ -249,7 +249,7 @@ A plataforma gerencia integralmente o ciclo comercial B2B da Seta Telecom, indo 
 - **14 Requisitos Técnicos**: Editor drag-and-drop em nós, condições AND/OR, ramificações aninhadas, execução idempotente, histórico por etapa, modo de simulação, logs de erros, reprocessamento seguro, versionamento, publicação controlada, rollback, detecção de loops, limites de execução por contato e cancelamento imediato de ações agendadas quando ocorrer uma saída obrigatória.
 
 #### MÓDULO E — CAMPANHAS DE EMAIL MARKETING
-- **13 Tipos de Campanhas**: Individuais, Em massa, Newsletters, Segmentadas, Recorrentes, Automatizadas, Nutrição, Reengajamento, Relacionamento, Eventos, Baseadas em comportamento, Aniversário/datas relevantes e Campanhas comerciais vinculadas a produtos e serviços (ex.: Locação Pura SV 31 STF, PABX IP, SD-WAN).
+- **13 Tipos de Campanhas**: Individuais, Em massa, Newsletters, Segmentadas, Recorrentes, Automatizadas, Nutrição, Reengajamento, Relacionamento, Eventos, Baseadas em comportamento, Aniversário/datas relevantes e Campanhas comerciais vinculadas a produtos e serviços (ex.: Locação SV 31 STF, PABX IP, SD-WAN).
 - **16 Atributos Obrigatórios por Campanha**: Nome, Objetivo, Público, Critérios de inclusão, Critérios de exclusão, Remetente, Assunto, Preheader, Template, Data de envio, Configuração de rastreamento (UTMs/Clicks), Configuração de descadastro, Status, Resultados (funil completo), Histórico de alterações e Responsável.
 
 #### MÓDULO F — RELATÓRIOS AVANÇADOS E ANALYTICS

@@ -1548,7 +1548,7 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
     required: true,
     hubspotSynced: true,
     gestaoClickSynced: true,
-    description: 'Distingue locação pura de bens móveis (0% ISS) de venda ou serviços técnicos.',
+    description: 'Distingue locação de bens móveis (0% ISS) de venda ou serviços técnicos.',
   },
   {
     id: 'cf-deal-priority',
@@ -1725,7 +1725,7 @@ export const INITIAL_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     category: 'ERP_FINANCE_FISCAL',
     subjectTemplate: '[Seta Telecom] Fatura / Recibo de Locação #{{fatura.numero}} (Isento de ISS — SV 31 STF) — {{empresa.razao_social}}',
     bodyTemplate:
-      'Prezado(a) {{contato.nome}} ({{empresa.razao_social}}),\n\nSegue a Fatura / Recibo de Locação de Bens Móveis Nº {{fatura.numero}} referente ao Contrato {{contrato.numero}}.\n\n• Valor Líquido: {{fatura.valor}}\n• Amparo Legal: Operação de Locação Pura de Bens Móveis (Art. 565 do Código Civil) — Não incidência de ISSQN conforme Veto ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF, vinculada à NF-e de Remessa CFOP 5.908.\n\nAtenciosamente,\nFaturamento & Contratos • SETA TELECOM LTDA',
+      'Prezado(a) {{contato.nome}} ({{empresa.razao_social}}),\n\nSegue a Fatura / Recibo de Locação de Bens Móveis Nº {{fatura.numero}} referente ao Contrato {{contrato.numero}}.\n\n• Valor Líquido: {{fatura.valor}}\n• Amparo Legal: Operação de Locação de Bens Móveis (Art. 565 do Código Civil) — Não incidência de ISSQN conforme Veto ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF, vinculada à NF-e de Remessa CFOP 5.908.\n\nAtenciosamente,\nFaturamento & Contratos • SETA TELECOM LTDA',
     variables: ['{{contato.nome}}', '{{empresa.razao_social}}', '{{fatura.numero}}', '{{contrato.numero}}', '{{fatura.valor}}'],
     updatedAt: '2026-10-26T15:00:00.000Z',
   },
@@ -1758,7 +1758,7 @@ export const INITIAL_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     category: 'CRM_MARKETING',
     subjectTemplate: 'Como reduzir em até 28% o OPEX de TI e Telefonia IP na {{empresa.razao_social}}',
     bodyTemplate:
-      'Olá, {{contato.nome}},\n\nEmpresas líderes como Nubank, TOTVS e RD Station substituíram a compra imobilizada (CAPEX) de switches, firewalls SD-WAN e centrais PABX IP pelo modelo de Locação Pura da Seta Telecom (100% dedutível e isento de ISS conforme Súmula Vinculante 31 do STF, com SLA 99,95% e substituição expressa de hardware).\n\nSolicite uma simulação tributária e técnica gratuita para a {{empresa.razao_social}}.\n\nEquipe de Growth • SETA TELECOM LTDA (SETA | IT)',
+      'Olá, {{contato.nome}},\n\nEmpresas líderes como Nubank, TOTVS e RD Station substituíram a compra imobilizada (CAPEX) de switches, firewalls SD-WAN e centrais PABX IP pelo modelo de Locação da Seta Telecom (100% dedutível e isento de ISS conforme Súmula Vinculante 31 do STF, com SLA 99,95% e substituição expressa de hardware).\n\nSolicite uma simulação tributária e técnica gratuita para a {{empresa.razao_social}}.\n\nEquipe de Growth • SETA TELECOM LTDA (SETA | IT)',
     variables: ['{{contato.nome}}', '{{empresa.razao_social}}'],
     updatedAt: '2026-10-26T15:00:00.000Z',
   },

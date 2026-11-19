@@ -947,7 +947,7 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
           ? 'TED_BANCARIA'
           : 'BOLETO_PIX',
       serviceCodeLc116: isLocacao
-        ? 'N/A — Locação Pura de Bens Móveis (LC 116/03 + SV 31 STF)'
+        ? 'N/A — Locação de Bens Móveis (LC 116/03 + SV 31 STF)'
         : '01.07 — Suporte técnico em informática e telecomunicações',
       cfop: isLocacao ? 'N/A (Fatura de Locação ref. NF-e Remessa CFOP 5.908)' : '5.933',
       cstIcms: '41 - Não Tributada',

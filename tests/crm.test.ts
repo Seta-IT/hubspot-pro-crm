@@ -682,7 +682,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
 
     const locInvoice = ov.invoices.find((i) => i.documentType === 'FATURA_LOCACAO');
     assert.ok(locInvoice);
-    assert.equal(locInvoice!.taxBreakdown.issAmount, 0, 'Locação pura de bens móveis não incide ISS (SV 31 STF)');
+    assert.equal(locInvoice!.taxBreakdown.issAmount, 0, 'Locação de bens móveis não incide ISS (SV 31 STF)');
 
     // 2. Aprovar Proposta PROP-2026-002 -> Gera Contrato de Locação + Fatura de Locação automaticamente
     const appRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,

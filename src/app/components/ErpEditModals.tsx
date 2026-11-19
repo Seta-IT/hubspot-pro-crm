@@ -696,7 +696,7 @@ export function ProposalEditModal({
                   <option value="SERVICOS">Orçamento de Serviços</option>
                   <option value="SPARE_PARTS">Spare Parts / Hard Parts</option>
                   <option value="CONJUNTO">Orçamento conjunto</option>
-                  <option value="LOCACAO">Locação Pura &amp; Conectividade</option>
+                  <option value="LOCACAO">Locação &amp; Conectividade</option>
                 </select>
               </div>
             </div>

@@ -192,7 +192,7 @@
   - `src/app/components/ErpGestaoClickTab.tsx`
 - **Rotas de API:**
   - `POST /api/erp/financial/reconcile-ofx` (Parseia blocos `<STMTTRN>` de arquivos `.OFX` do Banco Inter `077` e Banco Itaú `341`, concilia e baixa títulos em aberto da Seta Telecom LTDA CNPJ `14.806.925/0001-32` e atualiza o saldo bancário)
-  - `GET /api/erp/financial/dre` (Demonstrativo de Resultado do Exercício vertical completo com Receita Bruta separada em Locação Pura SV 31 STF 0% ISS, Serviços LC 116 01.07 e Vendas Hardware, Deduções, Economia Tributária SV 31 STF, Custos, Margem Bruta, Despesas, EBITDA e Lucro Líquido — Mensal e Acumulado)
+  - `GET /api/erp/financial/dre` (Demonstrativo de Resultado do Exercício vertical completo com Receita Bruta separada em Locação SV 31 STF 0% ISS, Serviços LC 116 01.07 e Vendas Hardware, Deduções, Economia Tributária SV 31 STF, Custos, Margem Bruta, Despesas, EBITDA e Lucro Líquido — Mensal e Acumulado)
   - `GET / POST / PATCH / DELETE /api/erp/financial` & `POST /api/erp/financial/:id/pay`
 - **Entregas Concluídas:**
   - Gestão das 9 contas bancárias da Seta Telecom (`Banco Inter` #237906, `Banco Itaú` #142155, `Conta Integrada` #710407, etc. — Saldo disponível R$ 2,20M).

@@ -41,7 +41,7 @@ export type MarketingHubSubView =
 const INITIAL_CAMPAIGNS: MarketingCampaign[] = [
   {
     id: 'cmp-1',
-    name: 'Campanha ABM Q4 — Substituição CAPEX por Locação Pura (0% ISS — SV 31 STF)',
+    name: 'Campanha ABM Q4 — Substituição CAPEX por Locação (0% ISS — SV 31 STF)',
     objective: 'Gerar oportunidades de locação recorrente de servidores, switches PoE e FortiGate SD-WAN.',
     status: 'ACTIVE',
     channel: 'LinkedIn Ads + E-mail ABM + Landing Page',
@@ -172,9 +172,9 @@ const INITIAL_SEGMENTS: MarketingSegment[] = [
 const INITIAL_LANDING_PAGES: MarketingLandingPage[] = [
   {
     id: 'lp-locacao-sv31',
-    name: 'LP Executiva — Locação Pura de Servidores, PABX IP & SD-WAN (0% ISS SV 31 STF)',
+    name: 'LP Executiva — Locação de Servidores, PABX IP & SD-WAN (0% ISS SV 31 STF)',
     slug: 'locacao-equipamentos-ti-telecom-sv31',
-    title: 'Substitua CAPEX por Locação Pura com 0% de ISSQN e SLA NOC 24x7',
+    title: 'Substitua CAPEX por Locação com 0% de ISSQN e SLA NOC 24x7',
     subtitle: 'Simule a redução imediata de TCO em servidores, switches PoE, terminais IP Yealink e firewalls FortiGate.',
     formId: 'form-enterprise-demo',
     campaignId: 'cmp-1',
@@ -1016,7 +1016,7 @@ export function SalesHubProToolsStrip({
             </div>
             <p className="text-slate-600 leading-relaxed">
               1. <strong>Diagnóstico GPCT:</strong> Identificar gasto atual com telefonia legada, links e manutenção avulsa.<br />
-              2. <strong>Argumento Tributário (SV 31 STF):</strong> Demonstrar economia imediata de 5% de ISSQN na Fatura de Locação Pura + dedutibilidade OPEX.<br />
+              2. <strong>Argumento Tributário (SV 31 STF):</strong> Demonstrar economia imediata de 5% de ISSQN na Fatura de Locação + dedutibilidade OPEX.<br />
               3. <strong>Fechamento:</strong> Gerar Orçamento (#4695) com Link PDF A4 e enviar para assinatura digital.
             </p>
           </div>

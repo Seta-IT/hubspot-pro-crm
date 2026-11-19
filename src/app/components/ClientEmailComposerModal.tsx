@@ -239,7 +239,7 @@ Segue a Fatura / Recibo de Locação de Equipamentos Nº ${code} da SETA TELECOM
 • Locatária: ${comp} ${p.companyCnpj ? `(CNPJ: ${p.companyCnpj})` : ''}
 • Valor Líquido da Locação: ${valStr}
 • Vencimento: ${p.dueDate || '10/11/2026'}
-• Amparo Legal Tributário: Operação de Locação Pura de Bens Móveis (Art. 565 do Código Civil) — Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF (0% ISS).
+• Amparo Legal Tributário: Operação de Locação de Bens Móveis (Art. 565 do Código Civil) — Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF (0% ISS).
 ${p.invoiceId ? '' : `• Linha Digitável Boleto: ${p.boletoLine || '34191.79001 01043.510047 91020.150008 8 98650001200000'}
 `}
 ${p.invoiceId ? (pdfLink ? `Link da fatura / recibo para o cliente:
