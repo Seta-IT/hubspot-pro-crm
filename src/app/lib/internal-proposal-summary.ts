@@ -11,7 +11,7 @@
  */
 import type { ErpCommercialProposal, ErpProposalItem } from '../../db/types';
 import { formatProposalDisplayCode } from './proposal-number';
-import { isAvulsoServiceProposal, proposalHidesFreight, resolveProposalSlaOption } from './proposal-share';
+import { isAvulsoServiceProposal, proposalHidesFreight, proposalSetupFeeLabel, resolveProposalSlaOption } from './proposal-share';
 import { buildInternalProposalSheet, type InternalProposalIssuerInput, type InternalProposalSheet } from './internal-proposal-sheet';
 
 export const INTERNAL_PROPOSAL_PATH_PREFIX = '/interno/proposta';
@@ -348,7 +348,7 @@ export function toInternalProposalSummary(
   }
   if (showOneTime || setup > 0) {
     oneTimeRows.push({
-      label: 'Instalação / setup',
+      label: proposalSetupFeeLabel(proposal, 'internal'),
       value:
         proposal.setupFee === undefined && proposal.oneTimeSetupTotal === undefined
           ? INTERNAL_FIELD_MISSING

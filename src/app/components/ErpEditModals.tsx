@@ -61,7 +61,7 @@ import {
   formatCpfMask,
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
-import { buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, proposalHidesFreight, readablePaymentCondition, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
+import { buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, proposalHidesFreight, proposalSetupFeeLabel, readablePaymentCondition, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
 import { resolveTechnicalClausesOnEdit } from '../lib/proposal-technical-clauses';
 import { displayPaymentConditionText, proposalPaymentMethodLabel, proposalPaymentMethodOptions, selectableContractPaymentMethods } from '../lib/proposal-payment-method';
 import { useContractAuxiliaryOptions } from '../lib/use-contract-aux-options';
@@ -1276,7 +1276,7 @@ export function ProposalEditModal({
                         }
                         className="accent-[#1e3a6e]"
                       />
-                      <span>Incluir setup (R$)</span>
+                      <span>{proposalSetupFeeLabel(draft, 'include')}</span>
                     </label>
                   </div>
                   {Number(draft.setupFee || 0) > 0 ? (
@@ -1288,12 +1288,12 @@ export function ProposalEditModal({
                       onChange={(e) =>
                         updateDraft({ setupFee: Math.max(0, Number(e.target.value) || 0) })
                       }
-                      placeholder="Valor do setup"
+                      placeholder={proposalSetupFeeLabel(draft, 'placeholder')}
                       className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-right font-semibold text-slate-900"
                     />
                   ) : (
                     <div className="px-3 py-2 rounded border border-dashed border-slate-300 bg-slate-50 text-[11px] text-slate-500">
-                      Sem setup
+                      {proposalSetupFeeLabel(draft, 'empty')}
                     </div>
                   )}
                 </div>
@@ -1522,7 +1522,7 @@ export function ProposalEditModal({
                 {draft.budgetType !== "SPARE_PARTS" && (
                 <div>
                   <span className="text-[10px] uppercase font-semibold text-slate-500 block">
-                    Setup único
+                    {proposalSetupFeeLabel(draft, 'unique')}
                   </span>
                   <strong className="text-xs font-semibold text-amber-800">
                     {formatBRL(draft.oneTimeSetupTotal || 0)}
@@ -2004,7 +2004,7 @@ export function ProposalEditModal({
                     <>Valor mensal: <strong>{formatBRL(draft.monthlyRecurringTotal)}/mês</strong></>
                   )}
                   {draft.budgetType !== "SPARE_PARTS" && (
-                    <> • Setup: <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong></>
+                    <> • {proposalSetupFeeLabel(draft, 'footer')}: <strong>{formatBRL(draft.oneTimeSetupTotal)}</strong></>
                   )}
                   {!proposalHidesFreight(draft) && (
                     <> • Frete: <strong>{formatBRL(draft.shippingCost || 0)}</strong></>

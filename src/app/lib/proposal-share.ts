@@ -678,14 +678,74 @@ function monthsMentionedInText(texts: Array<string | null | undefined>): number 
  * Serviço avulso: a opção do formulário continua gravada como contractMonths === 1.
  * Locação e produtos com 1 mês não entram aqui.
  */
+export function isServicosBudgetProposal(proposal: {
+  budgetType?: string | null;
+}): boolean {
+  return String(proposal.budgetType || '').toUpperCase() === 'SERVICOS';
+}
+
 export function isAvulsoServiceProposal(proposal: {
   budgetType?: string | null;
   contractMonths?: number | null;
 }): boolean {
   return (
-    String(proposal.budgetType || '').toUpperCase() === 'SERVICOS' &&
+    isServicosBudgetProposal(proposal) &&
     Number(proposal.contractMonths) === 1
   );
+}
+
+/**
+ * Rótulo exibido da taxa única de setup/ativação.
+ * Só em propostas de serviço (budgetType SERVICOS) o texto vira "Serviço".
+ * Locação, conjunto e demais tipos mantêm Setup / Ativação e as variantes.
+ * Não altera chaves internas nem dados gravados.
+ */
+export type ProposalSetupFeeLabelVariant =
+  | 'default'
+  | 'unique'
+  | 'isolated'
+  | 'internal'
+  | 'include'
+  | 'empty'
+  | 'placeholder'
+  | 'footer';
+
+export function proposalSetupFeeLabel(
+  proposal: { budgetType?: string | null },
+  variant: ProposalSetupFeeLabelVariant = 'default'
+): string {
+  if (isServicosBudgetProposal(proposal)) {
+    switch (variant) {
+      case 'include':
+        return 'Incluir serviço (R$)';
+      case 'empty':
+        return 'Sem serviço';
+      case 'placeholder':
+        return 'Valor do serviço';
+      case 'isolated':
+        return 'Serviço:';
+      default:
+        return 'Serviço';
+    }
+  }
+  switch (variant) {
+    case 'unique':
+      return 'Setup único';
+    case 'isolated':
+      return 'Taxa de Setup (Isolada):';
+    case 'internal':
+      return 'Instalação / setup';
+    case 'include':
+      return 'Incluir setup (R$)';
+    case 'empty':
+      return 'Sem setup';
+    case 'placeholder':
+      return 'Valor do setup';
+    case 'footer':
+      return 'Setup';
+    default:
+      return 'Setup / Ativação';
+  }
 }
 
 /**

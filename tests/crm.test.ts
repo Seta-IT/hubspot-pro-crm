@@ -3234,9 +3234,15 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
       "À vista • Vencimento 16/11/2026"
     );
 
-    // 6. Setup / Ativação só aparece quando selecionado (hasSetupSelected)
+    // 6. Setup / Ativação só aparece quando selecionado (hasSetupSelected).
+    // Em propostas de serviço (SERVICOS) o rótulo exibido é "Serviço"; locação e demais tipos mantêm o texto antigo.
     assert.ok(pageSrc.includes("hasSetupSelected && ("));
-    assert.ok(modalsSrc.includes("Incluir setup (R$)") || modalsSrc.includes("Incluir Setup / Ativação (R$)"));
+    assert.ok(pageSrc.includes("proposalSetupFeeLabel"));
+    assert.ok(modalsSrc.includes("proposalSetupFeeLabel"));
+    assert.equal(shareMod.proposalSetupFeeLabel({ budgetType: "SERVICOS" }), "Serviço");
+    assert.equal(shareMod.proposalSetupFeeLabel({ budgetType: "LOCACAO" }), "Setup / Ativação");
+    assert.equal(shareMod.proposalSetupFeeLabel({ budgetType: "CONJUNTO" }, "unique"), "Setup único");
+    assert.equal(shareMod.proposalSetupFeeLabel({ budgetType: "SERVICOS" }, "unique"), "Serviço");
 
     // 7. Alterado de Investimento Mensal (MRR) para Valor Mensal
     assert.equal(pageSrc.includes("Investimento Mensal (MRR)"), false);
