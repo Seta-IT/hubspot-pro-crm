@@ -132,6 +132,8 @@ export interface MailboxStore {
   recordOpen(trackingId: string, now?: number): Promise<void>;
   /** Registra clique e retorna o destino gravado (ou null). */
   recordClick(trackingId: string, linkIndex: number, now?: number): Promise<string | null>;
+  /** Fase 3 (funil de campanhas): aberturas/cliques por id de rastreio (ate 5000 ids). */
+  trackingStats(trackingIds: string[]): Promise<Array<{ trackingId: string; openCount: number; clickCount: number }>>;
 }
 
 export function newMailboxId(prefix: string): string {
@@ -236,6 +238,12 @@ export class MemoryMailboxStore implements MailboxStore {
       .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
       .slice(0, limit)
       .map((m) => ({ ...m }));
+  }
+  async trackingStats(trackingIds: string[]) {
+    const set = new Set(trackingIds.slice(0, 5000));
+    return this.messages
+      .filter((m) => m.trackingId && set.has(m.trackingId))
+      .map((m) => ({ trackingId: m.trackingId as string, openCount: m.openCount, clickCount: m.clickCount }));
   }
   async recordOpen(trackingId: string, now = Date.now()) {
     const m = this.messages.find((x) => x.trackingId === trackingId);
@@ -525,6 +533,15 @@ export class PostgresMailboxStore implements MailboxStore {
     vals.push(Math.min(Math.max(1, limit), 200));
     const r = await (await this.db()).query(`SELECT * FROM crm_email_messages WHERE ${conds.join(' OR ')} ORDER BY occurred_at DESC LIMIT $${vals.length}`, vals);
     return r.rows.map(rowToMessage);
+  }
+  async trackingStats(trackingIds: string[]) {
+    const ids = trackingIds.filter((t) => typeof t === 'string' && t.length > 0).slice(0, 5000);
+    if (!ids.length) return [];
+    const r = await (await this.db()).query(
+      `SELECT tracking_id, open_count, click_count FROM crm_email_messages WHERE tracking_id = ANY($1::text[])`,
+      [ids]
+    );
+    return r.rows.map((row: any) => ({ trackingId: String(row.tracking_id), openCount: Number(row.open_count) || 0, clickCount: Number(row.click_count) || 0 }));
   }
   async recordOpen(trackingId: string, now = Date.now()) {
     const db = await this.db();

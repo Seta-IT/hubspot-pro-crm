@@ -19,6 +19,7 @@ import {
 import { formatBRL } from './ui-helpers';
 import { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import MarketingEmailsManager from './MarketingEmailsManager';
+import MarketingCampaignStudio from './MarketingCampaignStudio';
 import type {
   AccountEngagementSummary,
   MarketingCampaign,
@@ -620,6 +621,9 @@ export function MarketingHubSuiteTop({
           </div>
         </div>
       )}
+
+      {/* Fase 3 (19/11): campanhas reais (modelos aprovados, domínio, fila e funil) */}
+      {activeView === 'EMAIL_MARKETING' && <MarketingCampaignStudio campaigns={campaigns} />}
 
       {/* VIEW 2: EMAIL MARKETING & MASS ABM DISPATCH */}
       {activeView === 'EMAIL_MARKETING' && (

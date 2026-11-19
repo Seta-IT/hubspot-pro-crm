@@ -45,6 +45,18 @@ export function isPublicStiHubPath(pathname: string, method = 'GET'): boolean {
   ) {
     return true;
   }
+  // Fase 3 (19/11): descadastro de campanha (token HMAC conferido na rota; GET so mostra a pagina,
+  // POST = one-click RFC 8058) e webhook do ESP (assinatura Svix conferida na rota). So o formato exato.
+  {
+    const upper = String(method || 'GET').toUpperCase();
+    if (
+      (upper === 'GET' || upper === 'POST') &&
+      /^\/api\/marketing\/preferences\/unsubscribe\/[A-Za-z0-9_-]{10,400}\.[A-Za-z0-9_-]{43}$/.test(clean)
+    ) {
+      return true;
+    }
+    if (upper === 'POST' && clean === '/api/marketing/webhooks/resend') return true;
+  }
   // Public proposal view & external ICP-Brasil client approval link (/proposta/[id]).
   // Restricts public access exclusively to individual proposal routes with a specific :id
   // (GET /api/erp/proposals/:id and POST /api/erp/proposals/:id/approve).
@@ -423,7 +435,8 @@ export function middleware(req: NextRequest) {
     (pathname === '/api/erp/daily-sync' ||
       pathname === '/api/crm/proposal-followup' ||
       pathname === '/api/tickets/email-intake/poll' ||
-      pathname === '/api/cron/sequences') &&
+      pathname === '/api/cron/sequences' ||
+      pathname === '/api/cron/marketing') &&
     req.method === 'GET' &&
     constantTimeEqual(req.headers.get('authorization') || '', `Bearer ${cronSecret}`)
   ) {

@@ -114,6 +114,32 @@ import {
   runSequenceScheduler,
 } from '../modules/sequences/sequence-live-sender';
 import { isSequenceLiveSendEnabled, resolveSequenceTestRecipients } from '../modules/sequences/sequence-live-config';
+import {
+  MARKETING_CRON_PATH,
+  applyEspEvent,
+  applyUnsubscribe,
+  campaignFunnel,
+  enqueueCampaign,
+  marketingPreflight,
+  processMarketingQueue,
+  sendMarketingTest,
+  type MarketingDeps,
+} from '../modules/marketing/campaign-dispatcher';
+import { getDefaultMarketingStore, MemoryMarketingStore, type MarketingStore } from '../modules/marketing/marketing-store';
+import {
+  approveTemplate,
+  createTemplate,
+  rejectTemplate,
+  saveTemplateDraft,
+  submitTemplateForReview,
+  TemplateWorkflowError,
+} from '../modules/marketing/template-service';
+import { isMarketingLiveSendEnabled, isMarketingPurpose, MARKETING_PURPOSES, MARKETING_PURPOSE_LABELS } from '../modules/marketing/marketing-config';
+import type { HttpFetch, SmtpTransportLike } from '../modules/marketing/esp-adapters';
+import type { TxtResolver } from '../modules/marketing/domain-auth';
+import type { NormalizedEspEvent } from '../modules/marketing/resend-webhook';
+import type { DistributedLockStore } from '../db/distributed-lock';
+import { TEMPLATE_BLOCK_LABELS } from '../modules/marketing/template-blocks';
 import type { SequenceExitRuleTrigger } from '../db/types';
 import { AiInsightsService } from '../modules/ai-insights/ai-insights-service';
 import nodemailer from 'nodemailer';
@@ -927,6 +953,15 @@ export function isAuthorizedSequencesCron(
   return method === 'GET' && cleanPath === SEQUENCE_CRON_PATH && query._fromHttpBridge === '1' && query._cronAuthorized === '1';
 }
 
+/** Fase 3 (19/11): GET /api/cron/marketing (fila das campanhas) autenticado pelo bridge. */
+export function isAuthorizedMarketingCron(
+  method: string,
+  cleanPath: string,
+  query: Record<string, string | undefined>
+): boolean {
+  return method === 'GET' && cleanPath === MARKETING_CRON_PATH && query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+}
+
 export function shouldPersistAfterDispatch(
   method: string,
   cleanPath: string,
@@ -935,7 +970,21 @@ export function shouldPersistAfterDispatch(
 ): boolean {
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return status >= 200 && status < 400;
   if (isAuthorizedSequencesCron(method, cleanPath, query)) return status >= 200 && status < 300;
+  if (isAuthorizedMarketingCron(method, cleanPath, query)) return status >= 200 && status < 300;
   return isAuthorizedDailySyncCron(method, cleanPath, query) && status >= 200 && status < 300;
+}
+
+/** Fase 3: dependencias injetaveis do envio de campanhas (testes nunca saem para a rede). */
+export interface MarketingRouterOptions {
+  store?: MarketingStore;
+  env?: NodeJS.ProcessEnv;
+  espFetch?: HttpFetch;
+  smtpTransportFactory?: (url: string) => SmtpTransportLike;
+  lock?: DistributedLockStore;
+  resolver?: TxtResolver;
+  now?: () => Date;
+  sleep?: (ms: number) => Promise<void>;
+  origin?: string;
 }
 
 export class CrmApiRouter {
@@ -972,9 +1021,13 @@ export class CrmApiRouter {
   private readonly mailboxFetch: FetchLike;
   private readonly mailboxSendLimiter = newMailboxSendLimiter();
 
+  /** Fase 3: campanhas de marketing (tabelas mkt_*, fora do crm_state_v1) e dependencias injetaveis. */
+  private readonly marketingStore: MarketingStore;
+  private readonly marketingOptions: MarketingRouterOptions;
+
   constructor(
     repo?: CrmRepository,
-    options?: { certificateStore?: CertificateStore; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike }
+    options?: { certificateStore?: CertificateStore; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike; marketing?: MarketingRouterOptions }
   ) {
     this.isSingletonRepo = !repo;
     this.repo = repo || getRepository();
@@ -983,6 +1036,236 @@ export class CrmApiRouter {
       (!repo ? getDefaultCertificateStore() : isPostgresEnabled() ? new PostgresCertificateStore() : new MemoryCertificateStore());
     this.mailboxStore = options?.mailboxStore || (!repo ? getDefaultMailboxStore() : new MemoryMailboxStore());
     this.mailboxFetch = options?.mailboxFetch || ((input, init) => fetch(input, init));
+    this.marketingOptions = options?.marketing || {};
+    this.marketingStore = this.marketingOptions.store || (!repo ? getDefaultMarketingStore() : new MemoryMarketingStore());
+  }
+
+  /** Fase 3: dependencias do envio de campanhas (ESP so via fetch/transporte injetaveis). */
+  private marketingDeps(query: Record<string, string | undefined>): MarketingDeps {
+    void query;
+    const o = this.marketingOptions;
+    return {
+      store: this.marketingStore,
+      mailbox: this.mailboxStore,
+      env: o.env,
+      esp: {
+        fetch: o.espFetch || ((url, init) => fetch(url, init) as unknown as ReturnType<HttpFetch>),
+        smtpTransportFactory: o.smtpTransportFactory || ((url: string) => nodemailer.createTransport(url) as unknown as SmtpTransportLike),
+      },
+      lock: o.lock,
+      resolver: o.resolver,
+      now: o.now,
+      sleep: o.sleep,
+      reloadState: this.canPersistToPostgres() ? () => this.reloadStateForSequenceRun() : undefined,
+      origin: o.origin,
+    };
+  }
+
+  /** Fase 3: alcada de marketing (aprovar modelo, envio real, teste, fila) = admin ou CRM total, com 2FA. */
+  private marketingPrivilege(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean }
+  ): { allowed: boolean; authenticated: boolean; actor: string } {
+    if (ctx.trustedInternal) return { allowed: true, authenticated: true, actor: 'Sistema STI-hub' };
+    const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+    const user = sess && sess.authenticated ? sess.user : null;
+    if (!sess || !sess.authenticated || !user) return { allowed: false, authenticated: false, actor: '' };
+    const actorRec = this.repo.findRbacUserRecord(user.id, user.email);
+    const allowed = Boolean(sess.mfaVerified && (sess.effectiveActionGuards?.canManageUsersRbac || isModuleFullControl(actorRec, 'CRM')));
+    return { allowed, authenticated: true, actor: String(user.email || user.name || '').toLowerCase() };
+  }
+
+  /** Fase 3: rotas de campanhas reais (modelos, dominio, fila, funil, eventos do ESP, descadastro). */
+  private async handleMarketingLive(
+    method: string,
+    cleanPath: string,
+    query: Record<string, string | undefined>,
+    body: Record<string, unknown>,
+    ctx: { trustedInternal: boolean }
+  ): Promise<ApiResponse | null> {
+    if (!cleanPath.startsWith('/api/marketing/') && cleanPath !== MARKETING_CRON_PATH) return null;
+    const deps = this.marketingDeps(query);
+    const forbidden = (p: { authenticated: boolean }): ApiResponse => ({
+      status: p.authenticated ? 403 : 401,
+      body: { error: 'Ação restrita a administradores ou ao controle total do CRM (com 2FA).' },
+    });
+    const wrap = async (fn: () => Promise<ApiResponse>): Promise<ApiResponse> => {
+      try {
+        return await fn();
+      } catch (err) {
+        if (err instanceof TemplateWorkflowError) return { status: err.status, body: { error: err.message } };
+        throw err;
+      }
+    };
+
+    // Cron da fila (Vercel Cron com CRON_SECRET) ----------------------------------------------
+    if (cleanPath === MARKETING_CRON_PATH && method === 'GET') {
+      const cronOk = query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+      if (!ctx.trustedInternal && !cronOk) return { status: query._sessionToken ? 403 : 401, body: { error: 'Forbidden' } };
+      const result = await processMarketingQueue(this.repo, deps);
+      return { status: 200, body: { data: result } };
+    }
+
+    // Rotas internas (so contexto confiavel do servidor; nunca HTTP) ------------------------------
+    if (cleanPath === '/api/marketing/esp-events' && method === 'POST') {
+      if (!ctx.trustedInternal) return { status: 404, body: { error: 'Not found' } };
+      const ev = body.event as NormalizedEspEvent | undefined;
+      if (!ev || typeof ev.providerEventId !== 'string' || typeof ev.type !== 'string') return { status: 400, body: { error: 'evento inválido' } };
+      const r = await applyEspEvent(this.repo, deps, ev);
+      return { status: 200, body: { data: r } };
+    }
+    if (cleanPath === '/api/marketing/unsubscribe-apply' && method === 'POST') {
+      if (!ctx.trustedInternal) return { status: 404, body: { error: 'Not found' } };
+      const c = body.claims as { contactId?: unknown; campaignId?: unknown; purpose?: unknown } | undefined;
+      if (!c || typeof c.contactId !== 'string' || typeof c.campaignId !== 'string' || !isMarketingPurpose(c.purpose)) {
+        return { status: 400, body: { error: 'pedido inválido' } };
+      }
+      const scope = body.scope === 'ALL_MARKETING' ? 'ALL_MARKETING' : 'PURPOSE';
+      const r = await applyUnsubscribe(this.repo, deps, { contactId: c.contactId, campaignId: c.campaignId, purpose: c.purpose }, scope);
+      return { status: r.ok ? 200 : 404, body: { data: r } };
+    }
+
+    // Diagnostico ----------------------------------------------------------------------------------
+    if (cleanPath === '/api/marketing/live-status' && method === 'GET') {
+      const pre = await marketingPreflight(deps, { forceDns: query.forceDns === '1' });
+      const cfg = pre.config;
+      return {
+        status: 200,
+        body: {
+          data: {
+            liveEnabled: pre.liveEnabled,
+            ready: pre.ready,
+            problems: pre.problems,
+            provider: cfg.provider,
+            fromEmail: cfg.fromEmail,
+            fromName: cfg.fromName,
+            fromDomain: cfg.fromDomain,
+            postalAddressConfigured: Boolean(cfg.postalAddress),
+            maxPerMinute: cfg.maxPerMinute,
+            maxPerRun: cfg.maxPerRun,
+            allowlistActive: pre.allowlistActive,
+            trackingEnabled: pre.trackingEnabled,
+            domain: pre.domain,
+            purposes: MARKETING_PURPOSES.map((id) => ({ id, label: MARKETING_PURPOSE_LABELS[id] })),
+            blockTypes: TEMPLATE_BLOCK_LABELS,
+          },
+        },
+      };
+    }
+
+    // Modelos --------------------------------------------------------------------------------------
+    if (cleanPath === '/api/marketing/templates') {
+      if (method === 'GET') return { status: 200, body: { data: await this.marketingStore.listTemplates() } };
+      if (method === 'POST') {
+        const actor = this.sessionUserEmail(query) || (ctx.trustedInternal ? 'Sistema STI-hub' : '');
+        if (!actor) return { status: 401, body: { error: 'Sessão necessária.' } };
+        return wrap(async () => {
+          const r = await createTemplate(this.marketingStore, body as never, actor);
+          return { status: 201, body: { data: r } };
+        });
+      }
+    }
+    const tplMatch = cleanPath.match(/^\/api\/marketing\/templates\/(mtpl-[A-Za-z0-9-]{1,60})(?:\/(submit|approve|reject|test-send))?$/);
+    if (tplMatch) {
+      const [, id, action] = tplMatch;
+      const actor = this.sessionUserEmail(query) || (ctx.trustedInternal ? 'Sistema STI-hub' : '');
+      if (!action && method === 'GET') {
+        const t = await this.marketingStore.getTemplate(id);
+        if (!t) return { status: 404, body: { error: 'Modelo não encontrado.' } };
+        return { status: 200, body: { data: { template: t, versions: await this.marketingStore.listVersions(id) } } };
+      }
+      if (!actor) return { status: 401, body: { error: 'Sessão necessária.' } };
+      if (!action && method === 'PUT') {
+        return wrap(async () => ({ status: 200, body: { data: await saveTemplateDraft(this.marketingStore, id, body as never, actor) } }));
+      }
+      if (action === 'submit' && method === 'POST') {
+        return wrap(async () => ({ status: 200, body: { data: await submitTemplateForReview(this.marketingStore, id, actor) } }));
+      }
+      if ((action === 'approve' || action === 'reject') && method === 'POST') {
+        const priv = this.marketingPrivilege(query, ctx);
+        if (!priv.allowed) return forbidden(priv);
+        return wrap(async () => ({
+          status: 200,
+          body: { data: action === 'approve' ? await approveTemplate(this.marketingStore, id, actor) : await rejectTemplate(this.marketingStore, id, actor, body.note) },
+        }));
+      }
+      if (action === 'test-send' && method === 'POST') {
+        const priv = this.marketingPrivilege(query, ctx);
+        if (!priv.allowed) return forbidden(priv);
+        const r = await sendMarketingTest(deps, {
+          templateId: id,
+          version: body.version !== undefined ? Number(body.version) : undefined,
+          to: String(body.to || ''),
+          actor,
+        });
+        return r.ok
+          ? { status: 200, body: { data: { sent: true, provider: r.provider } } }
+          : { status: r.status, body: { error: r.problems.join(' '), problems: r.problems } };
+      }
+    }
+
+    // Fila e funil ---------------------------------------------------------------------------------
+    if (cleanPath === '/api/marketing/queue/process' && method === 'POST') {
+      const priv = this.marketingPrivilege(query, ctx);
+      if (!priv.allowed) return forbidden(priv);
+      const max = Number(body.maxSends);
+      const result = await processMarketingQueue(this.repo, deps, { maxSends: Number.isFinite(max) && max > 0 ? max : undefined });
+      return { status: 200, body: { data: result } };
+    }
+    const funnelMatch = cleanPath.match(/^\/api\/marketing\/campaigns\/([A-Za-z0-9_.:-]{1,120})\/funnel$/);
+    if (funnelMatch && method === 'GET') {
+      const campaign = this.repo.getMarketingCampaignById(funnelMatch[1]);
+      if (!campaign) return { status: 404, body: { error: 'Campanha não encontrada.' } };
+      return { status: 200, body: { data: { campaignName: campaign.name, ...(await campaignFunnel(deps, campaign.id)) } } };
+    }
+
+    // Disparo real (substitui a simulacao so com MARKETING_LIVE_SEND ligado) -------------------
+    if (cleanPath === '/api/marketing/campaigns/dispatch' && method === 'POST' && isMarketingLiveSendEnabled(this.marketingOptions.env || process.env)) {
+      const priv = this.marketingPrivilege(query, ctx);
+      if (!priv.allowed) return forbidden(priv);
+      const templateId = String(body.templateId || '');
+      if (!templateId) return { status: 400, body: { error: 'Envio real exige um modelo aprovado (templateId).' } };
+      const campaign = this.repo.getMarketingCampaignById(String(body.campaignId || ''));
+      if (!campaign) return { status: 404, body: { error: 'Campanha não encontrada.' } };
+      const pre = await marketingPreflight(deps);
+      if (!pre.ready) return { status: 409, body: { error: 'Envio real bloqueado.', problems: pre.problems } };
+      let contacts = this.repo.listContacts();
+      if (Array.isArray(body.contactIds) && body.contactIds.length > 0) {
+        const idSet = new Set(body.contactIds.map((x) => String(x)));
+        contacts = contacts.filter((c) => idSet.has(c.id));
+      } else if (body.segmentId) {
+        const seg = this.repo.listMarketingSegments().find((x) => x.id === String(body.segmentId));
+        if (!seg) return { status: 404, body: { error: 'Segmento não encontrado.' } };
+        const idSet = new Set(seg.matchedContactIds || []);
+        contacts = contacts.filter((c) => idSet.has(c.id));
+      } else {
+        return { status: 400, body: { error: 'Informe o segmento (segmentId) ou os contatos (contactIds).' } };
+      }
+      return wrap(async () => {
+        const r = await enqueueCampaign(this.repo, deps, { campaignId: campaign.id, templateId, contacts });
+        return {
+          status: 200,
+          body: {
+            data: {
+              mode: 'LIVE',
+              campaignId: r.campaignId,
+              campaignName: campaign.name,
+              deliveryChannel: 'MARKETING_ESP',
+              templateId: r.templateId,
+              templateVersion: r.templateVersion,
+              purpose: r.purpose,
+              queuedCount: r.queuedCount,
+              alreadyQueuedCount: r.alreadyQueuedCount,
+              dispatchedCount: 0,
+              blockedSuppressedCount: r.blockedCount,
+              blockedContacts: r.blockedContacts,
+              deliveredContacts: [],
+            },
+          },
+        };
+      });
+    }
+    return null;
   }
 
   getRepository(): CrmRepository {
@@ -4478,7 +4761,7 @@ export class CrmApiRouter {
         isHttpRequest &&
         query._cronAuthorized === "1" &&
         method === "GET" &&
-        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup" || cleanPath === SETADESK_EMAIL_POLL_PATH || cleanPath === SEQUENCE_CRON_PATH);
+        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup" || cleanPath === SETADESK_EMAIL_POLL_PATH || cleanPath === SEQUENCE_CRON_PATH || cleanPath === MARKETING_CRON_PATH);
       const requestSessionToken =
         query._sessionToken;
 
@@ -6027,6 +6310,11 @@ export class CrmApiRouter {
           });
           return { status: 201, body: { data: created } };
         }
+      }
+
+      {
+        const live = await this.handleMarketingLive(method, cleanPath, query, body as Record<string, unknown>, ctx);
+        if (live) return live;
       }
 
       if (cleanPath === '/api/marketing/campaigns/dispatch' && method === 'POST') {

@@ -3519,7 +3519,9 @@ export class CrmRepository {
       | 'UNSUBSCRIBE_MARKETING'
       | 'RESUBSCRIBE_WITH_CONSENT'
       | 'EXIT_SEQUENCE_ONLY'
-      | 'RECORD_HARD_BOUNCE';
+      | 'RECORD_HARD_BOUNCE'
+      | 'RECORD_SPAM_COMPLAINT'
+      | 'UNSUBSCRIBE_PURPOSE';
     reason?: string;
     legalBasis?: LgpdLegalBasis;
     categories?: string[];
@@ -3639,6 +3641,60 @@ export class CrmRepository {
       };
     }
 
+    // Fase 3: descadastro so da finalidade (categoria) do e-mail; demais finalidades preservadas.
+    if (input.action === 'UNSUBSCRIBE_PURPOSE') {
+      const drop = new Set((input.categories || []).map((c) => String(c)));
+      if (contact && drop.size > 0) {
+        contact.communicationCategories = (contact.communicationCategories || []).filter((c) => !drop.has(c));
+        contact.updatedAt = now;
+        this.createTimelineEvent({
+          type: 'HEALTH_ALERT',
+          title: 'Descadastro de finalidade de marketing (LGPD)',
+          body: `O contato ${contact.email} deixou de receber: ${[...drop].join(', ')}. Motivo: ${input.reason || 'link de descadastro'}.`,
+          contactId: contact.id,
+          companyId: contact.companyId,
+          actor: 'Preference Center LGPD',
+          metadata: { action: input.action, categories: [...drop] },
+        });
+      }
+      this.save();
+      return { contact, suppressionEntry: null, exitedEnrollmentsCount: 0, globalSubscriptionPreserved: true };
+    }
+
+    // Fase 3: reclamacao de spam => supressao permanente e global (nunca reenviar).
+    if (input.action === 'RECORD_SPAM_COMPLAINT') {
+      const targetEmail = contact ? contact.email.toLowerCase() : cleanEmail;
+      if (contact) {
+        contact.subscriptionStatus = 'SUPPRESSED_SPAM';
+        contact.lgpdConsent = false;
+        contact.communicationCategories = [];
+        contact.unsubscribedAt = now;
+        contact.unsubscribeReason = input.reason || 'Reclamação de spam (feedback loop do provedor)';
+        contact.updatedAt = now;
+      }
+      if (targetEmail) {
+        const existing = this.state.suppressionList.find(
+          (s) => s.email.toLowerCase() === targetEmail && s.reason === 'SPAM_COMPLAINT'
+        );
+        if (existing) {
+          suppressionEntry = existing;
+        } else {
+          suppressionEntry = {
+            id: `sup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            email: targetEmail,
+            contactId: contact?.id || null,
+            reason: 'SPAM_COMPLAINT',
+            scope: 'GLOBAL_ALL',
+            source: input.reason || 'ESP Complaint Webhook',
+            createdAt: now,
+          };
+          this.state.suppressionList.unshift(suppressionEntry);
+        }
+      }
+      this.save();
+      return { contact, suppressionEntry, exitedEnrollmentsCount: 0, globalSubscriptionPreserved: false };
+    }
+
     if (input.action === 'RECORD_HARD_BOUNCE') {
       const targetEmail = contact ? contact.email.toLowerCase() : cleanEmail;
       if (contact) {
@@ -3662,7 +3718,12 @@ export class CrmRepository {
           }
         }
       }
-      if (targetEmail) {
+      const existingBounce = targetEmail
+        ? this.state.suppressionList.find((s) => s.email.toLowerCase() === targetEmail && s.reason === 'HARD_BOUNCE')
+        : undefined;
+      if (existingBounce) {
+        suppressionEntry = existingBounce;
+      } else if (targetEmail) {
         suppressionEntry = {
           id: `sup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           email: targetEmail,
@@ -3701,7 +3762,7 @@ export class CrmRepository {
       }
       if (targetEmail) {
         this.state.suppressionList = this.state.suppressionList.filter(
-          (s) => s.email.toLowerCase() !== targetEmail || s.reason === 'HARD_BOUNCE'
+          (s) => s.email.toLowerCase() !== targetEmail || s.reason === 'HARD_BOUNCE' || s.reason === 'SPAM_COMPLAINT'
         );
       }
       this.save();
