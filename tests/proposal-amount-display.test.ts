@@ -309,8 +309,10 @@ describe('Folha interna segue as mesmas regras da proposta pública', () => {
     assert.equal(sheet.subtotalColumn, 'Subtotal');
     assert.match(sheet.itemsTotalLabel, /SERVIÇOS:/);
     assert.doesNotMatch(sheet.itemsTotalLabel, /mensal/i);
+    assert.equal(sheet.showItemsSubtotal, false);
     assert.match(sheet.monthlyLine, /pagamento único/i);
     assert.match(sheet.productsMonthly, /2\.800,00/);
+    assert.match(sheet.totalMonthly, /2\.800,00/);
     assert.equal(sheet.clauses.length, 0);
     assert.doesNotMatch(clausesText, /Remessa dos equipamentos|Contrato de Locação|vigência da locação/i);
     assert.equal(sheet.showContractNumber, false);
@@ -355,6 +357,7 @@ describe('Folha interna segue as mesmas regras da proposta pública', () => {
     assert.equal(model.kind, 'LOCACAO');
     assert.equal(sheet.grandTotalLabel, 'TOTAL MENSAL:');
     assert.equal(sheet.showSetup, true);
+    assert.equal(sheet.showItemsSubtotal, true);
     assert.match(sheet.setupLineLabel, /Setup \/ Ativação \(pagamento único, à parte da mensalidade\)/);
     assert.match(sheet.setupAmount, /800,00/);
     assert.match(sheet.totalMonthly, /2\.000,00/);
@@ -546,6 +549,7 @@ describe('Folha interna e lista usam o mesmo cálculo da proposta pública (4709
     assert.match((totalRow?.value || '').replace(/\u00A0/g, ' '), /R\$ 18\.600,00/);
     assert.match(sheet.totalMonthly.replace(/\u00A0/g, ' '), /R\$ 18\.600,00/);
     assert.equal(sheet.showSetup, false);
+    assert.equal(sheet.showItemsSubtotal, false);
     assert.equal(sheet.summaryRows.some((row) => /Serviço/i.test(row.label) && /15\.800/.test(row.value)), false);
     assert.doesNotMatch(html, /Serviço \(pagamento único\):/);
     assert.equal(sheet.paymentRows.length, 1);
@@ -604,6 +608,7 @@ describe('Folha interna e lista usam o mesmo cálculo da proposta pública (4709
     assert.doesNotMatch(sheet.monthlyLine, /\/mês|Valor Mensal/i);
     assert.equal(sheet.grandTotalLabel, 'TOTAL:');
     assert.equal(sheet.showSetup, false);
+    assert.equal(sheet.showItemsSubtotal, false);
     assert.equal(sheet.paymentRows.length, 1);
     assert.equal(sheet.paymentRows[0].due, 'Pagamento único');
     assert.match(sheet.paymentRows[0].amount.replace(/\u00A0/g, ' '), /R\$ 2\.500,00/);
@@ -619,7 +624,9 @@ describe('Folha interna e lista usam o mesmo cálculo da proposta pública (4709
     const html = buildInternalProposalPrintHtml(toInternalProposalSummary(proposal)).replace(/\u00A0/g, ' ');
     assert.equal(resolveProposalCommercialPresentation(proposal).showSetupInTotals, false);
     assert.equal(sheet.showSetup, false);
-    assert.match(html, /SERVIÇOS:/);
+    assert.equal(sheet.showItemsSubtotal, false);
+    assert.doesNotMatch(html, /SERVIÇOS:/);
+    assert.match(html, /TOTAL:/);
     assert.match(html, /18\.600,00/);
     assert.doesNotMatch(html, /Serviço \(pagamento único\):\s*R\$\s*15\.800,00/);
   });
@@ -660,12 +667,51 @@ describe('Folha interna e lista usam o mesmo cálculo da proposta pública (4709
     assert.equal(pub.showSetupInTotals, true);
     assert.equal(pub.commercialTotalAmount, 12000);
     assert.equal(sheet.showSetup, true);
+    assert.equal(sheet.showItemsSubtotal, true);
     assert.match(sheet.setupLineLabel, /Serviço \(pagamento único\)/);
+    assert.match(sheet.productsMonthly.replace(/\u00A0/g, ' '), /R\$ 10\.000,00/);
     assert.match(sheet.setupAmount.replace(/\u00A0/g, ' '), /R\$ 2\.000,00/);
     assert.match(sheet.totalMonthly.replace(/\u00A0/g, ' '), /R\$ 12\.000,00/);
   });
 
-    it('folha pública, folha interna e lista compartilham resolveProposalCommercialPresentation', () => {
+  it('bloco de totais omite SERVIÇOS quando o valor é igual ao TOTAL (4709)', () => {
+    const proposal = live4709();
+    const sheet = toInternalProposalSummary(proposal).sheet;
+    const html = buildInternalProposalPrintHtml(toInternalProposalSummary(proposal)).replace(/\u00A0/g, ' ');
+    const page = src('src/app/proposta/[id]/page.tsx');
+    assert.equal(sheet.showItemsSubtotal, false);
+    assert.equal(sheet.showDiscount, false);
+    assert.equal(sheet.showFreight, false);
+    assert.equal(sheet.showSetup, false);
+    assert.match(html, /<span>TOTAL:<\/span><span>R\$\s*18\.600,00<\/span>/);
+    assert.doesNotMatch(html, /SERVIÇOS:/);
+    assert.match(page, /showItemsSubtotal|showServicesSubtotalCard/);
+    assert.match(src('src/app/components/InternalProposalSummaryView.tsx'), /sheet\.showItemsSubtotal/);
+    assert.match(src('src/app/lib/internal-proposal-pdf.ts'), /sheet\.showItemsSubtotal/);
+  });
+
+  it('bloco de totais mantém SERVIÇOS quando frete, desconto ou setup extra mudam a soma', () => {
+    const withFreight = live4709();
+    withFreight.shippingCost = 150;
+    withFreight.totalContractValue = 18750;
+    const freightSheet = toInternalProposalSummary(withFreight).sheet;
+    assert.equal(freightSheet.showItemsSubtotal, true);
+    assert.equal(freightSheet.showFreight, true);
+    assert.match(buildInternalProposalPrintHtml(toInternalProposalSummary(withFreight)).replace(/\u00A0/g, ' '), /SERVIÇOS:/);
+    assert.match(buildInternalProposalPrintHtml(toInternalProposalSummary(withFreight)).replace(/\u00A0/g, ' '), /FRETE \(pagamento único\):/);
+
+    const withDiscount = live4709();
+    withDiscount.discountAmount = 600;
+    withDiscount.totalContractValue = 18000;
+    const discountSheet = toInternalProposalSummary(withDiscount).sheet;
+    assert.equal(discountSheet.showItemsSubtotal, true);
+    assert.equal(discountSheet.showDiscount, true);
+    const discountHtml = buildInternalProposalPrintHtml(toInternalProposalSummary(withDiscount)).replace(/\u00A0/g, ' ');
+    assert.match(discountHtml, /SERVIÇOS:/);
+    assert.match(discountHtml, /DESCONTOS:/);
+  });
+
+      it('folha pública, folha interna e lista compartilham resolveProposalCommercialPresentation', () => {
     const page = src('src/app/proposta/[id]/page.tsx');
     const sheet = src('src/app/lib/internal-proposal-sheet.ts');
     const share = src('src/app/lib/proposal-share.ts');

@@ -93,6 +93,10 @@ export interface InternalProposalSheet {
   monthlyPlain: string;
   freightAmount: string;
   showFreight: boolean;
+  /** Linha SERVIÇOS/PRODUTOS/PEÇAS no bloco abaixo da tabela. Some quando é igual ao TOTAL e não há frete, desconto ou setup extra. */
+  showItemsSubtotal: boolean;
+  showDiscount: boolean;
+  discountAmount: string;
   showSetup: boolean;
   setupLabel: string;
   setupLineLabel: string;
@@ -454,6 +458,16 @@ export function buildInternalProposalSheet(
     freightAmount: money(freight),
     showFreight: freight > 0,
     showSetup: view.showSetupInTotals,
+    showDiscount: view.totalDiscounts > 0,
+    discountAmount: money(view.totalDiscounts),
+    showItemsSubtotal:
+      view.showSetupInTotals
+      || freight > 0
+      || view.totalDiscounts > 0
+      || Math.round((oneTime || partsBudget
+        ? (partsBudget ? itemsSubtotal : (service ? view.servicesSubtotal : view.productsSubtotal || itemsSubtotal))
+        : monthly) * 100) / 100
+        !== Math.round((shownAmount || 0) * 100) / 100,
     setupLabel: view.setupFeeLabel,
     setupLineLabel: oneTime || partsBudget
       ? `${view.setupFeeLabel} (pagamento único)`

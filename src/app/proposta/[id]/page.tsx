@@ -950,15 +950,19 @@ function PublicProposalPrintContent() {
   const showTotalInsteadOfMonthly = commercialView.saleLike || commercialView.uniquePayment;
   const showFreightInTotals = !hideServiceFreight && shippingCost > 0;
   const showDiscountInTotals = totalDiscounts > 0;
-  const showProductsSubtotalCard = productsSubtotal > 0;
-  const showServicesSubtotalCard = servicesSubtotal > 0;
+  const displayedMidTotal = showTotalInsteadOfMonthly ? commercialTotalAmount : (proposal.monthlyRecurringTotal || commercialTotalAmount);
+  const midHasExtras = showDiscountInTotals || hasSetupSelected || showFreightInTotals;
+  const midHasBothCategories = productsSubtotal > 0 && servicesSubtotal > 0;
+  const moneyEq = (a: number, b: number) => Math.round((a || 0) * 100) / 100 === Math.round((b || 0) * 100) / 100;
+  const showProductsSubtotalCard = productsSubtotal > 0 && (midHasExtras || midHasBothCategories || !moneyEq(productsSubtotal, displayedMidTotal));
+  const showServicesSubtotalCard = servicesSubtotal > 0 && (midHasExtras || midHasBothCategories || !moneyEq(servicesSubtotal, displayedMidTotal));
   const setupFeeTotalsLabel = uniquePayment || saleLike
     ? setupFeeIsolatedLabel
     : `${setupFeeIsolatedLabel} (à parte da mensalidade)`;
   const topSummaryCols = 3 + (hasSetupSelected ? 1 : 0) + (showFreightInTotals ? 1 : 0);
   const topSummaryGridClass = topSummaryCols >= 5 ? "sm:grid-cols-5 print:grid-cols-5" : topSummaryCols === 4 ? "sm:grid-cols-4 print:grid-cols-4" : "sm:grid-cols-3 print:grid-cols-3";
   const midSummaryCols = (showProductsSubtotalCard ? 1 : 0) + (showServicesSubtotalCard ? 1 : 0) + (showDiscountInTotals ? 1 : 0) + (hasSetupSelected ? 1 : 0) + (showFreightInTotals ? 1 : 0) + 1;
-  const midSummaryGridClass = midSummaryCols >= 6 ? "sm:grid-cols-6 print:grid-cols-6" : midSummaryCols === 5 ? "sm:grid-cols-5 print:grid-cols-5" : midSummaryCols === 4 ? "sm:grid-cols-4 print:grid-cols-4" : midSummaryCols === 3 ? "sm:grid-cols-3 print:grid-cols-3" : "sm:grid-cols-2 print:grid-cols-2";
+  const midSummaryGridClass = midSummaryCols >= 6 ? "sm:grid-cols-6 print:grid-cols-6" : midSummaryCols === 5 ? "sm:grid-cols-5 print:grid-cols-5" : midSummaryCols === 4 ? "sm:grid-cols-4 print:grid-cols-4" : midSummaryCols === 3 ? "sm:grid-cols-3 print:grid-cols-3" : midSummaryCols === 2 ? "sm:grid-cols-2 print:grid-cols-2" : "sm:grid-cols-1 print:grid-cols-1";
 
 
   // Classes de cada modelo vêm do módulo comum (também usado pelo Recibo/Fatura de Locação).

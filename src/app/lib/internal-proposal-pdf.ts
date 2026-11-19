@@ -103,7 +103,7 @@ ${sheet.showContractNumber ? `<div class="contract"><span class="k">Nº do contr
 <div class="val"><div>${escHtml(sheet.validityLine)}</div><div>${escHtml(sheet.deliveryForecastLine)}</div></div>
 <section class="sec"><div class="t">DADOS DO CLIENTE</div><table><tr><td class="k">Razão social:</td><td>${escHtml(sheet.clientLegalName)}</td><td class="k">Nome fantasia:</td><td>${escHtml(sheet.clientTradeName)}</td></tr><tr><td class="k">CNPJ/CPF:</td><td>${escHtml(sheet.clientCnpj)}</td><td class="k">Endereço:</td><td>${escHtml(sheet.clientAddress)}</td></tr><tr><td class="k">CEP:</td><td>${escHtml(sheet.clientCep)}</td><td class="k">Cidade/UF:</td><td>${escHtml(sheet.clientCityUf)}</td></tr><tr><td class="k">Telefone:</td><td>${escHtml(sheet.clientPhone)}</td><td class="k">E-mail:</td><td>${escHtml(sheet.clientEmail)}</td></tr></table></section>
 <section class="sec"><div class="t">${escHtml(sheet.itemsSection)}</div><table><thead><tr><th>Item</th><th>Código</th><th>Nome</th><th class="c">Und.</th><th class="r">Qtd.</th><th class="r">${escHtml(sheet.unitPriceColumn)}</th><th class="r">${escHtml(sheet.subtotalColumn)}</th></tr></thead><tbody>${rows}<tr><td colspan="4"><b>TOTAL</b></td><td class="r"><b>${escHtml(sheet.qtyTotal)}</b></td><td></td><td class="r"><b>${escHtml(sheet.monthlyPlain)}</b></td></tr></tbody></table>
-<div class="sum"><div><span>${escHtml(sheet.itemsTotalLabel)}</span><span>${escHtml(sheet.productsMonthly)}</span></div>${sheet.showSetup ? `<div><span>${escHtml(sheet.setupLineLabel)}:</span><span>${escHtml(sheet.setupAmount)}</span></div>` : ''}${sheet.showFreight ? `<div><span>FRETE (pagamento único):</span><span>${escHtml(sheet.freightAmount)}</span></div>` : ''}<div class="g"><span>${escHtml(sheet.grandTotalLabel)}</span><span>${escHtml(sheet.totalMonthly)}</span></div></div></section>
+<div class="sum">${sheet.showItemsSubtotal ? `<div><span>${escHtml(sheet.itemsTotalLabel)}</span><span>${escHtml(sheet.productsMonthly)}</span></div>` : ''}${sheet.showDiscount ? `<div><span>DESCONTOS:</span><span>- ${escHtml(sheet.discountAmount)}</span></div>` : ''}${sheet.showSetup ? `<div><span>${escHtml(sheet.setupLineLabel)}:</span><span>${escHtml(sheet.setupAmount)}</span></div>` : ''}${sheet.showFreight ? `<div><span>FRETE (pagamento único):</span><span>${escHtml(sheet.freightAmount)}</span></div>` : ''}<div class="g"><span>${escHtml(sheet.grandTotalLabel)}</span><span>${escHtml(sheet.totalMonthly)}</span></div></div></section>
 <section class="sec"><div class="t">DADOS DO PAGAMENTO</div><table><thead><tr><th>Vencimento</th><th class="r">Valor</th><th>Forma de pagamento</th><th>Observação</th></tr></thead><tbody>${pay}</tbody></table></section>
 <section class="sec"><div class="t">OBSERVAÇÕES</div><div class="obs">${clauses}</div></section>
 <section class="sign"><div class="ln"></div>Assinatura do cliente</section>
@@ -318,20 +318,28 @@ export function buildInternalProposalPdf(model: InternalProposalSummaryModel): U
   text(left + 340, y, 7, sheet.qtyTotal, 'F2', INK);
   text(left + 460, y, 7, sheet.monthlyPlain, 'F2', INK);
   y -= 12;
-  ops.push(`0.804 0.843 0.902 RG 0.6 w ${(left + 300).toFixed(2)} ${(y - 4).toFixed(2)} ${(width - 300).toFixed(2)} ${18 + (sheet.showSetup ? 10 : 0) + (sheet.showFreight ? 10 : 0)} re S`);
-  text(left + 304, y, 7, sheet.itemsTotalLabel, 'F1', INK);
-  text(left + 460, y, 7, sheet.productsMonthly, 'F1', INK);
-  if (sheet.showSetup) {
+  const sumExtraLines = (sheet.showItemsSubtotal ? 1 : 0) + (sheet.showDiscount ? 1 : 0) + (sheet.showSetup ? 1 : 0) + (sheet.showFreight ? 1 : 0);
+  ops.push(`0.804 0.843 0.902 RG 0.6 w ${(left + 300).toFixed(2)} ${(y - 4).toFixed(2)} ${(width - 300).toFixed(2)} ${8 + (sumExtraLines + 1) * 10} re S`);
+  if (sheet.showItemsSubtotal) {
+    text(left + 304, y, 7, sheet.itemsTotalLabel, 'F1', INK);
+    text(left + 460, y, 7, sheet.productsMonthly, 'F1', INK);
     y -= 10;
+  }
+  if (sheet.showDiscount) {
+    text(left + 304, y, 7, 'DESCONTOS:', 'F1', INK);
+    text(left + 460, y, 7, `- ${sheet.discountAmount}`, 'F1', INK);
+    y -= 10;
+  }
+  if (sheet.showSetup) {
     text(left + 304, y, 7, `${sheet.setupLineLabel}:`, 'F1', INK);
     text(left + 460, y, 7, sheet.setupAmount, 'F1', INK);
+    y -= 10;
   }
   if (sheet.showFreight) {
-    y -= 10;
     text(left + 304, y, 7, 'FRETE (pagamento único):', 'F1', INK);
     text(left + 460, y, 7, sheet.freightAmount, 'F1', INK);
+    y -= 10;
   }
-  y -= 10;
   text(left + 304, y, 7, sheet.grandTotalLabel, 'F2', NAVY);
   text(left + 460, y, 7, sheet.totalMonthly, 'F2', NAVY);
   y -= 14;
