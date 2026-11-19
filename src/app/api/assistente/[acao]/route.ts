@@ -104,7 +104,7 @@ export async function POST(req: NextRequest, { params }: { params: { acao: strin
     const inner = new NextRequest(new URL(r.path, origin), {
       method: r.method,
       headers,
-      body: r.method === 'POST' ? JSON.stringify(r.body || {}) : undefined,
+      body: r.method === 'POST' || r.method === 'PATCH' ? JSON.stringify(r.body || {}) : undefined,
     });
     const res = await forwardToCrmRouter(inner);
     let out: unknown = null;

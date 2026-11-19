@@ -108,6 +108,9 @@ export function createOmniRouteClient(
     }
     const msg = json?.choices?.[0]?.message;
     if (!msg || typeof msg !== 'object') throw new LlmError('LLM_BAD_RESPONSE', 'Resposta sem mensagem do provedor de IA.');
+    // Cortado por tamanho sem texto nem ferramenta (gastou tudo raciocinando): tenta o reserva.
+    const vazio = !(Array.isArray(msg.tool_calls) && msg.tool_calls.length) && !stripReasoning(typeof msg.content === 'string' ? msg.content : '');
+    if (vazio && json?.choices?.[0]?.finish_reason === 'length') throw new LlmError('LLM_BAD_RESPONSE', 'Resposta do provedor de IA cortada sem conteúdo.');
     const toolCalls: LlmToolCall[] = (Array.isArray(msg.tool_calls) ? msg.tool_calls : [])
       .filter((t: any) => t && t.function && typeof t.function.name === 'string')
       .map((t: any) => ({ name: String(t.function.name), args: parseArgs(t.function.arguments) }));

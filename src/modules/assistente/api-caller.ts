@@ -7,7 +7,10 @@
 import { evaluateStiHubRouteProtection } from '../../middleware';
 import type { ApiCallRequest, ApiCallResponse, ApiCaller } from './tools';
 
-const ALLOWED: Array<{ method: 'GET' | 'POST'; path: RegExp }> = [
+const ALLOWED: Array<{ method: 'GET' | 'POST' | 'PATCH'; path: RegExp }> = [
+  { method: 'GET', path: /^\/api\/erp\/proposals$/ },
+  { method: 'GET', path: /^\/api\/erp\/proposals\/[A-Za-z0-9._~-]+$/ },
+  { method: 'PATCH', path: /^\/api\/erp\/proposals\/[A-Za-z0-9._~-]+$/ },
   { method: 'GET', path: /^\/api\/erp\/contracts$/ },
   { method: 'GET', path: /^\/api\/erp\/overview$/ },
   { method: 'GET', path: /^\/api\/erp\/invoices$/ },

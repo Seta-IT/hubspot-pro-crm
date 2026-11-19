@@ -13,6 +13,7 @@ import { ASSISTENTE_LIMITS } from './config';
 import { LlmError, type LlmClient, type LlmMessage } from './omniroute-client';
 import {
   getTool,
+  parseNumeroBR,
   toolDefinitionsFor,
   userCanUseTool,
   type ApiCaller,
@@ -84,7 +85,10 @@ function systemPrompt(user: AssistenteUser, now: number): string {
     'Responda sempre em português do Brasil, de forma curta e direta, sem emojis.',
     `Hoje é ${hoje}. Módulos liberados para este usuário: ${mods}.`,
     'Faça a ação que o usuário pediu. Para consulta, relatório, proposta, chamado ou OS, chame UMA ferramenta por resposta.',
-    'Proposta ou orçamento: chame criar_rascunho_proposta direto, sem consultar empresas antes. Passe o cliente como o usuário escreveu (o sistema identifica a empresa e pergunta se houver mais de uma), o prazo em meses e cada item com descrição e quantidade. Se o valor unitário não foi dito, omita: o item fica a definir. Não peça valores antes de montar o rascunho.',
+    'Proposta ou orçamento existente (tem número, ex.: 4709): para ver, use consultar_propostas; para mudar (acrescentar item ou despesa, alterar quantidade, valor ou campos), use editar_proposta direto com o número, sem consultar antes. Nunca use consultar com entidade negocios para propostas ou orçamentos.',
+    'Valores em reais chegam no formato brasileiro (2800,00 ou 2.800,00 = dois mil e oitocentos): envie como número 2800.00.',
+    'Ex.: "localize a proposta 4709 e adicione 2800,00 de despesas de locomoção e hospedagem" => editar_proposta {proposta:"4709", adicionar_itens:[{descricao:"Despesas de locomoção e hospedagem", valor_unitario:2800, tipo:"despesa", cobranca:"unica"}]}.',
+    'Proposta ou orçamento novo: chame criar_rascunho_proposta direto, sem consultar empresas antes. Passe o cliente como o usuário escreveu (o sistema identifica a empresa e pergunta se houver mais de uma), o prazo em meses e cada item com descrição e quantidade. Se o valor unitário não foi dito, omita: o item fica a definir. Não peça valores antes de montar o rascunho.',
     'Ex.: "proposta de locação de 36 meses para X de 3 servidores Dell R640 com 256 GB e 3 SSDs de 2 TB" => criar_rascunho_proposta {cliente:"X", prazo_meses:36, itens:[{descricao:"Servidor Dell R640, 256 GB RAM, 3 SSD 2 TB", quantidade:3, tipo:"locacao"}]}.',
     'Use o histórico: se o usuário já pediu uma proposta e agora escolheu ou confirmou a empresa (por nome, CNPJ ou número da lista), chame criar_rascunho_proposta com essa empresa e os itens do pedido original.',
     'Não repita uma consulta que já está no histórico. Resultados chegam como "Resultado: ..." com o mínimo (quantidade e, para empresas, nome e CNPJ); o resto é mostrado direto ao usuário. Nunca invente números, nomes ou registros.',
@@ -129,7 +133,7 @@ export function cleanArgs(v: unknown): unknown {
 
 function coerceNumbers(tool: string, args: any): any {
   // Modelos as vezes mandam "1500" em vez de 1500 nos itens; converte so campos numericos conhecidos.
-  const num = (x: unknown) => (typeof x === 'string' && /^\d+(?:[.,]\d+)?$/.test(x.trim()) ? Number(x.replace(',', '.')) : x);
+  const num = parseNumeroBR; // "2.800,00", "2800,00", "R$ 2.800" => 2800
   if (tool === 'criar_rascunho_proposta' && Array.isArray(args?.itens)) {
     args.itens = args.itens.map((i: any) => (i && typeof i === 'object' ? { ...i, quantidade: num(i.quantidade), valor_unitario: num(i.valor_unitario) } : i));
   }
@@ -179,7 +183,8 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
   }
   const tool = getTool(call.name);
   if (!tool) return { status: 200, body: { tipo: 'texto', texto: 'Essa ação não está disponível nesta etapa do assistente.' } };
-  const args = coerceNumbers(tool.name, cleanArgs(call.args || {}));
+  const cleaned = coerceNumbers(tool.name, cleanArgs(call.args || {}));
+  const args = tool.coagir ? tool.coagir(cleaned) : cleaned;
   const valid = tool.schema.safeParse(args);
   if (!valid.success) {
     const campos = valid.error.issues.map((i) => i.path.join('.') || '(dados)').slice(0, 6).join(', ');

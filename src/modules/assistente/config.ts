@@ -42,8 +42,11 @@ export const ASSISTENTE_LIMITS = {
   maxBodyBytes: 64 * 1024,
   /** Validade da proposta de acao (ms) ate o usuario confirmar. */
   proposalTtlMs: 10 * 60 * 1000,
-  /** Tokens maximos da resposta do modelo. */
-  maxCompletionTokens: 800,
+  /**
+   * Tokens maximos da resposta do modelo. O nemotron gasta parte em raciocinio: com 800, 2 de 8
+   * pedidos de edicao acabavam so no raciocinio (finish_reason=length, sem resposta).
+   */
+  maxCompletionTokens: 2048,
 } as const;
 
 const clampInt = (raw: string | undefined, def: number, min: number, max: number): number => {

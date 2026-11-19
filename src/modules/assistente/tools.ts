@@ -17,8 +17,11 @@
 import { z } from 'zod';
 import type { LlmToolDefinition } from './omniroute-client';
 import { nextServiceOrderCode } from '../erp/service-order-workflow';
+import { extractGcProposalNumber, formatProposalDisplayCode } from '../../app/lib/proposal-number';
+import { computeProposalTotals } from '../../app/lib/proposal-share';
+import type { ErpCommercialProposal } from '../../db/types';
 
-export type ApiCallRequest = { method: 'GET' | 'POST'; path: string; body?: Record<string, unknown> };
+export type ApiCallRequest = { method: 'GET' | 'POST' | 'PATCH'; path: string; body?: Record<string, unknown> };
 export type ApiCallResponse = { status: number; body: any };
 /** Chamada a uma rota /api COMO o usuario logado (mesma sessao, mesmo RBAC). */
 export type ApiCaller = (req: ApiCallRequest) => Promise<ApiCallResponse>;
@@ -74,6 +77,8 @@ export interface AssistenteTool<A = any> {
    * argumentos ou devolver uma pergunta ao usuario (ex.: "qual das 2 empresas?").
    */
   preparar?(args: A, api: ApiCaller): Promise<{ ok: true; args: A } | { ok: false; texto: string }>;
+  /** Normaliza argumentos do modelo antes do zod (ex.: "2.800,00" => 2800). */
+  coagir?(args: any): any;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +166,20 @@ function apiError(res: ApiCallResponse, acao: string): ToolResult {
           ? cut(raw, 200)
           : `Não foi possível ${acao} (código ${res.status}).`;
   return { ok: false, status: res.status, mensagem, resumoParaModelo: `Falhou: não foi possível ${acao} (HTTP ${res.status}).` };
+}
+
+/**
+ * Numero em formato brasileiro ou simples: "2.800,00", "2800,00", "R$ 2.800", "2800.5", 2800.
+ * Devolve o valor original quando nao reconhece (o zod recusa).
+ */
+export function parseNumeroBR(v: unknown): unknown {
+  if (typeof v === 'number') return v;
+  if (typeof v !== 'string') return v;
+  let t = v.trim().replace(/^R\$\s*/i, '').replace(/\s+/g, '');
+  if (!t) return v;
+  if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(t) || /^-?\d+,\d+$/.test(t)) t = t.replace(/\./g, '').replace(',', '.');
+  else if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) t = t.replace(/,/g, '');
+  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : v;
 }
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use AAAA-MM-DD');
@@ -334,7 +353,7 @@ const consultar: AssistenteTool<ConsultarArgs> = {
   rotas: ['GET /api/erp/contracts', 'GET /api/erp/overview', 'GET /api/companies', 'GET /api/contacts', 'GET /api/erp/invoices', 'GET /api/deals'],
   disponivel: (u) => u.moduleAccess.crm || u.moduleAccess.erp || u.moduleAccess.chamados,
   descricao:
-    'Lista registros do STI-hub (contratos, vendas, ordens_servico, empresas, contatos, faturas, negocios) com filtros opcionais de busca, situação e período. Só leitura.',
+    'Lista registros do STI-hub (contratos, vendas, ordens_servico, empresas, contatos, faturas, negocios do CRM) com filtros opcionais de busca, situação e período. Para propostas ou orçamentos use consultar_propostas. Só leitura.',
   tipo: 'leitura',
   parameters: {
     type: 'object',
@@ -790,9 +809,385 @@ const abrirOs: AssistenteTool<OsArgs> = {
 };
 
 // ---------------------------------------------------------------------------
+// Orcamentos / propostas: mesma fonte da tela (GET /api/erp/proposals?q= e /:id)
+// ---------------------------------------------------------------------------
+/** Situacoes em que a proposta nao e editada pelo assistente. */
+export const PROPOSTA_STATUS_BLOQUEADOS = ['APROVADA', 'CONVERTIDA_CONTRATO', 'RECUSADA'] as const;
+
+/** Proposta que veio do GestaoClick (id prop-gc-<id> ou gcSource): nao ha sincronizacao de volta. */
+export function propostaDoGestaoClick(p: any): boolean {
+  return Boolean((p?.gcSource && p.gcSource.id) || /^prop-gc-\d+$/.test(String(p?.id || '')));
+}
+
+const numeroProposta = (p: any) => formatProposalDisplayCode(p?.code) || String(p?.code || p?.id || '');
+const STATUS_PROPOSTA_ROTULO: Record<string, string> = {
+  RASCUNHO: 'Rascunho', ENVIADA: 'Enviada', EM_NEGOCIACAO: 'Em negociação', APROVADA: 'Aprovada', CONVERTIDA_CONTRATO: 'Convertida em contrato', RECUSADA: 'Recusada',
+};
+const statusProposta = (v: unknown) => STATUS_PROPOSTA_ROTULO[String(v || '')] || statusLabel(v);
+const totalPropostaRegistro = (p: any) => Number(p?.totalContractValue ?? 0) || Number(p?.monthlyRecurringTotal || 0) + Number(p?.oneTimeSetupTotal || 0) + Number(p?.shippingCost || 0);
+
+/** "proposta 4709", "#4709", "GC-ORC-4709" => "4709" (ou o texto limpo). */
+export function refProposta(v: unknown): string {
+  return String(v ?? '').trim().replace(/^(?:a\s+)?(?:proposta|or[cç]amento)\s*(?:n[ºo°.]*\s*)?/i, '').replace(/^#\s*/, '').trim();
+}
+
+function mesmaProposta(p: any, ref: string): boolean {
+  const r = refProposta(ref);
+  if (!r) return false;
+  if (String(p?.id || '') === r) return true;
+  if (compact(p?.code) === compact(r)) return true;
+  const n = extractGcProposalNumber(r);
+  return n !== null && extractGcProposalNumber(p?.code) === n;
+}
+
+type PropostaLocalizada = { ok: true; proposta: any } | { ok: false; texto: string; status: number };
+
+/** Acha UMA proposta pelo numero/codigo exato e devolve o registro completo (GET /:id). */
+export async function localizarProposta(ref: string, api: ApiCaller): Promise<PropostaLocalizada> {
+  const r = refProposta(ref);
+  if (!r) return { ok: false, status: 400, texto: 'Informe o número da proposta.' };
+  const qs = new URLSearchParams({ q: r, limit: '20', offset: '0', status: 'TODOS', type: 'TODOS' });
+  const res = await api({ method: 'GET', path: `/api/erp/proposals?${qs.toString()}` });
+  if (res.status < 200 || res.status >= 300) {
+    const e = apiError(res, 'consultar as propostas');
+    return { ok: false, status: res.status, texto: e.mensagem };
+  }
+  const list: any[] = Array.isArray(res.body?.data) ? res.body.data : [];
+  const exatas = list.filter((p) => mesmaProposta(p, r));
+  if (!exatas.length) return { ok: false, status: 404, texto: `Não encontrei a proposta ${cut(r, 30)}. Confira o número na tela de Orçamentos.` };
+  if (exatas.length > 1) {
+    return {
+      ok: false,
+      status: 409,
+      texto: `Há ${exatas.length} propostas com o número ${cut(r, 30)}: ${exatas.slice(0, 5).map((p, i) => `${i + 1}) ${cut(p.code, 24)} de ${cut(p.companyName, 50)}`).join('; ')}. Qual delas?`,
+    };
+  }
+  const full = await api({ method: 'GET', path: `/api/erp/proposals/${encodeURIComponent(String(exatas[0].id))}` });
+  if (full.status < 200 || full.status >= 300 || !full.body?.data || Array.isArray(full.body.data)) {
+    if (full.status === 403 || full.status === 401) return { ok: false, status: full.status, texto: apiError(full, 'abrir a proposta').mensagem };
+    return { ok: false, status: full.status || 404, texto: `Não consegui abrir a proposta ${cut(r, 30)}.` };
+  }
+  return { ok: true, proposta: full.body.data };
+}
+
+const cobrancaItem = (i: any) => (i?.isRecurring === false ? 'única' : 'mensal');
+const resumoItens = (p: any, max = 10) =>
+  (Array.isArray(p?.items) ? p.items : [])
+    .slice(0, max)
+    .map((i: any, idx: number) => `${idx + 1}) ${cut(i.description, 60)} x${Number(i.quantity || 1)} a ${formatBRL(i.unitPrice)} (${cobrancaItem(i)})`)
+    .join('; ');
+
+const propostasSchema = z
+  .object({
+    busca: z.string().trim().max(80).optional(),
+    status: z.enum(['RASCUNHO', 'ENVIADA', 'EM_NEGOCIACAO', 'APROVADA', 'CONVERTIDA_CONTRATO', 'RECUSADA']).optional(),
+    limite: z.number().int().min(1).max(50).optional(),
+  })
+  .strict();
+type PropostasArgs = z.infer<typeof propostasSchema>;
+
+const consultarPropostas: AssistenteTool<PropostasArgs> = {
+  name: 'consultar_propostas',
+  descricao:
+    'Consulta orçamentos/propostas comerciais do ERP (mesma lista da tela de Orçamentos) pelo número/código (ex.: 4709), cliente, título ou situação. Com um número exato, traz os itens. Use para "proposta" ou "orçamento", nunca consultar negócios. Só leitura.',
+  tipo: 'leitura',
+  rotas: ['GET /api/erp/proposals', 'GET /api/erp/proposals/:id'],
+  disponivel: (u) => u.moduleAccess.erp,
+  parameters: {
+    type: 'object',
+    properties: {
+      busca: { type: 'string', description: 'Número/código da proposta (ex.: 4709), nome do cliente ou parte do título.' },
+      status: { type: 'string', enum: ['RASCUNHO', 'ENVIADA', 'EM_NEGOCIACAO', 'APROVADA', 'CONVERTIDA_CONTRATO', 'RECUSADA'], description: 'Situação (opcional).' },
+      limite: { type: 'integer', minimum: 1, maximum: 50, description: 'Máximo de linhas (padrão 20).' },
+    },
+    additionalProperties: false,
+  },
+  schema: propostasSchema,
+  modulos: () => ['erp'],
+  coagir: (a) => (a && 'limite' in a ? { ...a, limite: parseNumeroBR(a.limite) } : a),
+  resumo: (a) => ({
+    titulo: 'Consultar propostas',
+    linhas: [...(a.busca ? [`Busca: "${a.busca}"`] : []), ...(a.status ? [`Situação: ${statusProposta(a.status)}`] : []), `Máximo de linhas: ${a.limite || 20}`],
+  }),
+  async executar(a, api) {
+    // Numero exato => a proposta completa com os itens.
+    if (a.busca && extractGcProposalNumber(refProposta(a.busca)) !== null) {
+      const loc = await localizarProposta(a.busca, api);
+      if (loc.ok) {
+        const p = loc.proposta;
+        const itens: any[] = Array.isArray(p.items) ? p.items : [];
+        return {
+          ok: true,
+          mensagem: `Proposta ${numeroProposta(p)} de ${cut(p.companyName, 60)}: ${statusProposta(p.status)}, total ${formatBRL(totalPropostaRegistro(p))}, ${itens.length} itens.`,
+          totais: [
+            { rotulo: 'Número', valor: numeroProposta(p) },
+            { rotulo: 'Cliente', valor: cut(p.companyName, 60) },
+            { rotulo: 'Situação', valor: statusProposta(p.status) },
+            { rotulo: 'Mensal', valor: formatBRL(p.monthlyRecurringTotal) },
+            { rotulo: 'Valores únicos', valor: formatBRL(Number(p.oneTimeSetupTotal || 0) + Number(p.shippingCost || 0)) },
+            { rotulo: 'Total do contrato', valor: formatBRL(totalPropostaRegistro(p)) },
+          ],
+          tabela: itens.length
+            ? {
+                colunas: ['Item', 'Descrição', 'Qtd', 'Unitário', 'Cobrança', 'Subtotal'],
+                linhas: itens.slice(0, 60).map((i, idx) => [String(idx + 1), cut(i.description, 70), String(i.quantity ?? 1), formatBRL(i.unitPrice), cobrancaItem(i), formatBRL(i.subtotal ?? i.totalMonthly)]),
+              }
+            : undefined,
+          resumoParaModelo: `Proposta ${numeroProposta(p)} encontrada: cliente ${cut(p.companyName, 60)}; situação ${statusProposta(p.status)}; total ${formatBRL(totalPropostaRegistro(p))}; prazo ${Number(p.contractMonths || 0)} meses; ${propostaDoGestaoClick(p) ? 'origem GestãoClick; ' : ''}itens: ${resumoItens(p) || 'nenhum'}.`,
+        };
+      }
+      if (loc.status !== 404) return { ok: false, status: loc.status, mensagem: loc.texto, resumoParaModelo: `Falhou: ${loc.texto}` };
+    }
+    const qs = new URLSearchParams({ limit: String(a.limite || 20), offset: '0', status: a.status || 'TODOS', type: 'TODOS' });
+    if (a.busca) qs.set('q', refProposta(a.busca) || a.busca);
+    const res = await api({ method: 'GET', path: `/api/erp/proposals?${qs.toString()}` });
+    if (res.status < 200 || res.status >= 300) return apiError(res, 'consultar as propostas');
+    let rows: any[] = Array.isArray(res.body?.data) ? res.body.data : [];
+    // Fonte em memoria (sem busca no servidor): aplica o mesmo filtro tolerante aqui.
+    if (a.busca) rows = rows.filter((p) => mesmaProposta(p, a.busca!) || buscaCombina(refProposta(a.busca!), [p.code, numeroProposta(p), p.title, p.companyName, p.companyCnpj, p.sellerName]));
+    if (a.status) rows = rows.filter((p) => String(p.status || '') === a.status);
+    const total = Math.max(rows.length, Number(res.body?.total) || 0);
+    const shown = rows.slice(0, a.limite || 20);
+    return {
+      ok: true,
+      mensagem: shown.length ? `${total} propostas encontradas${total > shown.length ? `, mostrando ${shown.length}` : ''}.` : 'Nenhuma proposta encontrada com esses filtros.',
+      tabela: shown.length
+        ? { colunas: ['Número', 'Cliente', 'Situação', 'Total', 'Itens'], linhas: shown.map((p) => [cut(numeroProposta(p), 20), cut(p.companyName, 50), statusProposta(p.status), formatBRL(totalPropostaRegistro(p)), String(Array.isArray(p.items) ? p.items.length : '-')]) }
+        : undefined,
+      resumoParaModelo: `Consulta de propostas: ${total} encontradas${shown.length ? `: ${shown.slice(0, 5).map((p) => `${numeroProposta(p)} — ${cut(p.companyName, 50)} — ${statusProposta(p.status)} — ${formatBRL(totalPropostaRegistro(p))}`).join('; ')}` : ''}.`,
+    };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// editar_proposta: acrescenta itens/despesas, altera quantidade/valor e campos da tela
+// ---------------------------------------------------------------------------
+const novoItemSchema = z
+  .object({
+    descricao: shortText(200),
+    quantidade: z.number().positive().max(100000).optional(),
+    valor_unitario: z.number().min(0).max(100_000_000),
+    tipo: z.enum(['locacao', 'servico', 'produto', 'despesa']).optional(),
+    cobranca: z.enum(['mensal', 'unica']).optional(),
+  })
+  .strict();
+const alterarItemSchema = z
+  .object({
+    item: z.number().int().min(1).max(500),
+    descricao: z.string().trim().min(1).max(200).optional(),
+    quantidade: z.number().positive().max(100000).optional(),
+    valor_unitario: z.number().min(0).max(100_000_000).optional(),
+  })
+  .strict();
+const alvoSchema = z
+  .object({
+    id: z.string().min(1).max(120),
+    code: z.string().max(60),
+    updatedAt: z.string().max(60),
+    linhas: z.array(z.string().max(300)).max(60),
+  })
+  .strict();
+const editarPropostaSchema = z
+  .object({
+    proposta: shortText(60),
+    adicionar_itens: z.array(novoItemSchema).max(20).optional(),
+    alterar_itens: z.array(alterarItemSchema).max(30).optional(),
+    titulo: z.string().trim().min(1).max(160).optional(),
+    prazo_meses: z.number().int().min(1).max(120).optional(),
+    validade: isoDate.optional(),
+    condicao_pagamento: z.string().trim().min(1).max(200).optional(),
+    frete: z.number().min(0).max(10_000_000).optional(),
+    observacoes_comerciais: z.string().trim().max(2000).optional(),
+    /** Preenchido SO pelo servidor no preparo (id, codigo e versao exatos do cartao). */
+    alvo: alvoSchema.optional(),
+  })
+  .strict();
+type EditarPropostaArgs = z.infer<typeof editarPropostaSchema>;
+
+const NATUREZA_ITEM: Record<string, string> = { ...NATUREZA, despesa: 'SERVICO_TECNICO_TI_TELECOM' };
+
+/** Aplica as mudancas pedidas a uma copia da proposta. Deterministico (preparo e execucao). */
+export function aplicarEdicaoProposta(p: any, a: EditarPropostaArgs, stamp: string): { ok: true; patch: Record<string, unknown>; mudancas: string[]; depois: any } | { ok: false; texto: string } {
+  const itens: any[] = (Array.isArray(p?.items) ? p.items : []).map((i: any) => ({ ...i }));
+  const mudancas: string[] = [];
+  for (const alt of a.alterar_itens || []) {
+    const it = itens[alt.item - 1];
+    if (!it) return { ok: false, texto: `A proposta ${numeroProposta(p)} não tem o item ${alt.item} (tem ${itens.length}).` };
+    const antes = `${cut(it.description, 50)} x${Number(it.quantity || 1)} a ${formatBRL(it.unitPrice)}`;
+    if (alt.descricao) it.description = alt.descricao;
+    if (alt.quantidade !== undefined) it.quantity = alt.quantidade;
+    if (alt.valor_unitario !== undefined) it.unitPrice = alt.valor_unitario;
+    delete it.subtotal;
+    mudancas.push(`Alterar item ${alt.item}: ${antes} → ${cut(it.description, 50)} x${Number(it.quantity || 1)} a ${formatBRL(it.unitPrice)}`);
+  }
+  (a.adicionar_itens || []).forEach((n, idx) => {
+    const tipo = n.tipo || 'despesa';
+    const unica = n.cobranca ? n.cobranca === 'unica' : tipo === 'despesa' || tipo === 'produto';
+    const qtd = n.quantidade ?? 1;
+    itens.push({
+      id: `pi-${stamp}-${idx + 1}`,
+      sku: '',
+      description: n.descricao,
+      itemType: tipo === 'produto' || tipo === 'locacao' ? 'PRODUCT' : 'SERVICE',
+      fiscalNature: NATUREZA_ITEM[tipo],
+      ncmOrServiceCode: '',
+      quantity: qtd,
+      unitPrice: n.valor_unitario,
+      discountPercent: 0,
+      isRecurring: !unica,
+      totalMonthly: Math.round(qtd * n.valor_unitario * 100) / 100,
+    });
+    mudancas.push(`Adicionar: ${cut(n.descricao, 60)} x${qtd} a ${formatBRL(n.valor_unitario)} (${unica ? 'cobrança única' : 'mensal'})`);
+  });
+  const patch: Record<string, unknown> = {};
+  if (a.adicionar_itens?.length || a.alterar_itens?.length) patch.items = itens;
+  const campo = (rot: string, de: unknown, para: unknown) => mudancas.push(`${rot}: ${cut(de ?? '-', 60) || '-'} → ${cut(para, 60)}`);
+  if (a.titulo !== undefined) { campo('Título', p.title, a.titulo); patch.title = a.titulo; }
+  if (a.prazo_meses !== undefined) { campo('Prazo (meses)', p.contractMonths, a.prazo_meses); patch.contractMonths = a.prazo_meses; }
+  if (a.validade !== undefined) { campo('Validade', p.validUntil, a.validade); patch.validUntil = a.validade; }
+  if (a.condicao_pagamento !== undefined) { campo('Condição de pagamento', p.paymentCondition, a.condicao_pagamento); patch.paymentCondition = a.condicao_pagamento; }
+  if (a.frete !== undefined) { campo('Frete', formatBRL(p.shippingCost || 0), formatBRL(a.frete)); patch.shippingCost = a.frete; }
+  if (a.observacoes_comerciais !== undefined) { campo('Observações comerciais', p.commercialNotes, a.observacoes_comerciais); patch.commercialNotes = a.observacoes_comerciais; }
+  if (!mudancas.length) return { ok: false, texto: 'Diga o que mudar na proposta (item, quantidade, valor ou outro campo).' };
+  // O tipo do orcamento (locacao/produtos/...) nao muda por acrescentar uma despesa: fixa o
+  // tipo atual para a previa usar a mesma regra de total da tela.
+  const tipoAtual = p?.budgetType || computeProposalTotals({ ...p, items: (p?.items || []).map((i: any) => ({ ...i })) } as ErpCommercialProposal).budgetType;
+  const depois = computeProposalTotals({ ...p, ...patch, items: itens, budgetType: tipoAtual } as ErpCommercialProposal);
+  return { ok: true, patch, mudancas, depois };
+}
+
+function bloqueioEdicao(p: any): string | null {
+  const n = numeroProposta(p);
+  if ((PROPOSTA_STATUS_BLOQUEADOS as readonly string[]).includes(String(p?.status || '')) || p?.convertedContractId || p?.convertedInvoiceId) {
+    return `A proposta ${n} está ${statusProposta(p?.status).toLowerCase()} e não pode ser editada pelo assistente. Para mudar, use a tela de Orçamentos (as regras de aprovação continuam valendo).`;
+  }
+  if (propostaDoGestaoClick(p)) {
+    return `Não gravei nada: a proposta ${n} veio do GestãoClick, e o STI-hub não envia alterações de volta ao GestãoClick. Se eu editar só aqui, o STI-hub e o GestãoClick ficam com valores diferentes. Faça a alteração no GestãoClick (e, se precisar, ajuste também na tela de Orçamentos do STI-hub).`;
+  }
+  return null;
+}
+
+const totaisLinha = (rot: string, t: any) =>
+  `${rot}: mensal ${formatBRL(t?.monthlyRecurringTotal)}, único ${formatBRL(Number(t?.oneTimeSetupTotal || 0) + Number(t?.shippingCost || 0))}, contrato ${formatBRL(t?.totalContractValue)}`;
+
+const editarProposta: AssistenteTool<EditarPropostaArgs> = {
+  name: 'editar_proposta',
+  descricao:
+    'Edita um orçamento/proposta existente pelo número (ex.: 4709): acrescenta item ou despesa (ex.: locomoção e hospedagem R$ 2.800,00), altera descrição, quantidade ou valor de um item (pela posição) e campos como título, prazo, validade, condição de pagamento, frete e observações. Valores em reais como número (2800.00).',
+  tipo: 'gravacao',
+  rotas: ['GET /api/erp/proposals', 'GET /api/erp/proposals/:id', 'PATCH /api/erp/proposals/:id'],
+  disponivel: (u) => u.moduleAccess.erp,
+  parameters: {
+    type: 'object',
+    properties: {
+      proposta: { type: 'string', description: 'Número/código da proposta, ex.: "4709".' },
+      adicionar_itens: {
+        type: 'array',
+        maxItems: 20,
+        items: {
+          type: 'object',
+          properties: {
+            descricao: { type: 'string' },
+            quantidade: { type: 'number', description: 'Padrão 1.' },
+            valor_unitario: { type: 'number', description: 'Valor unitário em reais, ex.: 2800.00.' },
+            tipo: { type: 'string', enum: ['locacao', 'servico', 'produto', 'despesa'], description: 'Padrão despesa.' },
+            cobranca: { type: 'string', enum: ['mensal', 'unica'], description: 'Despesa e produto: padrão única.' },
+          },
+          required: ['descricao', 'valor_unitario'],
+          additionalProperties: false,
+        },
+      },
+      alterar_itens: {
+        type: 'array',
+        maxItems: 30,
+        items: {
+          type: 'object',
+          properties: {
+            item: { type: 'integer', minimum: 1, description: 'Posição do item na proposta (1 = primeiro).' },
+            descricao: { type: 'string' },
+            quantidade: { type: 'number' },
+            valor_unitario: { type: 'number' },
+          },
+          required: ['item'],
+          additionalProperties: false,
+        },
+      },
+      titulo: { type: 'string' },
+      prazo_meses: { type: 'integer', minimum: 1, maximum: 120 },
+      validade: { type: 'string', description: 'AAAA-MM-DD' },
+      condicao_pagamento: { type: 'string' },
+      frete: { type: 'number' },
+      observacoes_comerciais: { type: 'string' },
+    },
+    required: ['proposta'],
+    additionalProperties: false,
+  },
+  schema: editarPropostaSchema,
+  modulos: () => ['erp'],
+  coagir(a) {
+    if (!a || typeof a !== 'object') return a;
+    const out: any = { ...a };
+    delete out.alvo; // so o servidor preenche
+    if (typeof out.proposta === 'number') out.proposta = String(out.proposta);
+    for (const k of ['prazo_meses', 'frete']) if (k in out) out[k] = parseNumeroBR(out[k]);
+    if (Array.isArray(out.adicionar_itens)) out.adicionar_itens = out.adicionar_itens.map((i: any) => (i && typeof i === 'object' ? { ...i, quantidade: i.quantidade === undefined ? undefined : parseNumeroBR(i.quantidade), valor_unitario: parseNumeroBR(i.valor_unitario) } : i));
+    if (Array.isArray(out.alterar_itens)) out.alterar_itens = out.alterar_itens.map((i: any) => (i && typeof i === 'object' ? { ...i, item: parseNumeroBR(i.item), ...(i.quantidade !== undefined ? { quantidade: parseNumeroBR(i.quantidade) } : {}), ...(i.valor_unitario !== undefined ? { valor_unitario: parseNumeroBR(i.valor_unitario) } : {}) } : i));
+    return out;
+  },
+  async preparar(a, api) {
+    const loc = await localizarProposta(a.proposta, api);
+    if (!loc.ok) return { ok: false, texto: loc.texto };
+    const p = loc.proposta;
+    const bloqueio = bloqueioEdicao(p);
+    if (bloqueio) return { ok: false, texto: bloqueio };
+    const ed = aplicarEdicaoProposta(p, { ...a, alvo: undefined }, 'previa');
+    if (!ed.ok) return { ok: false, texto: ed.texto };
+    const linhas = [
+      `Proposta: ${numeroProposta(p)}`,
+      `Cliente: ${cut(p.companyName, 70)}${p.companyCnpj ? ` — CNPJ ${cut(p.companyCnpj, 20)}` : ''}`,
+      `Situação: ${statusProposta(p.status)}`,
+      ...ed.mudancas,
+      totaisLinha('Antes', computeProposalTotals({ ...p, items: (p.items || []).map((i: any) => ({ ...i })) } as ErpCommercialProposal)),
+      totaisLinha('Depois', ed.depois),
+    ];
+    return { ok: true, args: { ...a, proposta: numeroProposta(p), alvo: { id: String(p.id), code: String(p.code || ''), updatedAt: String(p.updatedAt || ''), linhas } } };
+  },
+  resumo: (a) => ({
+    titulo: `Editar a proposta ${a.alvo?.code ? formatProposalDisplayCode(a.alvo.code) : a.proposta}`,
+    linhas: a.alvo?.linhas?.length ? a.alvo.linhas : [`Proposta: ${a.proposta}`],
+  }),
+  async executar(a, api) {
+    if (!a.alvo) return { ok: false, status: 400, mensagem: 'Ação sem a proposta identificada. Peça de novo ao assistente.', resumoParaModelo: 'Falhou: proposta não identificada.' };
+    // Trava: grava SO na proposta exata do cartao (id + codigo + versao).
+    const res = await api({ method: 'GET', path: `/api/erp/proposals/${encodeURIComponent(a.alvo.id)}` });
+    if (res.status < 200 || res.status >= 300 || !res.body?.data) return apiError(res, 'abrir a proposta');
+    const p = res.body.data;
+    if (String(p.id) !== a.alvo.id || String(p.code || '') !== a.alvo.code) {
+      return { ok: false, status: 409, mensagem: 'A proposta encontrada não é a mesma do cartão. Nada foi gravado.', resumoParaModelo: 'Falhou: proposta diferente da do cartão.' };
+    }
+    if (String(p.updatedAt || '') !== a.alvo.updatedAt) {
+      return { ok: false, status: 409, mensagem: `A proposta ${numeroProposta(p)} foi alterada depois que o cartão foi montado. Nada foi gravado; peça de novo para ver os valores atuais.`, resumoParaModelo: 'Falhou: a proposta mudou depois do cartão.' };
+    }
+    const bloqueio = bloqueioEdicao(p);
+    if (bloqueio) return { ok: false, status: 409, mensagem: bloqueio, resumoParaModelo: 'Falhou: edição bloqueada.' };
+    const ed = aplicarEdicaoProposta(p, a, String(Date.now()));
+    if (!ed.ok) return { ok: false, status: 400, mensagem: ed.texto, resumoParaModelo: `Falhou: ${ed.texto}` };
+    const put = await api({ method: 'PATCH', path: `/api/erp/proposals/${encodeURIComponent(a.alvo.id)}`, body: { ...ed.patch, expectedUpdatedAt: a.alvo.updatedAt } });
+    if (put.status < 200 || put.status >= 300) return apiError(put, 'gravar a proposta');
+    const d = put.body?.data || {};
+    return {
+      ok: true,
+      mensagem: `Proposta ${numeroProposta(p)} atualizada. Total do contrato: ${formatBRL(d.totalContractValue ?? ed.depois.totalContractValue)}. Nada foi enviado ao cliente.`,
+      registro: { tipo: 'proposta', id: String(p.id), codigo: String(p.code || '') },
+      resumoParaModelo: `Proposta ${numeroProposta(p)} atualizada (${ed.mudancas.length} mudanças). Não repita a edição.`,
+    };
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Registro
 // ---------------------------------------------------------------------------
-export const ASSISTENTE_TOOLS: AssistenteTool[] = [consultar, relatorio, criarRascunhoProposta, abrirChamado, abrirOs];
+export const ASSISTENTE_TOOLS: AssistenteTool[] = [consultar, consultarPropostas, relatorio, criarRascunhoProposta, editarProposta, abrirChamado, abrirOs];
 
 export function getTool(name: string): AssistenteTool | undefined {
   return ASSISTENTE_TOOLS.find((t) => t.name === name);
