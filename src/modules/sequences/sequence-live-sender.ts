@@ -31,11 +31,22 @@ import {
   stepIdempotencyKey,
 } from './sequence-live-config';
 import { resolveEnrollmentOwnerEmail } from './sequence-service';
+import { getDefaultLockStore, newLockOwnerId, type DistributedLockStore } from '../../db/distributed-lock';
 
 export const SEQUENCE_CRON_PATH = '/api/cron/sequences';
 export const SEQUENCE_MAX_SENDS_PER_RUN = 25;
 export const SEQUENCE_MAX_PROVIDER_ATTEMPTS = 3;
 const REPLY_LOOKBACK_DAYS = 30;
+/** Trava global da execucao do cron (todas as instancias). */
+export const SEQUENCE_RUN_LOCK_KEY = 'sequences:run';
+export const SEQUENCE_RUN_LOCK_TTL_MS = 10 * 60 * 1000;
+/** Reserva de cada envio: nunca liberada apos o envio (so em falha que sera tentada de novo). */
+export const SEQUENCE_STEP_CLAIM_TTL_MS = 45 * 24 * 60 * 60 * 1000;
+/** Reserva de outra execucao ha mais que isto, sem o passo constar como enviado => envio incerto. */
+export const SEQUENCE_STEP_CLAIM_STALE_MS = 60 * 60 * 1000;
+export function sequenceStepClaimKey(idempotencyKey: string): string {
+  return `seqsend:${idempotencyKey}`;
+}
 const DEFAULT_TZ = 'America/Sao_Paulo';
 
 // ---------------------------------------------------------------------------
@@ -184,9 +195,13 @@ export interface SequenceRunDeps {
   service?: SequenceService;
   maxSends?: number;
   env?: NodeJS.ProcessEnv;
+  /** Trava global (Postgres em producao). Padrao: getDefaultLockStore(). */
+  lock?: DistributedLockStore;
+  /** Recarrega o estado do banco depois de obter a trava (evita decidir com estado velho). */
+  reloadState?: () => Promise<void>;
+  /** Relogio da trava (mesma base de LockInfo.acquiredAt). */
+  lockClock?: () => number;
 }
-
-let runInProgress = false;
 
 function emptyResult(mode: 'LIVE' | 'SIMULATION', allowlist: boolean): SequenceRunResult {
   return { mode, testAllowlistActive: allowlist, due: 0, sent: 0, pending: 0, errors: 0, blocked: 0, deferred: 0, nonEmailStepsAdvanced: 0, tasksCreated: 0, repliesDetected: 0, skippedReasons: {} };
@@ -346,20 +361,50 @@ export async function runSequenceScheduler(repo: CrmRepository, deps: SequenceRu
   const env = deps.env || process.env;
   const allowlist = resolveSequenceTestRecipients(env);
   if (!isSequenceLiveSendEnabled(env)) return emptyResult('SIMULATION', Boolean(allowlist));
-  if (runInProgress) {
-    const out = emptyResult('LIVE', Boolean(allowlist));
-    bump(out, 'RUN_ALREADY_IN_PROGRESS');
-    return out;
-  }
-  runInProgress = true;
+  // Trava global (Postgres em producao): uma execucao por vez em TODAS as instancias.
+  const lock = deps.lock || getDefaultLockStore();
+  const owner = newLockOwnerId('seq');
   try {
-    return await runLive(repo, deps, allowlist);
+    let got = false;
+    try {
+      got = await lock.acquire(SEQUENCE_RUN_LOCK_KEY, owner, SEQUENCE_RUN_LOCK_TTL_MS);
+    } catch {
+      const out = emptyResult('LIVE', Boolean(allowlist));
+      bump(out, 'RUN_LOCK_UNAVAILABLE');
+      return out;
+    }
+    if (!got) {
+      const out = emptyResult('LIVE', Boolean(allowlist));
+      bump(out, 'RUN_LOCKED_ELSEWHERE');
+      return out;
+    }
+    try {
+      if (deps.reloadState) {
+        try {
+          await deps.reloadState();
+        } catch {
+          const out = emptyResult('LIVE', Boolean(allowlist));
+          bump(out, 'STATE_RELOAD_FAILED');
+          return out;
+        }
+      }
+      return await runLive(repo, deps, allowlist, lock, owner);
+    } finally {
+      await lock.release(SEQUENCE_RUN_LOCK_KEY, owner).catch(() => undefined);
+    }
   } finally {
-    runInProgress = false;
+    // nada a liberar no processo: a trava global e a unica fonte de exclusao
   }
 }
 
-async function runLive(repo: CrmRepository, deps: SequenceRunDeps, allowlist: Set<string> | null): Promise<SequenceRunResult> {
+async function runLive(
+  repo: CrmRepository,
+  deps: SequenceRunDeps,
+  allowlist: Set<string> | null,
+  lock: DistributedLockStore,
+  owner: string
+): Promise<SequenceRunResult> {
+  const lockClock = deps.lockClock || (() => Date.now());
   const now = deps.now || new Date();
   const nowIso = now.toISOString();
   const svc = deps.service || new SequenceService();
@@ -414,14 +459,17 @@ async function runLive(repo: CrmRepository, deps: SequenceRunDeps, allowlist: Se
       continue;
     }
     // Envio interrompido no meio (SENDING orfao): pode ter saido. Nunca reenvia; avisa o vendedor.
-    if (prev?.status === 'SENDING') {
+    const markUncertain = (from: SequenceStepDelivery) => {
       const reason = 'Envio interrompido no meio do processamento; pode ter saído. Confira a pasta Itens Enviados antes de reenviar manualmente.';
       const taskId = createSellerTask(repo, enr, seq, step, `[Cadência] Conferir envio do passo ${step.stepOrder}: ${seq.name}`, reason, now);
-      upsertDelivery(enr, { ...prev, status: 'ERROR', reasonCode: 'SEND_UNCERTAIN', reason, taskId: taskId || prev.taskId || null, updatedAt: nowIso });
+      upsertDelivery(enr, { ...from, status: 'ERROR', reasonCode: 'SEND_UNCERTAIN', reason, taskId: taskId || from.taskId || null, updatedAt: nowIso });
       repo.saveSequenceEnrollment(enr);
       svc.advanceStep(repo, enr.id, { now, skipMailboxLimit: true, liveOutcome: { kind: 'NOT_SENT', reason } });
       if (taskId) out.tasksCreated++;
       out.errors++;
+    };
+    if (prev?.status === 'SENDING') {
+      markUncertain(prev);
       continue;
     }
 
@@ -570,7 +618,25 @@ async function runLive(repo: CrmRepository, deps: SequenceRunDeps, allowlist: Se
       continue;
     }
 
-    // i) Reserva idempotente gravada ANTES do envio.
+    // i) Reserva global do envio (todas as instancias) e reserva idempotente gravada ANTES do envio.
+    const claimKey = sequenceStepClaimKey(key);
+    let claimed = false;
+    try {
+      claimed = await lock.acquire(claimKey, owner, SEQUENCE_STEP_CLAIM_TTL_MS);
+    } catch {
+      bump(out, 'CLAIM_UNAVAILABLE');
+      break; // banco da trava indisponivel: nao envia nada nesta execucao
+    }
+    if (!claimed) {
+      const info = await lock.peek(claimKey).catch(() => null);
+      if (info && lockClock() - info.acquiredAt > SEQUENCE_STEP_CLAIM_STALE_MS) {
+        markUncertain(base);
+      } else {
+        bump(out, 'CLAIMED_ELSEWHERE');
+      }
+      continue;
+    }
+    const releaseClaim = () => lock.release(claimKey, owner).catch(() => undefined);
     const attempt = (base.attempts || 0) + 1;
     upsertDelivery(enr, { ...base, status: 'SENDING', reasonCode: null, reason: null, attempts: attempt, senderOwnerEmail: ownerEmail, mailboxAddress: mb.mailboxAddress, updatedAt: nowIso });
     repo.saveSequenceEnrollment(enr);
@@ -580,6 +646,7 @@ async function runLive(repo: CrmRepository, deps: SequenceRunDeps, allowlist: Se
       // Sem conseguir gravar a reserva nao e seguro enviar (risco de duplicar).
       upsertDelivery(enr, { ...base, status: base.status === 'SCHEDULED' ? 'SCHEDULED' : base.status, updatedAt: nowIso });
       repo.saveSequenceEnrollment(enr);
+      await releaseClaim();
       bump(out, 'PERSIST_FAILED');
       break;
     }
@@ -624,6 +691,7 @@ async function runLive(repo: CrmRepository, deps: SequenceRunDeps, allowlist: Se
       if (status === 401) {
         // Token recusado: trata como caixa a reconectar.
         mailboxCache.set(ownerEmail, { ok: false, code: 'MAILBOX_TOKEN_EXPIRED', detail: MAILBOX_REASON_TEXT.MAILBOX_TOKEN_EXPIRED });
+        await releaseClaim();
         base.attempts = attempt;
         markPending('MAILBOX_TOKEN_EXPIRED', MAILBOX_REASON_TEXT.MAILBOX_TOKEN_EXPIRED, { task: true });
         continue;
@@ -636,6 +704,7 @@ async function runLive(repo: CrmRepository, deps: SequenceRunDeps, allowlist: Se
         repo.saveSequenceEnrollment(enr);
         svc.advanceStep(repo, enr.id, { now, skipMailboxLimit: true, liveOutcome: { kind: 'NOT_SENT', reason } });
       } else {
+        await releaseClaim(); // sera tentado de novo
         const calc = reschedule(0, 1);
         upsertDelivery(enr, { ...base, status: 'ERROR', reasonCode: 'PROVIDER_ERROR', reason, attempts: attempt, updatedAt: nowIso });
         pushLog(enr, step, 'LIVE_SEND_ERROR', `${reason} Nova tentativa em ${calc.scheduledLocalDisplay}.`, nowIso, mb.mailboxAddress);

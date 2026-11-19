@@ -1628,6 +1628,20 @@ export class CrmApiRouter {
     if (failed) throw new Error('SEQUENCE_STATE_PERSIST_FAILED');
   }
 
+  /**
+   * Trava global (19/11): depois de obter a trava do cron, rele o estado do Postgres para decidir os
+   * envios com o que a execucao anterior (de qualquer instancia) gravou. Propostas em memoria (modo
+   * tabela) sao preservadas; falha de leitura => lanca (o executor nao envia).
+   */
+  private async reloadStateForSequenceRun(): Promise<void> {
+    const pgState = await loadStateFromPostgres();
+    if (!pgState) return;
+    if (this.proposalTableCtx && pgState.erp) {
+      pgState.erp.proposals = this.repo.listProposals();
+    }
+    this.repo.loadState(pgState);
+  }
+
   /** E-mail do usuario da sessao (dono da inscricao na cadencia), ou null. */
   private sessionUserEmail(query: Record<string, string | undefined>): string | null {
     const tok = query._sessionToken;
@@ -5176,6 +5190,7 @@ export class CrmApiRouter {
         const result = await runSequenceScheduler(this.repo, {
           mailer: createGraphSequenceMailer(mailboxDeps, String(query._origin || '') || undefined),
           persist: this.canPersistToPostgres() ? () => this.persistSequenceClaim() : undefined,
+          reloadState: this.canPersistToPostgres() ? () => this.reloadStateForSequenceRun() : undefined,
         });
         // Sem e-mails, nomes ou tokens na resposta: so contadores.
         return { status: 200, body: { data: result } };
