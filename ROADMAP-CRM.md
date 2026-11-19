@@ -521,6 +521,44 @@ Contexto: na reorganização do menu e das configurações no padrão HubSpot (c
 
 Já cobertos por telas existentes (não são lacunas): Pontuação de leads (em Segmentos & Lead Scoring), Análise de marketing (em Campanhas), Atividades (em Tarefas).
 
+## 11. Padrão de Interface HubSpot para Registros, Atividades e Configurações (pedido do Marcéllo em 19/11/2026)
+
+Diretrizes do Marcéllo: *"nao tem o botão salvar, veja como funciona no hubspot, usar esse mesmo pardrao para adição de novos itens"* (`[t287u]`), *"ao clicar em notas, tarefas, reunião, mais"* (`[t288u]`), *"veja a tela ao clicar na engrenagem do lado direito superior"* (`[t290u]`) e *"coloque tudo isso no roadmap"* (`[t289u]`).
+
+### 11.1. Painel de associação (Criar novo / Adicionar existente) — em andamento
+- [ ] Painel lateral reutilizável para associar Contatos, Empresas, Negócios e Chamados, no lugar dos modais antigos ("Associar contato" sem botão Salvar).
+- [ ] Aba **Adicionar existente**: busca no servidor (nome, e-mail, telefone, CNPJ, sem acentos), contador total, ordenação (recentemente adicionados), lista com caixas de seleção "Nome (e-mail)", já associados indicados, paginação com itens por página, rodapé **Salvar** (desabilitado até marcar) e **Cancelar**.
+- [ ] Aba **Criar novo**: E-mail, Nome e Sobrenome primeiro; demais campos (telefone, celular, cargo, área, proprietário, site) liberados após nome ou e-mail; botões **Criar**, **Criar e adicionar outro** e **Cancelar**. Se o e-mail buscado não existir, oferecer criar com ele preenchido.
+- [ ] Corrigir a busca que não encontrou `valmir.deus@la.nec.com`.
+
+### 11.2. Botões de atividade da ficha (Observação, E-mail, Chamada, Tarefa, Reunião, Mais) — em andamento
+- [ ] Janela flutuante base (minimizar, expandir, fechar, Esc fecha, uma aberta por vez, rascunho preservado ao minimizar), ancorada sobre a linha do tempo.
+- [ ] **Observação**: "Para" com o registro, editor com formatação, "Associado a N registros", opção "Criar uma tarefa para acompanhar em 2 dias úteis", botão **Criar observação**.
+- [ ] **Tarefa**: título, vencimento (padrão 2 dias úteis, 10:00), lembrete, repetição, tipo, prioridade, fila, atribuído a, observações, associações, botão **Criar tarefa**.
+- [ ] **Reunião (Programação)**: modal em duas colunas — à esquerda host, título, data, início e fim, participantes, local, lembretes por e-mail, descrição, associações e observação interna; à direita a agenda semanal do usuário (Hoje, setas, ocultar fins de semana, fuso de Brasília). Botões **Agendar reunião** e **Cancelar**.
+- [ ] **Mais**: menu com busca e registros manuais — SMS, correio postal, e-mail, chamada, mensagem do LinkedIn, mensagem do WhatsApp e reunião. Avaliar "Reordenar botões de atividade".
+- [ ] **E-mail** e **Chamada** no mesmo estilo de janela flutuante.
+
+### 11.3. Central de Configurações pela engrenagem (canto superior direito)
+- [ ] Tela de configurações no padrão HubSpot: menu lateral com busca ("Pesquisar configurações") e grupos **Suas preferências** (Geral, Notificações) e **Gerenciamento de conta** (padrões da conta, usuários e equipes, registro de auditoria, integrações, privacidade e consentimento, segurança, IA, entre outros).
+- [ ] **Geral** com abas Perfil, E-mail, Chamadas, Calendário, Tarefas, Segurança e Automação. Perfil: foto, nome, sobrenome, idioma, formato de data/hora/número (Brasil) e telefone, valendo só para o usuário.
+- [ ] Reaproveitar a Central de Administração existente (seção 7) e o RBAC; nada de "Upgrade".
+
+### 11.4. Assistente de IA — próximas funcionalidades (etapa 2)
+- [x] Consultar e editar propostas pelo número (no ar em 19/11/2026, main 1805460), incluindo as importadas do ERP de origem, com alteração só no STI-hub.
+- [ ] Propostas: gerar PDF, enviar, aprovar e converter.
+- [ ] Contratos e vendas: criar, editar e encerrar.
+- [ ] Faturas: lançar, dar baixa e cobrar; nota fiscal e recibo (NF depende da homologação do Fiscal).
+- [ ] CRM: empresas, contatos, negócios e etapas.
+- [ ] Chamados e OS: atualizar, comentar, atribuir e fechar.
+- [ ] Responder clientes (e-mail e WhatsApp) e relatórios avançados.
+
+### 11.5. Ressalvas do CISO (19/11/2026)
+- [ ] PATCH geral de propostas: bloquear edição de campos em Aprovada, Convertida e Recusada (incluir RECUSADA em `PROPOSAL_LOCKED_STATUSES`).
+- [ ] Allowlist do PATCH: não aceitar `code`, `companyCnpj` nem totais vindos do cliente.
+- [ ] Pílulas da busca global respeitarem `moduleAccess`.
+- [ ] Remanescentes da troca de nomes: "GestãoClick" no painel em tempo real do ERP e parêntese faltando em Contatos & Empresas (em andamento); confirmar SKU de fallback `ITEM-n` na proposta pública.
+
 ## Próxima Etapa Planejada (Backlog de Integração ERP -> CRM)
 
 - [ ] **[AGUARDANDO DEFINIÇÃO DE REGRAS COM O MARCÉLLO ANTES DE IMPLEMENTAR] — Opção de criar/espelhar Negócio (Deal) no CRM ao criar uma Proposta Comercial no ERP:**
