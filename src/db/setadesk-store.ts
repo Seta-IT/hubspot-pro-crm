@@ -8,8 +8,12 @@
 // Modelo de uso por requisicao (router.handle):
 //   1. loadSetaDeskTickets(): le os chamados das tabelas setadesk_* (fonte de
 //      verdade) e devolve uma "linha de base" (fingerprint por chamado).
-//      Roda em rotas autenticadas de chamados (/api/tickets*) e, com permissao de
-//      Chamados, na carga do /api/bootstrap e /api/state. Nunca em rota publica.
+//      Carga completa so em rotas autenticadas de chamados (/api/tickets*) e, com
+//      permissao de Chamados, no /api/bootstrap e /api/state (sem historico).
+//      Rotas publicas do portal fazem carga PARCIAL por chave (keys: no maximo o
+//      chamado informado, com o mesmo numero de consultas exista ou nao) e as que
+//      so criam chamado nao leem nada (keys: []). O mapa por rota fica em
+//      src/api/setadesk-route-plan.ts. Nenhuma rota publica carrega a lista.
 //   2. reserveSetaDeskTicketKeys(n): reserva chaves SD-<n> na sequencia propria
 //      antes de rotas que criam chamados;
 //   3. syncSetaDeskTickets(): grava apenas chamados novos/alterados (upsert por
@@ -500,7 +504,9 @@ export async function loadSetaDeskTickets(
           )
         : await client.query(`SELECT * FROM setadesk_tickets ORDER BY created_at DESC, key DESC`);
       const ids = t.rows.map((r) => String(r.id));
-      const c = !includeComments || (keys && ids.length === 0)
+      // Carga por chave (portal): a consulta de comentarios roda SEMPRE, mesmo sem chamado,
+      // para que "existe" e "nao existe" facam o mesmo caminho no banco.
+      const c = !includeComments
         ? { rows: [] as Record<string, unknown>[] }
         : keys
           ? await client.query(
@@ -536,6 +542,31 @@ export async function loadSetaDeskTickets(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Checagem "registro em uso" (DELETE de empresa/contato): so os chamados que referenciam o
+ * registro e tem O.S. vinculada (unico dado de chamado que countRecordUsage usa). Nunca a lista.
+ */
+export async function loadSetaDeskTicketUsageRefs(
+  kind: 'company' | 'contact',
+  id: string
+): Promise<Array<{ companyId: string | null; contactId: string | null; serviceOrderId: string | null }> | null> {
+  const pool = getPostgresPool();
+  if (!pool) return null;
+  await ensureSetaDeskSchema(pool);
+  const col = kind === 'company' ? 'company_id' : 'contact_id';
+  const r = await pool.query(
+    `SELECT company_id, contact_id, service_order_id FROM setadesk_tickets
+      WHERE ${col} = $1 AND service_order_id IS NOT NULL AND service_order_id <> ''
+      LIMIT 5000`,
+    [String(id)]
+  );
+  return r.rows.map((row) => ({
+    companyId: (row.company_id as string | null) ?? null,
+    contactId: (row.contact_id as string | null) ?? null,
+    serviceOrderId: (row.service_order_id as string | null) ?? null,
+  }));
 }
 
 /** Total de chamados nas tabelas SetaDesk (contadores do CRM/ERP sem carregar a lista). */
