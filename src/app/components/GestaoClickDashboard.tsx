@@ -463,7 +463,7 @@ export default function GestaoClickDashboard({
       </div>
 
       {/* LINHA 1B: PROPOSTAS FEITAS x APROVADAS, FATURADO E VENDAS DO MÊS (pedido do Marcéllo, 19/11) */}
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
         <div
           onClick={() => onOpenSection('ORCAMENTOS')}
           className={`${clickableCard} p-4 xl:col-span-2`}
@@ -513,6 +513,7 @@ export default function GestaoClickDashboard({
           </div>
         </div>
 
+        <div className="grid grid-cols-1 gap-3">
         <div
           onClick={() => onOpenSection('FISCAL')}
           className={`${clickableCard} p-3.5 flex flex-col justify-between`}
@@ -551,6 +552,7 @@ export default function GestaoClickDashboard({
             <span>Ver vendas</span>
             <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
           </div>
+        </div>
         </div>
       </div>
 
