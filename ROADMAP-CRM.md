@@ -539,7 +539,7 @@ Diretrizes do Marcéllo: *"nao tem o botão salvar, veja como funciona no hubspo
 - [ ] **Mais**: menu com busca e registros manuais — SMS, correio postal, e-mail, chamada, mensagem do LinkedIn, mensagem do WhatsApp e reunião. Avaliar "Reordenar botões de atividade".
 - [ ] **E-mail** e **Chamada** no mesmo estilo de janela flutuante.
 
-### 11.3. Central de Configurações pela engrenagem (canto superior direito)
+### 11.3. Central de Configurações pela engrenagem (canto superior direito) — próxima rodada
 - [ ] Tela de configurações no padrão HubSpot: menu lateral com busca ("Pesquisar configurações") e grupos **Suas preferências** (Geral, Notificações) e **Gerenciamento de conta** (padrões da conta, usuários e equipes, registro de auditoria, integrações, privacidade e consentimento, segurança, IA, entre outros).
 - [ ] **Geral** com abas Perfil, E-mail, Chamadas, Calendário, Tarefas, Segurança e Automação. Perfil: foto, nome, sobrenome, idioma, formato de data/hora/número (Brasil) e telefone, valendo só para o usuário.
 - [ ] Reaproveitar a Central de Administração existente (seção 7) e o RBAC; nada de "Upgrade".
@@ -552,6 +552,8 @@ Diretrizes do Marcéllo: *"nao tem o botão salvar, veja como funciona no hubspo
 - [ ] CRM: empresas, contatos, negócios e etapas.
 - [ ] Chamados e OS: atualizar, comentar, atribuir e fechar.
 - [ ] Responder clientes (e-mail e WhatsApp) e relatórios avançados.
+- [ ] **Próxima rodada** (Marcéllo, `[t291u]`: *"A IA funcionou, mas precisa aprimorar, pedir detalhes de configurações para adiconar no campo detalhes"*): ao montar proposta ou item, perguntar os detalhes de configuração que faltarem (ex.: processador, memória, discos, RAID, fonte, garantia, sistema operacional) e gravá-los no campo **Detalhes** do item.
+- [ ] **Próxima rodada** (Marcéllo, `[t291u]`: *"manter um historico das conversas assim posso continuar em determinda conversa e ter mais de uma conversa em andamento, isso deve ser separado por USER"*): histórico de conversas salvo no banco, separado por usuário (cada um vê só as suas), lista de conversas com título e data, nova conversa, retomar qualquer uma, várias em andamento; respeitar LGPD (retenção e exclusão pelo próprio usuário).
 
 ### 11.5. Ressalvas do CISO (19/11/2026)
 - [ ] PATCH geral de propostas: bloquear edição de campos em Aprovada, Convertida e Recusada (incluir RECUSADA em `PROPOSAL_LOCKED_STATUSES`).
