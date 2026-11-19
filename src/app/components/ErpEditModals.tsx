@@ -62,6 +62,7 @@ import {
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
 import { buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, proposalHidesFreight, readablePaymentCondition, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
+import { displayPaymentConditionText, proposalPaymentMethodLabel, proposalPaymentMethodOptions, selectableContractPaymentMethods } from '../lib/proposal-payment-method';
 import { useContractAuxiliaryOptions } from '../lib/use-contract-aux-options';
 import {
   computeCustomDueDateClient,
@@ -551,12 +552,13 @@ export function ProposalEditModal({
             : `Parcela ${i + 1}/${count} do pagamento único`
           : count === 1
             ? 'Pagamento à vista'
-            : `Parcela ${i + 1}/${count} (${method})`,
+            : `Parcela ${i + 1}/${count} (${proposalPaymentMethodLabel(method)})`,
       };
     });
 
     setInstallmentCount(count);
     const dueLabel = generated[0]?.dueDate || firstDueDate;
+    const methodLabel = proposalPaymentMethodLabel(method);
     updateDraft({
       installments: generated,
       paymentCondition: avulso
@@ -564,8 +566,8 @@ export function ProposalEditModal({
           ? 'À vista — Pagamento único'
           : `Parcelado em ${count}x de ${formatBRL(perInstallment)} — Pagamento único — 1º venc. ${dueLabel}`
         : count === 1
-          ? `À Vista (${method}) — Vencimento ${dueLabel}`
-          : `Parcelado em ${count}x de ${formatBRL(perInstallment)} (${method}) — 1º Venc: ${dueLabel}`,
+          ? `À Vista (${methodLabel}) — Vencimento ${dueLabel}`
+          : `Parcelado em ${count}x de ${formatBRL(perInstallment)} (${methodLabel}) — 1º Venc: ${dueLabel}`,
     });
   };
 
@@ -1609,15 +1611,11 @@ export function ProposalEditModal({
                       value={defaultPaymentMethod}
                       onChange={setDefaultPaymentMethod}
                       className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white"
-                      options={[
-                        { value: 'BOLETO', label: 'Boleto Bancário Híbrido PIX' },
-                        { value: 'PIX', label: 'PIX Empresarial' },
-                        { value: 'TED', label: 'TED / Transferência Bancária' },
-                        { value: 'CARTAO_CREDITO', label: 'Cartão de Crédito' },
-                        ...(!isAvulsoServiceProposal(draft)
-                          ? [{ value: 'FATURAMENTO_MENSAL', label: 'Faturamento Mensal (Contrato)' }]
-                          : []),
-                      ]}
+                      options={proposalPaymentMethodOptions({
+                        includeMonthlyBilling: !isAvulsoServiceProposal(draft),
+                        monthlyBillingLabel: 'Faturamento Mensal (Contrato)',
+                        currentValue: defaultPaymentMethod,
+                      })}
                     />
                   </div>
                   <div className="sm:col-span-2">
@@ -1639,7 +1637,7 @@ export function ProposalEditModal({
                     <input
                       type="text"
                       placeholder={isAvulsoServiceProposal(draft) ? "À vista — Pagamento único" : ""}
-                      value={isAvulsoServiceProposal(draft) ? readablePaymentCondition(draft.paymentCondition) : draft.paymentCondition}
+                      value={displayPaymentConditionText(isAvulsoServiceProposal(draft) ? readablePaymentCondition(draft.paymentCondition) : draft.paymentCondition)}
                       onChange={(e) => updateDraft({ paymentCondition: e.target.value })}
                       className="w-full px-2.5 py-1.5 rounded border border-slate-300"
                     />
@@ -1711,15 +1709,11 @@ export function ProposalEditModal({
                                   updateDraft({ installments: copy });
                                 }}
                                 className="w-full px-2 py-1 rounded border border-slate-300 bg-white"
-                                options={[
-                                  { value: 'BOLETO', label: 'Boleto Bancário' },
-                                  { value: 'PIX', label: 'PIX Empresarial' },
-                                  { value: 'TED', label: 'TED Bancária' },
-                                  { value: 'CARTAO_CREDITO', label: 'Cartão de Crédito' },
-                                  ...(!isAvulsoServiceProposal(draft)
-                                    ? [{ value: 'FATURAMENTO_MENSAL', label: 'Faturamento Mensal' }]
-                                    : []),
-                                ]}
+                                options={proposalPaymentMethodOptions({
+                                  includeMonthlyBilling: !isAvulsoServiceProposal(draft),
+                                  monthlyBillingLabel: 'Faturamento Mensal',
+                                  currentValue: inst.paymentMethod,
+                                })}
                               />
                             </td>
                             <td className="py-1.5 px-2.5">
@@ -3234,7 +3228,7 @@ export function ContractEditModal({
                   <div>
                     <label className={lblCls}>Forma de pagamento *</label>
                     <input required list="ctr-payment-methods" value={draft.paymentMethod || ''} onChange={(e) => setDraft({ ...draft, paymentMethod: e.target.value })} className={`${inpCls}${fieldError('paymentMethod') ? ' border-rose-500' : ''}`} />{fieldError('paymentMethod') && <span className="text-[10px] font-semibold text-rose-600">{fieldError('paymentMethod')}</span>}
-                    <datalist id="ctr-payment-methods">{auxOptions.paymentMethods.map((p) => (<option key={p} value={p} />))}</datalist>
+                    <datalist id="ctr-payment-methods">{selectableContractPaymentMethods(auxOptions.paymentMethods, draft.paymentMethod).map((p) => (<option key={p} value={p} />))}</datalist>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>

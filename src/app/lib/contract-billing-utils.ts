@@ -43,7 +43,6 @@ export const DEFAULT_CONTRACT_AUX_OPTIONS: ContractAuxiliaryOptions = {
     'Boleto + PIX QR Code',
     'PIX Automático Inter',
     'Transferência / TED Bancária',
-    'Cartão de Crédito Recorrente',
   ],
   costCenters: [
     'LOCAÇÃO DE EQUIPAMENTO',
@@ -1121,7 +1120,7 @@ export const CONTRACT_DOCUMENT_TEMPLATES: Record<'LOCACAO' | 'SERVICO' | 'ASSINA
       'CLÁUSULA 1ª — DO OBJETO: Disponibilização contínua, em nuvem e por assinatura mensal, de plataformas, licenças de software e serviços de telecomunicações SCM/SVA.',
       'CLÁUSULA 2ª — DA RENOVAÇÃO AUTOMÁTICA: A assinatura renova-se automaticamente a cada ciclo de cobrança, salvo manifestação contrária com antecedência mínima de 30 dias.',
       'CLÁUSULA 3ª — DOS NÍVEIS DE DISPONIBILIDADE: A CONTRATADA envidará esforços para disponibilidade mínima de 99,5% mensal, excetuadas janelas de manutenção programada comunicadas previamente.',
-      'CLÁUSULA 4ª — DA COBRANÇA RECORRENTE: O valor da assinatura será cobrado de forma recorrente por boleto, PIX ou cartão, no vencimento de cada ciclo, mediante link de cobrança.',
+      'CLÁUSULA 4ª — DA COBRANÇA RECORRENTE: O valor da assinatura será cobrado de forma recorrente por boleto, Pix ou Ted / Transferência, no vencimento de cada ciclo, mediante link de cobrança.',
       'CLÁUSULA 5ª — DO CANCELAMENTO: O cancelamento produz efeitos ao final do ciclo vigente, sem reembolso proporcional, salvo disposição em contrário.',
     ],
   },
