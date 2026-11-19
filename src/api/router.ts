@@ -1018,6 +1018,15 @@ export function isAuthorizedWorkflowsCron(
   return method === 'GET' && cleanPath === WORKFLOW_CRON_PATH && query._fromHttpBridge === '1' && query._cronAuthorized === '1';
 }
 
+/**
+ * Perf 19/11 (lote 1): o bootstrap NAO faz mais a carga ao vivo do GestaoClick por padrao.
+ * So com BOOTSTRAP_LIVE_GESTAOCLICK=1 (ou "true") o comportamento antigo volta.
+ */
+export function isBootstrapLiveGestaoClickEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = String(env.BOOTSTRAP_LIVE_GESTAOCLICK || '').trim().toLowerCase();
+  return v === '1' || v === 'true';
+}
+
 export function shouldPersistAfterDispatch(
   method: string,
   cleanPath: string,
@@ -5392,7 +5401,17 @@ export class CrmApiRouter {
         (cleanPath === "/api/bootstrap" || cleanPath === "/api/state") &&
         (method === "GET" || method === "POST")
       ) {
-        if (this.isSingletonRepo && !this.gcInitialized && process.env.GESTAOCLICK_ACCESS_TOKEN) {
+        // Perf 19/11 (lote 1): a carga ao vivo do GestaoClick (contratos, vendas e O.S. paginados a
+        // 3 req/s, ~40+ chamadas) saiu do bootstrap: era o p50 de 9,6 s / p95 de 46,7 s da abertura
+        // do app em toda instancia fria. O GC segue pelo cron diario (/api/erp/daily-sync), pelo
+        // sync manual (/api/erp/gestaoclick/sync) e pela ingestao /api/v1/erp/sync/run.
+        // BOOTSTRAP_LIVE_GESTAOCLICK=1 religa o comportamento antigo (rollback sem deploy de codigo).
+        if (
+          this.isSingletonRepo &&
+          !this.gcInitialized &&
+          isBootstrapLiveGestaoClickEnabled() &&
+          process.env.GESTAOCLICK_ACCESS_TOKEN
+        ) {
           this.gcInitialized = true;
           try {
             await this.repo.syncLiveGestaoClick({ forceRefresh: false });
