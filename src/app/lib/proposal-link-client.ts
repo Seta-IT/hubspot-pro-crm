@@ -148,7 +148,7 @@ export function proposalEmailLinkGate(input: {
   }
   const unsigned = String(input.unsignedUrl || '');
   if (unsigned && !unsigned.includes('#t=') && input.body.includes(unsigned) && !input.body.includes(input.state.url)) {
-    return { ok: false, error: 'O corpo do e-mail ainda tem o link interno da proposta (sem assinatura). Use o link assinado.' };
+    return { ok: false, error: 'O corpo do e-mail ainda tem o link da Versão contrato (sem assinatura). Use o link assinado.' };
   }
   return { ok: true };
 }

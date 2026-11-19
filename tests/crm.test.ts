@@ -3529,8 +3529,9 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
       "                Descontos\n",
       '"Valor Total" : "Valor Mensal"',
       "Valor Total dos Produtos",
-      '"Valor Total (Pagamento Único)"',
-    ]) assert.ok(pageSrc.includes(novo), novo);
+      '{uniquePaymentLabel}',
+    ]) assert.ok(pageSrc.includes(novo) || shareSrc.includes(novo), novo);
+    assert.ok(shareSrc.includes('Valor Total (Pagamento Único)'));
     for (const antigo of [
       "Estoque Próprio de Spare Parts (+500 SKUs) • Atendimento Brasil",
       "PROPOSTA COMERCIAL / ORÇAMENTO",

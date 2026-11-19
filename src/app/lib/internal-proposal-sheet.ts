@@ -1,7 +1,7 @@
 import type { ErpCommercialProposal } from '../../db/types';
 import { DEFAULT_COMPANY_EMITTER_SETTINGS } from '../../modules/erp/daily-sync-service';
 import { formatIssuerAddress, type IssuerAddressInput } from './company-issuer-address';
-import { cleanProposalTechnicalClauses, proposalHidesFreight, proposalSetupAmount, proposalSetupFeeLabel, readablePaymentCondition, resolveProposalCommercialFigures, resolveProposalDocumentHeadings } from './proposal-share';
+import { cleanProposalTechnicalClauses, readablePaymentCondition, resolveProposalCommercialFigures, resolveProposalCommercialPresentation, resolveProposalDocumentHeadings } from './proposal-share';
 import {
   buildDefaultTechnicalSupportClauseParts,
   displayProposalTechnicalClauses,
@@ -304,9 +304,10 @@ export function buildInternalProposalSheet(
     : service
     ? `Proposta de Serviço${monthLabel ? ` - ${monthLabel}` : ''}`
     : `Proposta de Locação${monthLabel ? ` - ${monthLabel}` : ''}`;
-  const monthly = figures.monthly;
-  const hideFreight = proposalHidesFreight(proposal);
-  const freight = hideFreight ? 0 : Number(proposal.shippingCost || 0);
+  const view = resolveProposalCommercialPresentation(proposal);
+  const monthly = oneTime ? view.commercialTotalAmount : view.monthlyAmount;
+  const hideFreight = view.hideFreight;
+  const freight = view.shippingCost;
   const delivery = String(proposal.deliveryLeadTime || proposal.deliveryForecast || '').trim();
   const code = String(proposal.code || '').replace(/^#/, '').trim();
   const city = String(options?.clientCity || '').trim();
@@ -314,15 +315,15 @@ export function buildInternalProposalSheet(
   const readjustment = options?.readjustment || 'não definido';
   const sla = options?.slaText || 'não definido';
   const proposalKind = partsBudget ? 'Spare Parts / Hard Parts' : service ? 'Serviço' : 'Locação';
-  const partsTotal = (proposal.items || []).reduce((sum, item) => sum + Number(item.totalMonthly ?? item.subtotal ?? 0), 0);
-  const shownAmount = partsBudget ? partsTotal : monthly;
+  const itemsSubtotal = view.itemsSubtotal;
+  const shownAmount = partsBudget || oneTime ? view.commercialTotalAmount || itemsSubtotal : monthly;
   const summaryRows: Array<{ label: string; value: string }> = [
     { label: 'Proposta', value: partsBudget ? 'Proposta de Spare Parts / Hard Parts' : `${proposalKind}${monthLabel ? ` - ${monthLabel}` : ''}` },
     { label: partsBudget || oneTime ? (oneTime && !partsBudget ? 'Valor total (pagamento único)' : 'Valor total') : 'Valor mensal', value: money(shownAmount) },
     { label: 'Prazo de entrega estimado', value: delivery || INTERNAL_FIELD_BLANK },
   ];
-  const setup = proposalSetupAmount(proposal);
-  if (setup > 0) summaryRows.push({ label: proposalSetupFeeLabel(proposal), value: `${money(setup)} (pagamento único)` });
+  const setup = view.displaySetupAmount;
+  if (view.hasSetupSelected) summaryRows.push({ label: view.setupFeeLabel, value: `${money(setup)} (pagamento único)` });
   if (freight > 0) summaryRows.push({ label: 'Frete', value: `${money(freight)} (pagamento único)` });
   if (sla && sla !== 'não definido') summaryRows.push({ label: 'SLA', value: sla });
   if (!oneTime && !partsBudget) summaryRows.push({ label: 'Reajuste anual', value: readjustment });
@@ -369,7 +370,7 @@ export function buildInternalProposalSheet(
     ? [
         {
           due: 'Pagamento único',
-          amount: money(monthly),
+          amount: money(shownAmount),
           method: payment || INTERNAL_FIELD_BLANK,
           methodMissing: !payment,
           note: `Pagamento único do ${subject}`,
@@ -384,16 +385,18 @@ export function buildInternalProposalSheet(
           note: `Mensalidade da ${subject}, reajuste anual pelo ${readjustment}`,
         },
       ];
-  if (setup > 0) {
+  // No avulso/venda o total único já inclui setup e frete (mesma conta da folha pública).
+  // Só parcela setup/frete à parte na locação e no serviço mensal.
+  if (setup > 0 && !oneTime && !partsBudget) {
     paymentRows.push({
       due: 'Pagamento único',
       amount: money(setup),
       method: payment || INTERNAL_FIELD_BLANK,
       methodMissing: !payment,
-      note: `${proposalSetupFeeLabel(proposal)}, cobrado uma única vez (não incluso na mensalidade)`,
+      note: `${view.setupFeeLabel}, cobrado uma única vez (não incluso na mensalidade)`,
     });
   }
-  if (freight > 0) {
+  if (freight > 0 && !oneTime && !partsBudget) {
     paymentRows.push({
       due: 'Pagamento único',
       amount: money(freight),
@@ -418,7 +421,7 @@ export function buildInternalProposalSheet(
     monthlyLine: partsBudget
       ? `Valor total de ${money(shownAmount)}`
       : oneTime
-        ? `Valor total (pagamento único) de ${money(monthly)}`
+        ? `Valor total (pagamento único) de ${money(shownAmount)}`
         : `Valor Mensal de ${money(monthly)}`,
     deliveryLine: `Prazo de Entrega Estimado: ${delivery || INTERNAL_FIELD_BLANK}`,
     freightLine: freight > 0 ? `Frete: ${money(freight)} (pagamento único)` : '',
@@ -440,12 +443,12 @@ export function buildInternalProposalSheet(
     itemsSection: partsBudget ? 'PEÇAS' : service ? 'SERVIÇOS' : 'PRODUTOS',
     lines,
     qtyTotal,
-    productsMonthly: money(shownAmount),
-    monthlyPlain: amount(shownAmount),
+    productsMonthly: money(oneTime || partsBudget ? (partsBudget ? itemsSubtotal : (service ? view.servicesSubtotal : view.productsSubtotal || itemsSubtotal)) : monthly),
+    monthlyPlain: amount(oneTime || partsBudget ? itemsSubtotal || shownAmount : monthly),
     freightAmount: money(freight),
     showFreight: freight > 0,
-    showSetup: setup > 0,
-    setupLabel: proposalSetupFeeLabel(proposal),
+    showSetup: view.hasSetupSelected,
+    setupLabel: view.setupFeeLabel,
     setupAmount: money(setup),
     unitPriceColumn: oneTime || partsBudget ? 'Vr. unitário' : 'Vr. unit. mensal',
     subtotalColumn: oneTime || partsBudget ? 'Subtotal' : 'Subtotal mensal',

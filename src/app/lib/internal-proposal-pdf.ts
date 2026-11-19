@@ -48,7 +48,7 @@ export function buildInternalProposalPrintHtml(model: InternalProposalSummaryMod
     `<p><b>CONFIDENCIALIDADE E CONDIÇÕES GERAIS</b> — ${escHtml(sheet.confidentiality)}</p>`,
     ...sheet.clauses.map((clause) => `<p><b>${escHtml(clause.title)}</b> — ${escHtml(clause.body)}</p>`),
   ].join('');
-  const title = internalProposalPdfFileNameFromModel(model).replace(/\.pdf$/, '');
+  const title = `Versão contrato — ${internalProposalPdfFileNameFromModel(model).replace(/\.pdf$/, '')}`;
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"/><title>${escHtml(title)}</title>
 <style>
 @page{size:A4;margin:8mm 9mm}
