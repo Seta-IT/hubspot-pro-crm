@@ -46,6 +46,8 @@ import {
   loadStateFromPostgres,
   syncStateToPostgres,
 } from '../db/postgres';
+import { currentStateRequestContext, runWithStateRequestContext } from '../db/state-request-context';
+import type { CrmDatabaseState } from '../db/types';
 import {
   countSetaDeskTickets,
   createSetaDeskPipeline,
@@ -1010,6 +1012,9 @@ export function isAuthorizedWorkflowsCron(
  * Perf 19/11 (lote 1): o bootstrap NAO faz mais a carga ao vivo do GestaoClick por padrao.
  * So com BOOTSTRAP_LIVE_GESTAOCLICK=1 (ou "true") o comportamento antigo volta.
  */
+/** CISO 19/11 (c): rotas que, com a carga do estado falhando, respondem so leitura (sem gravar). */
+const STATE_READ_FALLBACK_PATHS = new Set(["/api/bootstrap", "/api/state"]);
+
 /** Lote 1-b (c): rotas que devolvem reconciliation.journalAck. */
 const JOURNAL_ACK_PATHS = new Set(["/api/bootstrap", "/api/state", "/api/state/reconcile"]);
 
@@ -1063,8 +1068,6 @@ export class CrmApiRouter {
    */
   private proposalTableCtx: { hydrated: Map<string, HydratedSnapshot>; strictInserts: boolean } | null = null;
   private gcInitialized = false;
-  /** Lote 1-b: ultima gravacao do estado no Postgres falhou (engolida no modo sem tabela). */
-  private lastPersistFailed = false;
   private healthService = new DataHealthService();
   private enrichmentService = new EnrichmentService();
   private workflowEngine = new WorkflowEngine();
@@ -1856,6 +1859,11 @@ export class CrmApiRouter {
   }
 
   async dispatch(req: ApiRequest): Promise<ApiResponse> {
+    // CISO 19/11 (c): contexto por requisicao; a carga do estado marca se pode gravar.
+    return runWithStateRequestContext({ stateLoadOk: true }, () => this.dispatchTimed(req));
+  }
+
+  private async dispatchTimed(req: ApiRequest): Promise<ApiResponse> {
     const startedAt = Date.now();
     const method = String(req.method || '').toUpperCase();
     const cleanPath = (String(req.path || '/').split('?')[0].replace(/\/+$/, '') || '/');
@@ -1946,9 +1954,11 @@ export class CrmApiRouter {
     // CISO 17/11: cron da entrada de e-mail com a flag desligada nao le o crm_state_v1 (~7 MB por
     // execucao no Neon); a rota responde 200 { enabled: false } sem tocar em nada.
     const skipStateLoad = isAuthorizedSetaDeskEmailPollCron(method, cleanPath, query) && !isSetaDeskEmailIntakeEnabled();
-    if (this.isSingletonRepo && isPostgresEnabled() && !skipStateLoad) {
+    if (this.isSingletonRepo && this.stateStoreEnabled()) {
+      let stateLoadOk = false;
+      if (!skipStateLoad) {
       try {
-        const pgState = await loadStateFromPostgres();
+        const pgState = await this.loadStateFromStore();
         if (pgState) {
           if (isProposalsTableState(pgState) && pgState.erp && Array.isArray(pgState.erp.proposals) && pgState.erp.proposals.length) {
             // Modo tabela: propostas que um escritor antigo tenha deixado no JSON sao IGNORADAS (a
@@ -1959,10 +1969,28 @@ export class CrmApiRouter {
           if (isProposalsTableState(pgState)) {
             this.proposalTableCtx = { hydrated: new Map(), strictInserts: false };
           }
+          stateLoadOk = true;
+          this.pgInitialized = true;
         }
-        this.pgInitialized = true;
       } catch {
         // Fallback to local state if PostgreSQL is unreachable
+      }
+      }
+      if (!stateLoadOk) {
+        // CISO 19/11 (c): sem carga bem-sucedida o estado em memoria e fallback local (arquivo,
+        // seed ou requisicao anterior): NADA desta requisicao grava no Postgres. Escrita => 503;
+        // bootstrap/state seguem so leitura (journalAck=false, o navegador mantem o journal).
+        const sctx = currentStateRequestContext();
+        if (sctx) sctx.stateLoadOk = false;
+        if (!skipStateLoad) {
+          console.error('[estado] carga do crm_state_v1 falhou; gravacao bloqueada nesta requisicao.');
+          if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && !STATE_READ_FALLBACK_PATHS.has(cleanPath)) {
+            return {
+              status: 503,
+              body: { error: 'Base de dados temporariamente indisponível (nada foi gravado). Tente de novo em instantes.', code: 'STATE_STORE_UNAVAILABLE' },
+            };
+          }
+        }
       }
     }
     if (this.proposalTableCtx) {
@@ -2083,9 +2111,10 @@ export class CrmApiRouter {
       !isSetaDeskEmailDirectRoute(method, cleanPath) &&
       (shouldPersistAfterDispatch(method, cleanPath, query, response.status) || journalReconciled)
     ) {
-      const failed = await this.persistStateToPostgres();
+      const outcome = { ok: false };
+      const failed = await this.persistStateToPostgres(outcome);
       if (failed) return failed;
-      persistedAfterDispatch = !this.lastPersistFailed;
+      persistedAfterDispatch = outcome.ok;
     }
 
     // Lote 1-b (c): confirma ao navegador que o journal enviado foi aplicado E gravado, para ele
@@ -2101,7 +2130,10 @@ export class CrmApiRouter {
       const rec = b.reconciliation;
       const sentJournal = cleanPath === "/api/state/reconcile" ? true : Boolean(body && body.reconcileJournal);
       if (sentJournal && rec && typeof rec === "object") {
-        (rec as Record<string, unknown>).journalAck = this.canPersistToPostgres() ? persistedAfterDispatch : true;
+        // Sem Postgres (arquivo/memoria) o repositorio ja gravou; com Postgres vale ESTA gravacao.
+        // Carga falhou nesta requisicao => canPersistToPostgres() falso, mas nada foi gravado.
+        const storeBacked = this.isSingletonRepo && this.stateStoreEnabled();
+        (rec as Record<string, unknown>).journalAck = storeBacked ? persistedAfterDispatch : true;
       }
     }
 
@@ -2190,13 +2222,27 @@ export class CrmApiRouter {
   /** Grava o estado (e, no modo tabela, o diff das propostas). Conflito => 409; falha => 503. */
   /** Gravacao no Neon so no repositorio singleton com Postgres configurado (isolado para teste). */
   private canPersistToPostgres(): boolean {
-    return this.isSingletonRepo && isPostgresEnabled();
+    // CISO 19/11 (c): exige que ESTA requisicao tenha carregado o estado do Postgres.
+    return this.isSingletonRepo && this.stateStoreEnabled() && currentStateRequestContext()?.stateLoadOk !== false;
+  }
+
+  /** Pontos de troca para testes (sem banco): habilitacao, carga e gravacao do estado. */
+  private stateStoreEnabled(): boolean {
+    return isPostgresEnabled();
+  }
+
+  private loadStateFromStore(): Promise<CrmDatabaseState | null> {
+    return loadStateFromPostgres();
+  }
+
+  private async writeStateToStore(state: CrmDatabaseState, options?: Parameters<typeof syncStateToPostgres>[1]): Promise<void> {
+    await syncStateToPostgres(state, options);
   }
 
   /** Fase 2: grava o estado antes/depois de cada envio real da cadencia; falha => lanca (nao envia). */
   private async persistSequenceClaim(): Promise<void> {
     if (!this.proposalTableCtx) {
-      await syncStateToPostgres(this.repo.getState());
+      await this.writeStateToStore(this.repo.getState());
       return;
     }
     const failed = await this.persistStateToPostgres();
@@ -2287,39 +2333,52 @@ export class CrmApiRouter {
     return ticketKeysNeededForRoute(method, cleanPath, body || {});
   }
 
-  private async persistStateToPostgres(): Promise<ApiResponse | null> {
-    this.lastPersistFailed = false;
+  /** outcome (opcional) recebe o resultado DESTA gravacao (journalAck por requisicao). */
+  private async persistStateToPostgres(outcome?: { ok: boolean }): Promise<ApiResponse | null> {
+    const r = await this.persistStateToPostgresDetailed();
+    if (outcome) outcome.ok = r.ok;
+    return r.response;
+  }
+
+  /**
+   * Grava o estado e devolve o resultado DESTA chamada (CISO 19/11 (a): o journalAck e por
+   * requisicao, nunca um campo da instancia compartilhado entre requisicoes concorrentes).
+   */
+  private async persistStateToPostgresDetailed(): Promise<{ response: ApiResponse | null; ok: boolean }> {
+    if (!this.canPersistToPostgres()) return { response: null, ok: false };
     const ctx = this.proposalTableCtx;
     if (!ctx) {
       try {
-        await syncStateToPostgres(this.repo.getState());
+        await this.writeStateToStore(this.repo.getState());
+        return { response: null, ok: true };
       } catch {
         // Ignore background sync failure if PostgreSQL is temporarily unavailable
-        this.lastPersistFailed = true;
+        return { response: null, ok: false };
       }
-      return null;
     }
     const diff = diffHydratedProposals(ctx.hydrated, this.repo.listProposals());
     const gcInserts = this.repo.takePendingGcProposalInserts();
     try {
-      await syncStateToPostgres(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts, gcInserts } });
-      return null;
+      await this.writeStateToStore(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts, gcInserts } });
+      return { response: null, ok: true };
     } catch (err) {
-      this.lastPersistFailed = true;
       if (err instanceof ProposalWriteConflictError) {
         return {
-          status: 409,
-          body: {
-            error: 'Este orçamento foi alterado por outra pessoa ou aba depois que você o abriu. Recarregue e tente de novo (nada foi gravado).',
-            code: 'PROPOSAL_VERSION_CONFLICT',
-            proposalId: err.proposalId,
+          ok: false,
+          response: {
+            status: 409,
+            body: {
+              error: 'Este orçamento foi alterado por outra pessoa ou aba depois que você o abriu. Recarregue e tente de novo (nada foi gravado).',
+              code: 'PROPOSAL_VERSION_CONFLICT',
+              proposalId: err.proposalId,
+            },
           },
         };
       }
       if (!isEmptyDiff(diff)) {
-        return { status: 503, body: { error: 'Não foi possível gravar o orçamento agora (nada foi gravado). Tente de novo.', code: 'PROPOSALS_STORE_UNAVAILABLE' } };
+        return { ok: false, response: { status: 503, body: { error: 'Não foi possível gravar o orçamento agora (nada foi gravado). Tente de novo.', code: 'PROPOSALS_STORE_UNAVAILABLE' } } };
       }
-      return null;
+      return { response: null, ok: false };
     }
   }
 
@@ -2823,12 +2882,164 @@ export class CrmApiRouter {
    * Pacote K (D-I2): journal do navegador com a alcada fiscal da sessao. Sem a alcada, faturas/NF
    * NOVAS do journal sao descartadas (e auditadas); o journal nunca gera fatura de contrato.
    */
+  /**
+   * CISO 19/11 (bloqueio do lote 1-b): exclusoes do journal do navegador so valem com a MESMA
+   * alcada do DELETE por rota (canDeleteCrmRecords / canDeleteErpRecords ou canDeleteRecords, com o
+   * modulo habilitado) e dentro da carteira (escopo PROPRIOS/EQUIPE so apaga o que enxerga).
+   * Generico: TODA chave deleted*Ids do journal passa aqui; chave sem regra conhecida (inclusive
+   * futuras) e descartada para sessoes. Registro inexistente ou em uso tambem e descartado, para
+   * que so nasca tombstone de exclusao autorizada. Contexto interno/conta de servico nao filtra.
+   */
+  private sanitizeJournalDeletions(
+    journal: ClientDurableJournal,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean },
+    resource: string,
+    fiscalAllowed: boolean
+  ): number {
+    const rec = journal as unknown as Record<string, unknown>;
+    // Sem a alcada fiscal, deletedInvoiceIds segue para a guarda do Pacote L (3) no repositorio,
+    // que descarta TODAS e audita como ERP_FISCAL_ISSUANCE_DENIED (comportamento ja revisado).
+    const keys = Object.keys(rec).filter(
+      (k) =>
+        /^deleted[A-Za-z0-9_]*Ids$/.test(k) &&
+        Array.isArray(rec[k]) &&
+        (rec[k] as unknown[]).length > 0 &&
+        !(k === 'deletedInvoiceIds' && !fiscalAllowed)
+    );
+    if (!keys.length) return 0;
+    if (ctx.trustedInternal || ctx.serviceAccount) return 0;
+    if (query._fromHttpBridge !== '1' && !query._sessionToken) return 0; // chamada em processo, sem HTTP
+
+    const token = query._sessionToken || null;
+    const sess = token && verifyStiHubSessionToken(token).valid ? this.repo.resolveSessionFromToken(token) : null;
+    const authed = sess && sess.authenticated ? sess : null;
+    const guards = authed ? authed.effectiveActionGuards : null;
+    const canCrm = Boolean(
+      authed && authed.moduleAccess?.crm && (authed.crmPermissions?.canDeleteCrmRecords || guards?.canDeleteRecords)
+    );
+    const canErp = Boolean(
+      authed && authed.moduleAccess?.erp && (authed.erpPermissions?.canDeleteErpRecords || guards?.canDeleteRecords)
+    );
+    const isAdmin = Boolean(guards?.canManageUsersRbac);
+    const restricted = !isAdmin && String((authed?.user as { scope?: string } | undefined)?.scope || 'PROPRIOS') !== 'TODOS';
+
+    const eq = (a: unknown, b: string) => String(a ?? '').toLowerCase() === b.toLowerCase();
+    const erp = this.repo.getErpState();
+    const crmSee = (r: { contactId?: string | null; companyId?: string | null; dealId?: string | null }) =>
+      this.sessionCanSeeCrmRecord(query, ctx, r);
+    const inUse = (kind: RecordUsageKind, ref: RecordUsageRef) => {
+      try {
+        return recordUsageTotal(countRecordUsage(kind, ref, this.recordUsageSources())) > 0;
+      } catch {
+        return true; // fail-closed
+      }
+    };
+    type Rule = { module: 'CRM' | 'ERP'; allow: (ref: string) => boolean };
+    const unrestrictedOnly = (find: (ref: string) => unknown): ((ref: string) => boolean) => (ref) =>
+      Boolean(find(ref)) && !restricted;
+    const rules: Record<string, Rule> = {
+      deletedContactIds: { module: 'CRM', allow: (ref) => {
+        const c = this.repo.getContactById(ref);
+        return Boolean(c) && crmSee({ contactId: c!.id }) && !inUse('contact', { id: c!.id, email: c!.email });
+      } },
+      deletedCompanyIds: { module: 'CRM', allow: (ref) => {
+        const c = this.repo.getCompanyById(ref);
+        return Boolean(c) && crmSee({ companyId: c!.id }) && !inUse('company', { id: c!.id, name: c!.name, cnpj: c!.cnpj });
+      } },
+      deletedDealIds: { module: 'CRM', allow: (ref) => {
+        const d = this.repo.getDealById(ref);
+        return Boolean(d) && crmSee({ dealId: d!.id }) && !inUse('deal', { id: d!.id });
+      } },
+      deletedTaskIds: { module: 'CRM', allow: (ref) => {
+        const t = (this.repo.getState().tasks || []).find((x) => x && x.id === ref);
+        if (!t) return false;
+        if (!restricted) return true;
+        const links = { contactId: t.contactId, companyId: t.companyId, dealId: t.dealId };
+        if (!links.contactId && !links.companyId && !links.dealId) return false; // sem vinculo: fail-closed
+        return (!links.contactId || crmSee({ contactId: links.contactId })) &&
+          (!links.companyId || crmSee({ companyId: links.companyId })) &&
+          (!links.dealId || crmSee({ dealId: links.dealId }));
+      } },
+      deletedTicketIds: { module: 'CRM', allow: unrestrictedOnly((ref) =>
+        (this.repo.getState().serviceTickets || []).find((t) => t && (t.id === ref || t.key === ref))) },
+      deletedProposalIds: { module: 'ERP', allow: (ref) => {
+        const p = (erp.proposals || []).find((x) => x && (x.id === ref || eq(x.code, ref)));
+        return Boolean(p) && this.hasFullProposalAccess(query, ctx, p);
+      } },
+      deletedInvoiceIds: { module: 'ERP', allow: (ref) => {
+        const i = (erp.invoices || []).find((x) => x && (x.id === ref || eq(x.documentNumber, ref)));
+        return Boolean(i) && this.isInvoiceVisibleToSession(i!, query, ctx);
+      } },
+      deletedContractIds: { module: 'ERP', allow: (ref) => {
+        const c = (erp.rentalContracts || []).find((x) => x && (x.id === ref || eq(x.contractNumber, ref)));
+        if (!c) return false;
+        const visible = this.isInvoiceVisibleToSession({
+          rentalContractId: c.id,
+          contractNumber: c.contractNumber,
+          proposalId: c.proposalId,
+          proposalNumber: (c as { proposalNumber?: string | null }).proposalNumber ?? null,
+          dealId: c.dealId,
+        }, query, ctx);
+        return visible && !inUse('rentalContract', { id: c.id, contractNumber: c.contractNumber });
+      } },
+      deletedCatalogItemIds: { module: 'ERP', allow: (ref) => {
+        const it = (erp.catalog || []).find((x) => x && (x.id === ref || eq(x.gestaoClickCode, ref)));
+        return Boolean(it) && !restricted && !inUse('catalogItem', { id: it!.id, name: it!.name, sku: it!.gestaoClickCode, gestaoClickCode: it!.gestaoClickCode });
+      } },
+      deletedSupplierIds: { module: 'ERP', allow: unrestrictedOnly((ref) => (erp.suppliers || []).find((x) => x && x.id === ref)) },
+      deletedEmployeeIds: { module: 'ERP', allow: unrestrictedOnly((ref) => (erp.employees || []).find((x) => x && x.id === ref)) },
+      deletedSalesOrderIds: { module: 'ERP', allow: unrestrictedOnly((ref) => (erp.salesOrders || []).find((x) => x && (x.id === ref || eq(x.code, ref)))) },
+      deletedServiceOrderIds: { module: 'ERP', allow: unrestrictedOnly((ref) => (erp.serviceOrders || []).find((x) => x && (x.id === ref || eq(x.code, ref)))) },
+      deletedPurchaseOrderIds: { module: 'ERP', allow: unrestrictedOnly((ref) => (erp.purchaseOrders || []).find((x) => x && (x.id === ref || eq(x.code, ref)))) },
+    };
+
+    let dropped = 0;
+    const droppedByKey: string[] = [];
+    for (const key of keys) {
+      const refs = (rec[key] as unknown[]).filter((v): v is string => typeof v === 'string' && v.length > 0);
+      const rule = Object.prototype.hasOwnProperty.call(rules, key) ? rules[key] : undefined;
+      const permitted = rule ? (rule.module === 'CRM' ? canCrm : canErp) : false;
+      const kept = permitted && rule ? refs.filter((ref) => {
+        try {
+          return rule.allow(ref);
+        } catch {
+          return false;
+        }
+      }) : [];
+      const n = (rec[key] as unknown[]).length - kept.length;
+      if (n > 0) {
+        dropped += n;
+        droppedByKey.push(`${key}=${n}`);
+      }
+      rec[key] = kept;
+    }
+    if (dropped > 0) {
+      try {
+        this.repo.appendSecurityAuditLog({
+          actorEmail: authed?.user?.email || 'desconhecido',
+          actorName: authed?.user?.name || 'desconhecido',
+          actorRole: authed?.role?.id || 'desconhecido',
+          action: 'JOURNAL_DELETE_DENIED',
+          module: 'CRM',
+          resource: `journal ${resource}`.slice(0, 200),
+          status: 'BLOCKED',
+          ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+          details: `Journal: ${dropped} exclusao(oes) descartada(s) (sem alcada de exclusao, fora da carteira, inexistente ou em uso): ${droppedByKey.join(', ')}`.slice(0, 500),
+        });
+      } catch {
+        // auditoria nunca derruba a resposta
+      }
+    }
+    return dropped;
+  }
+
   private reconcileJournalForSession(
     journal: ClientDurableJournal,
     query: Record<string, string | undefined>,
     ctx: { trustedInternal: boolean; serviceAccount?: boolean },
     resource: string
-  ): { reconciled: boolean; appliedCount: number; fiscalDropped?: number; tombstoneBlocked?: number } {
+  ): { reconciled: boolean; appliedCount: number; fiscalDropped?: number; tombstoneBlocked?: number; deletionsDropped?: number } {
     const priv = this.fiscalIssuancePrivilege(query, ctx);
     // A1 (link assinado): journal do navegador reconciliado sem token de link assinado.
     // CISO 30/10: escopo PROPRIOS/EQUIPE no journal de propostas (sanitizeProposalJournal).
@@ -2862,7 +3073,10 @@ export class CrmApiRouter {
         }
       }
     }
-    const rec = this.repo.reconcileClientState(sanitizedJournal, { canIssueFiscalDocuments: priv.allowed });
+    const deletionsDropped = this.sanitizeJournalDeletions(sanitizedJournal, query, ctx, resource, priv.allowed);
+    const rec: { reconciled: boolean; appliedCount: number; fiscalDropped?: number; tombstoneBlocked?: number; deletionsDropped?: number } =
+      this.repo.reconcileClientState(sanitizedJournal, { canIssueFiscalDocuments: priv.allowed });
+    if (deletionsDropped > 0) rec.deletionsDropped = deletionsDropped;
     if (rec.fiscalDropped && rec.fiscalDropped > 0) {
       try {
         this.repo.appendSecurityAuditLog({

@@ -64,7 +64,7 @@ async function main() {
   console.log(
     `[2/3] Sincronizando estado do CRM (${forceReset ? 'redefinindo seed inicial' : 'preservando dados existentes ou aplicando seed inicial'})...`
   );
-  const state = await loadStateFromPostgres({ forceReset });
+  const state = await loadStateFromPostgres({ forceReset, allowSeedInit: true });
 
   if (state) {
     console.log('[3/3] Migração e sincronização PostgreSQL concluídas com sucesso!');

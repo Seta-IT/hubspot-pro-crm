@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { Pool, PoolClient } from 'pg';
 import { CrmDatabaseState, ErpCommercialProposal } from './types';
 import { createInitialSeedState } from './seed';
+import { assertStateWriteAllowed, CrmStateMissingError } from './state-request-context';
 import { ensureIntegrationSchema } from '../modules/integration/store-postgres';
 import { applyProposalDiff, ensureKvProposalsGuardTrigger, ensureProposalsTable, insertGcProposalsIfAbsent, isEmptyDiff, PROPOSALS_STORAGE_MARKER, type ProposalDiff } from './proposal-store';
 
@@ -527,6 +528,8 @@ export async function syncStateToPostgres(
     proposals?: { diff: ProposalDiff; strictInserts?: boolean; gcInserts?: ErpCommercialProposal[] };
   }
 ): Promise<MirrorSyncStats[]> {
+  // CISO 19/11 (c): requisicao cuja carga do estado falhou nunca grava o fallback local.
+  assertStateWriteAllowed();
   const pool: PgPoolLike | null = options?.pool || (getPostgresPool() as unknown as PgPoolLike | null);
   if (!pool) return [];
 
@@ -572,6 +575,11 @@ export async function syncStateToPostgres(
 
 export async function loadStateFromPostgres(options?: {
   forceReset?: boolean;
+  /**
+   * CISO 19/11 (c): so o cli-migrate (instalacao nova) grava o seed quando crm_state_v1 nao existe.
+   * Em requisicao, linha ausente/vazia => CrmStateMissingError (nunca sobrescreve com seed).
+   */
+  allowSeedInit?: boolean;
 }): Promise<CrmDatabaseState | null> {
   const pool = getPostgresPool();
   if (!pool) return null;
@@ -588,6 +596,9 @@ export async function loadStateFromPostgres(options?: {
     }
   }
 
+  if (!options?.forceReset && !options?.allowSeedInit) {
+    throw new CrmStateMissingError();
+  }
   const seed = createInitialSeedState();
   await syncStateToPostgres(seed);
   return seed;

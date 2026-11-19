@@ -946,9 +946,12 @@ function tombstoneCollectionArray(state: CrmDatabaseState, key: TombstoneCollect
   return Array.isArray(arr) ? (arr as Array<{ id?: string }>) : undefined;
 }
 
-function snapshotTombstoneIds(state: CrmDatabaseState): Map<TombstoneCollection, Set<string>> {
+function snapshotTombstoneIds(
+  state: CrmDatabaseState,
+  keys: readonly TombstoneCollection[] = TOMBSTONE_COLLECTIONS
+): Map<TombstoneCollection, Set<string>> {
   const out = new Map<TombstoneCollection, Set<string>>();
-  for (const key of TOMBSTONE_COLLECTIONS) {
+  for (const key of keys) {
     const arr = tombstoneCollectionArray(state, key);
     const ids = new Set<string>();
     if (arr) for (const r of arr) if (r && typeof r.id === 'string' && r.id) ids.add(r.id);
@@ -959,8 +962,6 @@ function snapshotTombstoneIds(state: CrmDatabaseState): Map<TombstoneCollection,
 
 export class CrmRepository {
   private state: CrmDatabaseState;
-  /** Lote 1-b: ids por colecao no ultimo ponto conhecido (load/save), para detectar exclusoes. */
-  private tombstoneBaseline: { ref: CrmDatabaseState; ids: Map<TombstoneCollection, Set<string>> } | null = null;
   private persistPath: string | null;
   private lastLoadedMtimeMs = 0;
   /** Reserva do id do negócio por proposta, para não criar dois deals ao mesmo tempo. */
@@ -973,7 +974,6 @@ export class CrmRepository {
 
     if (options.initialState) {
       this.state = structuredClone(options.initialState);
-      this.resetTombstoneBaseline();
       this.save();
       return;
     }
@@ -984,7 +984,6 @@ export class CrmRepository {
         const raw = fs.readFileSync(this.persistPath, "utf-8");
         const parsed = JSON.parse(raw) as CrmDatabaseState;
         this.state = this.hydrateParsedState(parsed);
-        this.resetTombstoneBaseline();
         this.lastLoadedMtimeMs = stat.mtimeMs;
         const salesStagesMigrated = applySalesPipelineStageMigration(this.state).applied;
         const needsContactBackfill = (parsed.contacts || []).some(
@@ -1038,34 +1037,24 @@ export class CrmRepository {
         erp: createSeedErpState(),
       };
     }
-    this.resetTombstoneBaseline();
   }
 
-  private resetTombstoneBaseline(): void {
-    this.tombstoneBaseline = { ref: this.state, ids: snapshotTombstoneIds(this.state) };
+  /**
+   * CISO 19/11: tombstone so nasce de exclusao EXPLICITA (metodos delete* chamados por rotas que
+   * ja validaram a alcada, ou exclusoes do journal ja filtradas pelo router). Recebe os ids da
+   * colecao antes da exclusao e registra os que sumiram (sem guarda de "colecao zerada").
+   */
+  private recordDeletedSince(key: TombstoneCollection, before: Set<string>): void {
+    if (!before.size) return;
+    const arr = tombstoneCollectionArray(this.state, key) || [];
+    const after = new Set(arr.map((r) => (r && typeof r.id === 'string' ? r.id : '')));
+    const gone: string[] = [];
+    for (const id of before) if (!after.has(id)) gone.push(id);
+    if (gone.length) this.addRecordTombstones(key, gone);
   }
 
-  /** Registra tombstones dos ids que sumiram desde o ultimo baseline (chamado em save()). */
-  private captureTombstones(): void {
-    const base = this.tombstoneBaseline;
-    if (!base || base.ref !== this.state) {
-      // Estado trocado por inteiro (load/sync do disco): nao e exclusao.
-      this.resetTombstoneBaseline();
-      return;
-    }
-    const current = snapshotTombstoneIds(this.state);
-    const now = new Date().toISOString();
-    for (const key of TOMBSTONE_COLLECTIONS) {
-      const before = base.ids.get(key);
-      const after = current.get(key)!;
-      if (!before || before.size === 0) continue;
-      // Guarda: colecao zerada de uma vez (ex.: estado parcial) nao vira tombstone em massa.
-      if (after.size === 0 && before.size > 10) continue;
-      const gone: string[] = [];
-      for (const id of before) if (!after.has(id)) gone.push(id);
-      if (gone.length > 0) this.addRecordTombstones(key, gone, now);
-    }
-    this.tombstoneBaseline = { ref: this.state, ids: current };
+  private tombstoneIdsOf(key: TombstoneCollection): Set<string> {
+    return snapshotTombstoneIds(this.state, [key]).get(key) || new Set();
   }
 
   /**
@@ -1368,7 +1357,6 @@ export class CrmRepository {
   }
 
   private save(): void {
-    this.captureTombstones();
     if (!this.persistPath) return;
     try {
       const dir = path.dirname(this.persistPath);
@@ -1562,6 +1550,9 @@ export class CrmRepository {
     const canIssueFiscal = options?.canIssueFiscalDocuments !== false;
     let fiscalDropped = 0;
     let tombstoneBlocked = 0;
+    // Exclusoes deste journal ja foram autorizadas pelo router (sanitizeJournalDeletions): os ids
+    // que sumirem durante a reconciliacao viram tombstone explicito.
+    const tombBeforeReconcile = snapshotTombstoneIds(this.state);
 
     let appliedCount = 0;
 
@@ -1800,6 +1791,7 @@ export class CrmRepository {
     }
 
     if (appliedCount > 0) {
+      for (const [key, before] of tombBeforeReconcile) this.recordDeletedSince(key, before);
       this.save();
     }
     const result: { reconciled: boolean; appliedCount: number; fiscalDropped?: number; tombstoneBlocked?: number } = {
@@ -1813,7 +1805,6 @@ export class CrmRepository {
 
   resetToSeed(): CrmDatabaseState {
     this.state = createInitialSeedState();
-    this.resetTombstoneBaseline();
     this.save();
     return this.getState();
   }
@@ -1837,7 +1828,6 @@ export class CrmRepository {
       }
     }
     this.state = cloned;
-    this.resetTombstoneBaseline();
     this.save();
   }
 
@@ -2139,9 +2129,11 @@ export class CrmRepository {
   }
 
   deleteContact(id: string): boolean {
+    const tombBefore = this.tombstoneIdsOf('contacts');
     const before = this.state.contacts.length;
     this.state.contacts = this.state.contacts.filter((c) => c.id !== id);
     if (this.state.contacts.length < before) {
+      this.recordDeletedSince('contacts', tombBefore);
       this.save();
       return true;
     }
@@ -2321,6 +2313,7 @@ export class CrmRepository {
   }
 
   deleteCompany(id: string): boolean {
+    const tombBefore = this.tombstoneIdsOf('companies');
     const before = this.state.companies.length;
     this.state.companies = this.state.companies.filter((c) => c.id !== id);
     if (this.state.companies.length < before) {
@@ -2331,6 +2324,7 @@ export class CrmRepository {
       for (const d of this.state.deals) {
         if (d.companyId === id) d.companyId = null;
       }
+      this.recordDeletedSince('companies', tombBefore);
       this.save();
       return true;
     }
@@ -2727,9 +2721,11 @@ export class CrmRepository {
   }
 
   deleteDeal(id: string): boolean {
+    const tombBefore = this.tombstoneIdsOf('deals');
     const before = this.state.deals.length;
     this.state.deals = this.state.deals.filter((d) => d.id !== id);
     if (this.state.deals.length < before) {
+      this.recordDeletedSince('deals', tombBefore);
       this.save();
       return true;
     }
@@ -6193,11 +6189,13 @@ export class CrmRepository {
 
   deleteRentalContract(idOrNum: string): boolean {
     const erp = this.ensureErp();
+    const tombBefore = this.tombstoneIdsOf('erp.rentalContracts');
     const before = erp.rentalContracts.length;
     erp.rentalContracts = erp.rentalContracts.filter(
       (c) => c.id !== idOrNum && c.contractNumber.toLowerCase() !== idOrNum.toLowerCase()
     );
     if (erp.rentalContracts.length !== before) {
+      this.recordDeletedSince('erp.rentalContracts', tombBefore);
       this.save();
       return true;
     }
@@ -6278,11 +6276,13 @@ export class CrmRepository {
 
   deleteInvoice(idOrDoc: string): boolean {
     const erp = this.ensureErp();
+    const tombBefore = this.tombstoneIdsOf('erp.invoices');
     const before = erp.invoices.length;
     erp.invoices = erp.invoices.filter(
       (i) => i.id !== idOrDoc && i.documentNumber.toLowerCase() !== idOrDoc.toLowerCase()
     );
     if (erp.invoices.length !== before) {
+      this.recordDeletedSince('erp.invoices', tombBefore);
       this.save();
       return true;
     }
@@ -6306,11 +6306,13 @@ export class CrmRepository {
 
   deleteCatalogItem(idOrSku: string): boolean {
     const erp = this.ensureErp();
+    const tombBefore = this.tombstoneIdsOf('erp.catalog');
     const before = erp.catalog.length;
     erp.catalog = erp.catalog.filter(
       (c) => c.id !== idOrSku && c.gestaoClickCode.toLowerCase() !== idOrSku.toLowerCase()
     );
     if (erp.catalog.length !== before) {
+      this.recordDeletedSince('erp.catalog', tombBefore);
       this.save();
       return true;
     }
@@ -6487,7 +6489,11 @@ export class CrmRepository {
     const list = (erp[collection] || []) as unknown as Array<Record<string, unknown>>;
     const filtered = list.filter((r) => String(r.id) !== id);
     if (filtered.length !== list.length) {
+      const tombKey = `erp.${collection}` as TombstoneCollection;
+      const tracked = (TOMBSTONE_COLLECTIONS as readonly string[]).includes(tombKey);
+      const tombBefore = tracked ? this.tombstoneIdsOf(tombKey) : null;
       (erp as unknown as Record<string, unknown>)[collection] = filtered;
+      if (tombBefore) this.recordDeletedSince(tombKey, tombBefore);
       this.save();
       return true;
     }
@@ -7932,9 +7938,11 @@ export class CrmRepository {
 
   deleteTask(id: string): boolean {
     this.ensureTasksAndTemplates();
+    const tombBefore = this.tombstoneIdsOf('tasks');
     const before = this.state.tasks!.length;
     this.state.tasks = this.state.tasks!.filter((t) => t.id !== id);
     if (this.state.tasks.length < before) {
+      this.recordDeletedSince('tasks', tombBefore);
       this.save();
       return true;
     }
