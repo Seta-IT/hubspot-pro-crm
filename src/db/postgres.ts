@@ -8,9 +8,24 @@ import { CrmDatabaseState, ErpCommercialProposal } from './types';
 import { createInitialSeedState } from './seed';
 import { ensureIntegrationSchema } from '../modules/integration/store-postgres';
 import { applyProposalDiff, ensureKvProposalsGuardTrigger, ensureProposalsTable, insertGcProposalsIfAbsent, isEmptyDiff, PROPOSALS_STORAGE_MARKER, type ProposalDiff } from './proposal-store';
+import {
+  applyErpTableDiff,
+  getErpStorageMode,
+  hashErpRecord,
+  isEmptyErpDiff,
+  reconcileErpTableFromJson,
+  stripErpTableResourcesForKv,
+  type ErpTableDiff,
+  type ErpTableSpec,
+} from './erp-table-store';
+import { ERP_TABLE_SPECS } from './erp-tables-registry';
 
 let pgPool: Pool | null = null;
 let schemaEnsured = false;
+/** DDL em andamento no pool global (chamadas simultaneas esperam a mesma execucao). */
+let schemaEnsuring: Promise<void> | null = null;
+/** Pools/clientes externos (testes, scripts) que ja receberam o DDL neste processo. */
+let ensuredExecutors = new WeakSet<object>();
 
 export function getDatabaseUrl(): string | null {
   const url = process.env.DATABASE_URL || process.env.DATABASE_POSTGRES_URL || "";
@@ -45,6 +60,8 @@ export async function closePostgresPool(): Promise<void> {
     await pgPool.end();
     pgPool = null;
     schemaEnsured = false;
+    schemaEnsuring = null;
+    ensuredExecutors = new WeakSet<object>();
   }
 }
 
@@ -69,11 +86,46 @@ export function isPgUniqueViolation(err: unknown): boolean {
   return Boolean(err && typeof err === 'object' && (err as { code?: unknown }).code === '23505');
 }
 
-export async function ensurePostgresSchema(poolOrClient?: Pool | PoolClient): Promise<void> {
-  const executor = poolOrClient || getPostgresPool();
+/**
+ * DDL idempotente do esquema base. Roda UMA vez por processo (18/11/2026): antes o flag nunca
+ * valia porque todo chamador passava o pool (`schemaEnsured && !poolOrClient`), e o DDL inteiro
+ * rodava em toda leitura/gravacao do estado. Agora:
+ *  - pool global (ou sem argumento): uma execucao por processo; chamadas simultaneas esperam a
+ *    mesma promessa; falha => tenta de novo na proxima chamada;
+ *  - pool/cliente externo: uma execucao por objeto (WeakSet);
+ *  - { force: true } (CLI de migracao) roda sempre.
+ */
+export async function ensurePostgresSchema(poolOrClient?: Pool | PoolClient | PgQueryable, opts?: { force?: boolean }): Promise<void> {
+  const globalPool = getPostgresPool();
+  const executor = (poolOrClient || globalPool) as (Pool | PoolClient | PgQueryable) | null;
   if (!executor) return;
-  if (schemaEnsured && !poolOrClient) return;
+  const isGlobal = !poolOrClient || (globalPool !== null && (poolOrClient as unknown) === globalPool);
+  if (!opts?.force) {
+    if (isGlobal && schemaEnsured) return;
+    if (!isGlobal && ensuredExecutors.has(executor as object)) return;
+    if (isGlobal && schemaEnsuring) return schemaEnsuring;
+  }
+  const run = runPostgresSchemaDdl(executor as PgQueryable).then(() => {
+    if (isGlobal) schemaEnsured = true;
+    ensuredExecutors.add(executor as object);
+  });
+  if (isGlobal) {
+    schemaEnsuring = run.finally(() => {
+      schemaEnsuring = null;
+    });
+    return schemaEnsuring;
+  }
+  return run;
+}
 
+let postgresSchemaDdlRuns = 0;
+/** Quantas vezes o DDL base rodou neste processo (diagnostico/testes). */
+export function getPostgresSchemaDdlRuns(): number {
+  return postgresSchemaDdlRuns;
+}
+
+async function runPostgresSchemaDdl(executor: PgQueryable): Promise<void> {
+  postgresSchemaDdlRuns++;
   await executor.query(`
     CREATE TABLE IF NOT EXISTS crm_kv_store (
       key TEXT PRIMARY KEY,
@@ -225,8 +277,6 @@ export async function ensurePostgresSchema(poolOrClient?: Pool | PoolClient): Pr
   await executor.query(
     MIRROR_TABLES.map((t) => `ALTER TABLE ${t.table} ADD COLUMN IF NOT EXISTS row_hash TEXT;`).join('\n')
   );
-
-  schemaEnsured = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -496,12 +546,39 @@ export function stateForKvTableMode(state: CrmDatabaseState): CrmDatabaseState {
   return { ...state, erp: { ...state.erp, proposals: [], proposalsStorage: PROPOSALS_STORAGE_MARKER } } as CrmDatabaseState;
 }
 
+/**
+ * Dupla escrita do modo 'dual': hash do ultimo array gravado na tabela por recurso, neste processo.
+ * Se o array do JSON nao mudou desde a ultima reconciliacao, nao consulta a tabela.
+ */
+const dualSyncedHash = new Map<string, string>();
+
+export function resetErpDualSyncMemo(): void {
+  dualSyncedHash.clear();
+}
+
+/** Recursos em modo 'dual' no estado, com o array atual e o hash (para a dupla escrita). */
+function erpDualTargets(state: CrmDatabaseState): Array<{ spec: ErpTableSpec; records: Record<string, any>[]; hash: string }> {
+  const out: Array<{ spec: ErpTableSpec; records: Record<string, any>[]; hash: string }> = [];
+  const erp = (state as unknown as { erp?: Record<string, unknown> }).erp;
+  if (!erp) return out;
+  for (const spec of ERP_TABLE_SPECS) {
+    if (getErpStorageMode(state, spec.resource) !== 'dual') continue;
+    const records = Array.isArray(erp[spec.resource]) ? (erp[spec.resource] as Record<string, any>[]) : [];
+    const hash = hashErpRecord(records);
+    if (dualSyncedHash.get(spec.resource) === hash) continue;
+    out.push({ spec, records, hash });
+  }
+  return out;
+}
+
 export async function syncStateToPostgres(
   state: CrmDatabaseState,
   options?: {
     pool?: PgPoolLike;
     /** Modo tabela: diff das propostas hidratadas, aplicado na MESMA transacao do JSON. */
     proposals?: { diff: ProposalDiff; strictInserts?: boolean; gcInserts?: ErpCommercialProposal[] };
+    /** Recursos do ERP em modo 'table' (ex.: OS): diff por linha na MESMA transacao do JSON. */
+    erpTables?: Array<{ spec: ErpTableSpec; diff: ErpTableDiff; strictInserts?: boolean }>;
   }
 ): Promise<MirrorSyncStats[]> {
   const pool: PgPoolLike | null = options?.pool || (getPostgresPool() as unknown as PgPoolLike | null);
@@ -511,6 +588,8 @@ export async function syncStateToPostgres(
   const client = await pool.connect();
   const stats: MirrorSyncStats[] = [];
   const tableMode = Boolean(options?.proposals);
+  const dualTargets = erpDualTargets(state);
+  const dualDone: typeof dualTargets = [];
 
   try {
     await client.query('BEGIN');
@@ -523,9 +602,30 @@ export async function syncStateToPostgres(
     if (options?.proposals?.gcInserts?.length) {
       await insertGcProposalsIfAbsent(client, options.proposals.gcInserts);
     }
+    // 0c. Recursos do ERP em modo 'table': diff por linha (row_version); conflito => ROLLBACK de tudo.
+    for (const t of options?.erpTables || []) {
+      if (!isEmptyErpDiff(t.diff)) await applyErpTableDiff(client, t.spec, t.diff, { strictInserts: t.strictInserts });
+    }
 
-    // 1. Atomic full state snapshot in crm_kv_store
-    await client.query(KV_STATE_UPSERT_SQL, ['crm_state_v1', JSON.stringify(tableMode ? stateForKvTableMode(state) : state)]);
+    // 1. Atomic full state snapshot in crm_kv_store (recursos em modo 'table' vao com array vazio)
+    await client.query(KV_STATE_UPSERT_SQL, [
+      'crm_state_v1',
+      JSON.stringify(stripErpTableResourcesForKv(tableMode ? stateForKvTableMode(state) : state)),
+    ]);
+
+    // 1b. Modo 'dual' (JSON = fonte): reconcilia a tabela num SAVEPOINT. Falha da tabela nunca
+    // impede a gravacao do JSON; a proxima gravacao tenta de novo.
+    for (const d of dualTargets) {
+      await client.query('SAVEPOINT erp_dual_sync');
+      try {
+        await reconcileErpTableFromJson(client, d.spec, d.records);
+        await client.query('RELEASE SAVEPOINT erp_dual_sync');
+        dualDone.push(d);
+      } catch (err) {
+        await client.query('ROLLBACK TO SAVEPOINT erp_dual_sync');
+        console.error(`[ERP tabelas] dupla escrita de ${d.spec.table} falhou (JSON gravado; tenta de novo na proxima):`, (err as Error)?.message || err);
+      }
+    }
 
     // 2. Espelho relacional para SQL/BI: só linhas novas/alteradas/removidas
     for (const spec of MIRROR_TABLES) {
@@ -542,6 +642,7 @@ export async function syncStateToPostgres(
 
   // Só depois do COMMIT o estado salvo vira o novo snapshot.
   primeMirrorSnapshots(state);
+  for (const d of dualDone) dualSyncedHash.set(d.spec.resource, d.hash);
   return stats;
 }
 

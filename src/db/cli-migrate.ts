@@ -14,6 +14,7 @@ import {
 import { getRepository } from './repository';
 import { applySetaDeskMigrations } from './setadesk-schema';
 import { ensureErpAuxListsSchema } from '../modules/erp/aux-lists-store';
+import { ensureErpTablesSchema } from './erp-tables-registry';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -52,8 +53,10 @@ async function main() {
   }
 
   console.log(`[1/3] Conectado ao PostgreSQL (${health.latencyMs}ms). Criando/verificando tabelas e índices...`);
-  await ensurePostgresSchema();
+  await ensurePostgresSchema(undefined, { force: true });
   const pool = getPostgresPool()!;
+  await ensureErpTablesSchema(pool);
+  console.log('      Tabelas proprias do ERP (erp_service_orders) e guarda do crm_state_v1: prontas (vazias ate o backfill)');
   const setaDeskApplied = await applySetaDeskMigrations(pool);
   console.log(`      SetaDesk: ${setaDeskApplied.length ? setaDeskApplied.join(', ') : 'esquema ja atualizado'}`);
   await ensureErpAuxListsSchema(pool);
