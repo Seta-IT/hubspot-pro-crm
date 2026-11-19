@@ -914,8 +914,53 @@ export function linkedProposalIdFromDeal(
   return raw || null;
 }
 
+
+// Lote 1-b (anti-ressurreicao): tombstones de ids apagados, gravados DENTRO do estado
+// (crm_state_v1.recordTombstones) -- sem DDL. So bloqueiam a RECRIACAO pelo journal do navegador
+// (e o backfill de seed) de um id que nao existe mais no servidor; codigo do servidor nao e afetado.
+export const TOMBSTONE_COLLECTIONS = [
+  'contacts',
+  'companies',
+  'deals',
+  'tasks',
+  'erp.rentalContracts',
+  'erp.invoices',
+  'erp.catalog',
+  'erp.suppliers',
+  'erp.employees',
+  'erp.salesOrders',
+  'erp.serviceOrders',
+  'erp.purchaseOrders',
+] as const;
+export type TombstoneCollection = (typeof TOMBSTONE_COLLECTIONS)[number];
+const TOMBSTONE_MAX_PER_COLLECTION = 5000;
+const TOMBSTONE_TTL_MS = 400 * 24 * 60 * 60 * 1000;
+
+function tombstoneCollectionArray(state: CrmDatabaseState, key: TombstoneCollection): Array<{ id?: string }> | undefined {
+  if (key.startsWith('erp.')) {
+    const erp = state.erp as unknown as Record<string, unknown> | undefined;
+    const arr = erp ? erp[key.slice(4)] : undefined;
+    return Array.isArray(arr) ? (arr as Array<{ id?: string }>) : undefined;
+  }
+  const arr = (state as unknown as Record<string, unknown>)[key];
+  return Array.isArray(arr) ? (arr as Array<{ id?: string }>) : undefined;
+}
+
+function snapshotTombstoneIds(state: CrmDatabaseState): Map<TombstoneCollection, Set<string>> {
+  const out = new Map<TombstoneCollection, Set<string>>();
+  for (const key of TOMBSTONE_COLLECTIONS) {
+    const arr = tombstoneCollectionArray(state, key);
+    const ids = new Set<string>();
+    if (arr) for (const r of arr) if (r && typeof r.id === 'string' && r.id) ids.add(r.id);
+    out.set(key, ids);
+  }
+  return out;
+}
+
 export class CrmRepository {
   private state: CrmDatabaseState;
+  /** Lote 1-b: ids por colecao no ultimo ponto conhecido (load/save), para detectar exclusoes. */
+  private tombstoneBaseline: { ref: CrmDatabaseState; ids: Map<TombstoneCollection, Set<string>> } | null = null;
   private persistPath: string | null;
   private lastLoadedMtimeMs = 0;
   /** Reserva do id do negócio por proposta, para não criar dois deals ao mesmo tempo. */
@@ -928,6 +973,7 @@ export class CrmRepository {
 
     if (options.initialState) {
       this.state = structuredClone(options.initialState);
+      this.resetTombstoneBaseline();
       this.save();
       return;
     }
@@ -938,6 +984,7 @@ export class CrmRepository {
         const raw = fs.readFileSync(this.persistPath, "utf-8");
         const parsed = JSON.parse(raw) as CrmDatabaseState;
         this.state = this.hydrateParsedState(parsed);
+        this.resetTombstoneBaseline();
         this.lastLoadedMtimeMs = stat.mtimeMs;
         const salesStagesMigrated = applySalesPipelineStageMigration(this.state).applied;
         const needsContactBackfill = (parsed.contacts || []).some(
@@ -991,6 +1038,71 @@ export class CrmRepository {
         erp: createSeedErpState(),
       };
     }
+    this.resetTombstoneBaseline();
+  }
+
+  private resetTombstoneBaseline(): void {
+    this.tombstoneBaseline = { ref: this.state, ids: snapshotTombstoneIds(this.state) };
+  }
+
+  /** Registra tombstones dos ids que sumiram desde o ultimo baseline (chamado em save()). */
+  private captureTombstones(): void {
+    const base = this.tombstoneBaseline;
+    if (!base || base.ref !== this.state) {
+      // Estado trocado por inteiro (load/sync do disco): nao e exclusao.
+      this.resetTombstoneBaseline();
+      return;
+    }
+    const current = snapshotTombstoneIds(this.state);
+    const now = new Date().toISOString();
+    for (const key of TOMBSTONE_COLLECTIONS) {
+      const before = base.ids.get(key);
+      const after = current.get(key)!;
+      if (!before || before.size === 0) continue;
+      // Guarda: colecao zerada de uma vez (ex.: estado parcial) nao vira tombstone em massa.
+      if (after.size === 0 && before.size > 10) continue;
+      const gone: string[] = [];
+      for (const id of before) if (!after.has(id)) gone.push(id);
+      if (gone.length > 0) this.addRecordTombstones(key, gone, now);
+    }
+    this.tombstoneBaseline = { ref: this.state, ids: current };
+  }
+
+  /**
+   * Lote 1-b: registra tombstones explicitamente (ex.: script de limpeza/expurgo que apaga direto
+   * no estado). Nao persiste sozinho: o chamador salva/persiste o estado.
+   */
+  addRecordTombstones(key: TombstoneCollection, ids: string[], deletedAt: string = new Date().toISOString()): void {
+    if (!ids.length) return;
+    const all = (this.state.recordTombstones ||= {});
+    const bucket = (all[key] ||= {});
+    for (const id of ids) if (id) bucket[id] = deletedAt;
+    const cutoff = Date.now() - TOMBSTONE_TTL_MS;
+    let entries = Object.entries(bucket).filter(([, at]) => {
+      const t = Date.parse(at);
+      return !Number.isFinite(t) || t >= cutoff;
+    });
+    if (entries.length > TOMBSTONE_MAX_PER_COLLECTION) {
+      entries = entries.sort((a, b) => (a[1] < b[1] ? 1 : -1)).slice(0, TOMBSTONE_MAX_PER_COLLECTION);
+    }
+    all[key] = Object.fromEntries(entries);
+  }
+
+  isRecordTombstoned(key: TombstoneCollection, id: string | undefined | null): boolean {
+    if (!id) return false;
+    const bucket = this.state.recordTombstones?.[key];
+    if (!bucket) return false;
+    if (Object.prototype.hasOwnProperty.call(bucket, id)) return true;
+    const lower = id.toLowerCase();
+    if (lower === id) return false;
+    return Object.prototype.hasOwnProperty.call(bucket, lower);
+  }
+
+  private tombstoneKeyForArray(target: unknown[]): TombstoneCollection | null {
+    for (const key of TOMBSTONE_COLLECTIONS) {
+      if (tombstoneCollectionArray(this.state, key) === target) return key;
+    }
+    return null;
   }
 
   private hydrateParsedState(parsed: CrmDatabaseState): CrmDatabaseState {
@@ -1256,6 +1368,7 @@ export class CrmRepository {
   }
 
   private save(): void {
+    this.captureTombstones();
     if (!this.persistPath) return;
     try {
       const dir = path.dirname(this.persistPath);
@@ -1439,6 +1552,7 @@ export class CrmRepository {
     reconciled: boolean;
     appliedCount: number;
     fiscalDropped?: number;
+    tombstoneBlocked?: number;
   } {
     if (!journal || typeof journal !== "object") {
       return { reconciled: false, appliedCount: 0 };
@@ -1447,6 +1561,7 @@ export class CrmRepository {
     // a alcada da sessao; chamada direta ao repositorio (contexto interno) segue liberada.
     const canIssueFiscal = options?.canIssueFiscalDocuments !== false;
     let fiscalDropped = 0;
+    let tombstoneBlocked = 0;
 
     let appliedCount = 0;
 
@@ -1488,10 +1603,16 @@ export class CrmRepository {
       deletedIds?: Set<string>
     ) => {
       if (!Array.isArray(incoming) || incoming.length === 0) return;
+      const tombKey = this.tombstoneKeyForArray(target);
       for (const item of incoming) {
         if (!item || !item.id || (deletedIds && deletedIds.has(item.id))) continue;
         const idx = target.findIndex((existing) => existing.id === item.id);
         if (idx === -1) {
+          // Lote 1-b: id apagado no servidor (tombstone) nao e recriado pelo journal antigo.
+          if (tombKey && this.isRecordTombstoned(tombKey, item.id)) {
+            tombstoneBlocked++;
+            continue;
+          }
           target.unshift(structuredClone(item));
           appliedCount++;
         } else {
@@ -1681,13 +1802,18 @@ export class CrmRepository {
     if (appliedCount > 0) {
       this.save();
     }
-    return fiscalDropped > 0
-      ? { reconciled: appliedCount > 0, appliedCount, fiscalDropped }
-      : { reconciled: appliedCount > 0, appliedCount };
+    const result: { reconciled: boolean; appliedCount: number; fiscalDropped?: number; tombstoneBlocked?: number } = {
+      reconciled: appliedCount > 0,
+      appliedCount,
+    };
+    if (fiscalDropped > 0) result.fiscalDropped = fiscalDropped;
+    if (tombstoneBlocked > 0) result.tombstoneBlocked = tombstoneBlocked;
+    return result;
   }
 
   resetToSeed(): CrmDatabaseState {
     this.state = createInitialSeedState();
+    this.resetTombstoneBaseline();
     this.save();
     return this.getState();
   }
@@ -1711,6 +1837,7 @@ export class CrmRepository {
       }
     }
     this.state = cloned;
+    this.resetTombstoneBaseline();
     this.save();
   }
 
@@ -4487,30 +4614,41 @@ export class CrmRepository {
         purchaseOrders: this.state.erp.purchaseOrders || seedErp.purchaseOrders,
       };
     }
-    // Ensure new seed fiscal document types (NFE_VENDA_PRODUTO, NFCE_CONSUMIDOR, NFE_REMESSA_LOCACAO) exist
-    if (Array.isArray(this.state.erp.invoices)) {
+    // Lote 1-b (a): base ja inicializada (tem dados reais de ERP) NAO recebe mais seed de volta.
+    // Antes, toda requisicao reinjetava faturas e pedidos de compra de demonstracao que o usuario
+    // tinha apagado (ex.: inv-nfe-rem-0412). Seed so entra em base vazia e nunca com tombstone.
+    const erpNow = this.state.erp;
+    const erpInitialized =
+      (Array.isArray(erpNow.invoices) && erpNow.invoices.length > 0) ||
+      (Array.isArray(erpNow.rentalContracts) && erpNow.rentalContracts.length > 0) ||
+      (Array.isArray(erpNow.purchaseOrders) && erpNow.purchaseOrders.length > 0) ||
+      (Array.isArray(erpNow.salesOrders) && erpNow.salesOrders.length > 0) ||
+      (Array.isArray(erpNow.serviceOrders) && erpNow.serviceOrders.length > 0) ||
+      (Array.isArray(erpNow.proposals) && erpNow.proposals.length > 0) ||
+      Boolean(this.state.recordTombstones && Object.keys(this.state.recordTombstones).length > 0);
+    if (!erpInitialized && Array.isArray(this.state.erp.invoices)) {
       const existingIds = new Set(this.state.erp.invoices.map((i) => i.id));
       for (const seedInv of seedErp.invoices) {
-        if (!existingIds.has(seedInv.id)) {
+        if (!existingIds.has(seedInv.id) && !this.isRecordTombstoned('erp.invoices', seedInv.id)) {
           this.state.erp.invoices.push(seedInv);
         }
       }
     }
-    // Enrich existing purchaseOrders with fiscal metadata from seed & add any new seed purchaseOrders
+    // Enriquece pedidos de compra existentes com metadados fiscais do seed (nao recria nenhum).
     if (!Array.isArray(this.state.erp.purchaseOrders) || this.state.erp.purchaseOrders.length === 0) {
-      this.state.erp.purchaseOrders = seedErp.purchaseOrders;
+      if (!erpInitialized) {
+        this.state.erp.purchaseOrders = (seedErp.purchaseOrders || []).filter(
+          (po) => !this.isRecordTombstoned('erp.purchaseOrders', po.id)
+        );
+      } else if (!Array.isArray(this.state.erp.purchaseOrders)) {
+        this.state.erp.purchaseOrders = [];
+      }
     } else if (Array.isArray(seedErp.purchaseOrders)) {
       const seedPoMap = new Map(seedErp.purchaseOrders.map((po) => [po.id, po]));
       this.state.erp.purchaseOrders = this.state.erp.purchaseOrders.map((po) => {
         const seedMatch = seedPoMap.get(po.id);
         return seedMatch ? { ...seedMatch, ...po, cfopEntrada: po.cfopEntrada || seedMatch.cfopEntrada, supplierCnpj: po.supplierCnpj || seedMatch.supplierCnpj, nfeAccessKey: po.nfeAccessKey || seedMatch.nfeAccessKey, itemsSummary: po.itemsSummary || seedMatch.itemsSummary, costCenter: po.costCenter || seedMatch.costCenter, icmsCreditAmount: po.icmsCreditAmount ?? seedMatch.icmsCreditAmount, pisCofinsCreditAmount: po.pisCofinsCreditAmount ?? seedMatch.pisCofinsCreditAmount } : po;
       });
-      const existingPoIds = new Set(this.state.erp.purchaseOrders.map((po) => po.id));
-      for (const seedPo of seedErp.purchaseOrders) {
-        if (!existingPoIds.has(seedPo.id)) {
-          this.state.erp.purchaseOrders.push(seedPo);
-        }
-      }
     }
     if (
       this.state.erp.gestaoClickConfig &&

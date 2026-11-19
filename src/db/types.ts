@@ -2397,6 +2397,11 @@ export interface CrmDatabaseState {
   setaDeskTicketSeqByPrefix?: Record<string, number>;
   setaDeskPipelines?: SetaDeskPipeline[];
   tasks?: CrmTask[];
+  /**
+   * Lote 1-b: ids apagados por colecao ("contacts", "erp.invoices"...) -> ISO da exclusao.
+   * Impede que o journal antigo do navegador (ou o backfill de seed) recrie o registro.
+   */
+  recordTombstones?: Record<string, Record<string, string>>;
   emailTemplates?: CrmEmailTemplate[];
   proposalFollowupEnrollments?: ProposalFollowupEnrollment[];
   snippets?: CrmSnippet[];

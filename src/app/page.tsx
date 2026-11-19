@@ -72,6 +72,7 @@ import ClientEmailComposerModal, { ClientEmailInitialPayload } from './component
 import AssistenteIaPanel from './components/AssistenteIaPanel';
 import {
   loadDurableJournal,
+  acknowledgeDurableJournal,
   stripEmojisDeep,
   mergeCompaniesWithJournal,
   mergeContactsWithJournal,
@@ -253,6 +254,8 @@ export default function HubSpotProCrmApp() {
 
       if (res.ok) {
         const json = await res.json();
+        // Lote 1-b (c): servidor confirmou que gravou o journal => limpa o que foi enviado.
+        if (json?.reconciliation?.journalAck === true) acknowledgeDurableJournal(reconcileJournal);
         const d = stripEmojisDeep(json.data);
         if (d) {
           if (d.aiReport) setAiReport(d.aiReport);

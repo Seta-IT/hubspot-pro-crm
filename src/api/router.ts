@@ -1010,6 +1010,9 @@ export function isAuthorizedWorkflowsCron(
  * Perf 19/11 (lote 1): o bootstrap NAO faz mais a carga ao vivo do GestaoClick por padrao.
  * So com BOOTSTRAP_LIVE_GESTAOCLICK=1 (ou "true") o comportamento antigo volta.
  */
+/** Lote 1-b (c): rotas que devolvem reconciliation.journalAck. */
+const JOURNAL_ACK_PATHS = new Set(["/api/bootstrap", "/api/state", "/api/state/reconcile"]);
+
 export function isBootstrapLiveGestaoClickEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const v = String(env.BOOTSTRAP_LIVE_GESTAOCLICK || '').trim().toLowerCase();
   return v === '1' || v === 'true';
@@ -1060,6 +1063,8 @@ export class CrmApiRouter {
    */
   private proposalTableCtx: { hydrated: Map<string, HydratedSnapshot>; strictInserts: boolean } | null = null;
   private gcInitialized = false;
+  /** Lote 1-b: ultima gravacao do estado no Postgres falhou (engolida no modo sem tabela). */
+  private lastPersistFailed = false;
   private healthService = new DataHealthService();
   private enrichmentService = new EnrichmentService();
   private workflowEngine = new WorkflowEngine();
@@ -2072,6 +2077,7 @@ export class CrmApiRouter {
         }
       : rawResponse;
 
+    let persistedAfterDispatch = false;
     if (
       this.canPersistToPostgres() &&
       !isSetaDeskEmailDirectRoute(method, cleanPath) &&
@@ -2079,6 +2085,24 @@ export class CrmApiRouter {
     ) {
       const failed = await this.persistStateToPostgres();
       if (failed) return failed;
+      persistedAfterDispatch = !this.lastPersistFailed;
+    }
+
+    // Lote 1-b (c): confirma ao navegador que o journal enviado foi aplicado E gravado, para ele
+    // limpar o localStorage (journal velho nunca mais "ressuscita" registro apagado).
+    if (
+      response.status === 200 &&
+      method === "POST" &&
+      JOURNAL_ACK_PATHS.has(cleanPath) &&
+      response.body &&
+      typeof response.body === "object"
+    ) {
+      const b = response.body as Record<string, unknown>;
+      const rec = b.reconciliation;
+      const sentJournal = cleanPath === "/api/state/reconcile" ? true : Boolean(body && body.reconcileJournal);
+      if (sentJournal && rec && typeof rec === "object") {
+        (rec as Record<string, unknown>).journalAck = this.canPersistToPostgres() ? persistedAfterDispatch : true;
+      }
     }
 
     if (this.proposalTableCtx && response.status === 200) {
@@ -2264,12 +2288,14 @@ export class CrmApiRouter {
   }
 
   private async persistStateToPostgres(): Promise<ApiResponse | null> {
+    this.lastPersistFailed = false;
     const ctx = this.proposalTableCtx;
     if (!ctx) {
       try {
         await syncStateToPostgres(this.repo.getState());
       } catch {
         // Ignore background sync failure if PostgreSQL is temporarily unavailable
+        this.lastPersistFailed = true;
       }
       return null;
     }
@@ -2279,6 +2305,7 @@ export class CrmApiRouter {
       await syncStateToPostgres(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts, gcInserts } });
       return null;
     } catch (err) {
+      this.lastPersistFailed = true;
       if (err instanceof ProposalWriteConflictError) {
         return {
           status: 409,
@@ -2801,7 +2828,7 @@ export class CrmApiRouter {
     query: Record<string, string | undefined>,
     ctx: { trustedInternal: boolean; serviceAccount?: boolean },
     resource: string
-  ): { reconciled: boolean; appliedCount: number; fiscalDropped?: number } {
+  ): { reconciled: boolean; appliedCount: number; fiscalDropped?: number; tombstoneBlocked?: number } {
     const priv = this.fiscalIssuancePrivilege(query, ctx);
     // A1 (link assinado): journal do navegador reconciliado sem token de link assinado.
     // CISO 30/10: escopo PROPRIOS/EQUIPE no journal de propostas (sanitizeProposalJournal).

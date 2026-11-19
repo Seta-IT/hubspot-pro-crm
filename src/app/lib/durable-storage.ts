@@ -119,6 +119,45 @@ export function saveDurableJournal(journal: ClientDurableJournal): void {
   }
 }
 
+/**
+ * Lote 1-b (c): o servidor confirmou (reconciliation.journalAck) que recebeu e gravou o journal
+ * enviado. Remove do journal ATUAL so as entradas identicas as enviadas; o que foi registrado
+ * depois do envio (outra aba, edicao em voo) fica para a proxima reconciliacao. Chamados
+ * (upsertedTickets/deletedTicketIds) ficam de fora por cautela (SetaDesk grava em tabela propria).
+ */
+const JOURNAL_ACK_KEEP_KEYS = new Set(['upsertedTickets', 'deletedTicketIds']);
+
+export function pruneAcknowledgedJournal(
+  current: ClientDurableJournal,
+  sent: ClientDurableJournal
+): Required<ClientDurableJournal> {
+  const out = { ...createEmptyJournal(), ...current } as Record<string, unknown[]>;
+  const sentRec = sent as unknown as Record<string, unknown>;
+  for (const key of Object.keys(out)) {
+    if (JOURNAL_ACK_KEEP_KEYS.has(key)) continue;
+    const cur = out[key];
+    const sentArr = sentRec[key];
+    if (!Array.isArray(cur) || !Array.isArray(sentArr) || sentArr.length === 0) continue;
+    const sentKeys = new Set(sentArr.map((v) => (typeof v === 'string' ? `s:${v}` : `j:${JSON.stringify(v)}`)));
+    out[key] = cur.filter((v) => !sentKeys.has(typeof v === 'string' ? `s:${v}` : `j:${JSON.stringify(v)}`));
+  }
+  return out as unknown as Required<ClientDurableJournal>;
+}
+
+export function acknowledgeDurableJournal(sent: ClientDurableJournal): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const pruned = pruneAcknowledgedJournal(loadDurableJournal(), sent);
+    if (hasDurableJournalEntries(pruned)) {
+      saveDurableJournal(pruned);
+    } else {
+      window.localStorage.removeItem(JOURNAL_STORAGE_KEY);
+    }
+  } catch {
+    // localStorage indisponivel: mantem o journal (sera reenviado; o servidor e idempotente).
+  }
+}
+
 export function hasDurableJournalEntries(journal?: ClientDurableJournal | null): boolean {
   if (!journal) return false;
   return Boolean(
