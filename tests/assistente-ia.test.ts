@@ -728,13 +728,37 @@ describe('assistente — propostas: localizar 4709 e acrescentar despesa', () =>
     assert.equal(changed.calls.filter((c) => c.method === 'PATCH').length + calls.filter((c) => c.method === 'PATCH').length, 0);
   });
 
-  it('proposta do GestãoClick: avisa da divergência e não monta cartão', async () => {
+  it('proposta do GestãoClick: o cartão avisa que a alteração fica só no STI-hub e a execução grava só no STI-hub', async () => {
     const { api, calls } = propApi({ ...PROP, id: 'prop-gc-98765' });
-    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'adicione 2800 na 4709' }] }, deps({ api, llm: fakeLlm({ toolCalls: [EDIT_CALL] }) }));
-    assert.equal(r.body.tipo, 'texto');
-    assert.match(String(r.body.texto), /veio do GestãoClick/);
-    assert.match(String(r.body.texto), /não envia alterações de volta/);
+    const d = deps({ api, llm: fakeLlm({ toolCalls: [EDIT_CALL] }) });
+    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'adicione 2800 na 4709' }] }, d);
+    assert.equal(r.body.tipo, 'proposta');
+    const linhas = (r.body.proposta as any).linhas as string[];
+    assert.equal(linhas.filter((l) => l === 'Atenção: proposta do GestãoClick. A alteração fica só no STI-hub e não vai para o GestãoClick.').length, 1);
     assert.equal(calls.filter((c) => c.method === 'PATCH').length, 0);
+    const ok = await handleExecute({ token: (r.body.proposta as any).token, confirmar: true }, d);
+    assert.equal(ok.body.ok, true);
+    assert.match(String(ok.body.mensagem), /ficou só no STI-hub/);
+    const patch = calls.filter((c) => c.method === 'PATCH');
+    assert.equal(patch.length, 1);
+    assert.equal(patch[0].path, '/api/erp/proposals/prop-gc-98765');
+    assert.ok(calls.every((c) => !/gestaoclick/i.test(c.path)), 'nada é chamado no GestãoClick');
+  });
+
+  it('proposta do STI-hub: sem o aviso do GestãoClick', async () => {
+    const { api } = propApi();
+    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'adicione 2800 na 4709' }] }, deps({ api, llm: fakeLlm({ toolCalls: [EDIT_CALL] }) }));
+    assert.doesNotMatch((r.body.proposta as any).linhas.join('\n'), /GestãoClick/);
+  });
+
+  it('proposta do GestãoClick convertida ou recusada continua bloqueada', async () => {
+    for (const extra of [{ status: 'CONVERTIDA_CONTRATO' }, { status: 'RECUSADA' }, { status: 'ENVIADA', convertedContractId: 'ctr-1' }]) {
+      const { api, calls } = propApi({ ...PROP, id: 'prop-gc-98765', ...extra });
+      const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'x' }] }, deps({ api, llm: fakeLlm({ toolCalls: [EDIT_CALL] }) }));
+      assert.equal(r.body.tipo, 'texto');
+      assert.match(String(r.body.texto), /não pode ser editada/);
+      assert.equal(calls.filter((c) => c.method === 'PATCH').length, 0);
+    }
   });
 
   it('proposta aprovada: edição bloqueada', async () => {
@@ -767,5 +791,23 @@ describe('assistente — propostas: localizar 4709 e acrescentar despesa', () =>
     assert.match(system, /consultar_propostas/);
     assert.match(system, /Nunca use consultar com entidade negocios para propostas/);
     assert.match(system, /2\.800,00/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+import { insertGcProposalsIfAbsent } from '../src/db/proposal-store';
+describe('sync diário do GestãoClick não sobrescreve proposta editada no STI-hub', () => {
+  it('orçamento GC já existente (mesmo id ou id GC) não é inserido nem atualizado', async () => {
+    const sqls: string[] = [];
+    const db = {
+      async query(sql: string) {
+        sqls.push(sql);
+        return { rows: [{ id: 'prop-gc-98765', gc_id: '98765' }] };
+      },
+    };
+    const n = await insertGcProposalsIfAbsent(db as never, [{ id: 'prop-gc-98765', code: '4709', title: 'GC', items: [] } as never]);
+    assert.equal(n, 0);
+    assert.equal(sqls.length, 1);
+    assert.match(sqls[0], /^\s*SELECT/);
   });
 });

@@ -1061,11 +1061,12 @@ function bloqueioEdicao(p: any): string | null {
   if ((PROPOSTA_STATUS_BLOQUEADOS as readonly string[]).includes(String(p?.status || '')) || p?.convertedContractId || p?.convertedInvoiceId) {
     return `A proposta ${n} está ${statusProposta(p?.status).toLowerCase()} e não pode ser editada pelo assistente. Para mudar, use a tela de Orçamentos (as regras de aprovação continuam valendo).`;
   }
-  if (propostaDoGestaoClick(p)) {
-    return `Não gravei nada: a proposta ${n} veio do GestãoClick, e o STI-hub não envia alterações de volta ao GestãoClick. Se eu editar só aqui, o STI-hub e o GestãoClick ficam com valores diferentes. Faça a alteração no GestãoClick (e, se precisar, ajuste também na tela de Orçamentos do STI-hub).`;
-  }
+  // Propostas do GestaoClick: editaveis SO no STI-hub (decisao do Marcello, 19/11/2026). Nao ha
+  // sincronizacao de volta, e o sync diario so insere orcamentos novos (nao sobrescreve este).
   return null;
 }
+
+export const AVISO_PROPOSTA_GESTAOCLICK = 'Atenção: proposta do GestãoClick. A alteração fica só no STI-hub e não vai para o GestãoClick.';
 
 const totaisLinha = (rot: string, t: any) =>
   `${rot}: mensal ${formatBRL(t?.monthlyRecurringTotal)}, único ${formatBRL(Number(t?.oneTimeSetupTotal || 0) + Number(t?.shippingCost || 0))}, contrato ${formatBRL(t?.totalContractValue)}`;
@@ -1146,6 +1147,7 @@ const editarProposta: AssistenteTool<EditarPropostaArgs> = {
       `Proposta: ${numeroProposta(p)}`,
       `Cliente: ${cut(p.companyName, 70)}${p.companyCnpj ? ` — CNPJ ${cut(p.companyCnpj, 20)}` : ''}`,
       `Situação: ${statusProposta(p.status)}`,
+      ...(propostaDoGestaoClick(p) ? [AVISO_PROPOSTA_GESTAOCLICK] : []),
       ...ed.mudancas,
       totaisLinha('Antes', computeProposalTotals({ ...p, items: (p.items || []).map((i: any) => ({ ...i })) } as ErpCommercialProposal)),
       totaisLinha('Depois', ed.depois),
@@ -1177,7 +1179,7 @@ const editarProposta: AssistenteTool<EditarPropostaArgs> = {
     const d = put.body?.data || {};
     return {
       ok: true,
-      mensagem: `Proposta ${numeroProposta(p)} atualizada. Total do contrato: ${formatBRL(d.totalContractValue ?? ed.depois.totalContractValue)}. Nada foi enviado ao cliente.`,
+      mensagem: `Proposta ${numeroProposta(p)} atualizada. Total do contrato: ${formatBRL(d.totalContractValue ?? ed.depois.totalContractValue)}. Nada foi enviado ao cliente.${propostaDoGestaoClick(p) ? ' A alteração ficou só no STI-hub; o GestãoClick não foi alterado.' : ''}`,
       registro: { tipo: 'proposta', id: String(p.id), codigo: String(p.code || '') },
       resumoParaModelo: `Proposta ${numeroProposta(p)} atualizada (${ed.mudancas.length} mudanças). Não repita a edição.`,
     };
