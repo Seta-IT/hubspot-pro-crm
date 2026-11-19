@@ -658,7 +658,7 @@ export default function ClientEmailComposerModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto print:hidden">
+    <div data-testid="client-email-composer-modal" className="fixed inset-0 z-[80] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto print:hidden">
       <div className="bg-white rounded-lg border border-slate-300 shadow-2xl max-w-3xl w-full overflow-hidden my-6">
         <div className="px-6 py-4 bg-[#1e3a6e] text-white flex items-center justify-between">
           <div className="flex items-center gap-2.5">

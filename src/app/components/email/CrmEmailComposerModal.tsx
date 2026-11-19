@@ -797,6 +797,14 @@ export function CrmEmailComposerModal({
           </p>
         ) : null}
 
+        {!loading && recipients.length === 0 && !toQuery ? (
+          <p data-testid="crm-mail-empty-to-hint" className="text-[11px] font-semibold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 my-1">
+            {kind === 'deal'
+              ? 'Este negócio não tem contato com e-mail. Associe um contato no painel direito ou digite o endereço.'
+              : 'Digite o e-mail do destinatário ou escolha um contato.'}
+          </p>
+        ) : null}
+
         {!loading && (
           <>
             <div className="flex items-start gap-2 border-b border-slate-100 py-1.5">

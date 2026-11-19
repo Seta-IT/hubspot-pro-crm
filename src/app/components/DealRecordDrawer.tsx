@@ -34,6 +34,14 @@ import {
   ServiceTicket,
   TimelineEvent,
 } from '../../db/types';
+import DealAssociationPicker from './DealAssociationPicker';
+import {
+  buildPipelineChangePatch,
+  filterAssociationChoices,
+  pipelineNameOf,
+  stagesForPipeline,
+  type PipelineRef,
+} from '../lib/deal-record-actions';
 import { formatBRL, formatDateTimeBR } from './ui-helpers';
 import { buildInternalProposalUrl } from '../lib/proposal-share';
 import { copySignedProposalLink } from '../lib/proposal-link-client';
@@ -238,6 +246,17 @@ export interface DealRecordDrawerProps {
   onAddNote: (title: string, body: string, type: 'NOTE' | 'CALL' | 'MEETING' | 'EMAIL' | 'TASK') => Promise<void>;
   onShowToast?: (msg: string) => void;
   onNavigateToErp?: () => void;
+  /** Funis completos, para o seletor de pipeline e o filtro de etapas. */
+  pipelines?: PipelineRef[];
+  onSelectPipeline?: (pipelineId: string) => void;
+  onCreateRelatedDeal?: (payload: {
+    title: string;
+    companyId: string | null;
+    contactId: string | null;
+    pipelineId: string;
+    stageId: string;
+  }) => Promise<void>;
+  onRefreshAll?: () => Promise<void>;
 }
 
 export default function DealRecordDrawer({
@@ -271,6 +290,10 @@ export default function DealRecordDrawer({
   onAddNote,
   onShowToast,
   onNavigateToErp,
+  pipelines = [],
+  onSelectPipeline,
+  onCreateRelatedDeal,
+  onRefreshAll,
 }: DealRecordDrawerProps) {
   const [centerTab, setCenterTab] = useState<'OVERVIEW' | 'ACTIVITIES'>('ACTIVITIES');
   const [activityFilter, setActivityFilter] = useState<'ALL' | 'NOTE' | 'EMAIL' | 'CALL' | 'TASK' | 'MEETING'>('ALL');
@@ -286,6 +309,11 @@ export default function DealRecordDrawer({
   const [showAllAssoc, setShowAllAssoc] = useState<Record<string, boolean>>({});
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement | null>(null);
+  const [assocPicker, setAssocPicker] = useState<'contacts' | 'companies' | 'tickets' | 'deals' | null>(null);
+  const [assocQuery, setAssocQuery] = useState('');
+  const [assocBusy, setAssocBusy] = useState(false);
+  const [newTicketSubject, setNewTicketSubject] = useState('');
+  const [newRelatedDealTitle, setNewRelatedDealTitle] = useState('');
 
   const [followup, setFollowup] = useState<FollowupStatusView | null>(null);
   const [followupBusy, setFollowupBusy] = useState(false);
@@ -333,9 +361,14 @@ export default function DealRecordDrawer({
     return () => document.removeEventListener('mousedown', onDoc);
   }, [actionsOpen]);
 
-  const stageName = stages.find((s) => s.id === deal.stageId)?.name || deal.stageName || '--';
-  const currentStage = stages.find((s) => s.id === deal.stageId);
   const canEdit = Boolean(canEditDeal);
+  const stageOptions = (() => {
+    const fromPipe = stagesForPipeline(pipelines, deal.pipelineId);
+    return fromPipe.length ? fromPipe : stages;
+  })();
+  const stageName = stageOptions.find((s) => s.id === deal.stageId)?.name || deal.stageName || '--';
+  const currentStage = stageOptions.find((s) => s.id === deal.stageId);
+  const resolvedPipelineName = pipelineNameOf(pipelines, deal.pipelineId, pipelineName);
   const canDelete = Boolean(canDeleteDeal && onDelete);
   const monthly = deal.mrr ?? null;
   const total = deal.value ?? null;
@@ -442,7 +475,7 @@ export default function DealRecordDrawer({
 
   const saveStage = async (stageId: string) => {
     if (!canEdit || stageId === deal.stageId) return;
-    const st = stages.find((s) => s.id === stageId);
+    const st = stageOptions.find((s) => s.id === stageId);
     if (!st) return;
     await onStageChange(deal.id, st.id);
     onChangeDeal({
@@ -452,6 +485,121 @@ export default function DealRecordDrawer({
       probability: st.defaultProbability,
       status: st.isWon ? 'WON' : st.isClosed ? 'LOST' : 'OPEN',
     });
+  };
+
+  const savePipeline = async (pipelineId: string) => {
+    if (!canEdit || !onUpdateDeal) return;
+    const patch = buildPipelineChangePatch(pipelines, deal, pipelineId);
+    if (!patch) return;
+    const st = stagesForPipeline(pipelines, patch.pipelineId).find((s) => s.id === patch.stageId);
+    await onUpdateDeal(deal.id, patch);
+    onChangeDeal({
+      ...deal,
+      pipelineId: patch.pipelineId,
+      stageId: patch.stageId,
+      stageName: st?.name || deal.stageName,
+      probability: st?.defaultProbability ?? deal.probability,
+      status: st?.isWon ? 'WON' : st?.isClosed ? 'LOST' : 'OPEN',
+    });
+    onSelectPipeline?.(patch.pipelineId);
+  };
+
+  const openAssocPicker = (kind: 'contacts' | 'companies' | 'tickets' | 'deals') => {
+    setAssocQuery('');
+    setNewTicketSubject('');
+    setNewRelatedDealTitle(deal.company?.name ? `Negócio — ${deal.company.name}` : '');
+    setAssocPicker(kind);
+  };
+
+  const associateContact = async (contactId: string) => {
+    if (!canEdit || !onUpdateDeal) return;
+    setAssocBusy(true);
+    try {
+      await onUpdateDeal(deal.id, { contactId }, { silent: true });
+      const contact = contacts.find((c) => c.id === contactId) || deal.contact;
+      onChangeDeal({ ...deal, contactId, contact: contact || deal.contact });
+      onShowToast?.('Contato associado ao negócio.');
+      setAssocPicker(null);
+    } catch (err) {
+      onShowToast?.(err instanceof Error ? err.message : 'Não foi possível associar o contato.');
+    } finally {
+      setAssocBusy(false);
+    }
+  };
+
+  const associateCompany = async (companyId: string) => {
+    if (!canEdit || !onUpdateDeal) return;
+    setAssocBusy(true);
+    try {
+      await onUpdateDeal(deal.id, { companyId }, { silent: true });
+      const company = companies.find((c) => c.id === companyId) || deal.company;
+      onChangeDeal({ ...deal, companyId, company: company || deal.company });
+      onShowToast?.('Empresa associada ao negócio.');
+      setAssocPicker(null);
+    } catch (err) {
+      onShowToast?.(err instanceof Error ? err.message : 'Não foi possível associar a empresa.');
+    } finally {
+      setAssocBusy(false);
+    }
+  };
+
+  const createAssociatedTicket = async () => {
+    const subject = newTicketSubject.trim();
+    if (!subject) return;
+    setAssocBusy(true);
+    try {
+      const res = await fetch('/api/tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject,
+          description: `Aberto a partir do negócio ${deal.title}`,
+          dealId: deal.id,
+          companyId: deal.companyId,
+          contactId: deal.contactId,
+          channel: 'WEB_PORTAL',
+          status: 'OPEN',
+          priority: 'MEDIUM',
+          category: 'SUPPORT',
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        onShowToast?.((json as { error?: string }).error || 'Não foi possível abrir o chamado.');
+        return;
+      }
+      onShowToast?.('Chamado aberto e associado a este negócio.');
+      setAssocPicker(null);
+      setNewTicketSubject('');
+      if (onRefreshAll) await onRefreshAll();
+    } catch (err) {
+      onShowToast?.(err instanceof Error ? err.message : 'Não foi possível abrir o chamado.');
+    } finally {
+      setAssocBusy(false);
+    }
+  };
+
+  const createRelatedDeal = async () => {
+    const title = newRelatedDealTitle.trim();
+    if (!title || !onCreateRelatedDeal) return;
+    const first = stageOptions[0];
+    setAssocBusy(true);
+    try {
+      await onCreateRelatedDeal({
+        title,
+        companyId: deal.companyId,
+        contactId: deal.contactId,
+        pipelineId: deal.pipelineId,
+        stageId: first?.id || deal.stageId,
+      });
+      onShowToast?.('Negócio criado para a mesma empresa.');
+      setAssocPicker(null);
+      setNewRelatedDealTitle('');
+    } catch (err) {
+      onShowToast?.(err instanceof Error ? err.message : 'Não foi possível criar o negócio.');
+    } finally {
+      setAssocBusy(false);
+    }
   };
 
     const associatedContacts = useMemo(() => {
@@ -717,17 +865,33 @@ export default function DealRecordDrawer({
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-slate-500 font-semibold">Pipeline</span>
-                <span className="font-semibold text-slate-900 truncate">{dash(pipelineName)}</span>
+                {canEdit && pipelines.length > 0 ? (
+                  <select
+                    data-testid="deal-pipeline-select"
+                    value={deal.pipelineId}
+                    onChange={(e) => void savePipeline(e.target.value)}
+                    className="max-w-[55%] px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-800 text-[11px]"
+                  >
+                    {pipelines.map((pipe) => (
+                      <option key={pipe.id} value={pipe.id}>
+                        {pipe.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="font-semibold text-slate-900 truncate">{dash(resolvedPipelineName)}</span>
+                )}
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-slate-500 font-semibold">Etapa do negócio</span>
                 {canEdit ? (
                   <select
+                    data-testid="deal-stage-select"
                     value={deal.stageId}
                     onChange={(e) => void saveStage(e.target.value)}
                     className="max-w-[55%] px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-800 text-[11px]"
                   >
-                    {stages.map((st) => (
+                    {stageOptions.map((st) => (
                       <option key={st.id} value={st.id}>
                         {st.name}
                       </option>
@@ -859,9 +1023,12 @@ export default function DealRecordDrawer({
                   <DealInlineProperty
                     fieldKey="pipeline"
                     label="Pipeline"
-                    displayValue={dash(pipelineName)}
-                    editValue={pipelineName || ''}
-                    readOnly
+                    displayValue={dash(resolvedPipelineName)}
+                    editValue={deal.pipelineId}
+                    kind="select"
+                    options={pipelines.map((pipe) => ({ value: pipe.id, label: pipe.name }))}
+                    readOnly={!canEdit || pipelines.length === 0}
+                    onSave={(raw) => savePipeline(raw)}
                   />
                   <DealInlineProperty
                     fieldKey="dealstage"
@@ -869,7 +1036,7 @@ export default function DealRecordDrawer({
                     displayValue={dash(stageName)}
                     editValue={deal.stageId}
                     kind="select"
-                    options={stages.map((st) => ({ value: st.id, label: st.name }))}
+                    options={stageOptions.map((st) => ({ value: st.id, label: st.name }))}
                     readOnly={!canEdit}
                     onSave={(raw) => saveStage(raw)}
                   />
@@ -1178,22 +1345,6 @@ export default function DealRecordDrawer({
                     </button>
                   </div>
 
-                  {emailOpen && (
-                    <CrmEmailComposerModal
-                      record={{ dealId: deal.id, contactId: deal.contactId, companyId: deal.companyId }}
-                      recordKind="deal"
-                      defaultTo={deal.contact?.email || ''}
-                      suggestions={associatedContacts.map((c) => c.email).filter(Boolean) as string[]}
-                      recordLabel={deal.title}
-                      contact={deal.contact ? { id: deal.contact.id, email: deal.contact.email, firstName: deal.contact.firstName, lastName: deal.contact.lastName, companyId: deal.contact.companyId } : null}
-                      company={deal.company ? { id: deal.company.id, name: deal.company.name, domain: deal.company.domain } : companies.find((c) => c.id === deal.companyId) || null}
-                      deal={{ id: deal.id, title: deal.title, value: deal.value }}
-                      associatedContacts={associatedContacts}
-                      canSendEmail={canSendEmail}
-                      onClose={() => setEmailOpen(false)}
-                      onSent={(result) => { if (!result?.fallback) setEmailOpen(false); }}
-                    />
-                  )}
 
                   {loadingDetail ? (
                     <p className="text-xs font-semibold text-slate-500">Carregando atividades...</p>
@@ -1257,7 +1408,8 @@ export default function DealRecordDrawer({
                   count: associatedContacts.length,
                   visible: true,
                   emptyHint: 'Veja as pessoas associadas a este registro.',
-                  addSoon: true,
+                  addSoon: !canEdit || !onUpdateDeal,
+                  onAdd: canEdit && onUpdateDeal ? () => openAssocPicker('contacts') : undefined,
                   body: associatedContacts.length === 0 ? null : (
                     <div className="space-y-3">
                       {associatedContacts.slice(0, contactLimit).map((c) => (
@@ -1296,7 +1448,8 @@ export default function DealRecordDrawer({
                   count: associatedCompanies.length,
                   visible: true,
                   emptyHint: 'Veja as empresas associadas a este registro.',
-                  addSoon: true,
+                  addSoon: !canEdit || !onUpdateDeal,
+                  onAdd: canEdit && onUpdateDeal ? () => openAssocPicker('companies') : undefined,
                   body: associatedCompanies.length === 0 ? null : (
                     <div className="space-y-3">
                       {associatedCompanies.slice(0, companyLimit).map((co, idx) => {
@@ -1376,7 +1529,8 @@ export default function DealRecordDrawer({
                   count: canViewChamados ? associatedTickets.length : 0,
                   visible: true,
                   emptyHint: 'Acompanhe as solicitações dos clientes associadas a este registro.',
-                  addSoon: true,
+                  addSoon: !canViewChamados,
+                  onAdd: canViewChamados ? () => openAssocPicker('tickets') : undefined,
                   body:
                     !canViewChamados || associatedTickets.length === 0 ? null : (
                       <div className="space-y-2">
@@ -1401,7 +1555,8 @@ export default function DealRecordDrawer({
                   count: relatedDeals.length,
                   visible: true,
                   emptyHint: 'Acompanhe as oportunidades de receita associadas a este registro.',
-                  addSoon: true,
+                  addSoon: !onCreateRelatedDeal,
+                  onAdd: onCreateRelatedDeal ? () => openAssocPicker('deals') : undefined,
                   body: relatedDeals.length === 0 ? null : (
                     <div className="space-y-2">
                       {relatedDeals.slice(0, 6).map((d) => (
@@ -1586,7 +1741,8 @@ export default function DealRecordDrawer({
                         </button>
                         {card.addSoon || !card.onAdd ? (
                           <span
-                            title="Em breve"
+                            title={card.addSoon && !card.onAdd ? 'Em breve' : 'Sem permissão para adicionar.'}
+                            data-testid={`deal-assoc-add-${card.id}`}
                             className="text-[11px] font-semibold text-slate-300 cursor-not-allowed shrink-0 select-none"
                           >
                             + Adicionar
@@ -1594,6 +1750,7 @@ export default function DealRecordDrawer({
                         ) : (
                           <button
                             type="button"
+                            data-testid={`deal-assoc-add-${card.id}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               card.onAdd?.();
@@ -1628,6 +1785,147 @@ export default function DealRecordDrawer({
           </aside>
         </div>
       </div>
+      {emailOpen && (
+        <CrmEmailComposerModal
+          record={{ dealId: deal.id, contactId: deal.contactId, companyId: deal.companyId }}
+          recordKind="deal"
+          defaultTo={deal.contact?.email || ''}
+          suggestions={associatedContacts.map((c) => c.email).filter(Boolean) as string[]}
+          recordLabel={deal.title}
+          contact={deal.contact ? { id: deal.contact.id, email: deal.contact.email, firstName: deal.contact.firstName, lastName: deal.contact.lastName, companyId: deal.contact.companyId } : null}
+          company={deal.company ? { id: deal.company.id, name: deal.company.name, domain: deal.company.domain } : companies.find((c) => c.id === deal.companyId) || null}
+          deal={{ id: deal.id, title: deal.title, value: deal.value }}
+          associatedContacts={associatedContacts}
+          canSendEmail={canSendEmail}
+          onClose={() => setEmailOpen(false)}
+          onSent={(result) => { if (!result?.fallback) setEmailOpen(false); }}
+        />
+      )}
+      {assocPicker === 'contacts' && (
+        <DealAssociationPicker
+          title="Associar contato"
+          testId="deal-assoc-contacts"
+          query={assocQuery}
+          onQuery={setAssocQuery}
+          items={filterAssociationChoices(
+            contacts.filter((c) => !associatedContacts.some((a) => a.id === c.id)),
+            assocQuery,
+            (c) => `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''}`
+          ).map((c) => ({
+            id: c.id,
+            label: `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || c.id,
+            hint: c.email || c.phone || undefined,
+          }))}
+          emptyText="Nenhum contato encontrado."
+          placeholder="Buscar por nome ou e-mail"
+          onSelect={(id) => void associateContact(id)}
+          onClose={() => setAssocPicker(null)}
+          busy={assocBusy}
+        />
+      )}
+      {assocPicker === 'companies' && (
+        <DealAssociationPicker
+          title="Associar empresa"
+          testId="deal-assoc-companies"
+          query={assocQuery}
+          onQuery={setAssocQuery}
+          items={filterAssociationChoices(
+            companies.filter((c) => !associatedCompanies.some((a) => a.id === c.id)),
+            assocQuery,
+            (c) => `${c.name || ''} ${c.domain || ''} ${c.cnpj || ''}`
+          ).map((c) => ({
+            id: c.id,
+            label: c.name,
+            hint: [c.domain, c.cnpj].filter(Boolean).join(' · ') || undefined,
+          }))}
+          emptyText="Nenhuma empresa encontrada."
+          placeholder="Buscar por nome, domínio ou CNPJ"
+          onSelect={(id) => void associateCompany(id)}
+          onClose={() => setAssocPicker(null)}
+          busy={assocBusy}
+        />
+      )}
+      {assocPicker === 'tickets' && (
+        <DealAssociationPicker
+          title="Novo chamado"
+          testId="deal-assoc-tickets"
+          query={assocQuery}
+          onQuery={setAssocQuery}
+          items={[]}
+          emptyText=""
+          onClose={() => setAssocPicker(null)}
+          busy={assocBusy}
+        >
+          <label className="block text-[11px] font-semibold text-slate-600">Assunto</label>
+          <input
+            autoFocus
+            value={newTicketSubject}
+            onChange={(e) => setNewTicketSubject(e.target.value)}
+            placeholder="Descreva o chamado"
+            data-testid="deal-assoc-tickets-subject"
+            className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-xs"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setAssocPicker(null)}
+              className="px-3 py-1.5 rounded-md border border-slate-200 text-xs font-semibold cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={assocBusy || !newTicketSubject.trim()}
+              onClick={() => void createAssociatedTicket()}
+              className="px-3 py-1.5 rounded-md bg-accent text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+            >
+              {assocBusy ? 'Abrindo...' : 'Abrir chamado'}
+            </button>
+          </div>
+        </DealAssociationPicker>
+      )}
+      {assocPicker === 'deals' && (
+        <DealAssociationPicker
+          title="Novo negócio"
+          testId="deal-assoc-deals"
+          query={assocQuery}
+          onQuery={setAssocQuery}
+          items={[]}
+          emptyText=""
+          onClose={() => setAssocPicker(null)}
+          busy={assocBusy}
+        >
+          <label className="block text-[11px] font-semibold text-slate-600">Título</label>
+          <input
+            autoFocus
+            value={newRelatedDealTitle}
+            onChange={(e) => setNewRelatedDealTitle(e.target.value)}
+            placeholder="Nome do negócio"
+            data-testid="deal-assoc-deals-title"
+            className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-xs"
+          />
+          <p className="text-[11px] text-slate-500 font-semibold">
+            O negócio é criado na mesma empresa e no mesmo pipeline.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setAssocPicker(null)}
+              className="px-3 py-1.5 rounded-md border border-slate-200 text-xs font-semibold cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={assocBusy || !newRelatedDealTitle.trim()}
+              onClick={() => void createRelatedDeal()}
+              className="px-3 py-1.5 rounded-md bg-accent text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+            >
+              {assocBusy ? 'Criando...' : 'Criar negócio'}
+            </button>
+          </div>
+        </DealAssociationPicker>
+      )}
     </div>
   );
 }

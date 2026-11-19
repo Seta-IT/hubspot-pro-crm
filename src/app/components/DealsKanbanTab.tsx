@@ -642,16 +642,6 @@ export default function DealsKanbanTab({
 
   return (
         <div className="space-y-5">
-      {emailModalPayload && (
-        <ClientEmailComposerModal
-          payload={emailModalPayload}
-          onClose={() => setEmailModalPayload(null)}
-          onSentSuccess={(msg) => {
-            onShowToast?.(msg);
-            if (onRefreshAll) void onRefreshAll();
-          }}
-        />
-      )}
       {createdProposalBanner && (
         <div className="bg-emerald-950 text-white rounded-[6px] p-4 border border-emerald-600 shadow-lg flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="space-y-1">
@@ -2017,6 +2007,29 @@ export default function DealsKanbanTab({
                 }
               : undefined
           }
+          pipelines={pipelines}
+          onSelectPipeline={handleSelectPipe}
+          onCreateRelatedDeal={async (payload) => {
+            await onCreateDeal({
+              title: payload.title,
+              value: 0,
+              stageId: payload.stageId,
+              pipelineId: payload.pipelineId,
+              contactId: payload.contactId,
+              companyId: payload.companyId,
+            });
+          }}
+          onRefreshAll={onRefreshAll}
+        />
+      )}
+      {emailModalPayload && (
+        <ClientEmailComposerModal
+          payload={emailModalPayload}
+          onClose={() => setEmailModalPayload(null)}
+          onSentSuccess={(msg) => {
+            onShowToast?.(msg);
+            if (onRefreshAll) void onRefreshAll();
+          }}
         />
       )}
     </div>
