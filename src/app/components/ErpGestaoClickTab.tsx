@@ -887,6 +887,10 @@ export default function ErpGestaoClickTab({
       } else if (query) {
         setOsSearch(query);
       }
+    } else if (type === 'SALE_ORDER') {
+      setActiveSection('VENDAS');
+      const found = (erpData.salesOrders || []).find((so) => so.id === id || so.code === id);
+      setVendasSearch(found ? found.code : query || '');
     } else if (type === 'CUSTOMER') {
       setActiveSection('CADASTROS');
       setCadastrosSubTab('CLIENTES');

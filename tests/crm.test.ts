@@ -2512,6 +2512,14 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
         title: `O.S. #${os.code} - ${os.companyName}`,
         subtitle: `Ordem de Serviço • ERP • ${os.status}`,
       })),
+      ...(erp.salesOrders || []).map((so) => ({
+        id: `SALES_ORDERS:${so.id}`,
+        entityId: so.id,
+        category: 'SALES_ORDERS' as SearchCategoryKey,
+        system: 'ERP' as const,
+        title: `Venda #${so.code} - ${so.companyName}`,
+        subtitle: `Venda • ERP • ${so.status}`,
+      })),
       ...tickets.map((tk) => ({
         id: `TICKETS:${tk.id}`,
         entityId: tk.id,
@@ -2522,7 +2530,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
       })),
     ];
 
-    // 1. Testar cada uma das 9 pílulas de categoria isoladamente (sem texto digitado)
+    // 1. Testar cada uma das pílulas de categoria isoladamente (sem texto digitado)
     for (const pill of SEARCH_CATEGORY_PILLS) {
       const res = filterGlobalSearchEntries({
         allEntries: entries,
@@ -4469,5 +4477,33 @@ describe('16. Evoluções de Contratos, Faturamento, Recorrência, Regras Custom
     assert.equal(draftInv.grossAmount, finalInv.grossAmount);
     assert.equal(draftInv.customerPurchaseOrderNumber, finalInv.customerPurchaseOrderNumber);
     assert.equal(draftInv.documentNumber.replace('RASCUNHO-', ''), finalInv.documentNumber);
+  });
+});
+
+// ---------------------------------------------------------------------------
+import { buildProposalSearchEntry, rankGlobalSearchEntries } from '../src/app/components/GlobalHeaderSearch';
+describe('Busca global: orçamentos pelo número (fonte da tela) e ranking por código', () => {
+  const mk = (id: string, code: string, companyName: string) =>
+    buildProposalSearchEntry({ id, code, companyName, title: 'Proposta', totalContractValue: 100, monthlyRecurringTotal: 10, status: 'ENVIADA' } as any);
+  it('"4709" acha o orçamento 4709 (e GC-ORC-4709) e coloca o código exato no topo', () => {
+    const entries: SearchResultEntry[] = [
+      mk('p-a', '14709', 'Beta SA'),
+      { id: 'COMPANIES:c1', entityId: 'c1', category: 'COMPANIES', system: 'CRM', title: 'Empresa 4709', subtitle: 'x' },
+      mk('prop-gc-55', 'GC-ORC-4709', 'A3CLOUD.IT LTDA'),
+    ];
+    const res = filterGlobalSearchEntries({ allEntries: entries, query: '4709', systemFilter: 'ALL', selectedCategories: ['PROPOSALS'] });
+    assert.equal(res.length, 2);
+    const ranked = rankGlobalSearchEntries(res, '4709');
+    assert.equal(ranked[0].entityId, 'prop-gc-55');
+    assert.match(ranked[0].title, /^4709 - A3CLOUD/);
+    const porCliente = filterGlobalSearchEntries({ allEntries: entries, query: 'a3cloud', systemFilter: 'ALL', selectedCategories: ['PROPOSALS'] });
+    assert.equal(porCliente.length, 1);
+  });
+  it('a busca usa a rota da tela de Orçamentos quando a lista fica na tabela', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'src/app/components/GlobalHeaderSearch.tsx'), 'utf8');
+    assert.match(src, /\/api\/erp\/proposals\?\$\{qs\.toString\(\)\}/);
+    const page = fs.readFileSync(path.join(process.cwd(), 'src/app/page.tsx'), 'utf8');
+    assert.match(page, /proposalsServerSearch=\{erpData\?\.proposalsStorage === 'table'\}/);
+    assert.match(page, /salesOrders=\{erpData\?\.salesOrders \|\| \[\]\}/);
   });
 });

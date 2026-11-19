@@ -1640,6 +1640,8 @@ export default function HubSpotProCrmApp() {
             rentalContracts={erpData?.rentalContracts || []}
             invoices={erpData?.invoices || []}
             serviceOrders={erpData?.serviceOrders || []}
+            salesOrders={erpData?.salesOrders || []}
+            proposalsServerSearch={erpData?.proposalsStorage === 'table'}
             tickets={tickets}
             onSelectResult={(entry: SearchResultEntry) => {
               if (entry.category === 'CONTACTS') {
@@ -1696,6 +1698,11 @@ export default function HubSpotProCrmApp() {
                 setErpTargetEntity({ type: 'SERVICE_ORDER', id: entry.entityId, query: entry.title });
                 setErpNavigationTrigger((n) => n + 1);
                 setActiveModule('ERP_GESTAOCLICK');
+              } else if (entry.category === 'SALES_ORDERS') {
+                setErpInitialSection('VENDAS');
+                setErpTargetEntity({ type: 'SALE_ORDER', id: entry.entityId, query: entry.title });
+                setErpNavigationTrigger((n) => n + 1);
+                setActiveModule('ERP_GESTAOCLICK');
               } else if (entry.category === 'TICKETS') {
                 setInitialTicketIdForDrawer(entry.entityId);
                 setActiveModule('SERVICE_DESK');
@@ -1733,6 +1740,10 @@ export default function HubSpotProCrmApp() {
                 setActiveModule('ERP_GESTAOCLICK');
               } else if (cat === 'SERVICE_ORDERS') {
                 setErpInitialSection('ORDENS_SERVICOS');
+                setErpNavigationTrigger((n) => n + 1);
+                setActiveModule('ERP_GESTAOCLICK');
+              } else if (cat === 'SALES_ORDERS') {
+                setErpInitialSection('VENDAS');
                 setErpNavigationTrigger((n) => n + 1);
                 setActiveModule('ERP_GESTAOCLICK');
               } else if (cat === 'TICKETS') {
