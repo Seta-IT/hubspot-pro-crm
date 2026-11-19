@@ -87,6 +87,7 @@ import {
   hashProposal,
   isEmptyDiff,
   isProposalsTableState,
+  listDashboardProposalRows,
   listProposalsPage,
   maxProposalCodeNumber,
   PROPOSAL_SUMMARY_MARKER,
@@ -365,6 +366,16 @@ export function buildClearSessionCookie(): string {
 export { isSessionTokenRevoked, revokeSessionTokenBestEffort } from '../app/lib/session-revocation';
 import { isSessionTokenRevoked, revokeSessionTokenBestEffort } from '../app/lib/session-revocation';
 import { normalizeServiceOrderStatus, validateDuplicateServiceOrderInput } from '../modules/erp/service-order-workflow';
+import {
+  computeErpDashboard,
+  isValidMonthParam,
+  lastMonths,
+  proposalToDashboardRow,
+  resolveProposalApprovalDate,
+  todayInSaoPaulo,
+  toLocalYmd,
+  type DashboardProposalRow,
+} from '../modules/erp/dashboard-metrics';
 
 type StiHubUserRecordLike = { id: string; email: string };
 let resendKeyFormatWarned = false;
@@ -1707,6 +1718,81 @@ export class CrmApiRouter {
         if (erp.kpis && typeof erp.kpis === 'object') erp.kpis.openProposalsCount = stats.open;
       }
     }
+  }
+
+  /**
+   * GET /api/erp/dashboard?mes=AAAA-MM — painel ERP calculado na hora pelos dados do STI-hub
+   * (19/11/2026). Propostas no escopo da sessao (restrito = so as proprias, sem vendas importadas);
+   * recebido/pago/faturado/saldos so com alcada financeira (Financeiro/Bancos != NONE) ou admin.
+   */
+  private async erpLiveDashboard(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): Promise<ApiResponse> {
+    const today = todayInSaoPaulo();
+    const month = isValidMonthParam(query.mes) ? String(query.mes) : today.slice(0, 7);
+    let includeFinance = !ctx.serviceAccount;
+    const isInternal = ctx.trustedInternal || ctx.serviceAccount || (query._fromHttpBridge !== '1' && !query._sessionToken);
+    if (!isInternal) {
+      const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+      if (!sess || !sess.authenticated || !sess.user) {
+        return { status: 401, body: { error: 'Sessão expirada. Entre de novo.', code: 'SESSION_REQUIRED' } };
+      }
+      const moduleAccess = (sess.user as { moduleAccess?: { erp?: boolean } }).moduleAccess;
+      if (!moduleAccess || moduleAccess.erp !== true) {
+        return { status: 403, body: { error: 'Seu usuário não tem acesso ao ERP.', code: 'ERP_MODULE_FORBIDDEN' } };
+      }
+      const roleId = String(sess.user.roleId || '');
+      const isAdmin = Boolean(sess.effectiveActionGuards?.canManageUsersRbac) || roleId === 'SUPER_ADMIN' || roleId === 'DIRETORIA';
+      const finAccess = String(sess.erpPermissions?.financeBanksAccess || 'NONE');
+      includeFinance = isAdmin || finAccess !== 'NONE';
+    }
+
+    const scope = this.proposalScope(query, ctx);
+    const restricted = scope.kind === 'session' && scope.restricted;
+    const months = lastMonths(month);
+    const since = new Date(`${months[0]}-01T00:00:00Z`);
+    since.setUTCDate(since.getUTCDate() - 2);
+    let proposals: DashboardProposalRow[] = [];
+    if (scope.kind !== 'denied') {
+      if (this.proposalTableCtx) {
+        const owner = restricted && scope.kind === 'session' ? { id: String(scope.access.user.id || ''), email: String(scope.access.user.email || '') } : null;
+        try {
+          const rows = await listDashboardProposalRows(this.proposalsDb(), since.toISOString(), owner);
+          proposals = rows.map((r) => ({
+            status: r.status,
+            total: r.total,
+            fromGc: r.fromGc,
+            createdAt: toLocalYmd(r.createdRaw) ? r.createdRaw : r.createdCol,
+            approvedAt: resolveProposalApprovalDate({
+              status: r.status,
+              converted: r.converted,
+              statusHistory: r.approvedHist ? [{ date: r.approvedHist, status: 'APROVADA' }] : [],
+              approvedAt: r.approvedRaw,
+              updatedAt: r.updatedCol,
+            }),
+          }));
+        } catch {
+          return { status: 503, body: { error: 'Painel temporariamente indisponível. Tente de novo em instantes.', code: 'DASHBOARD_UNAVAILABLE' } };
+        }
+      } else {
+        proposals = this.filterProposalsByScope(this.repo.listProposals(), query, ctx).map((p) => proposalToDashboardRow(p as unknown as Record<string, any>));
+      }
+    }
+
+    const erp = this.repo.getErpOverview();
+    const data = computeErpDashboard({
+      month,
+      today,
+      proposals,
+      invoices: erp.invoices || [],
+      financialEntries: erp.financialEntries || [],
+      salesOrders: erp.salesOrders || [],
+      bankAccounts: erp.bankAccounts || [],
+      includeFinance,
+      includeImportedSales: scope.kind !== 'denied' && !restricted,
+    });
+    return { status: 200, body: { data } };
   }
 
   /** GET /api/erp/proposals no modo tabela: pagina + filtros no SQL, no escopo da sessao. */
@@ -7209,6 +7295,10 @@ export class CrmApiRouter {
       // ======================================================================
       // PHASE 4: ERP BRASIL, PROPOSTAS, LOCAÇÃO & FISCAL GESTÃOCLICK (/api/erp/*)
       // ======================================================================
+      if (cleanPath === '/api/erp/dashboard' && method === 'GET') {
+        return await this.erpLiveDashboard(query, ctx);
+      }
+
       if (cleanPath === '/api/erp/overview' && method === 'GET') {
         // Escopo de propostas (CISO 30/10) + visao da config GestaoClick do pacote I sobre o erp ja filtrado.
         const ov = this.scopeBootstrapProposals({ erp: this.repo.getErpOverview() }, query, ctx).erp;

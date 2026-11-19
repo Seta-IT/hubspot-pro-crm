@@ -111,6 +111,7 @@ import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInterna
 import { buildDefaultTechnicalSupportClauses, displayProposalTechnicalClauses, isTechnicalSupportProposal } from '../lib/proposal-technical-clauses';
 import { isoToBrDate } from '../lib/br-date';
 import GestaoClickDashboard from './GestaoClickDashboard';
+import type { ErpLiveDashboard } from '../../modules/erp/dashboard-metrics';
 import { ProposalTemplateSelect } from './ProposalTemplateSelect';
 import {
   CONTRACT_DOCUMENT_TEMPLATES,
@@ -533,6 +534,44 @@ export default function ErpGestaoClickTab({
     };
     // erpData muda a cada onRefresh() => recarrega a pagina depois de salvar/excluir.
   }, [proposalsTableMode, proposalsOffset, proposalsSearch, proposalsStatusFilter, proposalsTypeParam, erpData]);
+  // Painel em tempo real (19/11/2026): Início e fluxo de caixa calculados pelo servidor com os
+  // dados do STI-hub (GET /api/erp/dashboard). Nunca usa o dashboardSummary congelado do seed.
+  const [liveDashboard, setLiveDashboard] = useState<ErpLiveDashboard | null>(null);
+  const [liveDashboardLoading, setLiveDashboardLoading] = useState(false);
+  const [liveDashboardError, setLiveDashboardError] = useState<string | null>(null);
+  const [liveDashboardNonce, setLiveDashboardNonce] = useState(0);
+  const needsLiveDashboard = activeSection === 'INICIO' || activeSection === 'FINANCEIRO';
+  React.useEffect(() => {
+    if (!needsLiveDashboard) return;
+    let alive = true;
+    setLiveDashboardLoading(true);
+    fetch('/api/erp/dashboard', { cache: 'no-store' })
+      .then(async (r) => {
+        if (!alive) return;
+        if (!r.ok) {
+          setLiveDashboardError(r.status === 401 || r.status === 403 ? 'Sem permissão para ver o painel.' : 'Não foi possível calcular o painel agora.');
+          return;
+        }
+        const j = await r.json().catch(() => null);
+        if (!alive) return;
+        if (j && j.data) {
+          setLiveDashboard(j.data as ErpLiveDashboard);
+          setLiveDashboardError(null);
+        } else {
+          setLiveDashboardError('Não foi possível calcular o painel agora.');
+        }
+      })
+      .catch(() => {
+        if (alive) setLiveDashboardError('Não foi possível calcular o painel agora.');
+      })
+      .finally(() => {
+        if (alive) setLiveDashboardLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+    // erpData muda a cada onRefresh() => recalcula depois de gerar/faturar/baixar.
+  }, [needsLiveDashboard, erpData, liveDashboardNonce]);
   const [defaultProposalTemplateStyle, setDefaultProposalTemplateStyle] = useState<NonNullable<ErpCommercialProposal["templateStyle"]>>("CLEAN_CORPORATE_LIGHT");
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [openProposalMenuId, setOpenProposalMenuId] = useState<string | null>(null);
@@ -960,7 +999,6 @@ export default function ErpGestaoClickTab({
     financialEntries,
     gestaoClickConfig,
     bankAccounts = [],
-    dashboardSummary,
     salesOrders = [],
     serviceOrders: serviceOrdersFromServer = [],
     suppliers = [],
@@ -5433,7 +5471,10 @@ export default function ErpGestaoClickTab({
           {activeSection === 'INICIO' && (
             <GestaoClickDashboard
               userName={activeUser?.name}
-              summary={dashboardSummary}
+              live={liveDashboard}
+              liveLoading={liveDashboardLoading}
+              liveError={liveDashboardError}
+              onReloadLive={() => setLiveDashboardNonce((n) => n + 1)}
               bankAccounts={bankAccounts}
               hideBalances={hideBalances}
               onToggleHide={() => setHideBalances((v) => !v)}
@@ -7015,7 +7056,7 @@ export default function ErpGestaoClickTab({
               bankAccounts={bankAccounts}
               financialEntries={financialEntries}
               invoices={invoices}
-              dashboardSummary={dashboardSummary}
+              dashboardSummary={liveDashboard?.summary}
               companies={companies.map((c) => ({ id: c.id, name: c.name, cnpj: (c as unknown as { cnpj?: string | null }).cnpj ?? undefined }))}
               hideBalances={hideBalances}
               onRefresh={onRefresh}
