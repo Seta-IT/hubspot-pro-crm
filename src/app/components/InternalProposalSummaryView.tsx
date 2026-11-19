@@ -68,19 +68,21 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
           <div className="text-center text-sm font-bold text-[#1e3a6e]" data-testid="internal-proposal-code">ORÇAMENTO Nº {sheet.budgetNumber}</div>
           <div className="text-sm font-bold text-[#1e3a6e]">{sheet.proposalDateLabel}</div>
         </div>
-        <div className="mt-1 flex items-baseline gap-2 border border-[#cdd7e6] px-3 py-1.5" data-testid="internal-proposal-contract">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-[#1e3a6e]">Nº do contrato:</span>
-          {sheet.contractNumber ? (
-            <span className="font-semibold">{sheet.contractNumber}</span>
-          ) : (
-            <span className="inline-block h-3.5 w-60 border-b border-[#1f2937]" />
-          )}
-          {!sheet.contractNumber ? (
-            <span className="text-[10px] text-[#6b7280]">preenchido quando a proposta for convertida em contrato de locação</span>
-          ) : null}
-        </div>
+        {sheet.showContractNumber ? (
+          <div className="mt-1 flex items-baseline gap-2 border border-[#cdd7e6] px-3 py-1.5" data-testid="internal-proposal-contract">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-[#1e3a6e]">Nº do contrato:</span>
+            {sheet.contractNumber ? (
+              <span className="font-semibold">{sheet.contractNumber}</span>
+            ) : (
+              <span className="inline-block h-3.5 w-60 border-b border-[#1f2937]" />
+            )}
+            {!sheet.contractNumber && sheet.contractHint ? (
+              <span className="text-[10px] text-[#6b7280]">{sheet.contractHint}</span>
+            ) : null}
+          </div>
+        ) : null}
 
-        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[268px_1fr]">
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[268px_1fr] print:grid-cols-[268px_1fr]">
           <section data-testid="internal-proposal-kind">
             <table data-testid="internal-proposal-conditions" className="w-full border-collapse bg-transparent text-[10.5px] leading-tight">
               <tbody>
@@ -130,8 +132,8 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
                 <th className="border border-[#cdd7e6] px-1.5 py-1">Nome</th>
                 <th className="border border-[#cdd7e6] px-1.5 py-1 text-center">Und.</th>
                 <th className="border border-[#cdd7e6] px-1.5 py-1 text-right">Qtd.</th>
-                <th className="border border-[#cdd7e6] px-1.5 py-1 text-right">Vr. unit. mensal</th>
-                <th className="border border-[#cdd7e6] px-1.5 py-1 text-right">Subtotal mensal</th>
+                <th className="border border-[#cdd7e6] px-1.5 py-1 text-right">{sheet.unitPriceColumn}</th>
+                <th className="border border-[#cdd7e6] px-1.5 py-1 text-right">{sheet.subtotalColumn}</th>
               </tr>
             </thead>
             <tbody>
@@ -155,9 +157,10 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
             </tbody>
           </table>
           <div className="ml-auto w-[270px] border border-t-0 border-[#cdd7e6] text-[11px]">
-            <div className="flex justify-between border-b border-[#e5eaf2] px-2 py-0.5"><span>{sheet.itemsSection} (mensal):</span><span>{sheet.productsMonthly}</span></div>
+            <div className="flex justify-between border-b border-[#e5eaf2] px-2 py-0.5"><span>{sheet.itemsTotalLabel}</span><span>{sheet.productsMonthly}</span></div>
+            {sheet.showSetup ? <div className="flex justify-between border-b border-[#e5eaf2] px-2 py-0.5"><span>{sheet.setupLabel} (pagamento único):</span><span>{sheet.setupAmount}</span></div> : null}
             {sheet.showFreight ? <div className="flex justify-between border-b border-[#e5eaf2] px-2 py-0.5"><span>FRETE (pagamento único):</span><span>{sheet.freightAmount}</span></div> : null}
-            <div className="flex justify-between px-2 py-0.5 font-bold text-[#1e3a6e]" data-testid="internal-proposal-monthly"><span>TOTAL MENSAL:</span><span>{sheet.totalMonthly}</span></div>
+            <div className="flex justify-between px-2 py-0.5 font-bold text-[#1e3a6e]" data-testid="internal-proposal-monthly"><span>{sheet.grandTotalLabel}</span><span>{sheet.totalMonthly}</span></div>
           </div>
         </section>
 

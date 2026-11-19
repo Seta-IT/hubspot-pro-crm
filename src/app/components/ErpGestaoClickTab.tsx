@@ -107,7 +107,7 @@ import {
   recordUpsertedDeal,
 } from '../lib/durable-storage';
 import { buildProposalDisplayCodeMap, formatProposalDisplayCode, nextGcProposalNumber } from '../lib/proposal-number';
-import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
+import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot, proposalSetupFeeLabel, resolveProposalAmountDisplay } from '../lib/proposal-share';
 import { buildDefaultTechnicalSupportClauses, displayProposalTechnicalClauses, isTechnicalSupportProposal } from '../lib/proposal-technical-clauses';
 import { isoToBrDate } from '../lib/br-date';
 import GestaoClickDashboard from './GestaoClickDashboard';
@@ -3098,7 +3098,6 @@ export default function ErpGestaoClickTab({
                     const publicUrl = buildInternalProposalUrl(prop);
                     const printUrl = buildInternalProposalUrl(prop, { autoPrint: true });
                     const stBadge = getStatusBadge(prop);
-                    const isProdProp = prop.budgetType === "PRODUTOS";
                     return (
                       <tr
                         key={prop.id}
@@ -3199,15 +3198,21 @@ export default function ErpGestaoClickTab({
                           </button>
                         </td>
                         <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                          {isProdProp ? (
-                            <span className="font-semibold text-slate-900">
-                              {formatBRL(prop.totalContractValue || prop.monthlyRecurringTotal)}
-                            </span>
-                          ) : (
-                            <span className="font-semibold text-slate-800">
-                              {formatBRL(prop.monthlyRecurringTotal || prop.totalContractValue)}/mês
-                            </span>
-                          )}
+                          {(() => {
+                            const amount = resolveProposalAmountDisplay(prop);
+                            return (
+                              <div>
+                                <span className="font-semibold text-slate-900">
+                                  {formatBRL(amount.amount)}{amount.suffix}
+                                </span>
+                                {amount.setupAmount > 0 && !amount.oneTime && (
+                                  <div className="text-[10px] font-medium text-slate-500">
+                                    {proposalSetupFeeLabel(prop)}: {formatBRL(amount.setupAmount)}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           {renderProposalGestaoClickActions(prop, publicUrl, printUrl)}
@@ -3265,7 +3270,11 @@ export default function ErpGestaoClickTab({
                       </span>
                       <span className="text-xs text-slate-500">
                         Vendedor: <strong>{prop.sellerName}</strong> • Prazo:{' '}
-                        <strong>{prop.contractMonths} meses</strong>
+                        <strong>
+                          {resolveProposalAmountDisplay(prop).oneTime
+                            ? 'Pagamento único'
+                            : `${prop.contractMonths} meses`}
+                        </strong>
                       </span>
                     </div>
                     <h3 className="text-base font-semibold text-slate-900 mt-1.5">{prop.title}</h3>
@@ -3283,15 +3292,29 @@ export default function ErpGestaoClickTab({
 
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="text-right bg-slate-50 px-3.5 py-2 rounded border border-slate-200">
-                      <span className="text-[10px] uppercase font-semibold text-slate-400 block">
-                        Valor mensal
-                      </span>
-                      <span className="text-base font-semibold text-slate-800">
-                        {formatBRL(prop.monthlyRecurringTotal)}/mês
-                      </span>
-                      <span className="text-[11px] text-slate-500 block">
-                        TCV ({prop.contractMonths}m): {formatBRL(prop.totalContractValue)}
-                      </span>
+                      {(() => {
+                        const amount = resolveProposalAmountDisplay(prop);
+                        return (
+                          <>
+                            <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                              {amount.label}
+                            </span>
+                            <span className="text-base font-semibold text-slate-800">
+                              {formatBRL(amount.amount)}{amount.suffix}
+                            </span>
+                            {amount.setupAmount > 0 && !amount.oneTime && (
+                              <span className="text-[11px] text-slate-500 block">
+                                {proposalSetupFeeLabel(prop)}: {formatBRL(amount.setupAmount)}
+                              </span>
+                            )}
+                            <span className="text-[11px] text-slate-500 block">
+                              {amount.oneTime
+                                ? amount.label
+                                : `${amount.termLabel}: ${formatBRL(amount.totalAmount)}`}
+                            </span>
+                          </>
+                        );
+                      })()}
                     </div>
 
                     {renderProposalGestaoClickActions(prop, publicUrl, printUrl)}
@@ -8214,7 +8237,7 @@ export default function ErpGestaoClickTab({
                             <tr>
                               <th className="py-2 px-3 w-32">Versão</th>
                               <th className="py-2 px-3 w-40">Data e responsável</th>
-                              <th className="py-2 px-3">Valor mensal</th>
+                              <th className="py-2 px-3">Valor</th>
                               <th className="py-2 px-3 text-right">Ações</th>
                             </tr>
                           </thead>
@@ -8225,16 +8248,16 @@ export default function ErpGestaoClickTab({
                               const pdfUrl = buildProposalVersionShortUrl(statusModalProposal.id, ver.version, {
                                 autoPrint: true,
                               });
-                              const mrrVal =
-                                ver.snapshot?.monthlyRecurringTotal ??
-                                statusModalProposal.monthlyRecurringTotal;
+                              const snapProp = {
+                                ...statusModalProposal,
+                                ...(ver.snapshot || {}),
+                              };
+                              const amount = resolveProposalAmountDisplay(snapProp);
                               const itemsCount = (
                                 ver.snapshot?.items ||
                                 statusModalProposal.items ||
                                 []
                               ).length;
-                              const monthsVal =
-                                ver.snapshot?.contractMonths ?? statusModalProposal.contractMonths;
 
                               return (
                                 <tr
@@ -8271,8 +8294,12 @@ export default function ErpGestaoClickTab({
                                   </td>
                                   <td className="py-2.5 px-3">
                                     <div className="font-semibold text-slate-800">
-                                      {formatBRL(mrrVal)}/mês • {itemsCount}{" "}
-                                      {itemsCount === 1 ? "item" : "itens"} • {monthsVal}m
+                                      {formatBRL(amount.amount)}{amount.suffix}
+                                      {amount.setupAmount > 0 && !amount.oneTime
+                                        ? ` • ${proposalSetupFeeLabel(snapProp)}: ${formatBRL(amount.setupAmount)}`
+                                        : ''}{" "}
+                                      • {itemsCount} {itemsCount === 1 ? "item" : "itens"}
+                                      {amount.oneTime ? "" : ` • ${snapProp.contractMonths ?? statusModalProposal.contractMonths}m`}
                                     </div>
                                     <div className="text-[11px] text-slate-600">
                                       {ver.changeSummary}
@@ -8433,14 +8460,24 @@ export default function ErpGestaoClickTab({
                 {displayProposalTechnicalClauses(selectedProposalForPrint)}
               </p>
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-[4px] flex justify-between items-center">
-                <span className="font-semibold text-slate-800">
-                  Valor mensal:{' '}
-                  {formatBRL(selectedProposalForPrint.monthlyRecurringTotal)}/mês
-                </span>
-                <span className="font-semibold text-slate-800 text-sm">
-                  Valor total ({selectedProposalForPrint.contractMonths} meses):{' '}
-                  {formatBRL(selectedProposalForPrint.totalContractValue)}
-                </span>
+                {(() => {
+                  const amount = resolveProposalAmountDisplay(selectedProposalForPrint);
+                  return (
+                    <>
+                      <span className="font-semibold text-slate-800">
+                        {amount.label}: {formatBRL(amount.amount)}{amount.suffix}
+                        {amount.setupAmount > 0 && !amount.oneTime
+                          ? ` • ${proposalSetupFeeLabel(selectedProposalForPrint)}: ${formatBRL(amount.setupAmount)}`
+                          : ''}
+                      </span>
+                      <span className="font-semibold text-slate-800 text-sm">
+                        {amount.oneTime
+                          ? `Total: ${formatBRL(amount.totalAmount)}`
+                          : `Valor total (${selectedProposalForPrint.contractMonths} meses): ${formatBRL(amount.totalAmount)}`}
+                      </span>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>

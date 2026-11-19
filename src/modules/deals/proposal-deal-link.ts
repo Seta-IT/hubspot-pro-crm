@@ -92,6 +92,20 @@ export function splitPersonName(value: unknown): { firstName: string; lastName: 
   return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
 }
 
+
+/** Serviço avulso ou venda pontual: o valor do negócio não deve aparecer como mensalidade. */
+export function dealIsOneTimeCharge(deal: {
+  mrr?: number | null;
+  value?: number | null;
+  contractMonths?: number | null;
+}): boolean {
+  const months = Number(deal.contractMonths || 0);
+  const mrr = Number(deal.mrr || 0);
+  const value = Number(deal.value || 0);
+  if (months === 1 && (mrr <= 0 || Math.abs(mrr - value) < 0.015)) return true;
+  return false;
+}
+
 export function proposalDealValue(proposal: ErpCommercialProposal): number {
   const explicit = Number(proposal.totalContractValue);
   if (Number.isFinite(explicit) && explicit > 0) return Math.round(explicit * 100) / 100;

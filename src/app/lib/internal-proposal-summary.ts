@@ -11,7 +11,7 @@
  */
 import type { ErpCommercialProposal, ErpProposalItem } from '../../db/types';
 import { formatProposalDisplayCode } from './proposal-number';
-import { isAvulsoServiceProposal, proposalHidesFreight, proposalSetupFeeLabel, resolveProposalSlaOption } from './proposal-share';
+import { isAvulsoServiceProposal, proposalHidesFreight, proposalSetupFeeLabel, resolveEffectiveProposalBudgetType, resolveProposalSlaOption } from './proposal-share';
 import { buildInternalProposalSheet, type InternalProposalIssuerInput, type InternalProposalSheet } from './internal-proposal-sheet';
 
 export const INTERNAL_PROPOSAL_PATH_PREFIX = '/interno/proposta';
@@ -171,16 +171,15 @@ export function isSparePartsOnlyService(serviceType: string | undefined): boolea
 }
 
 export function resolveInternalProposalKind(
-  proposal: Pick<ErpCommercialProposal, 'budgetType' | 'modality' | 'serviceType'>
+  proposal: Pick<ErpCommercialProposal, 'budgetType' | 'modality' | 'serviceType'> & { items?: ErpCommercialProposal['items'] }
 ): InternalProposalKind {
-  if (proposal.budgetType === 'SPARE_PARTS') return 'SPARE_PARTS';
-  if (proposal.budgetType === 'PRODUTOS') return 'PRODUTOS';
-  if (proposal.budgetType === 'CONJUNTO') return 'CONJUNTO';
-  if (proposal.budgetType === 'LOCACAO' || proposal.modality === 'RENTAL') return 'LOCACAO';
-  if (proposal.budgetType === 'SERVICOS' || proposal.modality === 'SERVICE') {
-    return isSparePartsOnlyService(proposal.serviceType) ? 'SPARE_PARTS' : 'SERVICO';
+  const bt = resolveEffectiveProposalBudgetType(proposal);
+  if (bt === 'SPARE_PARTS' || (bt === 'SERVICOS' && isSparePartsOnlyService(proposal.serviceType))) {
+    return 'SPARE_PARTS';
   }
-  if (proposal.modality === 'HYBRID') return 'CONJUNTO';
+  if (bt === 'PRODUTOS') return 'PRODUTOS';
+  if (bt === 'CONJUNTO') return 'CONJUNTO';
+  if (bt === 'SERVICOS') return 'SERVICO';
   return 'LOCACAO';
 }
 

@@ -18,7 +18,7 @@ import { z } from 'zod';
 import type { LlmToolDefinition } from './omniroute-client';
 import { nextServiceOrderCode } from '../erp/service-order-workflow';
 import { extractGcProposalNumber, formatProposalDisplayCode } from '../../app/lib/proposal-number';
-import { computeProposalTotals } from '../../app/lib/proposal-share';
+import { computeProposalTotals, isAvulsoServiceProposal } from '../../app/lib/proposal-share';
 import type { ErpCommercialProposal } from '../../db/types';
 
 export type ApiCallRequest = { method: 'GET' | 'POST' | 'PATCH'; path: string; body?: Record<string, unknown> };
@@ -923,9 +923,13 @@ const consultarPropostas: AssistenteTool<PropostasArgs> = {
             { rotulo: 'Número', valor: numeroProposta(p) },
             { rotulo: 'Cliente', valor: cut(p.companyName, 60) },
             { rotulo: 'Situação', valor: statusProposta(p.status) },
-            { rotulo: 'Mensal', valor: formatBRL(p.monthlyRecurringTotal) },
-            { rotulo: 'Valores únicos', valor: formatBRL(Number(p.oneTimeSetupTotal || 0) + Number(p.shippingCost || 0)) },
-            { rotulo: 'Total do contrato', valor: formatBRL(totalPropostaRegistro(p)) },
+            ...(isAvulsoServiceProposal(p)
+              ? [{ rotulo: 'Pagamento único', valor: formatBRL(totalPropostaRegistro(p)) }]
+              : [
+                  { rotulo: 'Mensal', valor: formatBRL(p.monthlyRecurringTotal) },
+                  { rotulo: 'Valores únicos', valor: formatBRL(Number(p.oneTimeSetupTotal || 0) + Number(p.shippingCost || 0)) },
+                  { rotulo: 'Total do contrato', valor: formatBRL(totalPropostaRegistro(p)) },
+                ]),
           ],
           tabela: itens.length
             ? {
@@ -933,7 +937,7 @@ const consultarPropostas: AssistenteTool<PropostasArgs> = {
                 linhas: itens.slice(0, 60).map((i, idx) => [String(idx + 1), cut(i.description, 70), String(i.quantity ?? 1), formatBRL(i.unitPrice), cobrancaItem(i), formatBRL(i.subtotal ?? i.totalMonthly)]),
               }
             : undefined,
-          resumoParaModelo: `Proposta ${numeroProposta(p)} encontrada: cliente ${cut(p.companyName, 60)}; situação ${statusProposta(p.status)}; total ${formatBRL(totalPropostaRegistro(p))}; prazo ${Number(p.contractMonths || 0)} meses; ${propostaDoGestaoClick(p) ? 'importada do ERP de origem; ' : ''}itens: ${resumoItens(p) || 'nenhum'}.`,
+          resumoParaModelo: `Proposta ${numeroProposta(p)} encontrada: cliente ${cut(p.companyName, 60)}; situação ${statusProposta(p.status)}; total ${formatBRL(totalPropostaRegistro(p))}; ${isAvulsoServiceProposal(p) ? 'pagamento único; ' : `prazo ${Number(p.contractMonths || 0)} meses; `}${propostaDoGestaoClick(p) ? 'importada do ERP de origem; ' : ''}itens: ${resumoItens(p) || 'nenhum'}.`,
         };
       }
       if (loc.status !== 404) return { ok: false, status: loc.status, mensagem: loc.texto, resumoParaModelo: `Falhou: ${loc.texto}` };
@@ -1069,7 +1073,9 @@ function bloqueioEdicao(p: any): string | null {
 export const AVISO_PROPOSTA_GESTAOCLICK = 'Atenção: proposta importada do ERP de origem. A alteração fica só no STI HUB ERP e não vai para o sistema de origem.';
 
 const totaisLinha = (rot: string, t: any) =>
-  `${rot}: mensal ${formatBRL(t?.monthlyRecurringTotal)}, único ${formatBRL(Number(t?.oneTimeSetupTotal || 0) + Number(t?.shippingCost || 0))}, contrato ${formatBRL(t?.totalContractValue)}`;
+  isAvulsoServiceProposal(t || {})
+    ? `${rot}: pagamento único ${formatBRL(t?.totalContractValue || t?.monthlyRecurringTotal)}`
+    : `${rot}: mensal ${formatBRL(t?.monthlyRecurringTotal)}, único ${formatBRL(Number(t?.oneTimeSetupTotal || 0) + Number(t?.shippingCost || 0))}, contrato ${formatBRL(t?.totalContractValue)}`;
 
 const editarProposta: AssistenteTool<EditarPropostaArgs> = {
   name: 'editar_proposta',

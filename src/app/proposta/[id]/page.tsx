@@ -62,6 +62,7 @@ import {
   resolveProposalDocumentHeadings,
   resolveProposalLayoutKind,
   proposalSetupFeeLabel,
+  resolveProposalAmountDisplay,
 } from '../../lib/proposal-share';
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
@@ -1400,11 +1401,9 @@ function PublicProposalPrintContent() {
                           const verPdfUrl = buildProposalVersionShortUrl(proposal.id, ver.version, {
                             autoPrint: true,
                           });
-                          const mrrVal =
-                            ver.snapshot?.monthlyRecurringTotal ?? proposal.monthlyRecurringTotal;
+                          const snapProp = { ...proposal, ...(ver.snapshot || {}) };
+                          const amount = resolveProposalAmountDisplay(snapProp);
                           const itemsCount = (ver.snapshot?.items || proposal.items || []).length;
-                          const monthsVal =
-                            ver.snapshot?.contractMonths ?? proposal.contractMonths;
 
                           return (
                             <tr
@@ -1443,9 +1442,9 @@ function PublicProposalPrintContent() {
 
                               <td className="py-3.5 px-4">
                                 <div className="font-semibold text-emerald-700 text-xs">
-                                  {avulsoService
-                                    ? `${formatBRL(proposal.totalContractValue || mrrVal)} (pagamento único) • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"}`
-                                    : `${formatBRL(mrrVal)}/mês • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"} • ${monthsVal} meses`}
+                                  {amount.oneTime
+                                    ? `${formatBRL(amount.amount)} (pagamento único) • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"}`
+                                    : `${formatBRL(amount.amount)}${amount.suffix}${amount.setupAmount > 0 ? ` • ${proposalSetupFeeLabel(snapProp)}: ${formatBRL(amount.setupAmount)}` : ''} • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"} • ${snapProp.contractMonths ?? proposal.contractMonths} meses`}
                                 </div>
                                 <div className="text-[11px] text-slate-600 mt-0.5">
                                   {ver.changeSummary}
