@@ -476,9 +476,9 @@ describe('Visão interna: sem observações e com PDF', () => {
     assert.equal(thin.sheet.summaryRows[2].value, '7 dias');
     assert.match(thin.sheet.summaryRows[3].value.replace(/\u00A0/g, ' '), /R\$ 50,00 \(pagamento único\)/);
     assert.equal(thin.sheet.summaryRows[4].value, 'IPCA');
-    assert.equal(thin.sheet.summaryRows.find((row) => row.value === 'Linha livre A')?.label, '');
+    assert.equal(thin.sheet.summaryRows.some((row) => row.value === 'Linha livre A'), false);
     assert.equal(thin.sheet.summaryRows.find((row) => row.label === 'Prazo extra')?.value, '2 dias');
-    assert.deepEqual(thin.sheet.commercialNoteLines, ['Linha livre A', 'Prazo extra: 2 dias']);
+    assert.deepEqual(thin.sheet.commercialNoteLines, ['Linha livre A']);
     const thinPdf = Buffer.from(buildInternalProposalPdf(thin)).toString('latin1');
     assert.equal((thinPdf.match(/\/Type \/Page(?!s)/g) || []).length, 1);
     assert.doesNotMatch(extractPdfText(Buffer.from(thinPdf, 'latin1')), /NOTA_QUE_NAO_PODE_SAIR/);

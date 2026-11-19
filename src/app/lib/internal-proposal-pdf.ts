@@ -97,13 +97,13 @@ ${sheet.validityExpiredSince ? `<div class="expired" data-testid="internal-propo
 <header class="head"><div class="brand"><img src="${escHtml(logo)}" alt="SETA | IT"><div><h1>${escHtml(sheetTitle(sheet))}</h1><div class="l">${escHtml(sheet.issuerLegalName)}</div><div class="l">CNPJ: ${escHtml(sheet.issuerCnpj)}</div><div class="l">${escHtml(sheet.issuerStreet)}</div><div class="l">${escHtml(sheet.issuerCity)}</div></div></div>
 <div class="contact">${sheet.issuerPhone ? `<div><strong>${escHtml(sheet.issuerPhone)}</strong></div>` : ''}${sheet.issuerEmail ? `<div><strong>${escHtml(sheet.issuerEmail)}</strong></div>` : ''}${sheet.sellerName ? `<div>Vendedor: <strong>${escHtml(sheet.sellerName)}</strong></div>` : ''}</div></header>
 <div class="docline"><div class="n">ORÇAMENTO Nº ${escHtml(sheet.budgetNumber)}</div><div class="d">${escHtml(sheet.proposalDateLabel)}</div></div>
-<div class="contract"><span class="k">Nº do contrato:</span>${sheet.contractNumber ? `<strong>${escHtml(sheet.contractNumber)}</strong>` : '<span class="blank"></span><span class="hint">preenchido quando a proposta for convertida em contrato de locação</span>'}</div>
+${sheet.showContractNumber ? `<div class="contract"><span class="k">Nº do contrato:</span>${sheet.contractNumber ? `<strong>${escHtml(sheet.contractNumber)}</strong>` : `<span class="blank"></span>${sheet.contractHint ? `<span class="hint">${escHtml(sheet.contractHint)}</span>` : ''}`}</div>` : ''}
 <div class="top2"><section class="rental"><table class="conds">${sheet.summaryRows.map((row) => `<tr><th>${escHtml(row.label)}</th><td>${escHtml(row.value)}</td></tr>`).join('')}</table></section>
 <section class="notes">${sheet.notices.map((note) => `<p>› ${escHtml(note)}</p>`).join('')}</section></div>
 <div class="val"><div>${escHtml(sheet.validityLine)}</div><div>${escHtml(sheet.deliveryForecastLine)}</div></div>
 <section class="sec"><div class="t">DADOS DO CLIENTE</div><table><tr><td class="k">Razão social:</td><td>${escHtml(sheet.clientLegalName)}</td><td class="k">Nome fantasia:</td><td>${escHtml(sheet.clientTradeName)}</td></tr><tr><td class="k">CNPJ/CPF:</td><td>${escHtml(sheet.clientCnpj)}</td><td class="k">Endereço:</td><td>${escHtml(sheet.clientAddress)}</td></tr><tr><td class="k">CEP:</td><td>${escHtml(sheet.clientCep)}</td><td class="k">Cidade/UF:</td><td>${escHtml(sheet.clientCityUf)}</td></tr><tr><td class="k">Telefone:</td><td>${escHtml(sheet.clientPhone)}</td><td class="k">E-mail:</td><td>${escHtml(sheet.clientEmail)}</td></tr></table></section>
-<section class="sec"><div class="t">${escHtml(sheet.itemsSection)}</div><table><thead><tr><th>Item</th><th>Código</th><th>Nome</th><th class="c">Und.</th><th class="r">Qtd.</th><th class="r">Vr. unit. mensal</th><th class="r">Subtotal mensal</th></tr></thead><tbody>${rows}<tr><td colspan="4"><b>TOTAL</b></td><td class="r"><b>${escHtml(sheet.qtyTotal)}</b></td><td></td><td class="r"><b>${escHtml(sheet.monthlyPlain)}</b></td></tr></tbody></table>
-<div class="sum"><div><span>${escHtml(sheet.itemsSection)} (mensal):</span><span>${escHtml(sheet.productsMonthly)}</span></div>${sheet.showFreight ? `<div><span>FRETE (pagamento único):</span><span>${escHtml(sheet.freightAmount)}</span></div>` : ''}<div class="g"><span>TOTAL MENSAL:</span><span>${escHtml(sheet.totalMonthly)}</span></div></div></section>
+<section class="sec"><div class="t">${escHtml(sheet.itemsSection)}</div><table><thead><tr><th>Item</th><th>Código</th><th>Nome</th><th class="c">Und.</th><th class="r">Qtd.</th><th class="r">${escHtml(sheet.unitPriceColumn)}</th><th class="r">${escHtml(sheet.subtotalColumn)}</th></tr></thead><tbody>${rows}<tr><td colspan="4"><b>TOTAL</b></td><td class="r"><b>${escHtml(sheet.qtyTotal)}</b></td><td></td><td class="r"><b>${escHtml(sheet.monthlyPlain)}</b></td></tr></tbody></table>
+<div class="sum"><div><span>${escHtml(sheet.itemsTotalLabel)}</span><span>${escHtml(sheet.productsMonthly)}</span></div>${sheet.showSetup ? `<div><span>${escHtml(sheet.setupLabel)} (pagamento único):</span><span>${escHtml(sheet.setupAmount)}</span></div>` : ''}${sheet.showFreight ? `<div><span>FRETE (pagamento único):</span><span>${escHtml(sheet.freightAmount)}</span></div>` : ''}<div class="g"><span>${escHtml(sheet.grandTotalLabel)}</span><span>${escHtml(sheet.totalMonthly)}</span></div></div></section>
 <section class="sec"><div class="t">DADOS DO PAGAMENTO</div><table><thead><tr><th>Vencimento</th><th class="r">Valor</th><th>Forma de pagamento</th><th>Observação</th></tr></thead><tbody>${pay}</tbody></table></section>
 <section class="sec"><div class="t">OBSERVAÇÕES</div><div class="obs">${clauses}</div></section>
 <section class="sign"><div class="ln"></div>Assinatura do cliente</section>
@@ -246,14 +246,16 @@ export function buildInternalProposalPdf(model: InternalProposalSummaryModel): U
   text(left + 140, y, 9, `ORÇAMENTO Nº ${sheet.budgetNumber}`, 'F2', NAVY);
   text(right - 70, y, 8, sheet.proposalDateLabel, 'F2', NAVY);
   y -= 18;
-  ops.push(`0.804 0.843 0.902 RG 0.6 w ${left.toFixed(2)} ${(y - 4).toFixed(2)} ${width.toFixed(2)} 14 re S`);
-  text(left + 4, y, 7, 'Nº DO CONTRATO:', 'F2', NAVY);
-  if (sheet.contractNumber) text(left + 90, y, 8, sheet.contractNumber, 'F2', INK);
-  else {
-    ops.push(`0.12 0.16 0.22 RG 0.6 w ${(left + 92).toFixed(2)} ${(y - 2).toFixed(2)} 140 0 re S`);
-    text(left + 240, y, 6, 'preenchido quando a proposta for convertida em contrato de locação', 'F1', SLATE);
+  if (sheet.showContractNumber) {
+    ops.push(`0.804 0.843 0.902 RG 0.6 w ${left.toFixed(2)} ${(y - 4).toFixed(2)} ${width.toFixed(2)} 14 re S`);
+    text(left + 4, y, 7, 'Nº DO CONTRATO:', 'F2', NAVY);
+    if (sheet.contractNumber) text(left + 90, y, 8, sheet.contractNumber, 'F2', INK);
+    else {
+      ops.push(`0.12 0.16 0.22 RG 0.6 w ${(left + 92).toFixed(2)} ${(y - 2).toFixed(2)} 140 0 re S`);
+      if (sheet.contractHint) text(left + 240, y, 6, sheet.contractHint, 'F1', SLATE);
+    }
+    y -= 16;
   }
-  y -= 16;
   const RULE = '0.898 0.914 0.941';
   const tableW = 250;
   const tableTop = y;
@@ -316,16 +318,21 @@ export function buildInternalProposalPdf(model: InternalProposalSummaryModel): U
   text(left + 340, y, 7, sheet.qtyTotal, 'F2', INK);
   text(left + 460, y, 7, sheet.monthlyPlain, 'F2', INK);
   y -= 12;
-  ops.push(`0.804 0.843 0.902 RG 0.6 w ${(left + 300).toFixed(2)} ${(y - 4).toFixed(2)} ${(width - 300).toFixed(2)} ${sheet.showFreight ? 28 : 18} re S`);
-  text(left + 304, y, 7, `${sheet.itemsSection} (mensal):`, 'F1', INK);
+  ops.push(`0.804 0.843 0.902 RG 0.6 w ${(left + 300).toFixed(2)} ${(y - 4).toFixed(2)} ${(width - 300).toFixed(2)} ${18 + (sheet.showSetup ? 10 : 0) + (sheet.showFreight ? 10 : 0)} re S`);
+  text(left + 304, y, 7, sheet.itemsTotalLabel, 'F1', INK);
   text(left + 460, y, 7, sheet.productsMonthly, 'F1', INK);
+  if (sheet.showSetup) {
+    y -= 10;
+    text(left + 304, y, 7, `${sheet.setupLabel} (pagamento único):`, 'F1', INK);
+    text(left + 460, y, 7, sheet.setupAmount, 'F1', INK);
+  }
   if (sheet.showFreight) {
     y -= 10;
     text(left + 304, y, 7, 'FRETE (pagamento único):', 'F1', INK);
     text(left + 460, y, 7, sheet.freightAmount, 'F1', INK);
   }
   y -= 10;
-  text(left + 304, y, 7, 'TOTAL MENSAL:', 'F2', NAVY);
+  text(left + 304, y, 7, sheet.grandTotalLabel, 'F2', NAVY);
   text(left + 460, y, 7, sheet.totalMonthly, 'F2', NAVY);
   y -= 14;
   text(left + 4, y, 8, 'DADOS DO PAGAMENTO', 'F2', NAVY);

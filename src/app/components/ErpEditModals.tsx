@@ -36,7 +36,6 @@ import {
   ErpFiscalDocumentType,
   ErpFiscalInvoice,
   ErpFiscalNature,
-  ErpProposalInstallment,
   ErpAssetStatus,
   ErpContractModality,
   ErpRentalContract,
@@ -61,7 +60,7 @@ import {
   formatCpfMask,
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
-import { buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, proposalHidesFreight, proposalSetupFeeLabel, readablePaymentCondition, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
+import { buildProposalInstallments, buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, proposalHidesFreight, proposalSetupFeeLabel, readablePaymentCondition, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
 import { resolveTechnicalClausesOnEdit } from '../lib/proposal-technical-clauses';
 import { displayPaymentConditionText, proposalPaymentMethodLabel, proposalPaymentMethodOptions, selectableContractPaymentMethods } from '../lib/proposal-payment-method';
 import { useContractAuxiliaryOptions } from '../lib/use-contract-aux-options';
@@ -530,49 +529,17 @@ export function ProposalEditModal({
   const handleGenerateInstallments = (countOverride?: number, methodOverride?: string) => {
     const count = Math.max(1, Number(countOverride ?? installmentCount ?? 1));
     const method = methodOverride || defaultPaymentMethod || 'BOLETO';
-    const baseTotal =
-      draft.totalContractValue > 0
-        ? draft.totalContractValue
-        : draft.monthlyRecurringTotal + draft.oneTimeSetupTotal + (draft.shippingCost || 0);
-
-    const baseDate = firstDueDate ? new Date(`${firstDueDate}T12:00:00`) : new Date();
-    const validBaseDate = Number.isNaN(baseDate.getTime()) ? new Date() : baseDate;
-
-    const perInstallment = Math.floor((baseTotal / count) * 100) / 100;
-    const remainder = Math.round((baseTotal - perInstallment * count) * 100) / 100;
-
-    const avulso = isAvulsoServiceProposal(draft);
-    const generated: ErpProposalInstallment[] = Array.from({ length: count }, (_, i) => {
-      const due = new Date(validBaseDate.getTime() + i * 30 * 86400000);
-      const dueStr = due.toISOString().slice(0, 10);
-      const amt = i === 0 ? Math.round((perInstallment + remainder) * 100) / 100 : perInstallment;
-      return {
-        number: i + 1,
-        dueDate: dueStr,
-        amount: amt,
-        paymentMethod: method,
-        notes: avulso
-          ? count === 1
-            ? 'Pagamento único'
-            : `Parcela ${i + 1}/${count} do pagamento único`
-          : count === 1
-            ? 'Pagamento à vista'
-            : `Parcela ${i + 1}/${count} (${proposalPaymentMethodLabel(method)})`,
-      };
+    const built = buildProposalInstallments(draft, {
+      count,
+      method,
+      firstDueDate: firstDueDate,
+      methodLabel: proposalPaymentMethodLabel(method),
     });
 
     setInstallmentCount(count);
-    const dueLabel = generated[0]?.dueDate || firstDueDate;
-    const methodLabel = proposalPaymentMethodLabel(method);
     updateDraft({
-      installments: generated,
-      paymentCondition: avulso
-        ? count === 1
-          ? 'À vista — Pagamento único'
-          : `Parcelado em ${count}x de ${formatBRL(perInstallment)} — Pagamento único — 1º venc. ${dueLabel}`
-        : count === 1
-          ? `À Vista (${methodLabel}) — Vencimento ${dueLabel}`
-          : `Parcelado em ${count}x de ${formatBRL(perInstallment)} (${methodLabel}) — 1º Venc: ${dueLabel}`,
+      installments: built.installments,
+      paymentCondition: built.paymentCondition,
     });
   };
 
