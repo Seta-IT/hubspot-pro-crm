@@ -100,7 +100,11 @@ export default function AssociationSidePanel({
   fetcher,
   onToast,
 }: AssociationSidePanelProps) {
-  const f = fetcher || (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : undefined);
+  // Estavel entre renders: um fetch novo a cada render reiniciava a busca em laco.
+  const f = useMemo(
+    () => fetcher || (typeof fetch !== 'undefined' ? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init)) as typeof fetch : undefined),
+    [fetcher]
+  );
   const L = ASSOCIATION_LABELS[kind];
   const [tab, setTab] = useState<'create' | 'existing'>(canCreate ? initialTab : 'existing');
   const [q, setQ] = useState('');
