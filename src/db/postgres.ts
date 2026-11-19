@@ -331,14 +331,27 @@ export const MIRROR_TABLES: MirrorTableSpec[] = [
     rows: (s) => s.webForms || [],
     values: (f) => [f.id, f.slug, f.name, f.targetType, f.submissionsCount, f.conversionRate, f.isActive, JSON.stringify(f), f.updatedAt || nowIso()],
   },
-  {
-    table: 'crm_service_tickets',
-    columns: ['id', 'key', 'subject', 'category', 'priority', 'status', 'sla_status', 'contact_id', 'company_id', 'data', 'updated_at'],
-    casts: { data: 'jsonb', updated_at: 'timestamptz' },
-    rows: (s) => s.serviceTickets || [],
-    values: (t) => [t.id, t.key, t.subject, t.category, t.priority, t.status, t.slaStatus, t.contactId, t.companyId, JSON.stringify(t), t.updatedAt || nowIso()],
-  },
+  // E1 (18/11): crm_service_tickets deixou de ser alimentado. Os chamados vivem nas tabelas
+  // setadesk_* (fonte de verdade). A tabela continua criada e com os dados antigos intactos;
+  // remover exige aprovacao (scripts/setadesk-e1/cleanup-legacy-service-tickets.sql).
 ];
+
+/** Espelhos relacionais que NAO sao mais alimentados (mantidos so para leitura/BI antiga). */
+export const RETIRED_MIRROR_TABLES = ['crm_service_tickets'] as const;
+
+/**
+ * Chaves do estado que NAO vao mais para o crm_state_v1 (nem sao lidas de la).
+ * serviceTickets: fonte nas tabelas setadesk_* (E1, 18/11).
+ */
+export const KV_STATE_EXCLUDED_KEYS = ['serviceTickets'] as const;
+
+/** Copia rasa do estado sem as chaves que vivem fora do crm_state_v1. */
+export function stateForKvPersist(state: CrmDatabaseState): CrmDatabaseState {
+  if (!state || typeof state !== 'object') return state;
+  const out = { ...(state as unknown as Record<string, unknown>) };
+  for (const k of KV_STATE_EXCLUDED_KEYS) delete out[k];
+  return out as unknown as CrmDatabaseState;
+}
 
 /** Tamanho do lote de upsert multi-linha (≤ 11 colunas => bem abaixo de 65535 params). */
 export const MIRROR_UPSERT_BATCH = 250;
@@ -482,13 +495,23 @@ async function upsertMirrorBatch(
 export const KV_STATE_UPSERT_SQL = `INSERT INTO crm_kv_store (key, payload, updated_at)
        VALUES ($1, $2::jsonb, NOW())
        ON CONFLICT (key) DO UPDATE
-       SET payload = CASE
+       SET payload = (CASE
              WHEN crm_kv_store.payload->'erp'->>'proposalsStorage' = '${PROPOSALS_STORAGE_MARKER}'
                OR EXCLUDED.payload->'erp'->>'proposalsStorage' = '${PROPOSALS_STORAGE_MARKER}'
              THEN jsonb_set(jsonb_set(EXCLUDED.payload, '{erp,proposals}', '[]'::jsonb), '{erp,proposalsStorage}', '"${PROPOSALS_STORAGE_MARKER}"'::jsonb)
              ELSE EXCLUDED.payload
+           END)
+           -- E1: o app nao envia mais serviceTickets; a chave antiga fica intacta no banco ate a
+           -- limpeza aprovada (scripts/setadesk-e1). Nunca e lida (loadStateFromPostgres a remove).
+           || CASE
+             WHEN crm_kv_store.payload ? 'serviceTickets' AND NOT (EXCLUDED.payload ? 'serviceTickets')
+             THEN jsonb_build_object('serviceTickets', crm_kv_store.payload->'serviceTickets')
+             ELSE '{}'::jsonb
            END,
            updated_at = NOW()`;
+
+/** Leitura do crm_state_v1 sem as chaves que vivem fora dele (menos bytes por requisicao). */
+export const KV_STATE_SELECT_SQL = `SELECT payload - 'serviceTickets' AS payload FROM crm_kv_store WHERE key = $1 LIMIT 1`;
 
 /** Estado para o JSON em modo tabela: sem propostas (elas vivem em erp_proposals). */
 export function stateForKvTableMode(state: CrmDatabaseState): CrmDatabaseState {
@@ -525,7 +548,9 @@ export async function syncStateToPostgres(
     }
 
     // 1. Atomic full state snapshot in crm_kv_store
-    await client.query(KV_STATE_UPSERT_SQL, ['crm_state_v1', JSON.stringify(tableMode ? stateForKvTableMode(state) : state)]);
+    // E1: serviceTickets nunca vai para o JSON (fonte: setadesk_*).
+    const kvState = stateForKvPersist(state);
+    await client.query(KV_STATE_UPSERT_SQL, ['crm_state_v1', JSON.stringify(tableMode ? stateForKvTableMode(kvState) : kvState)]);
 
     // 2. Espelho relacional para SQL/BI: só linhas novas/alteradas/removidas
     for (const spec of MIRROR_TABLES) {
@@ -554,13 +579,12 @@ export async function loadStateFromPostgres(options?: {
   await ensurePostgresSchema(pool);
 
   if (!options?.forceReset) {
-    const res = await pool.query<{ payload: CrmDatabaseState }>(
-      `SELECT payload FROM crm_kv_store WHERE key = $1 LIMIT 1`,
-      ['crm_state_v1']
-    );
+    const res = await pool.query<{ payload: CrmDatabaseState }>(KV_STATE_SELECT_SQL, ['crm_state_v1']);
     if (res.rows.length > 0 && res.rows[0].payload) {
-      primeMirrorSnapshots(res.rows[0].payload);
-      return res.rows[0].payload;
+      // E1: chamados nao vem do JSON; a lista em memoria comeca vazia (fonte: setadesk_*).
+      const payload = { ...res.rows[0].payload, serviceTickets: [] } as CrmDatabaseState;
+      primeMirrorSnapshots(payload);
+      return payload;
     }
   }
 
