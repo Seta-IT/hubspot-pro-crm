@@ -108,6 +108,7 @@ import {
 } from '../lib/durable-storage';
 import { buildProposalDisplayCodeMap, formatProposalDisplayCode, nextGcProposalNumber } from '../lib/proposal-number';
 import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
+import { buildDefaultTechnicalSupportClauses, displayProposalTechnicalClauses, isTechnicalSupportProposal } from '../lib/proposal-technical-clauses';
 import { isoToBrDate } from '../lib/br-date';
 import GestaoClickDashboard from './GestaoClickDashboard';
 import { ProposalTemplateSelect } from './ProposalTemplateSelect';
@@ -2549,6 +2550,9 @@ export default function ErpGestaoClickTab({
       updatedAt: new Date().toISOString(),
       ...templateOverrides,
     };
+    if (!String(draftNew.technicalClauses || '').trim() && isTechnicalSupportProposal(draftNew)) {
+      draftNew.technicalClauses = buildDefaultTechnicalSupportClauses(draftNew);
+    }
 
     setIsCreatingProposalModal(true);
     setEditingProposal(draftNew);
@@ -8381,7 +8385,7 @@ export default function ErpGestaoClickTab({
               <p className="text-[#516f90]">{selectedProposalForPrint.commercialNotes}</p>
               <p className="text-[#516f90]">
                 <strong>Cláusulas técnicas e SLA:</strong>{' '}
-                {selectedProposalForPrint.technicalClauses}
+                {displayProposalTechnicalClauses(selectedProposalForPrint)}
               </p>
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-[4px] flex justify-between items-center">
                 <span className="font-semibold text-slate-800">
