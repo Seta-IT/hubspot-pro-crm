@@ -26,6 +26,7 @@ import {
   WorkflowTriggerType,
 } from '../../db/types';
 import SequencesSection, { EnrichedEnrollment } from './SequencesSection';
+import WorkflowDagBuilder from './WorkflowDagBuilder';
 import { formatDateTimeBR } from './ui-helpers';
 
 interface AutomationsSequencesTabProps {
@@ -92,7 +93,7 @@ export default function AutomationsSequencesTab({
   onCreateSequence,
   onSequencesChanged,
 }: AutomationsSequencesTabProps) {
-  const [activeTab, setActiveTab] = useState<'WORKFLOWS' | 'SEQUENCES'>('WORKFLOWS');
+  const [activeTab, setActiveTab] = useState<'WORKFLOWS' | 'SEQUENCES' | 'DAG'>('WORKFLOWS');
   const [testTargetContactId, setTestTargetContactId] = useState<string>(
     contacts[0]?.id || 'cont-marina'
   );
@@ -269,6 +270,19 @@ export default function AutomationsSequencesTab({
             >
               <Mail className="w-4 h-4 text-accent" />
               Cadências de E-mail &amp; Follow-up ({sequences.length})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('DAG')}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition ${
+                activeTab === 'DAG'
+                  ? 'bg-[#1e293b] text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Zap className="w-4 h-4 text-accent" />
+              Construtor Visual (Fase 4)
             </button>
           </div>
         </div>
@@ -563,6 +577,9 @@ export default function AutomationsSequencesTab({
           </div>
         </div>
       )}
+
+      {/* TAB 3: CONSTRUTOR VISUAL DURAVEL (FASE 4) */}
+      {activeTab === 'DAG' && <WorkflowDagBuilder contacts={contacts} />}
 
       {/* TAB 2: MULTI-STEP EMAIL SEQUENCES */}
       {activeTab === 'SEQUENCES' && (

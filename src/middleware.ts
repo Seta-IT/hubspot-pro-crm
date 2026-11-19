@@ -436,7 +436,8 @@ export function middleware(req: NextRequest) {
       pathname === '/api/crm/proposal-followup' ||
       pathname === '/api/tickets/email-intake/poll' ||
       pathname === '/api/cron/sequences' ||
-      pathname === '/api/cron/marketing') &&
+      pathname === '/api/cron/marketing' ||
+      pathname === '/api/cron/workflows') &&
     req.method === 'GET' &&
     constantTimeEqual(req.headers.get('authorization') || '', `Bearer ${cronSecret}`)
   ) {

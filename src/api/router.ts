@@ -102,6 +102,40 @@ import { DataHealthService } from '../modules/data-health/health-service';
 import { EnrichmentService } from '../modules/enrichment/enrichment-service';
 import { WorkflowEngine } from '../modules/workflows/workflow-engine';
 import {
+  WF_ACTIONS,
+  WF_ACTION_LABELS,
+  WF_CONDITION_OPERATORS,
+  WF_OPERATOR_LABELS,
+  WF_READABLE_FIELDS,
+  WF_SCHEDULED_TRIGGERS,
+  WF_TRIGGERS,
+  WF_TRIGGER_LABELS,
+  WF_WRITABLE_FIELDS,
+  type WfTriggerType,
+} from '../modules/workflows/dag/catalog';
+import { validateWorkflowGraph } from '../modules/workflows/dag/graph';
+import { MemoryWorkflowStore, getDefaultWorkflowStore, type WorkflowStore } from '../modules/workflows/dag/store';
+import {
+  WORKFLOW_CRON_PATH,
+  WORKFLOW_MAX_DEPTH,
+  WorkflowError,
+  activateWorkflow,
+  createWorkflowDefinition,
+  emitWorkflowEvent,
+  isWorkflowsLiveEnabled,
+  normalizeGraph,
+  pauseWorkflow,
+  recordSimulation,
+  resolveRunReview,
+  resolveWebhookAllowedHosts,
+  resolveWorkflowTestRecipients,
+  runWorkflowsTick,
+  saveWorkflowDraft,
+  simulateWorkflow,
+  type WebhookFetch,
+  type WorkflowDeps,
+} from '../modules/workflows/dag/engine';
+import {
   OFFICIAL_10_CADENCE_STATES_CATALOG,
   OFFICIAL_13_EXIT_RULES_CATALOG,
   resolveCanonicalEnrollmentState,
@@ -963,6 +997,15 @@ export function isAuthorizedMarketingCron(
   return method === 'GET' && cleanPath === MARKETING_CRON_PATH && query._fromHttpBridge === '1' && query._cronAuthorized === '1';
 }
 
+/** Fase 4 (19/11): GET /api/cron/workflows (automacoes duraveis) autenticado pelo bridge. */
+export function isAuthorizedWorkflowsCron(
+  method: string,
+  cleanPath: string,
+  query: Record<string, string | undefined>
+): boolean {
+  return method === 'GET' && cleanPath === WORKFLOW_CRON_PATH && query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+}
+
 export function shouldPersistAfterDispatch(
   method: string,
   cleanPath: string,
@@ -972,6 +1015,7 @@ export function shouldPersistAfterDispatch(
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return status >= 200 && status < 400;
   if (isAuthorizedSequencesCron(method, cleanPath, query)) return status >= 200 && status < 300;
   if (isAuthorizedMarketingCron(method, cleanPath, query)) return status >= 200 && status < 300;
+  if (isAuthorizedWorkflowsCron(method, cleanPath, query)) return status >= 200 && status < 300;
   return isAuthorizedDailySyncCron(method, cleanPath, query) && status >= 200 && status < 300;
 }
 
@@ -986,6 +1030,15 @@ export interface MarketingRouterOptions {
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
   origin?: string;
+}
+
+/** Fase 4: dependencias injetaveis das automacoes (testes nunca saem para a rede). */
+export interface WorkflowsRouterOptions {
+  store?: WorkflowStore;
+  env?: NodeJS.ProcessEnv;
+  lock?: DistributedLockStore;
+  now?: () => Date;
+  webhookFetch?: WebhookFetch;
 }
 
 export class CrmApiRouter {
@@ -1028,7 +1081,7 @@ export class CrmApiRouter {
 
   constructor(
     repo?: CrmRepository,
-    options?: { certificateStore?: CertificateStore; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike; marketing?: MarketingRouterOptions }
+    options?: { certificateStore?: CertificateStore; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike; marketing?: MarketingRouterOptions; workflows?: WorkflowsRouterOptions }
   ) {
     this.isSingletonRepo = !repo;
     this.repo = repo || getRepository();
@@ -1039,6 +1092,55 @@ export class CrmApiRouter {
     this.mailboxFetch = options?.mailboxFetch || ((input, init) => fetch(input, init));
     this.marketingOptions = options?.marketing || {};
     this.marketingStore = this.marketingOptions.store || (!repo ? getDefaultMarketingStore() : new MemoryMarketingStore());
+    this.workflowOptions = options?.workflows || {};
+    this.workflowStore = this.workflowOptions.store || (!repo ? getDefaultWorkflowStore() : new MemoryWorkflowStore());
+  }
+
+  /** Fase 4: automacoes duraveis (tabelas wf_*, fora do crm_state_v1). */
+  private readonly workflowStore: WorkflowStore;
+  private readonly workflowOptions: WorkflowsRouterOptions;
+  /** Eventos de gatilho gerados durante a requisicao (gravados antes de responder). */
+  private pendingWorkflowEvents: Array<Promise<unknown>> = [];
+
+  private workflowDeps(query: Record<string, string | undefined>): WorkflowDeps {
+    const o = this.workflowOptions;
+    return {
+      store: this.workflowStore,
+      env: o.env,
+      lock: o.lock,
+      now: o.now,
+      marketing: this.marketingDeps(query),
+      webhookFetch:
+        o.webhookFetch ||
+        (async (url, init) => {
+          const r = await fetch(url, { ...init, signal: AbortSignal.timeout(10000) });
+          return { ok: r.ok, status: r.status };
+        }),
+      persist: this.canPersistToPostgres()
+        ? async () => {
+            const failed = await this.persistStateToPostgres();
+            if (failed) throw new Error('persist failed');
+          }
+        : undefined,
+      reloadState: this.canPersistToPostgres() ? () => this.reloadStateForSequenceRun() : undefined,
+    };
+  }
+
+  /** Gatilho das automacoes (Fase 4). Sem WORKFLOWS_LIVE nada e gravado. Nunca derruba a rota. */
+  private queueWorkflowEvent(type: WfTriggerType, contactId: string | null | undefined, context: Record<string, unknown> = {}, eventId?: string): void {
+    if (!contactId || !isWorkflowsLiveEnabled(this.workflowOptions.env || process.env)) return;
+    this.pendingWorkflowEvents.push(
+      emitWorkflowEvent({ store: this.workflowStore, env: this.workflowOptions.env, now: this.workflowOptions.now }, { type, contactId, context, eventId }).catch(() => {
+        console.error(`[workflows] falha ao registrar evento ${type}`);
+      })
+    );
+  }
+
+  private async flushWorkflowEvents(): Promise<void> {
+    if (!this.pendingWorkflowEvents.length) return;
+    const list = this.pendingWorkflowEvents;
+    this.pendingWorkflowEvents = [];
+    await Promise.all(list);
   }
 
   /** Fase 3: dependencias do envio de campanhas (ESP so via fetch/transporte injetaveis). */
@@ -1113,6 +1215,10 @@ export class CrmApiRouter {
       const ev = body.event as NormalizedEspEvent | undefined;
       if (!ev || typeof ev.providerEventId !== 'string' || typeof ev.type !== 'string') return { status: 400, body: { error: 'evento inválido' } };
       const r = await applyEspEvent(this.repo, deps, ev);
+      if (!r.duplicate && r.contactId) {
+        const t = ev.type === 'DELIVERED' ? 'EMAIL_DELIVERED' : ev.type === 'OPENED' ? 'EMAIL_OPENED' : ev.type === 'CLICKED' ? 'LINK_CLICKED' : null;
+        if (t) this.queueWorkflowEvent(t, r.contactId, { campaignId: r.campaignId }, `esp:${ev.providerEventId}`);
+      }
       return { status: 200, body: { data: r } };
     }
     if (cleanPath === '/api/marketing/unsubscribe-apply' && method === 'POST') {
@@ -1598,6 +1704,143 @@ export class CrmApiRouter {
    */
   portalLookupTimeFloorMs = process.env.NODE_ENV === 'test' ? 0 : PORTAL_LOOKUP_TIME_FLOOR_MS;
 
+  /** Fase 4: automacoes visuais duraveis (/api/workflows/v2/*) e cron /api/cron/workflows. */
+  private async handleWorkflowsV2(
+    method: string,
+    cleanPath: string,
+    query: Record<string, string | undefined>,
+    body: Record<string, unknown>,
+    ctx: { trustedInternal: boolean }
+  ): Promise<ApiResponse | null> {
+    if (!cleanPath.startsWith('/api/workflows/v2') && cleanPath !== WORKFLOW_CRON_PATH) return null;
+    const deps = this.workflowDeps(query);
+    const env = this.workflowOptions.env || process.env;
+    const now = () => (this.workflowOptions.now || (() => new Date()))();
+    const forbidden = (p: { authenticated: boolean }): ApiResponse => ({
+      status: p.authenticated ? 403 : 401,
+      body: { error: 'Ação restrita a administradores ou ao controle total do CRM (com 2FA).' },
+    });
+    const guard = async (fn: () => Promise<ApiResponse>): Promise<ApiResponse> => {
+      try {
+        return await fn();
+      } catch (err) {
+        if (err instanceof WorkflowError) return { status: err.status, body: { error: err.message, details: err.details ?? null } };
+        throw err;
+      }
+    };
+
+    if (cleanPath === WORKFLOW_CRON_PATH) {
+      if (method !== 'GET') return { status: 405, body: { error: 'Method not allowed' } };
+      const cronOk = query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+      if (!ctx.trustedInternal && !cronOk) return { status: query._sessionToken ? 403 : 401, body: { error: 'Forbidden' } };
+      const result = await runWorkflowsTick(this.repo, deps);
+      return { status: 200, body: { data: result } };
+    }
+
+    if (cleanPath === '/api/workflows/v2/catalog' && method === 'GET') {
+      return {
+        status: 200,
+        body: {
+          data: {
+            liveEnabled: isWorkflowsLiveEnabled(env),
+            testRecipientsConfigured: Boolean(resolveWorkflowTestRecipients(env)),
+            webhookAllowedHosts: [...resolveWebhookAllowedHosts(env)],
+            maxDepth: WORKFLOW_MAX_DEPTH,
+            triggers: WF_TRIGGERS.map((id) => ({ id, label: WF_TRIGGER_LABELS[id], scheduled: WF_SCHEDULED_TRIGGERS.includes(id) })),
+            actions: WF_ACTIONS.map((id) => ({ id, label: WF_ACTION_LABELS[id] })),
+            operators: WF_CONDITION_OPERATORS.map((id) => ({ id, label: WF_OPERATOR_LABELS[id] })),
+            readableFields: WF_READABLE_FIELDS,
+            writableFields: WF_WRITABLE_FIELDS,
+          },
+        },
+      };
+    }
+
+    if (cleanPath === '/api/workflows/v2' && method === 'GET') {
+      const defs = await this.workflowStore.listDefinitions();
+      return { status: 200, body: { data: defs.map((d) => ({ ...d, validation: validateWorkflowGraph(d.graph) })) } };
+    }
+    if (cleanPath === '/api/workflows/v2' && method === 'POST') {
+      const priv = this.marketingPrivilege(query, ctx);
+      if (!priv.allowed) return forbidden(priv);
+      return guard(async () => {
+        const d = await createWorkflowDefinition(this.workflowStore, { name: body.name, description: body.description, graph: body.graph }, priv.actor, now());
+        return { status: 201, body: { data: { ...d, validation: validateWorkflowGraph(d.graph) } } };
+      });
+    }
+    if (cleanPath === '/api/workflows/v2/validate' && method === 'POST') {
+      return { status: 200, body: { data: validateWorkflowGraph(normalizeGraph(body.graph)) } };
+    }
+    if (cleanPath === '/api/workflows/v2/events' && method === 'POST') {
+      const priv = this.marketingPrivilege(query, ctx);
+      if (!priv.allowed) return forbidden(priv);
+      const type = String(body.type || '') as WfTriggerType;
+      if (!WF_TRIGGERS.includes(type) || WF_SCHEDULED_TRIGGERS.includes(type)) return { status: 400, body: { error: 'Tipo de evento inválido.' } };
+      const contactId = String(body.contactId || '');
+      if (!this.repo.getContactById(contactId)) return { status: 404, body: { error: 'Contato não encontrado.' } };
+      const context = body.context && typeof body.context === 'object' ? (body.context as Record<string, unknown>) : {};
+      const eventId = body.eventId ? `ext:${String(body.eventId).slice(0, 150)}` : undefined;
+      const recorded = await emitWorkflowEvent({ store: this.workflowStore, env: this.workflowOptions.env, now: this.workflowOptions.now }, { type, contactId, context, eventId });
+      return { status: 202, body: { data: { recorded, liveEnabled: isWorkflowsLiveEnabled(env) } } };
+    }
+
+    const contactRuns = cleanPath.match(/^\/api\/workflows\/v2\/contacts\/([^/]+)\/runs$/);
+    if (contactRuns && method === 'GET') {
+      const runs = await this.workflowStore.listRunsByContact(decodeURIComponent(contactRuns[1]), 100);
+      const withSteps = await Promise.all(runs.map(async (r) => ({ ...r, steps: await this.workflowStore.listSteps(r.id) })));
+      return { status: 200, body: { data: withSteps } };
+    }
+    const runSteps = cleanPath.match(/^\/api\/workflows\/v2\/runs\/([^/]+)\/steps$/);
+    if (runSteps && method === 'GET') {
+      const run = await this.workflowStore.getRun(decodeURIComponent(runSteps[1]));
+      if (!run) return { status: 404, body: { error: 'Execução não encontrada.' } };
+      return { status: 200, body: { data: { run, steps: await this.workflowStore.listSteps(run.id) } } };
+    }
+    const runReview = cleanPath.match(/^\/api\/workflows\/v2\/runs\/([^/]+)\/review$/);
+    if (runReview && method === 'POST') {
+      const priv = this.marketingPrivilege(query, ctx);
+      if (!priv.allowed) return forbidden(priv);
+      const decision = body.decision === 'EXIT' ? 'EXIT' : body.decision === 'CONTINUE' ? 'CONTINUE' : null;
+      if (!decision) return { status: 400, body: { error: 'Decisão inválida (CONTINUE ou EXIT).' } };
+      return guard(async () => ({ status: 200, body: { data: await resolveRunReview(this.workflowStore, decodeURIComponent(runReview[1]), decision, priv.actor, now()) } }));
+    }
+
+    const m = cleanPath.match(/^\/api\/workflows\/v2\/(wfd-[^/]+)(?:\/(simulate|activate|pause|runs))?$/);
+    if (!m) return { status: 404, body: { error: 'Not found' } };
+    const id = decodeURIComponent(m[1]);
+    const sub = m[2] || '';
+    if (!sub && method === 'GET') {
+      const d = await this.workflowStore.getDefinition(id);
+      if (!d) return { status: 404, body: { error: 'Fluxo não encontrado.' } };
+      return { status: 200, body: { data: { ...d, validation: validateWorkflowGraph(d.graph) } } };
+    }
+    if (sub === 'runs' && method === 'GET') {
+      return { status: 200, body: { data: await this.workflowStore.listRunsByWorkflow(id, 200) } };
+    }
+    const priv = this.marketingPrivilege(query, ctx);
+    if (!priv.allowed) return forbidden(priv);
+    return guard(async () => {
+      if (!sub && (method === 'PUT' || method === 'PATCH')) {
+        const d = await saveWorkflowDraft(this.workflowStore, id, { name: body.name, description: body.description, graph: body.graph }, priv.actor, now());
+        return { status: 200, body: { data: { ...d, validation: validateWorkflowGraph(d.graph) } } };
+      }
+      if (sub === 'simulate' && method === 'POST') {
+        const d = await this.workflowStore.getDefinition(id);
+        if (!d) return { status: 404, body: { error: 'Fluxo não encontrado.' } };
+        const result = await simulateWorkflow(this.repo, deps, d.graph, String(body.contactId || ''));
+        const saved = await recordSimulation(this.workflowStore, id, result, now());
+        return { status: 200, body: { data: { simulation: result, workflow: saved } } };
+      }
+      if (sub === 'activate' && method === 'POST') {
+        return { status: 200, body: { data: await activateWorkflow(this.workflowStore, id, priv.actor, now()) } };
+      }
+      if (sub === 'pause' && method === 'POST') {
+        return { status: 200, body: { data: await pauseWorkflow(this.workflowStore, id, priv.actor, now()) } };
+      }
+      return { status: 405, body: { error: 'Method not allowed' } };
+    });
+  }
+
   async dispatch(req: ApiRequest): Promise<ApiResponse> {
     const startedAt = Date.now();
     const method = String(req.method || '').toUpperCase();
@@ -1800,6 +2043,7 @@ export class CrmApiRouter {
     }
 
     const rawResponse = await this.handleRoute(method, cleanPath, query, body, { trustedInternal, mailerRawBody, certRawBody, setaDeskLoaded });
+    await this.flushWorkflowEvents();
     // Contencao 29/10/2026: nenhuma resposta HTTP expoe totpSecret, passwordHash, codigos OTP etc.
     const response = isHttpRequest
       ? {
@@ -4776,7 +5020,7 @@ export class CrmApiRouter {
         isHttpRequest &&
         query._cronAuthorized === "1" &&
         method === "GET" &&
-        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup" || cleanPath === SETADESK_EMAIL_POLL_PATH || cleanPath === SEQUENCE_CRON_PATH || cleanPath === MARKETING_CRON_PATH);
+        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup" || cleanPath === SETADESK_EMAIL_POLL_PATH || cleanPath === SEQUENCE_CRON_PATH || cleanPath === MARKETING_CRON_PATH || cleanPath === WORKFLOW_CRON_PATH);
       const requestSessionToken =
         query._sessionToken;
 
@@ -5179,6 +5423,7 @@ export class CrmApiRouter {
             entityType: "CONTACT",
             entityId: contact.id,
           });
+          this.queueWorkflowEvent('CONTACT_CREATED', contact.id, {}, `CONTACT_CREATED:${contact.id}`);
 
           contact = this.repo.getContactById(contact.id) || contact;
 
@@ -5250,6 +5495,7 @@ export class CrmApiRouter {
               actor: this.sessionActorName(query), // Pacote G: autor = sessao (ownerName e o responsavel, nao o autor)
             });
           }
+          if (updated) this.queueWorkflowEvent('CONTACT_UPDATED', updated.id, {});
           if (updated && updated.leadScore >= 80 && before.leadScore < 80) {
             this.workflowEngine.trigger(this.repo, {
               triggerType: 'SCORE_THRESHOLD',
@@ -5580,6 +5826,10 @@ export class CrmApiRouter {
               entityId: updated.id,
               context: { fromStageId: existing.stageId, toStageId: updated.stageId },
             });
+            this.queueWorkflowEvent('PIPELINE_STAGE_CHANGED', updated.contactId, { dealId: updated.id, pipelineId: updated.pipelineId, fromStageId: existing.stageId, toStageId: updated.stageId });
+          }
+          if (updated && existing.status !== updated.status && (updated.status === 'WON' || updated.status === 'LOST')) {
+            this.queueWorkflowEvent(updated.status === 'WON' ? 'DEAL_WON' : 'DEAL_LOST', updated.contactId, { dealId: updated.id }, `${updated.status === 'WON' ? 'DEAL_WON' : 'DEAL_LOST'}:${updated.id}`);
           }
 
           return {
@@ -5696,6 +5946,11 @@ export class CrmApiRouter {
           });
           return { status: 201, body: { data: event } };
         }
+      }
+
+      {
+        const wf = await this.handleWorkflowsV2(method, cleanPath, query, body as Record<string, unknown>, ctx);
+        if (wf) return wf;
       }
 
       // ======================================================================
@@ -6792,6 +7047,7 @@ export class CrmApiRouter {
             entityId: contact.id,
             context: { formId: form.id },
           }),
+          ...(this.queueWorkflowEvent('FORM_SUBMITTED', contact.id, { formId: form.id }), []),
           ...this.workflowEngine.trigger(this.repo, {
             triggerType: 'CONTACT_CREATED',
             entityType: 'CONTACT',

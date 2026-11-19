@@ -647,7 +647,7 @@ export async function applyEspEvent(
   repo: CrmRepository,
   deps: MarketingDeps,
   ev: NormalizedEspEvent
-): Promise<{ duplicate: boolean; matched: boolean; suppressed: boolean }> {
+): Promise<{ duplicate: boolean; matched: boolean; suppressed: boolean; contactId: string | null; campaignId: string | null }> {
   const store = deps.store;
   let send: MarketingSend | null = null;
   if (ev.providerMessageId) send = await store.findSendByProviderMessageId(ev.providerMessageId);
@@ -686,7 +686,7 @@ export async function applyEspEvent(
     detail: ev.detail,
   };
   const fresh = await store.recordEvent(record);
-  return { duplicate: !fresh, matched: Boolean(send), suppressed };
+  return { duplicate: !fresh, matched: Boolean(send), suppressed, contactId: send?.contactId || null, campaignId: send?.campaignId || null };
 }
 
 // ----------------------------------------------------------------------------
