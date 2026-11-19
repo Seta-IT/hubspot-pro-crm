@@ -396,6 +396,18 @@ Inclui suporte planejado e auditado para: Formulários de captura, Landing pages
   - Auditoria do repositório, matriz de paridade HubSpot × Mailchimp × STI-hub, arquitetura e modelos de dados, RBAC/MFA, gestão de contatos/empresas, captura web com **rastreamento UTM fim a fim**, **Consentimento LGPD / Preference Center / Supressão independente das cadências**, persistência real de **Campanhas, Segmentos Dinâmicos e Landing Pages** e **Visão de Engajamento por Empresa (ABM)**.
 - **Fase 2 — Cadências Comerciais Avançadas**:
   - Editor visual multi-passos, agendamento persistente considerando dias úteis/fuso horário, integração OAuth Microsoft Graph (Outlook 1:1), todas as 13 regras de saída automática (incluindo vínculo com propostas de locação e etapas do Deal) e histórico/relatórios de conversão.
+  - **Status real (19/11/2026, ramo `feat/fase2-cadencias-graph`, ainda não publicado)**:
+    - Pronto: editor de passos, janela comercial e 13 regras de saída (no ar desde 29/10); conexão OAuth do Outlook (no ar desde 09/11).
+    - Pronto no ramo: **envio real dos passos de e-mail automáticos pela caixa Outlook do dono da inscrição** (Microsoft Graph `/me/sendMail`), com pixel e links rastreados (`/api/email-track`), registro do e-mail na linha do tempo do contato e evento na timeline da cadência.
+    - Antes de cada envio: supressão/descadastro/hard bounce LGPD (`canSendMarketingEmailToContact`), estado da inscrição, negócio ganho/perdido, allowlist de teste, janela de envio (dias úteis, feriados, fuso `America/Sao_Paulo` ou do destinatário) e limite por caixa por hora e por dia.
+    - Idempotência por passo (`<inscrição>:<passo>`): o passo é gravado como "enviando" antes da chamada ao Graph; passo enviado nunca sai de novo; envio interrompido vira erro com tarefa para conferir, sem reenviar.
+    - Caixa desconectada, conexão expirada ou integração desligada: o passo fica pendente com o motivo, o vendedor recebe uma tarefa e o envio é tentado de novo no próximo dia útil. Falha do provedor: até 3 tentativas, depois erro + tarefa e a cadência segue.
+    - Passo de e-mail manual (ou com aprovação manual) vira tarefa do vendedor no modo real.
+    - Respostas: o executor lê a Caixa de Entrada do dono (escopo Mail.Read já concedido) e aplica `PAUSED_ON_REPLY`; resposta pedindo descadastro aplica `STOP_REQUESTED`.
+    - Executor: `GET /api/cron/sequences` (Vercel Cron a cada 15 min em dias úteis, `Authorization: Bearer CRON_SECRET`), no máximo 25 envios por execução.
+    - Interruptores: `SEQUENCES_LIVE_SEND` (desligado por padrão = simulação atual), `SEQUENCES_TEST_RECIPIENTS` (homologação), `SEQUENCES_MAX_PER_MAILBOX_HOUR` (padrão 20) e `SEQUENCES_MAX_PER_MAILBOX_DAY` (padrão 100, limitado ao limite diário da cadência). Inscrições antigas ou simuladas nunca passam a enviar ao ligar a flag.
+    - Interface: painel "Envio pelo Outlook" no estúdio de cadências com o modo, aviso de caixa não conectada e o status real de cada passo (agendado, enviado, pendente, erro, bloqueado) com o motivo.
+    - Falta: sincronizar aberturas e cliques rastreados com os contadores da cadência; relatórios de conversão por passo; `POST /api/marketing/campaigns/dispatch` continua simulado (é da Fase 3).
 - **Fase 3 — Campanhas de Email Marketing & Editor Visual**:
   - Editor drag-and-drop de templates com versionamento/aprovação, adaptadores multi-ESP (SES/SendGrid/Mailgun/Postmark/Resend), validação SPF/DKIM/DMARC e funil completo de entregabilidade.
 - **Fase 4 — Automações Visuais (Workflows Duráveis)**:

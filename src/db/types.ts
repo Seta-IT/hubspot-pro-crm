@@ -435,7 +435,11 @@ export interface SequenceStepExecutionLog {
     | 'PAUSED'
     | 'RESUMED'
     | 'EXITED_RULE'
-    | 'DEFERRED_MAILBOX_LIMIT';
+    | 'DEFERRED_MAILBOX_LIMIT'
+    | 'SCHEDULED'
+    | 'LIVE_SEND_PENDING'
+    | 'LIVE_SEND_ERROR'
+    | 'LIVE_SEND_BLOCKED';
   timestamp: string;
   details?: string;
   exitTrigger?: SequenceExitRuleTrigger;
@@ -443,6 +447,49 @@ export interface SequenceStepExecutionLog {
 }
 
 export type SequenceEnrollmentStepLog = SequenceStepExecutionLog;
+
+/**
+ * Fase 2 (19/11/2026): situacao do envio real de um passo de e-mail pela caixa Outlook do dono.
+ * Uma entrada por passo (chave de idempotencia `${enrollmentId}:${stepOrder}`); nunca regride de SENT.
+ */
+export type SequenceStepDeliveryStatus = 'SCHEDULED' | 'SENDING' | 'SENT' | 'PENDING' | 'ERROR' | 'BLOCKED' | 'SIMULATED';
+
+export type SequenceStepDeliveryReasonCode =
+  | 'LIVE_SEND_DISABLED'
+  | 'OUTSIDE_SENDING_WINDOW'
+  | 'MAILBOX_FEATURE_DISABLED'
+  | 'NO_OWNER'
+  | 'MAILBOX_NOT_CONNECTED'
+  | 'MAILBOX_TOKEN_EXPIRED'
+  | 'MAILBOX_HOURLY_LIMIT'
+  | 'MAILBOX_DAILY_LIMIT'
+  | 'NOT_IN_TEST_ALLOWLIST'
+  | 'INVALID_RECIPIENT'
+  | 'SUPPRESSED_LGPD'
+  | 'EXIT_RULE'
+  | 'PROVIDER_ERROR'
+  | 'SEND_UNCERTAIN'
+  | 'MANUAL_STEP';
+
+export interface SequenceStepDelivery {
+  stepOrder: number;
+  idempotencyKey: string;
+  status: SequenceStepDeliveryStatus;
+  reasonCode?: SequenceStepDeliveryReasonCode | null;
+  reason?: string | null;
+  attempts: number;
+  senderOwnerEmail?: string | null;
+  mailboxAddress?: string | null;
+  recipient?: string | null;
+  subject?: string | null;
+  messageId?: string | null;
+  conversationId?: string | null;
+  internetMessageId?: string | null;
+  trackingId?: string | null;
+  sentAt?: string | null;
+  taskId?: string | null;
+  updatedAt: string;
+}
 
 export interface SequenceEnrollment {
   id: string;
@@ -468,6 +515,12 @@ export interface SequenceEnrollment {
   exitedAt?: string | null;
   exitedByScope?: 'CONTACT_ONLY' | 'ENTIRE_COMPANY' | null;
   transferredToNurtureCampaignId?: string | null;
+  /** E-mail do usuario dono da inscricao (quem inscreveu ou o vendedor atribuido); caixa Outlook remetente. */
+  senderOwnerEmail?: string | null;
+  /** Envio real por passo (Fase 2, Microsoft Graph). Ausente => cadencia so simulada. */
+  stepDeliveries?: SequenceStepDelivery[];
+  /** Ultima verificacao de respostas na caixa do dono (ISO). */
+  lastReplyCheckAt?: string | null;
   history: SequenceStepExecutionLog[];
   stepHistory?: SequenceEnrollmentStepLog[];
   enrolledAt: string;

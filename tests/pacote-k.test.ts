@@ -214,8 +214,12 @@ describe('Pacote K (D-I2): generateNextInvoiceOnSave exige a alcada fiscal de /g
     const poll = await router.dispatch({ method: 'GET', path: '/api/tickets/email-intake/poll', query: { ...HTTP, _cronAuthorized: '1' } });
     assert.ok([200, 503].includes(poll.status), `poll cron status inesperado: ${poll.status}`);
     assert.equal(invCount(repo), n0, 'poll da entrada de e-mail nao gera fatura/NF');
+    // Fase 2 (19/11): executor das cadencias so envia e-mail comercial (flag SEQUENCES_LIVE_SEND), nunca fatura/NF.
+    const seqCron = await router.dispatch({ method: 'GET', path: '/api/cron/sequences', query: { ...HTTP, _cronAuthorized: '1' } });
+    assert.equal(seqCron.status, 200);
+    assert.equal(invCount(repo), n0, 'executor das cadencias nao gera fatura/NF');
     const vercel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'vercel.json'), 'utf8')) as { crons?: Array<{ path: string }> };
-    const allow = ['/api/crm/proposal-followup', '/api/erp/daily-sync', '/api/tickets/email-intake/poll'];
+    const allow = ['/api/crm/proposal-followup', '/api/erp/daily-sync', '/api/tickets/email-intake/poll', '/api/cron/sequences'];
     for (const c of vercel.crons || []) {
       assert.ok(allow.includes(c.path), `novo cron alem desta allowlist precisa passar pela alcada fiscal/flag: ${c.path}`);
     }

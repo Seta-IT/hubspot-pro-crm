@@ -422,7 +422,8 @@ export function middleware(req: NextRequest) {
     cronSecret.length >= 16 &&
     (pathname === '/api/erp/daily-sync' ||
       pathname === '/api/crm/proposal-followup' ||
-      pathname === '/api/tickets/email-intake/poll') &&
+      pathname === '/api/tickets/email-intake/poll' ||
+      pathname === '/api/cron/sequences') &&
     req.method === 'GET' &&
     constantTimeEqual(req.headers.get('authorization') || '', `Bearer ${cronSecret}`)
   ) {

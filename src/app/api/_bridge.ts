@@ -112,7 +112,8 @@ export async function forwardToCrmRouter(
   query._fromHttpBridge = '1';
   query._origin = url.origin;
 
-  // Vercel Cron: GET exactos /api/erp/daily-sync, /api/crm/proposal-followup e /api/tickets/email-intake/poll
+  // Vercel Cron: GET exactos /api/erp/daily-sync, /api/crm/proposal-followup, /api/tickets/email-intake/poll
+  // e /api/cron/sequences (Fase 2, executor das cadencias; sem SEQUENCES_LIVE_SEND nao envia nada)
   // com Authorization: Bearer <CRON_SECRET>.
   // CISO 15/11: SHA-256 + timingSafeEqual; fail-closed sem CRON_SECRET (nunca roda sem auth).
   const cronPath = path.replace(/\/+$/, '');
@@ -120,7 +121,8 @@ export async function forwardToCrmRouter(
     req.method === 'GET' &&
     (cronPath === '/api/erp/daily-sync' ||
       cronPath === '/api/crm/proposal-followup' ||
-      cronPath === '/api/tickets/email-intake/poll') &&
+      cronPath === '/api/tickets/email-intake/poll' ||
+      cronPath === '/api/cron/sequences') &&
     isValidCronBearer(req.headers.get('authorization'), resolveCronSecret())
   ) {
     query._cronAuthorized = '1';

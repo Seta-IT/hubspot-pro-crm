@@ -107,6 +107,13 @@ import {
   resolveCanonicalEnrollmentState,
   SequenceService,
 } from '../modules/sequences/sequence-service';
+import {
+  SEQUENCE_CRON_PATH,
+  createGraphSequenceMailer,
+  describeOwnerMailboxes,
+  runSequenceScheduler,
+} from '../modules/sequences/sequence-live-sender';
+import { isSequenceLiveSendEnabled, resolveSequenceTestRecipients } from '../modules/sequences/sequence-live-config';
 import type { SequenceExitRuleTrigger } from '../db/types';
 import { AiInsightsService } from '../modules/ai-insights/ai-insights-service';
 import nodemailer from 'nodemailer';
@@ -911,6 +918,15 @@ export function isAuthorizedSetaDeskEmailPollCron(
 }
 
 /** Decide se o estado vai para o Postgres apos a rota: mutacoes 2xx/3xx e o cron diario autenticado (2xx). */
+/** Fase 2 (19/11): GET /api/cron/sequences do Vercel Cron (flag _cronAuthorized definida pelo bridge). */
+export function isAuthorizedSequencesCron(
+  method: string,
+  cleanPath: string,
+  query: Record<string, string | undefined>
+): boolean {
+  return method === 'GET' && cleanPath === SEQUENCE_CRON_PATH && query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+}
+
 export function shouldPersistAfterDispatch(
   method: string,
   cleanPath: string,
@@ -918,6 +934,7 @@ export function shouldPersistAfterDispatch(
   status: number
 ): boolean {
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return status >= 200 && status < 400;
+  if (isAuthorizedSequencesCron(method, cleanPath, query)) return status >= 200 && status < 300;
   return isAuthorizedDailySyncCron(method, cleanPath, query) && status >= 200 && status < 300;
 }
 
@@ -1599,6 +1616,29 @@ export class CrmApiRouter {
   /** Gravacao no Neon so no repositorio singleton com Postgres configurado (isolado para teste). */
   private canPersistToPostgres(): boolean {
     return this.isSingletonRepo && isPostgresEnabled();
+  }
+
+  /** Fase 2: grava o estado antes/depois de cada envio real da cadencia; falha => lanca (nao envia). */
+  private async persistSequenceClaim(): Promise<void> {
+    if (!this.proposalTableCtx) {
+      await syncStateToPostgres(this.repo.getState());
+      return;
+    }
+    const failed = await this.persistStateToPostgres();
+    if (failed) throw new Error('SEQUENCE_STATE_PERSIST_FAILED');
+  }
+
+  /** E-mail do usuario da sessao (dono da inscricao na cadencia), ou null. */
+  private sessionUserEmail(query: Record<string, string | undefined>): string | null {
+    const tok = query._sessionToken;
+    if (!tok) return null;
+    try {
+      const sess = this.repo.resolveSessionFromToken(tok);
+      const email = sess?.authenticated ? String(sess.user?.email || '').trim().toLowerCase() : '';
+      return email || null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -4424,7 +4464,7 @@ export class CrmApiRouter {
         isHttpRequest &&
         query._cronAuthorized === "1" &&
         method === "GET" &&
-        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup" || cleanPath === SETADESK_EMAIL_POLL_PATH);
+        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup" || cleanPath === SETADESK_EMAIL_POLL_PATH || cleanPath === SEQUENCE_CRON_PATH);
       const requestSessionToken =
         query._sessionToken;
 
@@ -5127,6 +5167,20 @@ export class CrmApiRouter {
         }
       }
 
+      if (cleanPath === SEQUENCE_CRON_PATH && method === 'GET') {
+        const cronOk = query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+        if (!ctx.trustedInternal && !cronOk) {
+          return { status: query._sessionToken ? 403 : 401, body: { error: 'Forbidden' } };
+        }
+        const mailboxDeps = { repo: this.repo, store: this.mailboxStore, fetch: this.mailboxFetch, sendLimiter: this.mailboxSendLimiter };
+        const result = await runSequenceScheduler(this.repo, {
+          mailer: createGraphSequenceMailer(mailboxDeps, String(query._origin || '') || undefined),
+          persist: this.canPersistToPostgres() ? () => this.persistSequenceClaim() : undefined,
+        });
+        // Sem e-mails, nomes ou tokens na resposta: so contadores.
+        return { status: 200, body: { data: result } };
+      }
+
       if (cleanPath === '/api/crm/proposal-followup' && method === 'GET') {
         const cronOk = query._fromHttpBridge === '1' && query._cronAuthorized === '1';
         if (!ctx.trustedInternal && !cronOk) {
@@ -5440,6 +5494,7 @@ export class CrmApiRouter {
               forceMoveFromConflicting: Boolean(body.forceMoveFromConflicting || body.forceMove),
               allowReentryOverride: Boolean(body.allowReentryOverride),
               recipientTimezone: body.recipientTimezone ? String(body.recipientTimezone) : undefined,
+              enrolledByEmail: this.sessionUserEmail(query),
             });
             return { status: 201, body: { data: res } };
           }
@@ -5549,11 +5604,31 @@ export class CrmApiRouter {
         }
       }
 
+      if (cleanPath === '/api/sequences/live-status' && method === 'GET') {
+        const liveSendEnabled = isSequenceLiveSendEnabled();
+        const list = this.repo.listSequenceEnrollments(query.sequenceId ? { sequenceId: query.sequenceId } : undefined);
+        const ownerMailboxes = liveSendEnabled
+          ? await describeOwnerMailboxes(this.repo, null, (o) => this.mailboxStore.listAccounts(o), list.filter((e) => this.sequenceService.isEnrollmentActive(e.status)))
+          : {};
+        return {
+          status: 200,
+          body: {
+            data: {
+              enabled: liveSendEnabled,
+              testAllowlistActive: Boolean(resolveSequenceTestRecipients()),
+              mailboxFeatureEnabled: isMailboxFeatureEnabled(),
+              ownerMailboxes,
+            },
+          },
+        };
+      }
+
       if (cleanPath === '/api/sequences/enroll' && method === 'POST') {
         const res = this.sequenceService.enrollContact(this.repo, {
           sequenceId: String(body.sequenceId),
           contactId: String(body.contactId),
           dealId: body.dealId ? String(body.dealId) : null,
+          enrolledByEmail: this.sessionUserEmail(query),
         });
         return { status: 201, body: { data: res } };
       }

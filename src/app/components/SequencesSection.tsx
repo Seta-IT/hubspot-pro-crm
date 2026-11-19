@@ -413,7 +413,7 @@ export default function SequencesSection({
             <div className="flex items-center gap-2">
               <UserPlus className="w-4 h-4 text-accent" />
               <span className="text-xs font-semibold">
-                Inscrever Contato nesta Cadência (Dispara Passo 1 Imediatamente):
+                Inscrever Contato nesta Cadência (Passo 1 na próxima janela de envio):
               </span>
             </div>
 
