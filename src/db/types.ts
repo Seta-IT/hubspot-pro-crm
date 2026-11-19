@@ -489,6 +489,15 @@ export interface SequenceStepDelivery {
   sentAt?: string | null;
   taskId?: string | null;
   updatedAt: string;
+  /** Fase 5: sinais rastreados classificados deste passo (abertura observada x automatica, clique humano x robo). */
+  engagement?: {
+    opensObserved: number;
+    opensMachine: number;
+    clicksHuman: number;
+    clicksBot: number;
+    firstHumanClickAt: string | null;
+    syncedAt: string;
+  };
 }
 
 export interface SequenceEnrollment {

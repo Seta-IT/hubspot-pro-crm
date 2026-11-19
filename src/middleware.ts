@@ -217,7 +217,9 @@ export function classifyRouteRequiredModule(
     clean === '/api/enrichment' ||
     clean.startsWith('/api/enrichment/') ||
     clean === '/api/migration' ||
-    clean.startsWith('/api/migration/')
+    clean.startsWith('/api/migration/') ||
+    clean === '/api/analytics' ||
+    clean.startsWith('/api/analytics/')
   ) {
     return 'CRM';
   }

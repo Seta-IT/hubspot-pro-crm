@@ -12,6 +12,8 @@
 import { NextResponse } from 'next/server';
 import { getDefaultMailboxStore, type MailboxStore } from '../../modules/email/mailbox-store';
 import { SlidingWindowRateLimiter } from '../../api/password-reset';
+import { getDefaultSignalStore, type SignalStore } from '../../modules/analytics/signal-store';
+import { recordTrackedSignal } from '../../modules/analytics/signal-recorder';
 import { isSafeRedirectTarget, parseTrackingPath, publicOrigin, TRANSPARENT_GIF } from '../../modules/email/mail-tracking';
 
 const NO_STORE = {
@@ -42,7 +44,9 @@ export async function handleEmailTrackRequest(
   pathname: string,
   store: MailboxStore = getDefaultMailboxStore(),
   clientIp = 'sem-ip',
-  limiter: SlidingWindowRateLimiter = trackIpLimiter
+  limiter: SlidingWindowRateLimiter = trackIpLimiter,
+  /** Fase 5: user-agent/metodo para classificar o sinal (abertura automatica x observada, robo x humano). */
+  meta: { userAgent?: string | null; method?: string; signals?: SignalStore } = {}
 ): Promise<NextResponse> {
   const signed = parseTrackingPath(pathname);
   // Fora do limite: mesma resposta, sem gravar (abertura => pixel; clique => origem do STI-hub).
@@ -57,6 +61,11 @@ export async function handleEmailTrackRequest(
       } catch {
         // falha de gravacao nunca muda a resposta
       }
+      try {
+        await recordTrackedSignal(store, meta.signals || getDefaultSignalStore(), { kind: 'OPEN', trackingId: parsed.trackingId, userAgent: meta.userAgent ?? null, ip: clientIp === 'sem-ip' ? null : clientIp, method: meta.method });
+      } catch {
+        // falha de gravacao nunca muda a resposta
+      }
     }
     return pixelResponse();
   }
@@ -65,6 +74,11 @@ export async function handleEmailTrackRequest(
     target = await store.recordClick(parsed.trackingId, parsed.linkIndex);
   } catch {
     target = null;
+  }
+  try {
+    await recordTrackedSignal(store, meta.signals || getDefaultSignalStore(), { kind: 'CLICK', trackingId: parsed.trackingId, linkIndex: parsed.linkIndex, userAgent: meta.userAgent ?? null, ip: clientIp === 'sem-ip' ? null : clientIp, method: meta.method });
+  } catch {
+    // classificacao nunca muda a resposta
   }
   const location = isSafeRedirectTarget(target) ? target : publicOrigin();
   return new NextResponse(null, { status: 302, headers: { ...NO_STORE, Location: location } });

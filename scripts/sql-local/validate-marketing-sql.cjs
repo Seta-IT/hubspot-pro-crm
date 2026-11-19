@@ -19,7 +19,8 @@ const { PostgresMailboxStore } = require(`${D}/modules/email/mailbox-store`);
 const { createInMemoryRepository } = require(`${D}/db/repository`);
 const tpl = require(`${D}/modules/marketing/template-service`);
 const disp = require(`${D}/modules/marketing/campaign-dispatcher`);
-const extraChecks = process.env.EXTRA ? require(process.env.EXTRA) : null;
+// EXTRA: um ou mais modulos (separados por virgula), cada um async ({ pool, D, assert }) => string[].
+const extraChecks = (process.env.EXTRA || '').split(',').map((x) => x.trim()).filter(Boolean).map((x) => require(x));
 
 (async () => {
   const db = await PGlite.create();
@@ -127,7 +128,7 @@ const extraChecks = process.env.EXTRA ? require(process.env.EXTRA) : null;
     const f = await disp.campaignFunnel(deps(), 'cmp-2');
     assert.equal(f.sent, 2);
     ok('ponta a ponta no Postgres: 2 execucoes concorrentes => 2 envios (1 por contato), reexecucao => 0, funil');
-    if (extraChecks) for (const m of await extraChecks({ pool: q, D, assert })) ok(m);
+    for (const check of extraChecks) for (const m of await check({ pool: q, D, assert })) ok(m);
   } catch (err) {
     out.push(`FALHA ${err && err.stack || err}`);
     process.exitCode = 1;

@@ -69,6 +69,9 @@ export interface NormalizedEspEvent {
   contactId: string | null;
   at: string;
   detail: string | null;
+  /** Fase 5: so para clique (classificacao robo x humano). Nunca gravados inteiros. */
+  userAgent?: string | null;
+  ip?: string | null;
 }
 
 function readTags(raw: unknown): Record<string, string> {
@@ -129,5 +132,11 @@ export function normalizeResendEvent(providerEventId: string, payload: unknown):
     contactId: tags.contact_id || null,
     at: typeof p.created_at === 'string' ? p.created_at : new Date().toISOString(),
     detail,
+    ...(type === 'CLICKED'
+      ? {
+          userAgent: typeof data.click?.userAgent === 'string' ? data.click.userAgent.slice(0, 400) : null,
+          ip: typeof data.click?.ipAddress === 'string' ? data.click.ipAddress.slice(0, 64) : null,
+        }
+      : {}),
   };
 }

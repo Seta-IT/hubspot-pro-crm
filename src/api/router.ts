@@ -115,6 +115,10 @@ import {
   type WfTriggerType,
 } from '../modules/workflows/dag/catalog';
 import { validateWorkflowGraph } from '../modules/workflows/dag/graph';
+import { classifySignal } from '../modules/analytics/signal-classifier';
+import { MemorySignalStore, getDefaultSignalStore, type SignalStore } from '../modules/analytics/signal-store';
+import { syncSequenceEngagement } from '../modules/analytics/engagement-sync';
+import { handleAnalyticsRoute } from './analytics-routes';
 import { MemoryWorkflowStore, getDefaultWorkflowStore, type WorkflowStore } from '../modules/workflows/dag/store';
 import {
   WORKFLOW_CRON_PATH,
@@ -1082,7 +1086,7 @@ export class CrmApiRouter {
 
   constructor(
     repo?: CrmRepository,
-    options?: { certificateStore?: CertificateStore; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike; marketing?: MarketingRouterOptions; workflows?: WorkflowsRouterOptions }
+    options?: { certificateStore?: CertificateStore; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike; marketing?: MarketingRouterOptions; workflows?: WorkflowsRouterOptions; signalStore?: SignalStore }
   ) {
     this.isSingletonRepo = !repo;
     this.repo = repo || getRepository();
@@ -1095,7 +1099,11 @@ export class CrmApiRouter {
     this.marketingStore = this.marketingOptions.store || (!repo ? getDefaultMarketingStore() : new MemoryMarketingStore());
     this.workflowOptions = options?.workflows || {};
     this.workflowStore = this.workflowOptions.store || (!repo ? getDefaultWorkflowStore() : new MemoryWorkflowStore());
+    this.signalStore = options?.signalStore || (!repo ? getDefaultSignalStore() : new MemorySignalStore());
   }
+
+  /** Fase 5: sinais de engajamento classificados (crm_engagement_signals). */
+  private readonly signalStore: SignalStore;
 
   /** Fase 4: automacoes duraveis (tabelas wf_*, fora do crm_state_v1). */
   private readonly workflowStore: WorkflowStore;
@@ -1216,8 +1224,19 @@ export class CrmApiRouter {
       const ev = body.event as NormalizedEspEvent | undefined;
       if (!ev || typeof ev.providerEventId !== 'string' || typeof ev.type !== 'string') return { status: 400, body: { error: 'evento inválido' } };
       const r = await applyEspEvent(this.repo, deps, ev);
+      let humanClick = true;
+      if (!r.duplicate && r.contactId && ev.type === 'CLICKED') {
+        // Fase 5: clique do ESP classificado (robo/scanner x humano provavel), com motivo.
+        const send = r.campaignId ? await this.marketingStore.getSend(r.campaignId, r.contactId) : null;
+        const c = classifySignal({ kind: 'CLICK', userAgent: ev.userAgent ?? null, ip: ev.ip ?? null, sentAt: send?.sentAt || null, at: ev.at, env: this.marketingOptions.env });
+        humanClick = c.classification === 'CLICK_HUMAN';
+        await this.signalStore
+          .record({ id: `sig-esp-${ev.providerEventId}`.slice(0, 200), source: 'ESP', kind: 'CLICK', classification: c.classification, reasons: c.reasons, at: ev.at, trackingId: send?.trackingId || null, contactId: r.contactId, campaignId: r.campaignId, messageSource: 'MARKETING', url: ev.detail, linkIndex: null, uaFamily: c.uaFamily, ipNetwork: c.ipNetwork, secondsSinceSent: c.secondsSinceSent })
+          .catch(() => undefined);
+      }
       if (!r.duplicate && r.contactId) {
-        const t = ev.type === 'DELIVERED' ? 'EMAIL_DELIVERED' : ev.type === 'OPENED' ? 'EMAIL_OPENED' : ev.type === 'CLICKED' ? 'LINK_CLICKED' : null;
+        // Clique de robo/scanner nao dispara automacao de "Link clicado".
+        const t = ev.type === 'DELIVERED' ? 'EMAIL_DELIVERED' : ev.type === 'OPENED' ? 'EMAIL_OPENED' : ev.type === 'CLICKED' && humanClick ? 'LINK_CLICKED' : null;
         if (t) this.queueWorkflowEvent(t, r.contactId, { campaignId: r.campaignId }, `esp:${ev.providerEventId}`);
       }
       return { status: 200, body: { data: r } };
@@ -5747,13 +5766,18 @@ export class CrmApiRouter {
           return { status: query._sessionToken ? 403 : 401, body: { error: 'Forbidden' } };
         }
         const mailboxDeps = { repo: this.repo, store: this.mailboxStore, fetch: this.mailboxFetch, sendLimiter: this.mailboxSendLimiter };
+        let engagement: { enrollmentsUpdated: number; deliveriesWithSignals: number } | null = null;
         const result = await runSequenceScheduler(this.repo, {
+          afterRun: async () => {
+            engagement = await syncSequenceEngagement(this.repo, this.signalStore);
+          },
           mailer: createGraphSequenceMailer(mailboxDeps, String(query._origin || '') || undefined),
           persist: this.canPersistToPostgres() ? () => this.persistSequenceClaim() : undefined,
           reloadState: this.canPersistToPostgres() ? () => this.reloadStateForSequenceRun() : undefined,
         });
+        // Fase 5: engagement = sincronizacao do rastreio com as cadencias (dentro da trava, via afterRun).
         // Sem e-mails, nomes ou tokens na resposta: so contadores.
-        return { status: 200, body: { data: result } };
+        return { status: 200, body: { data: { ...result, engagement } } };
       }
 
       if (cleanPath === '/api/crm/proposal-followup' && method === 'GET') {
@@ -5967,6 +5991,15 @@ export class CrmApiRouter {
       {
         const wf = await this.handleWorkflowsV2(method, cleanPath, query, body as Record<string, unknown>, ctx);
         if (wf) return wf;
+      }
+
+      if (cleanPath.startsWith('/api/analytics/')) {
+        return handleAnalyticsRoute(this.repo, method, cleanPath, query, body as Record<string, unknown>, ctx, {
+          signals: this.signalStore,
+          marketing: this.marketingStore,
+          workflows: this.workflowStore,
+          now: this.workflowOptions.now,
+        });
       }
 
       // ======================================================================

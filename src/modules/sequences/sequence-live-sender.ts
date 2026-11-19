@@ -188,6 +188,8 @@ export interface SequenceRunResult {
 }
 
 export interface SequenceRunDeps {
+  /** Executado dentro da trava, depois do envio (Fase 5: sincronizar aberturas/cliques rastreados). */
+  afterRun?: () => Promise<void>;
   mailer: SequenceMailer;
   /** Grava o estado (Postgres) antes do envio, para a marca SENDING sobreviver a falhas. */
   persist?: () => Promise<void>;
@@ -388,7 +390,16 @@ export async function runSequenceScheduler(repo: CrmRepository, deps: SequenceRu
           return out;
         }
       }
-      return await runLive(repo, deps, allowlist, lock, owner);
+      const result = await runLive(repo, deps, allowlist, lock, owner);
+      // Fase 5: ainda dentro da trava (estado relido), sincroniza o rastreio com os contadores.
+      if (deps.afterRun) {
+        try {
+          await deps.afterRun();
+        } catch {
+          bump(result, 'AFTER_RUN_FAILED');
+        }
+      }
+      return result;
     } finally {
       await lock.release(SEQUENCE_RUN_LOCK_KEY, owner).catch(() => undefined);
     }

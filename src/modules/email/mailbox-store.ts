@@ -134,6 +134,8 @@ export interface MailboxStore {
   recordClick(trackingId: string, linkIndex: number, now?: number): Promise<string | null>;
   /** Fase 3 (funil de campanhas): aberturas/cliques por id de rastreio (ate 5000 ids). */
   trackingStats(trackingIds: string[]): Promise<Array<{ trackingId: string; openCount: number; clickCount: number }>>;
+  /** Fase 5 (classificacao de sinais): mensagem pelo id de rastreio, ou null. */
+  getByTrackingId(trackingId: string): Promise<CrmEmailMessage | null>;
 }
 
 export function newMailboxId(prefix: string): string {
@@ -244,6 +246,10 @@ export class MemoryMailboxStore implements MailboxStore {
     return this.messages
       .filter((m) => m.trackingId && set.has(m.trackingId))
       .map((m) => ({ trackingId: m.trackingId as string, openCount: m.openCount, clickCount: m.clickCount }));
+  }
+  async getByTrackingId(trackingId: string) {
+    const m = this.messages.find((x) => x.trackingId === trackingId);
+    return m ? { ...m } : null;
   }
   async recordOpen(trackingId: string, now = Date.now()) {
     const m = this.messages.find((x) => x.trackingId === trackingId);
@@ -542,6 +548,10 @@ export class PostgresMailboxStore implements MailboxStore {
       [ids]
     );
     return r.rows.map((row: any) => ({ trackingId: String(row.tracking_id), openCount: Number(row.open_count) || 0, clickCount: Number(row.click_count) || 0 }));
+  }
+  async getByTrackingId(trackingId: string) {
+    const r = await (await this.db()).query(`SELECT * FROM crm_email_messages WHERE tracking_id = $1 LIMIT 1`, [trackingId]);
+    return r.rows[0] ? rowToMessage(r.rows[0]) : null;
   }
   async recordOpen(trackingId: string, now = Date.now()) {
     const db = await this.db();
