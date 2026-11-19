@@ -1,7 +1,12 @@
 import type { ErpCommercialProposal } from '../../db/types';
 import { DEFAULT_COMPANY_EMITTER_SETTINGS } from '../../modules/erp/daily-sync-service';
 import { formatIssuerAddress, type IssuerAddressInput } from './company-issuer-address';
-import { proposalHidesFreight, readablePaymentCondition, resolveProposalCommercialFigures } from './proposal-share';
+import { cleanProposalTechnicalClauses, proposalHidesFreight, readablePaymentCondition, resolveProposalCommercialFigures } from './proposal-share';
+import {
+  buildDefaultTechnicalSupportClauseParts,
+  isDefaultTechnicalSupportClauses,
+  isTechnicalSupportProposal,
+} from './proposal-technical-clauses';
 import { formatProposalValidUntilPtBr, isProposalValidityExpired } from './proposal-validity';
 import {
   FORBIDDEN_TEMPLATE_CNPJ,
@@ -330,7 +335,23 @@ export function buildInternalProposalSheet(
     paymentRows,
     commercialNote: String(proposal.commercialNotes || '').trim(),
     commercialNoteLines,
-    confidentiality: SETA_INTERNAL_CONFIDENTIALITY,
-    clauses: SETA_INTERNAL_CLAUSES,
+    ...resolveSheetTechnicalObservations(proposal),
   };
+}
+
+function resolveSheetTechnicalObservations(proposal: ErpCommercialProposal): {
+  confidentiality: string;
+  clauses: readonly { title: string; body: string }[];
+} {
+  if (!isTechnicalSupportProposal(proposal)) {
+    return { confidentiality: SETA_INTERNAL_CONFIDENTIALITY, clauses: SETA_INTERNAL_CLAUSES };
+  }
+  const stored = cleanProposalTechnicalClauses(proposal.technicalClauses);
+  if (stored && !isDefaultTechnicalSupportClauses(stored)) {
+    return {
+      confidentiality: stored,
+      clauses: [],
+    };
+  }
+  return buildDefaultTechnicalSupportClauseParts(proposal);
 }

@@ -62,6 +62,7 @@ import {
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
 import { buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, proposalHidesFreight, readablePaymentCondition, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
+import { resolveTechnicalClausesOnEdit } from '../lib/proposal-technical-clauses';
 import { displayPaymentConditionText, proposalPaymentMethodLabel, proposalPaymentMethodOptions, selectableContractPaymentMethods } from '../lib/proposal-payment-method';
 import { useContractAuxiliaryOptions } from '../lib/use-contract-aux-options';
 import {
@@ -518,7 +519,11 @@ export function ProposalEditModal({
       if ('budgetType' in patch || 'serviceType' in patch) {
         merged.items = applyBudgetTypeToItems(merged.items, merged.budgetType, merged.serviceType, catalog);
       }
-      return computeProposalTotals(merged);
+      const totals = computeProposalTotals(merged);
+      return {
+        ...totals,
+        technicalClauses: resolveTechnicalClausesOnEdit(prev, totals, patch),
+      };
     });
   };
 

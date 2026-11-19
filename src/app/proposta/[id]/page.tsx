@@ -69,6 +69,7 @@ import { lookupServerProposal } from '../../lib/proposal-approval-lookup';
 import { copyInternalProposalLink, openInternalProposalLink } from '../../lib/internal-proposal-summary';
 import { ProposalLinkOverrideContext } from '../../lib/proposal-link-override';
 import { formatProposalDisplayCode, isLegacyProposalCode } from '../../lib/proposal-number';
+import { displayProposalTechnicalClauses } from '../../lib/proposal-technical-clauses';
 import { isProposalValidityExpired, proposalExpiredRevalidationMessage, formatProposalValidUntilPtBr } from '../../lib/proposal-validity';
 
 /**
@@ -2287,7 +2288,7 @@ function PublicProposalPrintContent() {
             </div>
           )}
 
-          {cleanProposalTechnicalClauses(proposal.technicalClauses) && (
+          {displayProposalTechnicalClauses(proposal) && (
             <div className={`print-avoid-break p-4 print:p-3 rounded-lg ${softBoxClass} space-y-1.5 text-xs`}>
               <div className="font-semibold text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-[#1e3a6e]" />
@@ -2298,7 +2299,7 @@ function PublicProposalPrintContent() {
                     : "Condições Técnicas, Remessa CFOP 5.908 & Acordo de Nível de Serviço (SLA)"}
               </div>
               <p className="text-slate-600 leading-relaxed">
-                {cleanProposalTechnicalClauses(proposal.technicalClauses)}
+                {displayProposalTechnicalClauses(proposal)}
               </p>
             </div>
           )}
