@@ -394,6 +394,59 @@ export async function listProposalsPage(db: PgQ, f: ProposalListFilters): Promis
   };
 }
 
+/**
+ * Painel ERP em tempo real: so as colunas que o painel usa (status, total, origem, criacao e data
+ * da aprovacao), das propostas fora de RASCUNHO criadas ou atualizadas desde `sinceIso`, no
+ * escopo da sessao. A data da aprovacao e a 1a entrada APROVADA/CONVERTIDA do statusHistory.
+ * O agrupamento por mes fica em dashboard-metrics.ts (datas mistas ISO e DD/MM/AAAA).
+ */
+export interface DashboardProposalDbRow {
+  status: string | null;
+  total: number;
+  fromGc: boolean;
+  converted: boolean;
+  createdRaw: string | null;
+  createdCol: string | null;
+  approvedRaw: string | null;
+  approvedHist: string | null;
+  updatedCol: string | null;
+}
+
+export async function listDashboardProposalRows(
+  db: PgQ,
+  sinceIso: string,
+  owner: { id: string; email: string } | null
+): Promise<DashboardProposalDbRow[]> {
+  const params: unknown[] = [];
+  const ownerWhere = owner ? buildWhere({ owner }, params) : '';
+  params.push(sinceIso);
+  const si = params.length;
+  const extra = `coalesce(status,'') <> 'RASCUNHO' AND (created_at >= $${si}::timestamptz OR updated_at >= $${si}::timestamptz)`;
+  const where = ownerWhere ? `${ownerWhere} AND ${extra}` : `WHERE ${extra}`;
+  const r = await db.query(
+    `SELECT status, total::float8 AS total, (gc_id IS NOT NULL) AS from_gc,
+            (is_converted OR coalesce(data->>'convertedInvoiceId','') <> '') AS converted,
+            data->>'createdAt' AS created_raw, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_col,
+            data->>'approvedAt' AS approved_raw,
+            (SELECT h.e->>'date' FROM jsonb_array_elements(CASE WHEN jsonb_typeof(data->'statusHistory') = 'array' THEN data->'statusHistory' ELSE '[]'::jsonb END) WITH ORDINALITY AS h(e, i)
+              WHERE h.e->>'status' IN ('APROVADA','CONVERTIDA_CONTRATO') ORDER BY h.i LIMIT 1) AS approved_hist,
+            to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_col
+       FROM erp_proposals ${where}`,
+    params
+  );
+  return (r.rows || []).map((x: any) => ({
+    status: x.status ?? null,
+    total: Number(x.total) || 0,
+    fromGc: Boolean(x.from_gc),
+    converted: Boolean(x.converted),
+    createdRaw: x.created_raw ?? null,
+    createdCol: x.created_col ?? null,
+    approvedRaw: x.approved_raw ?? null,
+    approvedHist: x.approved_hist ?? null,
+    updatedCol: x.updated_col ?? null,
+  }));
+}
+
 export async function countProposals(db: PgQ): Promise<{ total: number; open: number }> {
   const r = await db.query(`SELECT count(*)::int AS n, count(*) FILTER (WHERE status IN ('ENVIADA','EM_NEGOCIACAO','APROVADA'))::int AS o FROM erp_proposals`);
   return { total: Number(r.rows?.[0]?.n) || 0, open: Number(r.rows?.[0]?.o) || 0 };

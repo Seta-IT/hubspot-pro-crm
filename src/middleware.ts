@@ -103,6 +103,7 @@ export function isAlwaysProtectedApiPath(pathname: string, method = 'GET'): bool
   if (isPublicStiHubPath(clean, method)) return false;
   if (matchesApiPrefix(clean, '/api/companies')) return true;
   if (matchesApiPrefix(clean, '/api/erp/financial')) return true;
+  if (matchesApiPrefix(clean, '/api/erp/dashboard')) return true;
   if (isProposalMutationPath(clean, method)) return true;
   return false;
 }

@@ -16,50 +16,37 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { ErpBankAccount, ErpDashboardSummary, GestaoClickConfig } from '../../db/types';
+import type { ErpLiveDashboard } from '../../modules/erp/dashboard-metrics';
 import { formatBRL } from './ui-helpers';
 
-export const SETA_DASHBOARD_BASELINE: ErpDashboardSummary = {
-  availableBalanceToday: 2201765.4,
-  bankAccountsSummaryText: '3 contas bancárias · 1 com saldo negativo',
+/**
+ * Painel calculado na hora pelos dados do STI-hub (GET /api/erp/dashboard). Sem dados = zero;
+ * nenhum número fixo (o antigo dashboardSummary congelado e o baseline saíram da tela em 19/11/2026).
+ */
+export const EMPTY_DASHBOARD_SUMMARY: ErpDashboardSummary = {
+  availableBalanceToday: 0,
+  bankAccountsSummaryText: 'Nenhuma conta bancária cadastrada',
   receivableToday: 0,
   receivableTodaySubtitle: 'Nenhum título vence hoje',
-  payableToday: 2476.8,
-  payableTodaySubtitle: '2 títulos vencem hoje',
-  receivedMonth: 287508.95,
-  receivedMonthPlanned: 288468.95,
-  receivedMonthPercent: 100,
-  paidMonth: 167157.67,
-  paidMonthPlanned: 272898.07,
-  paidMonthPercent: 61,
-  cashFlowPeriodBalance: 804185.24,
-  cashFlowBestMonth: 'set · R$ 302.303,45',
-  cashFlowWorstMonth: 'jul · -R$ 12.784,56',
-  cashFlowMonthly: [
-    { month: 'mai', recebimentos: 418200, pagamentos: 245100, saldo: 173100 },
-    { month: 'jun', recebimentos: 325400, pagamentos: 212800, saldo: 112600 },
-    { month: 'jul', recebimentos: 278900, pagamentos: 291684.56, saldo: -12784.56 },
-    { month: 'ago', recebimentos: 312450, pagamentos: 203832.37, saldo: 108617.63 },
-    { month: 'set', recebimentos: 489120.45, pagamentos: 186817, saldo: 302303.45 },
-    { month: 'out', recebimentos: 287508.95, pagamentos: 167157.67, saldo: 120351.28 },
-  ],
-  salesPeriodTotal: 207113.75,
-  salesMonthlyAverage: 34518.96,
-  salesCurrentMonthToDate: 6690,
-  salesMonthly: [
-    { month: 'mai', vendas: 4820, media: 34518.96 },
-    { month: 'jun', vendas: 22450, media: 34518.96 },
-    { month: 'jul', vendas: 18950, media: 34518.96 },
-    { month: 'ago', vendas: 3203.75, media: 34518.96 },
-    { month: 'set', vendas: 151000, media: 34518.96 },
-    { month: 'out', vendas: 6690, media: 34518.96 },
-  ],
+  payableToday: 0,
+  payableTodaySubtitle: 'Nenhum título vence hoje',
+  receivedMonth: 0,
+  receivedMonthPlanned: 0,
+  receivedMonthPercent: 0,
+  paidMonth: 0,
+  paidMonthPlanned: 0,
+  paidMonthPercent: 0,
+  cashFlowPeriodBalance: 0,
+  cashFlowBestMonth: '-',
+  cashFlowWorstMonth: '-',
+  cashFlowMonthly: [],
+  salesPeriodTotal: 0,
+  salesMonthlyAverage: 0,
+  salesCurrentMonthToDate: 0,
+  salesMonthly: [],
 };
 
-export const SETA_BANK_BASELINE: ErpBankAccount[] = [
-  { id: '237906', name: 'Banco Inter', lastMovedAt: 'Movimentada em 26/10/2026', balance: 4572238.02, status: 'POSITIVE' },
-  { id: '142155', name: 'Banco Itaú', lastMovedAt: 'Movimentada em 26/10/2026', balance: -2370472.62, status: 'NEGATIVE' },
-  { id: '710407', name: 'Conta Integrada', lastMovedAt: 'Sem movimentação', balance: 0, status: 'ZERO' },
-];
+const ACCENT = '#1e3a6e';
 
 /** Mês corrente por extenso (pt-BR), para os rótulos 'Recebido/Pago em ...'. */
 function currentMonthLabel(): string {
@@ -98,6 +85,44 @@ function Gauge({ percent, color }: { percent: number; color: string }) {
   );
 }
 
+function EmptyChart() {
+  return <div className="h-52 flex items-center justify-center text-xs text-slate-400">Sem dados no período</div>;
+}
+
+/** Feitas x aprovadas (quantidade) nos últimos 6 meses, na cor única. */
+function ProposalsChart({ data }: { data: ErpLiveDashboard['monthly'] }) {
+  if (data.length === 0) return <EmptyChart />;
+  const W = 560;
+  const H = 150;
+  const pad = 24;
+  const max = Math.max(1, ...data.map((d) => Math.max(d.proposalsMade.count, d.proposalsApproved.count)));
+  const step = (W - pad * 2) / data.length;
+  const h = (v: number) => (v / max) * (H - 24);
+  return (
+    <svg viewBox={`0 0 ${W} ${H + 18}`} className="w-full h-40">
+      <line x1={pad} x2={W - pad} y1={H} y2={H} stroke="#cbd5e1" />
+      {data.map((d, i) => {
+        const x = pad + step * i + step / 2;
+        const hm = h(d.proposalsMade.count);
+        const ha = h(d.proposalsApproved.count);
+        return (
+          <g key={d.month}>
+            <rect x={x - 14} y={H - hm} width={12} height={hm} fill={ACCENT} fillOpacity="0.35" rx={1}>
+              <title>{`Feitas ${d.label}: ${d.proposalsMade.count} (${formatBRL(d.proposalsMade.value)})`}</title>
+            </rect>
+            <rect x={x + 2} y={H - ha} width={12} height={ha} fill={ACCENT} rx={1}>
+              <title>{`Aprovadas ${d.label}: ${d.proposalsApproved.count} (${formatBRL(d.proposalsApproved.value)})`}</title>
+            </rect>
+            <text x={x} y={H + 14} textAnchor="middle" fontSize="11" fill="#64748b">
+              {d.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 function CashFlowChart({
   data,
   onClickChart,
@@ -108,6 +133,7 @@ function CashFlowChart({
   const W = 560;
   const H = 200;
   const pad = 30;
+  if (data.length === 0) return <EmptyChart />;
   const maxAbs = Math.max(1, ...data.map((d) => Math.max(d.recebimentos, d.pagamentos, Math.abs(d.saldo))));
   const mid = H / 2;
   const scale = (v: number) => (v / maxAbs) * (H / 2 - 16);
@@ -126,10 +152,10 @@ function CashFlowChart({
         const hP = scale(d.pagamentos);
         return (
           <g key={d.month}>
-            <rect x={x - 14} y={mid - hR} width={12} height={hR} fill="#15803d" rx={1}>
+            <rect x={x - 14} y={mid - hR} width={12} height={hR} fill={ACCENT} rx={1}>
               <title>{`Recebimentos ${d.month}: ${formatBRL(d.recebimentos)} (Clique para abrir Fluxo de Caixa)`}</title>
             </rect>
-            <rect x={x + 2} y={mid} width={12} height={hP} fill="#dc2626" rx={1}>
+            <rect x={x + 2} y={mid} width={12} height={hP} fill={ACCENT} fillOpacity="0.35" rx={1}>
               <title>{`Pagamentos ${d.month}: ${formatBRL(d.pagamentos)} (Clique para abrir Fluxo de Caixa)`}</title>
             </rect>
             <text x={x} y={H + 14} textAnchor="middle" fontSize="11" fill="#64748b">
@@ -158,6 +184,7 @@ function SalesChart({
   const W = 560;
   const H = 200;
   const pad = 30;
+  if (data.length === 0) return <EmptyChart />;
   const max = Math.max(1, ...data.map((d) => d.vendas), data[0]?.media || 0) * 1.1;
   const step = (W - pad * 2) / Math.max(1, data.length - 1);
   const y = (v: number) => H - 10 - (v / max) * (H - 30);
@@ -177,8 +204,8 @@ function SalesChart({
       onClick={onClickChart}
       className="w-full h-52 cursor-pointer"
     >
-      <path d={area} fill="#1e3a6e" fillOpacity="0.12" />
-      <path d={path} fill="none" stroke="#1e3a6e" strokeWidth="2" />
+      <path d={area} fill={ACCENT} fillOpacity="0.12" />
+      <path d={path} fill="none" stroke={ACCENT} strokeWidth="2" />
       <line x1={pad} x2={W - pad} y1={avgY} y2={avgY} stroke="#94a3b8" strokeDasharray="5 4" />
       {pts.map((p, i) => (
         <g key={data[i].month}>
@@ -196,7 +223,11 @@ function SalesChart({
 
 interface Props {
   userName?: string;
-  summary?: ErpDashboardSummary;
+  /** Painel calculado pelo servidor (GET /api/erp/dashboard). null/undefined = ainda carregando ou falhou. */
+  live?: ErpLiveDashboard | null;
+  liveLoading?: boolean;
+  liveError?: string | null;
+  onReloadLive?: () => void;
   bankAccounts?: ErpBankAccount[];
   hideBalances: boolean;
   onToggleHide: () => void;
@@ -211,7 +242,10 @@ interface Props {
 
 export default function GestaoClickDashboard({
   userName,
-  summary,
+  live,
+  liveLoading = false,
+  liveError = null,
+  onReloadLive,
   bankAccounts,
   hideBalances,
   onToggleHide,
@@ -222,12 +256,21 @@ export default function GestaoClickDashboard({
   config,
   serviceOrdersUpcoming,
 }: Props) {
-  const s = summary || SETA_DASHBOARD_BASELINE;
-  const accounts = bankAccounts && bankAccounts.length > 0 ? bankAccounts : SETA_BANK_BASELINE;
-  const total = accounts.reduce((acc, a) => acc + a.balance, 0);
+  const s = live?.summary || EMPTY_DASHBOARD_SUMMARY;
+  const financeVisible = live ? live.financeVisible : true;
+  const accounts = financeVisible ? bankAccounts || [] : [];
+  const total = accounts.reduce((acc, a) => acc + (Number(a.balance) || 0), 0);
   const negCount = accounts.filter((a) => a.balance < 0).length;
   const money = (v: number) => (hideBalances ? 'R$ ••••••' : formatBRL(v));
+  const finMoney = (v: number) => (financeVisible ? money(v) : '—');
   const totals = config.liveTotals;
+  const monthShort = live?.monthLabel || new Date().toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+  const made = live?.proposals.made;
+  const approved = live?.proposals.approved;
+  const rate = live?.proposals.approvalRate;
+  const updatedAt = live?.generatedAt
+    ? new Date(live.generatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+    : null;
 
   const clickableCard =
     'group bg-white rounded-md border border-slate-200 shadow-xs hover:border-[#1e3a6e] hover:shadow-md transition cursor-pointer';
@@ -261,6 +304,26 @@ export default function GestaoClickDashboard({
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500" data-testid="painel-tempo-real-status">
+        <span>
+          {liveError
+            ? liveError
+            : liveLoading && !live
+              ? 'Calculando o painel...'
+              : `Calculado agora pelos dados do STI-hub${updatedAt ? ` · atualizado às ${updatedAt}` : ''}${financeVisible ? '' : ' · valores financeiros ocultos para o seu perfil'}`}
+        </span>
+        {onReloadLive && (
+          <button
+            type="button"
+            onClick={onReloadLive}
+            disabled={liveLoading}
+            className="inline-flex items-center gap-1 font-semibold text-[#1e3a6e] hover:underline cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 ${liveLoading ? 'animate-spin' : ''}`} /> Atualizar painel
+          </button>
+        )}
+      </div>
+
       {/* LINHA 1: 5 FLASHCARDS FINANCEIROS CLICÁVEIS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
         {/* Card 1: Saldo disponível hoje */}
@@ -286,11 +349,17 @@ export default function GestaoClickDashboard({
             </button>
           </div>
           <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-[#1e3a6e]">
-            {money(total)}
+            {finMoney(total)}
           </div>
           <div className="text-[11px] text-slate-500">
-            {accounts.length} contas bancárias ·{' '}
-            <span className="text-rose-600">{negCount} com saldo negativo</span>
+            {accounts.length === 0 ? (
+              'Nenhuma conta bancária cadastrada'
+            ) : (
+              <>
+                {accounts.length} {accounts.length === 1 ? 'conta bancária' : 'contas bancárias'} ·{' '}
+                <span className={negCount > 0 ? 'text-rose-600' : ''}>{negCount} com saldo negativo</span>
+              </>
+            )}
           </div>
           <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-[#1e3a6e] flex items-center justify-between">
             <span>Ver Contas &amp; Extrato</span>
@@ -308,12 +377,12 @@ export default function GestaoClickDashboard({
               
               A receber hoje
             </div>
-            <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-emerald-700">
-              {money(s.receivableToday)}
+            <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-[#1e3a6e]">
+              {finMoney(s.receivableToday)}
             </div>
             <div className="text-[11px] text-slate-500">{s.receivableTodaySubtitle}</div>
           </div>
-          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-emerald-700 flex items-center justify-between">
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-[#1e3a6e] flex items-center justify-between">
             <span>Abrir Contas a Receber</span>
             <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
           </div>
@@ -329,12 +398,12 @@ export default function GestaoClickDashboard({
               
               A pagar hoje
             </div>
-            <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-rose-700">
-              {money(s.payableToday)}
+            <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-[#1e3a6e]">
+              {finMoney(s.payableToday)}
             </div>
             <div className="text-[11px] text-slate-500">{s.payableTodaySubtitle}</div>
           </div>
-          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-rose-700 flex items-center justify-between">
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-[#1e3a6e] flex items-center justify-between">
             <span>Abrir Contas a Pagar</span>
             <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
           </div>
@@ -351,17 +420,17 @@ export default function GestaoClickDashboard({
                 
                 Recebido em {currentMonthLabel()}
               </div>
-              <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-emerald-700">
-                {money(s.receivedMonth)}
+              <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-[#1e3a6e]">
+                {finMoney(s.receivedMonth)}
               </div>
               <div className="text-[11px] text-slate-500">
-                de {money(s.receivedMonthPlanned)} previstos
+                de {finMoney(s.receivedMonthPlanned)} previstos
               </div>
             </div>
-            <Gauge percent={s.receivedMonthPercent} color="#16a34a" />
+            <Gauge percent={s.receivedMonthPercent} color={ACCENT} />
           </div>
-          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-emerald-700 flex items-center justify-between">
-            <span>Ver Recebimentos ({totals?.recebimentos ?? 153})</span>
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-[#1e3a6e] flex items-center justify-between">
+            <span>Ver Recebimentos ({live?.counts.receivedMonth ?? 0})</span>
             <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
           </div>
         </div>
@@ -377,17 +446,109 @@ export default function GestaoClickDashboard({
                 
                 Pago em {currentMonthLabel()}
               </div>
-              <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-rose-700">
-                {money(s.paidMonth)}
+              <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-[#1e3a6e]">
+                {finMoney(s.paidMonth)}
               </div>
               <div className="text-[11px] text-slate-500">
-                de {money(s.paidMonthPlanned)} previstos
+                de {finMoney(s.paidMonthPlanned)} previstos
               </div>
             </div>
-            <Gauge percent={s.paidMonthPercent} color="#dc2626" />
+            <Gauge percent={s.paidMonthPercent} color={ACCENT} />
           </div>
-          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-rose-700 flex items-center justify-between">
-            <span>Ver Pagamentos ({totals?.pagamentos ?? 43})</span>
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-[#1e3a6e] flex items-center justify-between">
+            <span>Ver Pagamentos ({live?.counts.paidMonth ?? 0})</span>
+            <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
+          </div>
+        </div>
+      </div>
+
+      {/* LINHA 1B: PROPOSTAS FEITAS x APROVADAS, FATURADO E VENDAS DO MÊS (pedido do Marcéllo, 19/11) */}
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-3">
+        <div
+          onClick={() => onOpenSection('ORCAMENTOS')}
+          className={`${clickableCard} p-4 xl:col-span-2`}
+          data-testid="card-propostas-feitas-aprovadas"
+        >
+          <div className="flex items-start justify-between">
+            <h3 className="text-sm font-semibold text-slate-800 group-hover:text-[#1e3a6e]">
+              Propostas feitas x aprovadas em {currentMonthLabel()}
+            </h3>
+            <span className="text-[11px] font-semibold text-[#1e3a6e] inline-flex items-center gap-1">
+              Ver propostas <ArrowRight className="w-3.5 h-3.5" />
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 mt-3 text-[11px]">
+            <div className="p-2 rounded bg-slate-50 border border-slate-100">
+              <span className="text-slate-500 block">Feitas</span>
+              <strong className="text-lg text-slate-900">{made?.count ?? 0}</strong>
+              <span className="block text-slate-600">{money(made?.value ?? 0)}</span>
+            </div>
+            <div className="p-2 rounded bg-slate-50 border border-slate-100">
+              <span className="text-slate-500 block">Aprovadas</span>
+              <strong className="text-lg text-[#1e3a6e]">{approved?.count ?? 0}</strong>
+              <span className="block text-slate-600">{money(approved?.value ?? 0)}</span>
+            </div>
+            <div className="p-2 rounded bg-slate-50 border border-slate-100">
+              <span className="text-slate-500 block">Taxa de aprovação</span>
+              <strong className="text-lg text-slate-900">
+                {rate === null || rate === undefined ? '—' : `${rate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}
+              </strong>
+              <span className="block text-slate-600">aprovadas / feitas</span>
+            </div>
+          </div>
+          <ProposalsChart data={live?.monthly || []} />
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
+            <div className="flex items-center gap-4">
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 bg-[#1e3a6e]/35 inline-block" /> Feitas
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 bg-[#1e3a6e] inline-block" /> Aprovadas
+              </span>
+            </div>
+            <span className="text-slate-500">
+              Origem: STI-hub {made?.bySource.stihub.count ?? 0} feitas / {approved?.bySource.stihub.count ?? 0} aprovadas · GestãoClick{' '}
+              {made?.bySource.gc.count ?? 0} / {approved?.bySource.gc.count ?? 0}
+            </span>
+          </div>
+        </div>
+
+        <div
+          onClick={() => onOpenSection('FISCAL')}
+          className={`${clickableCard} p-3.5 flex flex-col justify-between`}
+          data-testid="card-faturado-mes"
+        >
+          <div>
+            <div className="text-xs text-slate-600 font-semibold">Faturado em {currentMonthLabel()}</div>
+            <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-[#1e3a6e]">
+              {finMoney(live?.invoiced?.value ?? 0)}
+            </div>
+            <div className="text-[11px] text-slate-500">
+              {financeVisible ? `${live?.invoiced?.count ?? 0} fatura(s) emitida(s) ou paga(s)` : 'Sem alçada financeira'}
+            </div>
+          </div>
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-[#1e3a6e] flex items-center justify-between">
+            <span>Ver faturas</span>
+            <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
+          </div>
+        </div>
+
+        <div
+          onClick={() => onOpenSection('VENDAS', 'VENDAS_PRODUTOS')}
+          className={`${clickableCard} p-3.5 flex flex-col justify-between`}
+          data-testid="card-vendas-mes"
+        >
+          <div>
+            <div className="text-xs text-slate-600 font-semibold">Vendas em {currentMonthLabel()}</div>
+            <div className="text-xl font-semibold text-slate-900 mt-2 group-hover:text-[#1e3a6e]">
+              {money(live?.sales.monthTotal ?? 0)}
+            </div>
+            <div className="text-[11px] text-slate-500">
+              Propostas aprovadas {money(live?.sales.fromProposals ?? 0)} · vendas {money(live?.sales.imported ?? 0)}
+            </div>
+          </div>
+          <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] font-semibold text-[#1e3a6e] flex items-center justify-between">
+            <span>Ver vendas</span>
             <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
           </div>
         </div>
@@ -415,25 +576,25 @@ export default function GestaoClickDashboard({
           <div className="grid grid-cols-3 gap-2 mt-3 text-[11px]">
             <div className="p-2 rounded bg-slate-50 border border-slate-100">
               <span className="text-slate-500 block">Saldo do período</span>
-              <strong className="text-slate-900">{money(s.cashFlowPeriodBalance)}</strong>
+              <strong className="text-slate-900">{finMoney(s.cashFlowPeriodBalance)}</strong>
             </div>
-            <div className="p-2 rounded bg-emerald-50/50 border border-emerald-100">
+            <div className="p-2 rounded bg-slate-50 border border-slate-100">
               <span className="text-slate-500 block">Melhor mês</span>
-              <strong className="text-emerald-800">{s.cashFlowBestMonth}</strong>
+              <strong className="text-[#1e3a6e]">{financeVisible ? s.cashFlowBestMonth : '—'}</strong>
             </div>
-            <div className="p-2 rounded bg-rose-50/50 border border-rose-100">
+            <div className="p-2 rounded bg-slate-50 border border-slate-100">
               <span className="text-slate-500 block">Pior mês</span>
-              <strong className="text-rose-600">{s.cashFlowWorstMonth}</strong>
+              <strong className="text-slate-900">{financeVisible ? s.cashFlowWorstMonth : '—'}</strong>
             </div>
           </div>
           <CashFlowChart data={s.cashFlowMonthly} onClickChart={() => onOpenSection('FINANCEIRO', 'FIN_FLUXO')} />
           <div className="flex items-center justify-between text-[11px] text-slate-600">
             <div className="flex items-center gap-4">
               <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 bg-green-700 inline-block" /> Recebimentos
+                <span className="w-2.5 h-2.5 bg-[#1e3a6e] inline-block" /> Recebimentos
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 bg-red-600 inline-block" /> Pagamentos
+                <span className="w-2.5 h-2.5 bg-[#1e3a6e]/35 inline-block" /> Pagamentos
               </span>
               <span className="flex items-center gap-1">
                 <span className="w-3 h-0.5 bg-slate-400 inline-block" /> Saldo
@@ -470,7 +631,7 @@ export default function GestaoClickDashboard({
               <strong className="text-slate-900">{money(s.salesMonthlyAverage)}</strong>
             </div>
             <div className="p-2 rounded bg-blue-50/50 border border-blue-100">
-              <span className="text-slate-500 block">out até hoje</span>
+              <span className="text-slate-500 block">{monthShort} até hoje</span>
               <strong className="text-[#1e3a6e]">{money(s.salesCurrentMonthToDate)}</strong>
             </div>
           </div>
@@ -560,7 +721,7 @@ export default function GestaoClickDashboard({
               onClick={() => onOpenSection('ORDENS_SERVICOS', 'OS_GERENCIAR')}
               className="px-3 py-1.5 rounded border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
             >
-              Abrir agenda ({totals?.ordensServicos ?? 1378} O.S.)
+              Abrir agenda ({totals?.ordensServicos ?? serviceOrdersUpcoming.length} O.S.)
             </button>
           </div>
           {serviceOrdersUpcoming.length === 0 ? (
