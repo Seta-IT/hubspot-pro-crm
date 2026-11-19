@@ -85,6 +85,30 @@ import {
   type PgQ,
   type StoredProposal,
 } from '../db/proposal-store';
+import {
+  countErpTable,
+  diffHydratedErpRecords,
+  ErpTableCnpjError,
+  ErpTableWriteConflictError,
+  getAllErpRows,
+  getErpStorageMode,
+  isEmptyErpDiff,
+  listErpTablePage,
+  paginateErpRecordsInMemory,
+  snapshotErpRows,
+  type ErpTableDiff,
+  type ErpTableSpec,
+  type HydratedErpSnapshot,
+  type PgQ as ErpPgQ,
+} from '../db/erp-table-store';
+import {
+  SERVICE_ORDERS_RESOURCE,
+  SERVICE_ORDERS_SPEC,
+  serviceOrderColumnValue,
+  serviceOrdersNeededForRoute,
+  sortServiceOrdersForList,
+  validateServiceOrderCnpj,
+} from '../db/erp-service-orders-table';
 import { calculateCompanyCompleteness, calculateContactCompleteness } from '../modules/data-health/completeness';
 import { detectDuplicateCompanies, detectDuplicateContacts, haveConflictingCnpjs } from '../modules/data-health/deduplication';
 import { DataHealthService } from '../modules/data-health/health-service';
@@ -240,7 +264,7 @@ import {
   toFiscalSettingsView,
 } from '../modules/erp/fiscal-settings';
 import { ErpImportDeclarationInfo } from '../db/types';
-import type { ErpCommercialProposal } from '../db/types';
+import type { ErpCommercialProposal, ErpServiceOrder } from '../db/types';
 import {
   GESTAOCLICK_ALL_76_ENDPOINTS,
   GESTAOCLICK_FULL_RESOURCE_SCHEMAS,
@@ -512,6 +536,19 @@ export function buildInviteEmailHtml(p: { userName: string; inviteUrl: string; e
  * nao pode vir de JSON, query, header ou corpo, logo o cliente nao consegue injeta-lo.
  * Sem ele, toda chamada (HTTP ou interna) cai nas regras de autorizacao IAM.
  */
+/**
+ * 18/11/2026: GET /api/health sem sessao e fora do contexto interno responde so {status:'ok'}
+ * e nao depende do estado (o dispatch nao le o crm_state_v1 nesse caso).
+ */
+export function isAnonymousHealthProbe(
+  method: string,
+  cleanPath: string,
+  query: Record<string, string | undefined>,
+  trustedInternal: boolean
+): boolean {
+  return method === 'GET' && cleanPath === '/api/health' && !query._sessionToken && !trustedInternal;
+}
+
 export const TRUSTED_INTERNAL_CONTEXT: unique symbol = Symbol('stihub.trustedInternalContext');
 
 /** Chaves internas que so o bridge (ou o proprio router) pode definir; nunca do cliente. */
@@ -907,6 +944,12 @@ export class CrmApiRouter {
    * lidos) para o diff gravado por linha depois da rota. null = modo JSON (comportamento anterior).
    */
   private proposalTableCtx: { hydrated: Map<string, HydratedSnapshot>; strictInserts: boolean } | null = null;
+  /**
+   * E2 (18/11/2026): OS em tabela propria (erp_service_orders). null = modo JSON (sem marcador).
+   * 'dual' = JSON continua a fonte (dupla escrita feita no syncStateToPostgres); 'table' = a tabela
+   * e a fonte e `hydrated` guarda id -> hash/row_version das OS carregadas para esta rota.
+   */
+  private serviceOrdersCtx: { mode: 'dual' | 'table'; hydrated: Map<string, HydratedErpSnapshot> | null } | null = null;
   private gcInitialized = false;
   private healthService = new DataHealthService();
   private enrichmentService = new EnrichmentService();
@@ -1324,11 +1367,23 @@ export class CrmApiRouter {
     this.repo.setProposalNumberingHint(null);
     // CISO 17/11: cron da entrada de e-mail com a flag desligada nao le o crm_state_v1 (~7 MB por
     // execucao no Neon); a rota responde 200 { enabled: false } sem tocar em nada.
-    const skipStateLoad = isAuthorizedSetaDeskEmailPollCron(method, cleanPath, query) && !isSetaDeskEmailIntakeEnabled();
+    // 18/11: GET /api/health anonimo (monitores) responde so {status:'ok'} e nao depende do estado:
+    // nao le os ~7,7 MB do crm_state_v1. Com sessao (admin) ou contexto interno, carrega como antes.
+    const anonymousHealth = isAnonymousHealthProbe(method, cleanPath, query, trustedInternal);
+    const skipStateLoad =
+      (isAuthorizedSetaDeskEmailPollCron(method, cleanPath, query) && !isSetaDeskEmailIntakeEnabled()) || anonymousHealth;
+    this.serviceOrdersCtx = null;
     if (this.isSingletonRepo && isPostgresEnabled() && !skipStateLoad) {
       try {
         const pgState = await loadStateFromPostgres();
         if (pgState) {
+          const osMode = getErpStorageMode(pgState, SERVICE_ORDERS_RESOURCE);
+          if (osMode === 'table' && pgState.erp) {
+            // Modo tabela: OS que um escritor antigo tenha deixado no JSON sao IGNORADAS (a fonte e
+            // erp_service_orders); so entram na memoria pela hidratacao da rota.
+            pgState.erp.serviceOrders = [];
+          }
+          if (osMode !== 'json') this.serviceOrdersCtx = { mode: osMode, hydrated: null };
           if (isProposalsTableState(pgState) && pgState.erp && Array.isArray(pgState.erp.proposals) && pgState.erp.proposals.length) {
             // Modo tabela: propostas que um escritor antigo tenha deixado no JSON sao IGNORADAS (a
             // fonte e erp_proposals); nunca entram na memoria nem no diff (incidente 04/11).
@@ -1351,6 +1406,18 @@ export class CrmApiRouter {
         await this.hydrateProposalsForRoute(method, cleanPath, body);
       } catch {
         return { status: 503, body: { error: 'Orçamentos temporariamente indisponíveis. Tente de novo em instantes.', code: 'PROPOSALS_STORE_UNAVAILABLE' } };
+      }
+    }
+
+    if (this.serviceOrdersCtx?.mode === 'table' && serviceOrdersNeededForRoute(method, cleanPath, body)) {
+      // Modo tabela: a rota usa as OS => carrega todas da tabela (mesmo comportamento do JSON).
+      // Falha de leitura => 503 (nunca lista vazia nem gravacao em cima de vazio).
+      try {
+        const rows = await getAllErpRows<ErpServiceOrder>(this.erpTablesDb(), SERVICE_ORDERS_SPEC);
+        this.repo.getErpState().serviceOrders = rows.map((r) => r.record);
+        this.serviceOrdersCtx.hydrated = snapshotErpRows(rows);
+      } catch {
+        return { status: 503, body: { error: 'Ordens de serviço temporariamente indisponíveis. Tente de novo em instantes.', code: 'SERVICE_ORDERS_STORE_UNAVAILABLE' } };
       }
     }
 
@@ -1536,22 +1603,76 @@ export class CrmApiRouter {
     return this.isSingletonRepo && isPostgresEnabled();
   }
 
+  private erpTablesDb(): ErpPgQ {
+    const pool = getPostgresPool();
+    if (!pool) throw new Error('Postgres indisponivel');
+    return pool as unknown as ErpPgQ;
+  }
+
+  /**
+   * Plano de gravacao das OS no modo 'table': diff das hidratadas (row_version). Rota que nao
+   * hidratou mas deixou OS em memoria => 503 (nunca grava OS calculadas sobre lista vazia).
+   */
+  private serviceOrdersPersistPlan(): { erpTables: Array<{ spec: ErpTableSpec; diff: ErpTableDiff; strictInserts?: boolean }> } | { response: ApiResponse } {
+    const ctx = this.serviceOrdersCtx;
+    if (!ctx || ctx.mode !== 'table') return { erpTables: [] };
+    const current = (this.repo.getErpState().serviceOrders || []) as unknown as Array<Record<string, any>>;
+    if (!ctx.hydrated) {
+      if (current.length) {
+        console.error('[ERP tabelas] rota sem hidratacao das OS deixou OS em memoria; gravacao recusada (503).');
+        return { response: { status: 503, body: { error: 'Não foi possível gravar agora (nada foi gravado). Tente de novo.', code: 'SERVICE_ORDERS_STORE_UNAVAILABLE' } } };
+      }
+      return { erpTables: [] };
+    }
+    const diff = diffHydratedErpRecords(ctx.hydrated, current);
+    return { erpTables: isEmptyErpDiff(diff) ? [] : [{ spec: SERVICE_ORDERS_SPEC, diff, strictInserts: true }] };
+  }
+
+  /** Erro das tabelas do ERP na gravacao => 409 (conflito), 422 (CNPJ) ou 503 (com diff). */
+  private erpTablePersistError(err: unknown, erpTables: Array<{ diff: ErpTableDiff }>): ApiResponse | null {
+    if (err instanceof ErpTableWriteConflictError) {
+      return {
+        status: 409,
+        body: {
+          error: 'Esta O.S. foi alterada por outra pessoa ou aba depois que você a abriu. Recarregue e tente de novo (nada foi gravado).',
+          code: 'SERVICE_ORDER_VERSION_CONFLICT',
+          serviceOrderId: err.recordId,
+        },
+      };
+    }
+    if (err instanceof ErpTableCnpjError) {
+      return { status: 422, body: { error: err.message, code: 'SERVICE_ORDER_CNPJ_INVALID', serviceOrderId: err.recordId } };
+    }
+    if (erpTables.some((t) => !isEmptyErpDiff(t.diff))) {
+      return { status: 503, body: { error: 'Não foi possível gravar a O.S. agora (nada foi gravado). Tente de novo.', code: 'SERVICE_ORDERS_STORE_UNAVAILABLE' } };
+    }
+    return null;
+  }
+
   private async persistStateToPostgres(): Promise<ApiResponse | null> {
     const ctx = this.proposalTableCtx;
+    const osPlan = this.serviceOrdersPersistPlan();
+    if ('response' in osPlan) return osPlan.response;
+    const erpTables = osPlan.erpTables;
     if (!ctx) {
       try {
-        await syncStateToPostgres(this.repo.getState());
-      } catch {
-        // Ignore background sync failure if PostgreSQL is temporarily unavailable
+        await syncStateToPostgres(this.repo.getState(), erpTables.length ? { erpTables } : undefined);
+      } catch (err) {
+        // Sem OS alteradas: falha temporaria do PostgreSQL e ignorada (comportamento anterior).
+        const r = this.erpTablePersistError(err, erpTables);
+        if (r) return r;
       }
       return null;
     }
     const diff = diffHydratedProposals(ctx.hydrated, this.repo.listProposals());
     const gcInserts = this.repo.takePendingGcProposalInserts();
     try {
-      await syncStateToPostgres(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts, gcInserts } });
+      await syncStateToPostgres(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts, gcInserts }, ...(erpTables.length ? { erpTables } : {}) });
       return null;
     } catch (err) {
+      if (err instanceof ErpTableWriteConflictError || err instanceof ErpTableCnpjError) {
+        return this.erpTablePersistError(err, erpTables);
+      }
       if (err instanceof ProposalWriteConflictError) {
         return {
           status: 409,
@@ -1565,7 +1686,7 @@ export class CrmApiRouter {
       if (!isEmptyDiff(diff)) {
         return { status: 503, body: { error: 'Não foi possível gravar o orçamento agora (nada foi gravado). Tente de novo.', code: 'PROPOSALS_STORE_UNAVAILABLE' } };
       }
-      return null;
+      return this.erpTablePersistError(err, erpTables);
     }
   }
 
@@ -1596,6 +1717,42 @@ export class CrmApiRouter {
         if (erp.kpis && typeof erp.kpis === 'object') erp.kpis.openProposalsCount = stats.open;
       }
     }
+  }
+
+  /** GET /api/erp/service-orders: pagina + busca + filtros (status, companyId, priority, technician). */
+  private async listServiceOrdersPage(query: Record<string, string | undefined>): Promise<ApiResponse> {
+    const pageQ = {
+      q: query.q ?? query.search,
+      filters: { status: query.status, companyId: query.companyId, priority: query.priority, technician: query.technician },
+      limit: query.limit !== undefined ? Number(query.limit) : undefined,
+      offset: query.offset !== undefined ? Number(query.offset) : undefined,
+    };
+    const mode = this.serviceOrdersCtx?.mode || 'json';
+    if (mode !== 'json' && this.isSingletonRepo && isPostgresEnabled()) {
+      try {
+        const db = this.erpTablesDb();
+        let populated = true;
+        if (mode === 'dual') {
+          const jsonCount = (this.repo.getErpState().serviceOrders || []).length;
+          populated = (await countErpTable(db, SERVICE_ORDERS_SPEC)) >= jsonCount;
+        }
+        if (populated) {
+          const page = await listErpTablePage<ErpServiceOrder>(db, SERVICE_ORDERS_SPEC, pageQ);
+          return { status: 200, body: { ...page, storage: mode } };
+        }
+      } catch {
+        if (mode === 'table') {
+          return { status: 503, body: { error: 'Ordens de serviço temporariamente indisponíveis. Tente de novo em instantes.', code: 'SERVICE_ORDERS_STORE_UNAVAILABLE' } };
+        }
+        // 'dual': o JSON ainda e a fonte completa => fallback abaixo.
+      }
+      if (mode === 'table') {
+        return { status: 503, body: { error: 'Ordens de serviço temporariamente indisponíveis. Tente de novo em instantes.', code: 'SERVICE_ORDERS_STORE_UNAVAILABLE' } };
+      }
+    }
+    const list = sortServiceOrdersForList((this.repo.getErpState().serviceOrders || []) as ErpServiceOrder[]);
+    const page = paginateErpRecordsInMemory(SERVICE_ORDERS_SPEC, list, pageQ, serviceOrderColumnValue);
+    return { status: 200, body: { ...page, storage: mode === 'dual' ? 'json-fallback' : 'json' } };
   }
 
   /** GET /api/erp/proposals no modo tabela: pagina + filtros no SQL, no escopo da sessao. */
@@ -8429,6 +8586,13 @@ export class CrmApiRouter {
             }
             body.cnpj = check.formatted;
           }
+          if (col === 'serviceOrders') {
+            const osCnpjError = validateServiceOrderCnpj(
+              body,
+              typeof body.companyId === 'string' && body.companyId ? this.repo.getCompanyById(body.companyId) : null
+            );
+            if (osCnpjError) return { status: 400, body: { error: osCnpjError, code: 'SERVICE_ORDER_CNPJ_INVALID' } };
+          }
           const saved = this.repo.upsertErpCollectionRecord(col, {
             ...body,
             ...(recId ? { id: recId } : {}),
@@ -8449,6 +8613,12 @@ export class CrmApiRouter {
         }
       }
 
+      // OS: lista paginada (E2). Modo 'table': SQL; 'dual': tabela com fallback para o JSON se
+      // estiver incompleta/indisponivel; sem marcador: JSON paginado em memoria.
+      if (cleanPath === '/api/erp/service-orders' && method === 'GET') {
+        return await this.listServiceOrdersPage(query);
+      }
+
       // OS: salvar (com historico de situacao), trocar situacao e duplicar (uso mensal).
       if (cleanPath === '/api/erp/service-orders' && method === 'POST') {
         const rec = { ...(body as Record<string, unknown>) };
@@ -8460,6 +8630,11 @@ export class CrmApiRouter {
         if (typeof rec.companyName !== 'string' || !rec.companyName.trim()) {
           return { status: 400, body: { error: 'Selecione o cliente da O.S.' } };
         }
+        const osCnpjError = validateServiceOrderCnpj(
+          rec,
+          typeof rec.companyId === 'string' && rec.companyId ? this.repo.getCompanyById(rec.companyId) : null
+        );
+        if (osCnpjError) return { status: 400, body: { error: osCnpjError, code: 'SERVICE_ORDER_CNPJ_INVALID' } };
         rec.status = normalizeServiceOrderStatus(rec.status);
         const savedOs = this.repo.upsertErpCollectionRecord('serviceOrders', rec, this.sessionActorName(query));
         return { status: 200, body: { data: savedOs } };

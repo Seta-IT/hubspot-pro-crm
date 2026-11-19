@@ -1889,6 +1889,12 @@ export interface ErpDatabaseState {
    * `proposals` aqui guarda so as hidratadas pela requisicao (no JSON persistido fica []).
    */
   proposalsStorage?: 'table';
+  /**
+   * 18/11/2026 (plano de tabelas, E0): modo de armazenamento por colecao (ex.: serviceOrders).
+   * 'dual' => tabela propria populada e mantida em dupla escrita; o JSON continua com tudo.
+   * 'table' => a tabela e a fonte e o array do JSON fica [] (corte com OK do usuario).
+   */
+  storage?: Partial<Record<string, 'dual' | 'table'>>;
   /** Conciliação bancária: histórico de PDFs/XMLs importados (só metadados). */
   financialDocumentImports?: ErpFinancialDocumentImport[];
 }
