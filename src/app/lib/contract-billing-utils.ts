@@ -795,7 +795,7 @@ export function buildDraftRentalInvoiceFromContract(
     dueDate,
     paidAt: null,
     paymentMethod: 'BOLETO_PIX',
-    serviceCodeLc116: 'N/A — Locação Pura de Bens Móveis (Veto Item 3.01 LC 116/03 + SV 31 STF)',
+    serviceCodeLc116: 'N/A — Locação de Bens Móveis (Veto Item 3.01 LC 116/03 + SV 31 STF)',
     cfop: `N/A (Fatura de Locação ref. NF-e Remessa CFOP ${contract.remessaCfop} nº ${contract.remessaNfeNumber})`,
     cstIcms: '41 - Não Tributada',
     cstPisCofins: '01 - Operação Tributável Alíquota Básica',
@@ -1090,7 +1090,7 @@ export const CONTRACT_DOCUMENT_TEMPLATES: Record<'LOCACAO' | 'SERVICO' | 'ASSINA
     shortLabel: 'Aluguel',
     legalBasis: 'Arts. 565 a 578 do Código Civil (Lei 10.406/2002) e Súmula Vinculante 31 do STF',
     clauses: [
-      'CLÁUSULA 1ª — DO OBJETO: Locação pura de bens móveis (equipamentos de TI e Telecom — Hardware as a Service/HaaS), nos termos dos Arts. 565 a 578 do Código Civil, sem prestação de serviço agregada ao valor locatício.',
+      'CLÁUSULA 1ª — DO OBJETO: Locação de bens móveis (equipamentos de TI e Telecom — Hardware as a Service/HaaS), nos termos dos Arts. 565 a 578 do Código Civil, sem prestação de serviço agregada ao valor locatício.',
       'CLÁUSULA 2ª — DA NATUREZA TRIBUTÁRIA: Por se tratar de locação de bens móveis, não há incidência de ISS, conforme Súmula Vinculante 31 do STF. A cobrança será realizada mediante Fatura Comercial de Locação.',
       'CLÁUSULA 3ª — DA REMESSA: Os equipamentos serão remetidos ao LOCATÁRIO acompanhados de NF-e de Remessa em Locação/Comodato, CFOP 5.908 (operação interna) ou 6.908 (operação interestadual), permanecendo de propriedade da LOCADORA.',
       'CLÁUSULA 4ª — DA GUARDA E CONSERVAÇÃO: O LOCATÁRIO obriga-se a servir-se dos equipamentos para o uso convencionado, guardá-los e conservá-los como se seus fossem (Art. 569 do CC), respondendo por danos decorrentes de mau uso, extravio ou sinistro.',

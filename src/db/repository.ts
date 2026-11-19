@@ -4872,7 +4872,7 @@ export class CrmRepository {
       totalContractValue,
       commercialNotes:
         input.commercialNotes ||
-        'Locação pura de bens móveis sem mão de obra (Dispensa de ISSQN conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
+        'Locação de bens móveis sem mão de obra (Dispensa de ISSQN conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
       technicalClauses:
         input.technicalClauses ||
         '',
@@ -5839,7 +5839,7 @@ export class CrmRepository {
         dueDate,
         paidAt: null,
         paymentMethod: 'BOLETO_PIX',
-        serviceCodeLc116: 'N/A — Locação Pura de Bens Móveis (Veto Item 3.01 LC 116/03 + SV 31 STF)',
+        serviceCodeLc116: 'N/A — Locação de Bens Móveis (Veto Item 3.01 LC 116/03 + SV 31 STF)',
         cfop: `N/A (Fatura de Locação ref. NF-e Remessa CFOP ${ctr.remessaCfop} nº ${ctr.remessaNfeNumber})`,
         cstIcms: '41 - Não Tributada',
         cstPisCofins: '01 - Operação Tributável Alíquota Básica',
@@ -6389,7 +6389,7 @@ export class CrmRepository {
       remessaNfeNumber,
       remessaCfop: '5.908',
       legalBasisNote:
-        'Locação pura de bens móveis sem fornecimento de mão de obra. Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF.',
+        'Locação de bens móveis sem fornecimento de mão de obra. Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF.',
       lastBilledCompetence: competence,
       createdAt: nowIso,
       updatedAt: nowIso,
@@ -6561,7 +6561,7 @@ export class CrmRepository {
       remessaCfop: input.remessaCfop || '5.908',
       legalBasisNote:
         input.legalBasisNote ||
-        'Locação de Bens Móveis pura (Não incidência de ISSQN conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
+        'Locação de Bens Móveis (Não incidência de ISSQN conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
       lastBilledCompetence: input.lastBilledCompetence || null,
       createdAt: nowIso,
       updatedAt: nowIso,
@@ -6727,7 +6727,7 @@ export class CrmRepository {
       dueDate,
       paidAt: null,
       paymentMethod: 'BOLETO_PIX',
-      serviceCodeLc116: 'N/A — Locação Pura de Bens Móveis (Veto Item 3.01 LC 116/03 + SV 31 STF)',
+      serviceCodeLc116: 'N/A — Locação de Bens Móveis (Veto Item 3.01 LC 116/03 + SV 31 STF)',
       cfop: `N/A (Fatura de Locação ref. NF-e Remessa CFOP ${contract.remessaCfop} nº ${contract.remessaNfeNumber})`,
       cstIcms: '41 - Não Tributada',
       cstPisCofins: '01 - Operação Tributável Alíquota Básica',
@@ -10479,7 +10479,7 @@ export class CrmRepository {
       },
       {
         code: "1.1",
-        label: "Locação Pura de Bens Móveis (0% ISS — Súmula Vinculante 31 STF & Veto 3.01 LC 116)",
+        label: "Locação de Bens Móveis (0% ISS — Súmula Vinculante 31 STF & Veto 3.01 LC 116)",
         level: "SUBITEM",
         monthlyBrl: grossRevenueRentalSv31,
         ytdBrl: r2(grossRevenueRentalSv31 * ytdFactor),

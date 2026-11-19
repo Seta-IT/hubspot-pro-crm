@@ -229,7 +229,7 @@ export function createLegacyFixtureProposals(): ErpDatabaseState['proposals'] {
       totalContractValue: 205200,
       commercialNotes:
         'Aprovada pela CFO Juliana Rocha. Clique em "Aprovar & Gerar Contrato de Locação + Fatura" para emitir automaticamente o contrato e a 1ª Fatura de Locação.',
-      technicalClauses: 'Equipamentos em comodato/locação pura com manutenção preventiva trimestral.',
+      technicalClauses: 'Equipamentos em comodato/locação com manutenção preventiva trimestral.',
       convertedContractId: null,
       convertedInvoiceId: null,
       createdAt: daysAgoIso(7),

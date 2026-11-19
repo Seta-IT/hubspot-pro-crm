@@ -267,9 +267,9 @@ export function buildSeta21DayTemplateSteps(): SequenceStep[] {
       delayDays: 0,
       delayHours: 0,
       waitForEvent: 'NONE',
-      subject: 'Locação Pura de Servidores, Switches & Spare Parts (0% ISS — SV 31 STF) para {{companyName}}',
+      subject: 'Locação de Servidores, Switches & Spare Parts (0% ISS — SV 31 STF) para {{companyName}}',
       bodyTemplate:
-        'Olá {{firstName}}, tudo bem? Na Seta Telecom apoiamos empresas do porte da {{companyName}} na substituição de CAPEX por Locação Pura de Servidores Dell/Cisco, PABX IP e Contratos de Spare Parts com SLA NOC 24x7 e 0% de ISSQN.',
+        'Olá {{firstName}}, tudo bem? Na Seta Telecom apoiamos empresas do porte da {{companyName}} na substituição de CAPEX por Locação de Servidores Dell/Cisco, PABX IP e Contratos de Spare Parts com SLA NOC 24x7 e 0% de ISSQN.',
       stepType: 'AUTO_EMAIL',
       condition: 'ALWAYS',
       sentCount: 0,

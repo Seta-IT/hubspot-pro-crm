@@ -261,7 +261,7 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
       'GC-TL-00301 — Link Dedicado Fibra Óptica Full-Duplex + Tronco SIP (SCM)',
     ],
     requiredFieldsVerified: ['Código Serviço', 'Item LC 116/03 (01.07 / 14.01)', 'Alíquota ISS (2,90%)', 'Retenções IRRF/CSRF'],
-    cnpjFiscalLockCheck: 'Segregação automática entre Serviço Técnico (tributado ISS) e Locação Pura (0% ISS).',
+    cnpjFiscalLockCheck: 'Segregação automática entre Serviço Técnico (tributado ISS) e Locação (0% ISS).',
     relationalIntegrityCheck: 'Vinculados às propostas híbridas, NFS-e e Ordens de Serviço.',
     validationStatus: 'PASSOU',
     auditorNotes: 'Todos os 39 serviços técnicos conferidos.',
