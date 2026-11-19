@@ -258,6 +258,15 @@ export function canEditDealsFromPermissions(
   return perm.edit === true;
 }
 
+/** Edição (inclui criar) de um item do CRM pela matriz IAM; sem matriz = sem permissão. */
+export function canEditCrmItemFromPermissions(
+  user: { crmItemPermissions?: Record<string, ItemPerm>; itemPermissions?: Record<string, ItemPerm> } | null | undefined,
+  itemId: 'crm.contacts' | 'crm.companies'
+): boolean {
+  const perm = user?.crmItemPermissions?.[itemId] || user?.itemPermissions?.[itemId];
+  return perm?.edit === true;
+}
+
 export function canDeleteDealsFromPermissions(
   user?: {
     crmItemPermissions?: Record<string, ItemPerm>;

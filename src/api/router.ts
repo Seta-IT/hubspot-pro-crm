@@ -7,6 +7,7 @@ import {
   projectBootstrapCompanies,
   topIssuesBySeverity,
 } from '../modules/bootstrap/lean-payload';
+import { dealMatchesAssociationSearch, parseAssociationSort, sortForAssociation } from './association-search';
 import {
   CRM_MODULE_ITEMS_CATALOG,
   CRM_ROLES_CATALOG,
@@ -5393,13 +5394,20 @@ export class CrmApiRouter {
             minScore: query.minScore ? Number(query.minScore) : undefined,
           });
           const companies = new Map(this.repo.listCompanies().map((c) => [c.id, c]));
-          const enrichedList = contacts.map((c) => ({
+          // Painel de associacao: ?sort= e ?limit=&offset= opcionais (sem eles, lista inteira).
+          const sortedContacts = sortForAssociation(
+            contacts,
+            parseAssociationSort(query.sort),
+            (c) => `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || ''
+          );
+          const contactsPage = paginate(sortedContacts, query.limit, query.offset);
+          const enrichedList = contactsPage.page.map((c) => ({
             ...c,
             company: c.companyId ? companies.get(c.companyId) || null : null,
           }));
           return {
             status: 200,
-            body: { data: enrichedList, total: enrichedList.length },
+            body: { data: enrichedList, total: contactsPage.total, limit: contactsPage.limit, offset: contactsPage.offset },
           };
         }
 
@@ -5540,7 +5548,8 @@ export class CrmApiRouter {
             industry: query.industry,
           });
           // Paginacao opcional (?limit=&offset=; sem limit = lista inteira, compatibilidade).
-          const { page, total, limit, offset } = paginate(companies, query.limit, query.offset);
+          const sortedCompanies = sortForAssociation(companies, parseAssociationSort(query.sort), (c) => c.name || '');
+          const { page, total, limit, offset } = paginate(sortedCompanies, query.limit, query.offset);
           const contacts = this.repo.listContacts();
           const deals = this.repo.listDeals();
           const data = page.map((comp) => ({
@@ -5706,9 +5715,16 @@ export class CrmApiRouter {
             rottingDealsCount: openDeals.filter((d) => d.isRotting).length,
           };
 
+          // Painel de associacao: ?search=, ?sort= e ?limit=&offset= opcionais (forecast segue sobre todos).
+          const dealSearch = typeof (query.search || query.q) === 'string' ? String(query.search || query.q) : '';
+          const dealsFiltered = dealSearch.trim()
+            ? enrichedDeals.filter((d) => dealMatchesAssociationSearch(d, dealSearch))
+            : enrichedDeals;
+          const dealsSorted = sortForAssociation(dealsFiltered, parseAssociationSort(query.sort), (d) => d.title || '');
+          const dealsPage = paginate(dealsSorted, query.limit, query.offset);
           return {
             status: 200,
-            body: { data: enrichedDeals, total: enrichedDeals.length, forecast },
+            body: { data: dealsPage.page, total: dealsPage.total, limit: dealsPage.limit, offset: dealsPage.offset, forecast },
           };
         }
 

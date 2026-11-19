@@ -34,10 +34,21 @@ import {
   ServiceTicket,
   TimelineEvent,
 } from '../../db/types';
-import DealAssociationPicker from './DealAssociationPicker';
+import AssociationSidePanel from './AssociationSidePanel';
+import {
+  LogActivityWindow,
+  MeetingSchedulerModal,
+  MoreActivitiesMenu,
+  NoteWindow,
+  TaskWindow,
+  type AssocCandidate,
+  type TaskPayload,
+  type TimelinePayload,
+} from './ActivityWindows';
+import { agendaFromSources, type ActivityAssoc, type AgendaItem, type MoreOptionId } from '../lib/activity-composer';
+import { buildDealAssociationPatch, readAssocIds, type AssociationKind } from '../lib/association-panel';
 import {
   buildPipelineChangePatch,
-  filterAssociationChoices,
   pipelineNameOf,
   stagesForPipeline,
   type PipelineRef,
@@ -257,6 +268,13 @@ export interface DealRecordDrawerProps {
     stageId: string;
   }) => Promise<void>;
   onRefreshAll?: () => Promise<void>;
+  /** Grava uma atividade completa (POST /api/timeline com metadata/contato/empresa). */
+  onCreateActivity?: (payload: TimelinePayload) => Promise<void>;
+  /** Usuario logado: "Atribuído a", host da reuniao, proprietario no Criar novo. */
+  currentUserName?: string | null;
+  /** RBAC do item (crm.contacts / crm.companies edit): libera "Criar novo" no painel. */
+  canCreateContact?: boolean;
+  canCreateCompany?: boolean;
 }
 
 export default function DealRecordDrawer({
@@ -294,26 +312,28 @@ export default function DealRecordDrawer({
   onSelectPipeline,
   onCreateRelatedDeal,
   onRefreshAll,
+  onCreateActivity,
+  currentUserName = null,
+  canCreateContact = false,
+  canCreateCompany = false,
 }: DealRecordDrawerProps) {
   const [centerTab, setCenterTab] = useState<'OVERVIEW' | 'ACTIVITIES'>('ACTIVITIES');
   const [activityFilter, setActivityFilter] = useState<'ALL' | 'NOTE' | 'EMAIL' | 'CALL' | 'TASK' | 'MEETING'>('ALL');
   const [activitySearch, setActivitySearch] = useState('');
   const [aboutOpen, setAboutOpen] = useState(true);
   const [collapsedCards, setCollapsedCards] = useState<Record<string, boolean>>({});
-  const [composerKind, setComposerKind] = useState<'NOTE' | 'CALL' | 'MEETING' | 'EMAIL' | 'TASK' | null>(null);
-  const [noteTitle, setNoteTitle] = useState('');
-  const [noteBody, setNoteBody] = useState('');
-  const [savingNote, setSavingNote] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
   const [showAllAbout, setShowAllAbout] = useState(false);
   const [showAllAssoc, setShowAllAssoc] = useState<Record<string, boolean>>({});
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement | null>(null);
   const [assocPicker, setAssocPicker] = useState<'contacts' | 'companies' | 'tickets' | 'deals' | null>(null);
-  const [assocQuery, setAssocQuery] = useState('');
-  const [assocBusy, setAssocBusy] = useState(false);
-  const [newTicketSubject, setNewTicketSubject] = useState('');
-  const [newRelatedDealTitle, setNewRelatedDealTitle] = useState('');
+  // Janela de atividade (uma por vez) + painel de associacao.
+  const [activityWin, setActivityWin] = useState<{ kind: 'NOTE' | 'TASK' | 'LOG' | 'MEETING'; option?: MoreOptionId; seq: number } | null>(null);
+  const [activityMin, setActivityMin] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [activityAssocPick, setActivityAssocPick] = useState<{ kind: 'contacts' | 'companies'; apply: (id: string) => void } | null>(null);
+  const [agenda, setAgenda] = useState<AgendaItem[]>([]);
 
   const [followup, setFollowup] = useState<FollowupStatusView | null>(null);
   const [followupBusy, setFollowupBusy] = useState(false);
@@ -505,102 +525,76 @@ export default function DealRecordDrawer({
   };
 
   const openAssocPicker = (kind: 'contacts' | 'companies' | 'tickets' | 'deals') => {
-    setAssocQuery('');
-    setNewTicketSubject('');
-    setNewRelatedDealTitle(deal.company?.name ? `Negócio — ${deal.company.name}` : '');
     setAssocPicker(kind);
   };
 
-  const associateContact = async (contactId: string) => {
-    if (!canEdit || !onUpdateDeal) return;
-    setAssocBusy(true);
-    try {
-      await onUpdateDeal(deal.id, { contactId }, { silent: true });
-      const contact = contacts.find((c) => c.id === contactId) || deal.contact;
-      onChangeDeal({ ...deal, contactId, contact: contact || deal.contact });
-      onShowToast?.('Contato associado ao negócio.');
-      setAssocPicker(null);
-    } catch (err) {
-      onShowToast?.(err instanceof Error ? err.message : 'Não foi possível associar o contato.');
-    } finally {
-      setAssocBusy(false);
-    }
+  /** Salvar do painel: grava as associacoes novas no negocio (PATCH /api/deals/:id existente). */
+  const saveDealAssociations = async (kind: AssociationKind, ids: string[]) => {
+    if (!ids.length) return;
+    if (!canEdit || !onUpdateDeal) throw new Error('Seu perfil não pode editar este negócio.');
+    const patch = buildDealAssociationPatch(deal, kind, ids);
+    await onUpdateDeal(deal.id, patch, { silent: true });
+    const nextContactId = (patch.contactId as string | undefined) || deal.contactId;
+    const nextCompanyId = (patch.companyId as string | undefined) || deal.companyId;
+    onChangeDeal({
+      ...deal,
+      contactId: nextContactId,
+      companyId: nextCompanyId,
+      contact: patch.contactId ? contacts.find((c) => c.id === patch.contactId) || deal.contact : deal.contact,
+      company: patch.companyId ? companies.find((c) => c.id === patch.companyId) || deal.company : deal.company,
+      customProperties: patch.customProperties as EnrichedDeal['customProperties'],
+    });
+    const word = kind === 'contacts' ? 'Contato' : kind === 'companies' ? 'Empresa' : kind === 'tickets' ? 'Chamado' : 'Negócio';
+    onShowToast?.(ids.length > 1 ? `${ids.length} registros associados ao negócio.` : `${word} associado(a) ao negócio.`);
+    if (onRefreshAll) await onRefreshAll();
   };
 
-  const associateCompany = async (companyId: string) => {
-    if (!canEdit || !onUpdateDeal) return;
-    setAssocBusy(true);
-    try {
-      await onUpdateDeal(deal.id, { companyId }, { silent: true });
-      const company = companies.find((c) => c.id === companyId) || deal.company;
-      onChangeDeal({ ...deal, companyId, company: company || deal.company });
-      onShowToast?.('Empresa associada ao negócio.');
-      setAssocPicker(null);
-    } catch (err) {
-      onShowToast?.(err instanceof Error ? err.message : 'Não foi possível associar a empresa.');
-    } finally {
-      setAssocBusy(false);
-    }
+  const openActivity = (kind: 'NOTE' | 'TASK' | 'LOG' | 'MEETING', option?: MoreOptionId) => {
+    setMoreMenuOpen(false);
+    setActivityMin(false);
+    setActivityWin({ kind, option, seq: Date.now() });
+    setCenterTab('ACTIVITIES');
   };
 
-  const createAssociatedTicket = async () => {
-    const subject = newTicketSubject.trim();
-    if (!subject) return;
-    setAssocBusy(true);
-    try {
-      const res = await fetch('/api/tickets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subject,
-          description: `Aberto a partir do negócio ${deal.title}`,
-          dealId: deal.id,
-          companyId: deal.companyId,
-          contactId: deal.contactId,
-          channel: 'WEB_PORTAL',
-          status: 'OPEN',
-          priority: 'MEDIUM',
-          category: 'SUPPORT',
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        onShowToast?.((json as { error?: string }).error || 'Não foi possível abrir o chamado.');
-        return;
+  const createTimelineActivity = async (payload: TimelinePayload) => {
+    if (onCreateActivity) await onCreateActivity(payload);
+    else await onAddNote(payload.title, payload.body, payload.type);
+  };
+
+  const createTask = async (payload: TaskPayload) => {
+    const res = await fetch('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      const msg = json.error || 'Não foi possível criar a tarefa.';
+      onShowToast?.(msg);
+      throw new Error(msg);
+    }
+    onShowToast?.('Tarefa criada.');
+  };
+
+  // Agenda da semana (reunioes registradas + tarefas do usuario) para a Programacao.
+  useEffect(() => {
+    if (activityWin?.kind !== 'MEETING') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [ev, tk] = await Promise.all([
+          fetch('/api/timeline?type=MEETING', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : { data: [] })),
+          fetch('/api/tasks', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : { data: [] })),
+        ]);
+        if (!cancelled) setAgenda(agendaFromSources(ev.data || [], tk.data || [], currentUserName));
+      } catch {
+        if (!cancelled) setAgenda([]);
       }
-      onShowToast?.('Chamado aberto e associado a este negócio.');
-      setAssocPicker(null);
-      setNewTicketSubject('');
-      if (onRefreshAll) await onRefreshAll();
-    } catch (err) {
-      onShowToast?.(err instanceof Error ? err.message : 'Não foi possível abrir o chamado.');
-    } finally {
-      setAssocBusy(false);
-    }
-  };
-
-  const createRelatedDeal = async () => {
-    const title = newRelatedDealTitle.trim();
-    if (!title || !onCreateRelatedDeal) return;
-    const first = stageOptions[0];
-    setAssocBusy(true);
-    try {
-      await onCreateRelatedDeal({
-        title,
-        companyId: deal.companyId,
-        contactId: deal.contactId,
-        pipelineId: deal.pipelineId,
-        stageId: first?.id || deal.stageId,
-      });
-      onShowToast?.('Negócio criado para a mesma empresa.');
-      setAssocPicker(null);
-      setNewRelatedDealTitle('');
-    } catch (err) {
-      onShowToast?.(err instanceof Error ? err.message : 'Não foi possível criar o negócio.');
-    } finally {
-      setAssocBusy(false);
-    }
-  };
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activityWin?.kind, activityWin?.seq, currentUserName]);
 
     const associatedContacts = useMemo(() => {
     const list: Contact[] = [];
@@ -609,9 +603,13 @@ export default function DealRecordDrawer({
       list.push(deal.contact);
       seen.add(deal.contact.id);
     }
+    const extraContactIds = new Set(readAssocIds(deal.customProperties, 'contacts'));
     for (const c of contacts) {
       if (seen.has(c.id)) continue;
-      if (deal.companyId && c.companyId === deal.companyId) {
+      if (extraContactIds.has(c.id)) {
+        list.push(c);
+        seen.add(c.id);
+      } else if (deal.companyId && c.companyId === deal.companyId) {
         list.push(c);
         seen.add(c.id);
       } else if (deal.contactId && c.id === deal.contactId) {
@@ -620,7 +618,7 @@ export default function DealRecordDrawer({
       }
     }
     return list;
-  }, [contacts, deal.contact, deal.contactId, deal.companyId]);
+  }, [contacts, deal.contact, deal.contactId, deal.companyId, deal.customProperties]);
 
   const associatedCompanies = useMemo(() => {
     const list: Company[] = [];
@@ -629,30 +627,35 @@ export default function DealRecordDrawer({
       list.push(deal.company);
       seen.add(deal.company.id);
     }
+    const extraCompanyIds = new Set(readAssocIds(deal.customProperties, 'companies'));
     for (const c of companies) {
       if (seen.has(c.id)) continue;
-      if (deal.companyId && c.id === deal.companyId) {
+      if ((deal.companyId && c.id === deal.companyId) || extraCompanyIds.has(c.id)) {
         list.push(c);
         seen.add(c.id);
       }
     }
     return list;
-  }, [companies, deal.company, deal.companyId]);
+  }, [companies, deal.company, deal.companyId, deal.customProperties]);
 
   const associatedTickets = useMemo(() => {
     if (!canViewChamados) return [] as ServiceTicket[];
+    const extraTicketIds = new Set(readAssocIds(deal.customProperties, 'tickets'));
     return tickets.filter(
       (t) =>
         t.dealId === deal.id ||
+        extraTicketIds.has(t.id) ||
         (deal.companyId && t.companyId === deal.companyId) ||
         (deal.contactId && t.contactId === deal.contactId)
     );
-  }, [tickets, canViewChamados, deal.id, deal.companyId, deal.contactId]);
+  }, [tickets, canViewChamados, deal.id, deal.companyId, deal.contactId, deal.customProperties]);
 
   const relatedDeals = useMemo(() => {
-    if (!deal.companyId) return [] as EnrichedDeal[];
-    return deals.filter((d) => d.companyId === deal.companyId && d.id !== deal.id);
-  }, [deals, deal.companyId, deal.id]);
+    const extraDealIds = new Set(readAssocIds(deal.customProperties, 'deals'));
+    return deals.filter(
+      (d) => d.id !== deal.id && ((deal.companyId && d.companyId === deal.companyId) || extraDealIds.has(d.id))
+    );
+  }, [deals, deal.companyId, deal.id, deal.customProperties]);
 
   const companyCnpjDigits = String(deal.company?.cnpj || '').replace(/\D+/g, '');
   const companyNameNorm = String(deal.company?.name || '').trim().toLowerCase();
@@ -699,12 +702,9 @@ export default function DealRecordDrawer({
   }> = [
     {
       id: 'note',
-      label: 'Nota',
+      label: 'Observação',
       icon: <StickyNote className="w-4 h-4" />,
-      onClick: () => {
-        setComposerKind('NOTE');
-        setCenterTab('ACTIVITIES');
-      },
+      onClick: () => openActivity('NOTE'),
     },
     {
       id: 'email',
@@ -722,50 +722,27 @@ export default function DealRecordDrawer({
       id: 'call',
       label: 'Chamada',
       icon: <Phone className="w-4 h-4" />,
-      onClick: () => {
-        setComposerKind('CALL');
-        setCenterTab('ACTIVITIES');
-      },
+      onClick: () => openActivity('LOG', 'CALL'),
     },
     {
       id: 'task',
       label: 'Tarefa',
       icon: <ListTodo className="w-4 h-4" />,
-      onClick: () => {
-        setComposerKind('TASK');
-        setCenterTab('ACTIVITIES');
-      },
+      onClick: () => openActivity('TASK'),
     },
     {
       id: 'meeting',
       label: 'Reunião',
       icon: <CalendarDays className="w-4 h-4" />,
-      onClick: () => {
-        setComposerKind('MEETING');
-        setCenterTab('ACTIVITIES');
-      },
+      onClick: () => openActivity('MEETING'),
     },
     {
       id: 'more',
       label: 'Mais',
       icon: <MoreHorizontal className="w-4 h-4" />,
-      onClick: () => onGenerateProposal(),
+      onClick: () => setMoreMenuOpen((v) => !v),
     },
   ];
-
-  const saveNote = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!composerKind || !noteTitle.trim()) return;
-    setSavingNote(true);
-    try {
-      await onAddNote(noteTitle.trim(), noteBody.trim(), composerKind);
-      setNoteTitle('');
-      setNoteBody('');
-      setComposerKind(null);
-    } finally {
-      setSavingNote(false);
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/50 flex justify-end">
@@ -927,7 +904,14 @@ export default function DealRecordDrawer({
               </section>
             )}
 
-            <div className="flex items-start justify-between gap-1 pt-1">
+            <div className="relative flex items-start justify-between gap-1 pt-1">
+              {moreMenuOpen ? (
+                <MoreActivitiesMenu
+                  onPick={(id) => openActivity('LOG', id)}
+                  onClose={() => setMoreMenuOpen(false)}
+                  extra={[{ id: 'proposal', label: 'Gerar proposta', onClick: () => { setMoreMenuOpen(false); onGenerateProposal(); } }]}
+                />
+              ) : null}
               {actionButtons.map((btn) => (
                 <button
                   key={btn.id}
@@ -1289,49 +1273,10 @@ export default function DealRecordDrawer({
                     </button>
                   </div>
 
-                  {composerKind && (
-                    <form onSubmit={saveNote} className="rounded-lg border border-slate-200 p-3 space-y-2 bg-slate-50">
-                      <div className="text-xs font-semibold text-slate-800">
-                        Registrar {composerKind === 'NOTE' ? 'observação' : composerKind === 'CALL' ? 'chamada' : composerKind === 'MEETING' ? 'reunião' : composerKind === 'EMAIL' ? 'e-mail' : 'tarefa'}
-                      </div>
-                      <input
-                        required
-                        value={noteTitle}
-                        onChange={(e) => setNoteTitle(e.target.value)}
-                        placeholder="Assunto"
-                        className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-xs"
-                      />
-                      <textarea
-                        rows={3}
-                        value={noteBody}
-                        onChange={(e) => setNoteBody(e.target.value)}
-                        placeholder="Detalhes"
-                        className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-xs"
-                      />
-                      <div className="flex justify-end gap-2">
-                        <button type="button" onClick={() => setComposerKind(null)} className="px-3 py-1.5 rounded-md border border-slate-200 text-xs font-semibold cursor-pointer">
-                          Cancelar
-                        </button>
-                        <button type="submit" disabled={savingNote} className="px-3 py-1.5 rounded-md bg-accent text-white text-xs font-semibold cursor-pointer">
-                          {savingNote ? 'Salvando...' : 'Salvar'}
-                        </button>
-                      </div>
-                      {composerKind === 'EMAIL' && (
-                        <button
-                          type="button"
-                          onClick={() => setEmailOpen(true)}
-                          className="text-[11px] font-semibold text-accent hover:underline cursor-pointer"
-                        >
-                          Ou enviar e-mail pela caixa Outlook
-                        </button>
-                      )}
-                    </form>
-                  )}
-
                   <div className="flex justify-end gap-3">
                     <button
                       type="button"
-                      onClick={() => setComposerKind('EMAIL')}
+                      onClick={() => openActivity('LOG', 'EMAIL')}
                       className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 cursor-pointer"
                     >
                       Registrar e-mail
@@ -1801,131 +1746,90 @@ export default function DealRecordDrawer({
           onSent={(result) => { if (!result?.fallback) setEmailOpen(false); }}
         />
       )}
-      {assocPicker === 'contacts' && (
-        <DealAssociationPicker
-          title="Associar contato"
-          testId="deal-assoc-contacts"
-          query={assocQuery}
-          onQuery={setAssocQuery}
-          items={filterAssociationChoices(
-            contacts.filter((c) => !associatedContacts.some((a) => a.id === c.id)),
-            assocQuery,
-            (c) => `${c.firstName || ''} ${c.lastName || ''} ${c.email || ''} ${c.phone || ''}`
-          ).map((c) => ({
-            id: c.id,
-            label: `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || c.id,
-            hint: c.email || c.phone || undefined,
-          }))}
-          emptyText="Nenhum contato encontrado."
-          placeholder="Buscar por nome ou e-mail"
-          onSelect={(id) => void associateContact(id)}
+      {assocPicker && (
+        <AssociationSidePanel
+          key={assocPicker}
+          kind={assocPicker}
+          associatedIds={
+            assocPicker === 'contacts'
+              ? associatedContacts.map((c) => c.id)
+              : assocPicker === 'companies'
+                ? associatedCompanies.map((c) => c.id)
+                : assocPicker === 'tickets'
+                  ? associatedTickets.map((t) => t.id)
+                  : [deal.id, ...relatedDeals.map((d) => d.id)]
+          }
+          canCreate={
+            assocPicker === 'contacts'
+              ? canCreateContact && canEdit
+              : assocPicker === 'companies'
+                ? canCreateCompany && canEdit
+                : assocPicker === 'tickets'
+                  ? canViewChamados && canEdit
+                  : Boolean(onCreateRelatedDeal) && canEdit
+          }
+          createDefaults={
+            assocPicker === 'tickets'
+              ? { dealId: deal.id, companyId: deal.companyId, contactId: deal.contactId, description: `Aberto a partir do negócio ${deal.title}` }
+              : assocPicker === 'deals'
+                ? { companyId: deal.companyId, contactId: deal.contactId, pipelineId: deal.pipelineId, stageId: stageOptions[0]?.id || deal.stageId }
+                : assocPicker === 'contacts' && deal.companyId
+                  ? { companyId: deal.companyId }
+                  : undefined
+          }
+          currentUserName={currentUserName}
+          onSave={(ids) => saveDealAssociations(assocPicker, ids)}
           onClose={() => setAssocPicker(null)}
-          busy={assocBusy}
+          onToast={onShowToast}
         />
       )}
-      {assocPicker === 'companies' && (
-        <DealAssociationPicker
-          title="Associar empresa"
-          testId="deal-assoc-companies"
-          query={assocQuery}
-          onQuery={setAssocQuery}
-          items={filterAssociationChoices(
-            companies.filter((c) => !associatedCompanies.some((a) => a.id === c.id)),
-            assocQuery,
-            (c) => `${c.name || ''} ${c.domain || ''} ${c.cnpj || ''}`
-          ).map((c) => ({
-            id: c.id,
-            label: c.name,
-            hint: [c.domain, c.cnpj].filter(Boolean).join(' · ') || undefined,
-          }))}
-          emptyText="Nenhuma empresa encontrada."
-          placeholder="Buscar por nome, domínio ou CNPJ"
-          onSelect={(id) => void associateCompany(id)}
-          onClose={() => setAssocPicker(null)}
-          busy={assocBusy}
+      {activityAssocPick && (
+        <AssociationSidePanel
+          kind={activityAssocPick.kind}
+          associatedIds={[]}
+          canCreate={false}
+          currentUserName={currentUserName}
+          onSave={async (ids) => {
+            if (ids[0]) activityAssocPick.apply(ids[0]);
+          }}
+          onClose={() => setActivityAssocPick(null)}
+          onToast={onShowToast}
         />
       )}
-      {assocPicker === 'tickets' && (
-        <DealAssociationPicker
-          title="Novo chamado"
-          testId="deal-assoc-tickets"
-          query={assocQuery}
-          onQuery={setAssocQuery}
-          items={[]}
-          emptyText=""
-          onClose={() => setAssocPicker(null)}
-          busy={assocBusy}
-        >
-          <label className="block text-[11px] font-semibold text-slate-600">Assunto</label>
-          <input
-            autoFocus
-            value={newTicketSubject}
-            onChange={(e) => setNewTicketSubject(e.target.value)}
-            placeholder="Descreva o chamado"
-            data-testid="deal-assoc-tickets-subject"
-            className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-xs"
-          />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setAssocPicker(null)}
-              className="px-3 py-1.5 rounded-md border border-slate-200 text-xs font-semibold cursor-pointer"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              disabled={assocBusy || !newTicketSubject.trim()}
-              onClick={() => void createAssociatedTicket()}
-              className="px-3 py-1.5 rounded-md bg-accent text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
-            >
-              {assocBusy ? 'Abrindo...' : 'Abrir chamado'}
-            </button>
-          </div>
-        </DealAssociationPicker>
-      )}
-      {assocPicker === 'deals' && (
-        <DealAssociationPicker
-          title="Novo negócio"
-          testId="deal-assoc-deals"
-          query={assocQuery}
-          onQuery={setAssocQuery}
-          items={[]}
-          emptyText=""
-          onClose={() => setAssocPicker(null)}
-          busy={assocBusy}
-        >
-          <label className="block text-[11px] font-semibold text-slate-600">Título</label>
-          <input
-            autoFocus
-            value={newRelatedDealTitle}
-            onChange={(e) => setNewRelatedDealTitle(e.target.value)}
-            placeholder="Nome do negócio"
-            data-testid="deal-assoc-deals-title"
-            className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-xs"
-          />
-          <p className="text-[11px] text-slate-500 font-semibold">
-            O negócio é criado na mesma empresa e no mesmo pipeline.
-          </p>
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setAssocPicker(null)}
-              className="px-3 py-1.5 rounded-md border border-slate-200 text-xs font-semibold cursor-pointer"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              disabled={assocBusy || !newRelatedDealTitle.trim()}
-              onClick={() => void createRelatedDeal()}
-              className="px-3 py-1.5 rounded-md bg-accent text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
-            >
-              {assocBusy ? 'Criando...' : 'Criar negócio'}
-            </button>
-          </div>
-        </DealAssociationPicker>
-      )}
+      {activityWin && (() => {
+        const candidates: AssocCandidate[] = [
+          { kind: 'deal', id: deal.id, label: deal.title },
+          ...associatedContacts.map((c) => ({ kind: 'contact' as const, id: c.id, label: `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || c.id })),
+          ...associatedCompanies.map((c) => ({ kind: 'company' as const, id: c.id, label: c.name })),
+        ];
+        const initialAssoc: ActivityAssoc = { dealId: deal.id, contactId: null, companyId: null };
+        const common = {
+          recordChip: deal.title,
+          candidates,
+          initialAssoc,
+          minimized: activityMin,
+          onMinimize: setActivityMin,
+          onClose: () => setActivityWin(null),
+          onOpenAssocPanel: (kind: 'contacts' | 'companies', apply: (id: string) => void) => setActivityAssocPick({ kind, apply }),
+          currentUserName,
+        };
+        const owners = ownerOptions.map((o) => o.name).filter(Boolean);
+        if (activityWin.kind === 'NOTE') return <NoteWindow key={activityWin.seq} {...common} onCreateNote={createTimelineActivity} onCreateTask={createTask} />;
+        if (activityWin.kind === 'TASK') return <TaskWindow key={activityWin.seq} {...common} onCreateTask={createTask} assignees={owners} />;
+        if (activityWin.kind === 'MEETING')
+          return (
+            <MeetingSchedulerModal
+              key={activityWin.seq}
+              {...common}
+              agenda={agenda}
+              hosts={owners}
+              defaultTitle={deal.title}
+              defaultAttendees={associatedContacts.map((c) => c.email || '').filter(Boolean).slice(0, 1) as string[]}
+              onSchedule={createTimelineActivity}
+            />
+          );
+        return <LogActivityWindow key={activityWin.seq} {...common} optionId={activityWin.option || 'CALL'} onCreateLog={createTimelineActivity} />;
+      })()}
     </div>
   );
 }

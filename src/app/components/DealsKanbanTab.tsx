@@ -153,6 +153,9 @@ interface DealsKanbanTabProps {
   onRefreshAll?: () => Promise<void>;
   /** Nome do usuário autenticado, para a aba salva “Meus negócios”. */
   currentOwnerName?: string | null;
+  /** RBAC do item (crm.contacts / crm.companies edit): "Criar novo" do painel de associação. */
+  canCreateContact?: boolean;
+  canCreateCompany?: boolean;
 }
 
 function getInitials(name: string | undefined | null): string {
@@ -213,6 +216,8 @@ export default function DealsKanbanTab({
   onShowToast,
   onRefreshAll,
   currentOwnerName = null,
+  canCreateContact = false,
+  canCreateCompany = false,
 }: DealsKanbanTabProps) {
   const [localPipelineId, setLocalPipelineId] = useState<string>(
     selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b'
@@ -2007,6 +2012,29 @@ export default function DealsKanbanTab({
             setNoteTitle('');
             setNoteBody('');
           }}
+          onCreateActivity={async (payload) => {
+            const res = await fetch('/api/timeline', {
+              method: 'POST',
+              cache: 'no-store',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...payload, dealId: selectedDeal.id }),
+            });
+            const json = (await res.json().catch(() => ({}))) as { error?: string };
+            if (!res.ok) {
+              const msg = json.error || 'Não foi possível registrar a atividade.';
+              onShowToast?.(msg);
+              throw new Error(msg);
+            }
+            onShowToast?.('Atividade registrada na timeline do negócio!');
+            const det = await fetch(`/api/deals/${selectedDeal.id}`);
+            if (det.ok) {
+              const dj = await det.json();
+              setDealTimeline(dj.data?.timeline || []);
+            }
+          }}
+          currentUserName={currentOwnerName}
+          canCreateContact={canCreateContact}
+          canCreateCompany={canCreateCompany}
           onShowToast={onShowToast}
           onNavigateToErp={
             onNavigateToErp

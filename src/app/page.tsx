@@ -66,7 +66,7 @@ import GlobalHeaderSearch, { SearchResultEntry } from './components/GlobalHeader
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
 import { Settings, Menu, User, LogOut } from 'lucide-react';
 import { formatBRL } from './components/ui-helpers';
-import { canDeleteDealsFromPermissions, canEditDealsFromPermissions } from './lib/deal-sidebar-edit';
+import { canDeleteDealsFromPermissions, canEditCrmItemFromPermissions, canEditDealsFromPermissions } from './lib/deal-sidebar-edit';
 import { canSendCrmEmailFromPermissions } from './lib/email-composer';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './components/ClientEmailComposerModal';
 import AssistenteIaPanel from './components/AssistenteIaPanel';
@@ -1155,6 +1155,8 @@ export default function HubSpotProCrmApp() {
   );
   const canViewChamadosDealDrawer = Boolean(userModuleAccess.chamados);
   const canEditDealDrawer = canEditDealsFromPermissions(activeRbacUser);
+  const canCreateContactInPanel = canEditCrmItemFromPermissions(activeRbacUser, 'crm.contacts');
+  const canCreateCompanyInPanel = canEditCrmItemFromPermissions(activeRbacUser, 'crm.companies');
   const canDeleteDealDrawer = canDeleteDealsFromPermissions(activeRbacUser);
   const canSendDealEmail = canSendCrmEmailFromPermissions(activeRbacUser, 'deal');
   const canSendContactEmail = canSendCrmEmailFromPermissions(activeRbacUser, 'contact');
@@ -2677,6 +2679,8 @@ export default function HubSpotProCrmApp() {
                       await fetchAllCrmData();
                     }}
                     currentOwnerName={activeRbacUser?.name || null}
+                    canCreateContact={canCreateContactInPanel}
+                    canCreateCompany={canCreateCompanyInPanel}
                   />
                 )}
 

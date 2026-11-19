@@ -507,7 +507,7 @@ export default function GestaoClickDashboard({
               </span>
             </div>
             <span className="text-slate-500">
-              Origem: STI-hub {made?.bySource.stihub.count ?? 0} feitas / {approved?.bySource.stihub.count ?? 0} aprovadas · GestãoClick{' '}
+              Origem: STI HUB ERP {made?.bySource.stihub.count ?? 0} feitas / {approved?.bySource.stihub.count ?? 0} aprovadas · Importadas do ERP de origem{' '}
               {made?.bySource.gc.count ?? 0} / {approved?.bySource.gc.count ?? 0}
             </span>
           </div>

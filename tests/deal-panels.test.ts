@@ -82,7 +82,10 @@ describe('Painel do negócio: pipeline, associações e e-mail', () => {
     assert.match(drawer, /openAssocPicker\('companies'\)/);
     assert.match(drawer, /openAssocPicker\('tickets'\)/);
     assert.match(drawer, /openAssocPicker\('deals'\)/);
-    assert.match(drawer, /fetch\('\/api\/tickets'[\s\S]*method: 'POST'/);
+    // Criacao/associacao agora no painel lateral (Criar novo | Adicionar existente) com Salvar.
+    const panel = src('src/app/components/AssociationSidePanel.tsx');
+    assert.match(panel, /'\/api\/tickets'[\s\S]*method: 'POST'/);
+    assert.match(drawer, /<AssociationSidePanel/);
     assert.match(drawer, /canEdit && onUpdateDeal/);
     assert.match(drawer, /onSelectPipeline\?\.\(patch\.pipelineId\)/);
   });
@@ -111,7 +114,9 @@ describe('Painel do negócio: pipeline, associações e e-mail', () => {
   it('tickets usam a API existente e não alteram o PATCH de chamados', () => {
     const drawer = src('src/app/components/DealRecordDrawer.tsx');
     const repo = src('src/db/repository.ts');
-    assert.match(drawer, /fetch\('\/api\/tickets'/);
+    const panel = src('src/app/components/AssociationSidePanel.tsx');
+    assert.match(panel, /'\/api\/tickets'/);
+    assert.match(drawer, /saveDealAssociations/);
     assert.match(repo, /companyId e dealId ficam fora/);
     const list = repo.slice(repo.indexOf('SERVICE_TICKET_EDITABLE_FIELDS'), repo.indexOf('export function pickEditableTicketFields'));
     assert.doesNotMatch(list, /dealId/);

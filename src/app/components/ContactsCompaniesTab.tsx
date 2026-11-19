@@ -690,7 +690,7 @@ export default function ContactsCompaniesTab({
               <strong className="text-[#33475b]">
                 {subView === "CONTACTS" ? contacts.length : companies.length}
               </strong>{" "}
-              registros sincronizados (STI HUB CRM + STI HUB ERP
+              registros sincronizados (STI HUB CRM + STI HUB ERP)
             </span>
           </div>
 
