@@ -910,7 +910,7 @@ function PublicProposalPrintContent() {
   const hideServiceFreight = commercialView.hideFreight;
   const shippingCost = commercialView.shippingCost;
   const isOneTimeServices = commercialView.isOneTimeServices;
-  const hasSetupSelected = commercialView.hasSetupSelected;
+  const hasSetupSelected = commercialView.showSetupInTotals;
   const formatBRL = (value: number | null | undefined): string =>
     saleLike
       ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value ?? 0))
@@ -948,6 +948,17 @@ function PublicProposalPrintContent() {
   const setupFeeLabel = commercialView.setupFeeLabel;
   const setupFeeIsolatedLabel = proposalSetupFeeLabel(proposal, 'isolated');
   const showTotalInsteadOfMonthly = commercialView.saleLike || commercialView.uniquePayment;
+  const showFreightInTotals = !hideServiceFreight && shippingCost > 0;
+  const showDiscountInTotals = totalDiscounts > 0;
+  const showProductsSubtotalCard = productsSubtotal > 0;
+  const showServicesSubtotalCard = servicesSubtotal > 0;
+  const setupFeeTotalsLabel = uniquePayment || saleLike
+    ? setupFeeIsolatedLabel
+    : `${setupFeeIsolatedLabel} (à parte da mensalidade)`;
+  const topSummaryCols = 3 + (hasSetupSelected ? 1 : 0) + (showFreightInTotals ? 1 : 0);
+  const topSummaryGridClass = topSummaryCols >= 5 ? "sm:grid-cols-5 print:grid-cols-5" : topSummaryCols === 4 ? "sm:grid-cols-4 print:grid-cols-4" : "sm:grid-cols-3 print:grid-cols-3";
+  const midSummaryCols = (showProductsSubtotalCard ? 1 : 0) + (showServicesSubtotalCard ? 1 : 0) + (showDiscountInTotals ? 1 : 0) + (hasSetupSelected ? 1 : 0) + (showFreightInTotals ? 1 : 0) + 1;
+  const midSummaryGridClass = midSummaryCols >= 6 ? "sm:grid-cols-6 print:grid-cols-6" : midSummaryCols === 5 ? "sm:grid-cols-5 print:grid-cols-5" : midSummaryCols === 4 ? "sm:grid-cols-4 print:grid-cols-4" : midSummaryCols === 3 ? "sm:grid-cols-3 print:grid-cols-3" : "sm:grid-cols-2 print:grid-cols-2";
 
 
   // Classes de cada modelo vêm do módulo comum (também usado pelo Recibo/Fatura de Locação).
@@ -1400,7 +1411,7 @@ function PublicProposalPrintContent() {
                                 <div className="font-semibold text-emerald-700 text-xs">
                                   {amount.oneTime
                                     ? `${formatBRL(amount.amount)} (pagamento único) • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"}`
-                                    : `${formatBRL(amount.amount)}${amount.suffix}${amount.setupAmount > 0 ? ` • ${proposalSetupFeeLabel(snapProp)}: ${formatBRL(amount.setupAmount)}` : ''} • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"} • ${snapProp.contractMonths ?? proposal.contractMonths} meses`}
+                                    : `${formatBRL(amount.amount)}${amount.suffix}${amount.showSetup && !amount.oneTime ? ` • ${proposalSetupFeeLabel(snapProp)}: ${formatBRL(amount.setupAmount)}` : ''} • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"} • ${snapProp.contractMonths ?? proposal.contractMonths} meses`}
                                 </div>
                                 <div className="text-[11px] text-slate-600 mt-0.5">
                                   {ver.changeSummary}
@@ -1956,7 +1967,7 @@ function PublicProposalPrintContent() {
               </div>
             </div>
           ) : (
-            <div className={`print-avoid-break grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-5 print:grid-cols-5" : "sm:grid-cols-4 print:grid-cols-4"} gap-2.5 p-3.5 print:p-2 rounded-lg ${stripBoxClass} text-xs`}>
+            <div className={`print-avoid-break grid grid-cols-2 ${topSummaryGridClass} gap-2.5 p-3.5 print:p-2 rounded-lg ${stripBoxClass} text-xs`}>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
                 <span className="text-[10px] uppercase text-slate-500 font-semibold block">
                   {uniquePayment ? uniquePaymentLabel : "Valor Mensal"}
@@ -1995,7 +2006,7 @@ function PublicProposalPrintContent() {
                   </span>
                 </div>
               )}
-              {!hideServiceFreight && (
+              {showFreightInTotals && (
               <div>
                 <span className="text-[10px] uppercase text-slate-500 font-semibold block">
                   FRETE R$:
@@ -2075,7 +2086,8 @@ function PublicProposalPrintContent() {
           </div>
 
           {/* RESUMO DE SUBTOTAIS */}
-          <div className={`print-avoid-break grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-6 print:grid-cols-6" : "sm:grid-cols-5 print:grid-cols-5"} gap-2.5 rounded-lg p-3.5 print:p-2 text-xs ${softBoxClass}`}>
+          <div className={`print-avoid-break grid grid-cols-2 ${midSummaryGridClass} gap-2.5 rounded-lg p-3.5 print:p-2 text-xs ${softBoxClass}`}>
+            {showProductsSubtotalCard && (
             <div>
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Subtotal Produtos
@@ -2084,6 +2096,8 @@ function PublicProposalPrintContent() {
                 {formatBRL(productsSubtotal)}
               </strong>
             </div>
+            )}
+            {showServicesSubtotalCard && (
             <div>
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Subtotal Serviços
@@ -2092,14 +2106,17 @@ function PublicProposalPrintContent() {
                 {formatBRL(servicesSubtotal)}
               </strong>
             </div>
+            )}
+            {showDiscountInTotals && (
             <div>
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Descontos
               </span>
               <strong className="text-sm font-semibold text-slate-900">
-                {totalDiscounts > 0 ? `- ${formatBRL(totalDiscounts)}` : "R$ 0,00"}
+                {`- ${formatBRL(totalDiscounts)}`}
               </strong>
             </div>
+            )}
             {hasSetupSelected && (
               <div>
                 <span className="text-[10px] uppercase font-semibold text-amber-800 block">
@@ -2108,10 +2125,10 @@ function PublicProposalPrintContent() {
                 <strong className="text-sm font-semibold text-amber-900">
                   {formatBRL(displaySetupAmount)}
                 </strong>
-                <span className="block text-[10px] text-slate-500">Taxa única</span>
+                <span className="block text-[10px] text-slate-500">{uniquePayment || saleLike ? "Taxa única" : "Taxa única, à parte da mensalidade"}</span>
               </div>
             )}
-            {!hideServiceFreight && (
+            {showFreightInTotals && (
             <div>
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Frete
@@ -2170,11 +2187,11 @@ function PublicProposalPrintContent() {
                 <div className="pt-1.5 border-t border-slate-200 space-y-0.5 text-[11px] text-slate-600">
                   {hasSetupSelected && (
                     <div className="flex items-center justify-between">
-                      <span>{setupFeeIsolatedLabel}</span>
+                      <span>{setupFeeTotalsLabel}</span>
                       <strong className="text-slate-900">{formatBRL(displaySetupAmount)}</strong>
                     </div>
                   )}
-                  {!hideServiceFreight && (
+                  {showFreightInTotals && (
                   <div className="flex items-center justify-between">
                     <span>FRETE R$:</span>
                     <strong className="text-slate-900">{shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}</strong>

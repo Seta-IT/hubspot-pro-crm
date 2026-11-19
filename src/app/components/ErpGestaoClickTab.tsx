@@ -3205,7 +3205,7 @@ export default function ErpGestaoClickTab({
                                 <span className="font-semibold text-slate-900">
                                   {formatBRL(amount.amount)}{amount.suffix}
                                 </span>
-                                {amount.setupAmount > 0 && !amount.oneTime && (
+                                {amount.showSetup && !amount.oneTime && (
                                   <div className="text-[10px] font-medium text-slate-500">
                                     {proposalSetupFeeLabel(prop)}: {formatBRL(amount.setupAmount)}
                                   </div>
@@ -3302,7 +3302,7 @@ export default function ErpGestaoClickTab({
                             <span className="text-base font-semibold text-slate-800">
                               {formatBRL(amount.amount)}{amount.suffix}
                             </span>
-                            {amount.setupAmount > 0 && !amount.oneTime && (
+                            {amount.showSetup && !amount.oneTime && (
                               <span className="text-[11px] text-slate-500 block">
                                 {proposalSetupFeeLabel(prop)}: {formatBRL(amount.setupAmount)}
                               </span>
@@ -8295,7 +8295,7 @@ export default function ErpGestaoClickTab({
                                   <td className="py-2.5 px-3">
                                     <div className="font-semibold text-slate-800">
                                       {formatBRL(amount.amount)}{amount.suffix}
-                                      {amount.setupAmount > 0 && !amount.oneTime
+                                      {amount.showSetup && !amount.oneTime
                                         ? ` • ${proposalSetupFeeLabel(snapProp)}: ${formatBRL(amount.setupAmount)}`
                                         : ''}{" "}
                                       • {itemsCount} {itemsCount === 1 ? "item" : "itens"}
@@ -8466,7 +8466,7 @@ export default function ErpGestaoClickTab({
                     <>
                       <span className="font-semibold text-slate-800">
                         {amount.label}: {formatBRL(amount.amount)}{amount.suffix}
-                        {amount.setupAmount > 0 && !amount.oneTime
+                        {amount.showSetup && !amount.oneTime
                           ? ` • ${proposalSetupFeeLabel(selectedProposalForPrint)}: ${formatBRL(amount.setupAmount)}`
                           : ''}
                       </span>

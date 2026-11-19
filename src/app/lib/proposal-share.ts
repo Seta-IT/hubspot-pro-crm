@@ -1094,6 +1094,10 @@ export interface ProposalCommercialPresentation {
   shippingCost: number;
   displaySetupAmount: number;
   hasSetupSelected: boolean;
+  /** True quando o setup já entra nos itens ou no total (não deve aparecer como parcela da soma). */
+  setupIncludedInItems: boolean;
+  /** Mostrar a linha de setup nos totais/cards. Em locação, sempre que houver setup. */
+  showSetupInTotals: boolean;
   setupFeeLabel: string;
   /** Mensalidade recorrente, sem setup (0 no pagamento único). */
   monthlyAmount: number;
@@ -1104,6 +1108,31 @@ export interface ProposalCommercialPresentation {
 
 function money2(value: number): number {
   return Math.round((Number.isFinite(value) ? value : 0) * 100) / 100;
+}
+
+function isSetupIncludedInItemTotals(args: {
+  setupAmount: number;
+  items: Array<{ subtotal?: number | null; totalMonthly?: number | null }>;
+  itemsNet: number;
+  shippingCost: number;
+  uniquePayment: boolean;
+  uniqueTotalAmount: number;
+  monthlyAmount: number;
+}): boolean {
+  const setup = money2(args.setupAmount);
+  if (setup <= 0) return false;
+  const itemHasSetup = (args.items || []).some(
+    (item) => money2(Number(item.subtotal ?? item.totalMonthly ?? 0)) === setup
+  );
+  if (args.uniquePayment) {
+    const explainedWithoutSetup = money2(args.itemsNet + args.shippingCost);
+    if (explainedWithoutSetup === money2(args.uniqueTotalAmount)) return true;
+    if (itemHasSetup && money2(explainedWithoutSetup + setup) !== money2(args.uniqueTotalAmount)) return true;
+    return false;
+  }
+  const monthly = money2(args.monthlyAmount);
+  const itemsNet = money2(args.itemsNet);
+  return itemHasSetup && (itemsNet === monthly || itemsNet === money2(monthly + setup));
 }
 
 export function resolveProposalCommercialPresentation(
@@ -1171,6 +1200,16 @@ export function resolveProposalCommercialPresentation(
       : recurringMonthly || (storedTotal > 0 ? money2(storedTotal) : 0);
 
   const avulso = isAvulsoServiceProposal(proposal);
+  const setupIncludedInItems = isSetupIncludedInItemTotals({
+    setupAmount: displaySetupAmount,
+    items,
+    itemsNet,
+    shippingCost,
+    uniquePayment,
+    uniqueTotalAmount,
+    monthlyAmount: uniquePayment ? 0 : recurringMonthly,
+  });
+  const showSetupInTotals = displaySetupAmount > 0 && (headings.isRental || !setupIncludedInItems);
   return {
     oneTime: figures.oneTime || saleLike || isOneTimeServices,
     uniquePayment,
@@ -1192,6 +1231,8 @@ export function resolveProposalCommercialPresentation(
     shippingCost,
     displaySetupAmount,
     hasSetupSelected: displaySetupAmount > 0,
+    setupIncludedInItems,
+    showSetupInTotals,
     setupFeeLabel: proposalSetupFeeLabel(proposal),
     monthlyAmount: uniquePayment ? 0 : recurringMonthly,
     commercialTotalAmount,
@@ -1209,6 +1250,7 @@ export interface ProposalAmountDisplay {
   label: string;
   monthlyAmount: number;
   setupAmount: number;
+  showSetup: boolean;
   shippingAmount: number;
   totalAmount: number;
   termLabel: string;
@@ -1227,6 +1269,7 @@ export function resolveProposalAmountDisplay(
     label: oneTime ? (isAvulsoServiceProposal(proposal) ? 'Pagamento único' : 'Valor total') : 'Valor mensal',
     monthlyAmount: oneTime ? view.commercialTotalAmount : view.monthlyAmount,
     setupAmount: view.displaySetupAmount,
+    showSetup: view.showSetupInTotals,
     shippingAmount: view.shippingCost,
     totalAmount: oneTime ? view.commercialTotalAmount : view.uniqueTotalAmount,
     termLabel: oneTime ? 'Pagamento único' : `TCV (${months}m)`,
@@ -1323,7 +1366,7 @@ export function buildProposalInstallments(
     return { installments, paymentCondition };
   }
 
-  if (display.setupAmount > 0) {
+  if (display.showSetup) {
     push({
       dueDate: firstDue,
       amount: display.setupAmount,
@@ -1357,7 +1400,7 @@ export function buildProposalInstallments(
         : `${count} mensalidades de ${formatProposalMoney(monthly)} (${methodLabel})`
     );
   }
-  if (display.setupAmount > 0) {
+  if (display.showSetup) {
     parts.push(`${proposalSetupFeeLabel(proposal, 'default')} de ${formatProposalMoney(display.setupAmount)} (pagamento único)`);
   }
   if (display.shippingAmount > 0) {

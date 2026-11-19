@@ -95,6 +95,7 @@ export interface InternalProposalSheet {
   showFreight: boolean;
   showSetup: boolean;
   setupLabel: string;
+  setupLineLabel: string;
   setupAmount: string;
   unitPriceColumn: string;
   subtotalColumn: string;
@@ -323,7 +324,12 @@ export function buildInternalProposalSheet(
     { label: 'Prazo de entrega estimado', value: delivery || INTERNAL_FIELD_BLANK },
   ];
   const setup = view.displaySetupAmount;
-  if (view.hasSetupSelected) summaryRows.push({ label: view.setupFeeLabel, value: `${money(setup)} (pagamento único)` });
+  if (view.showSetupInTotals) {
+    const setupValue = oneTime || partsBudget
+      ? `${money(setup)} (pagamento único)`
+      : `${money(setup)} (pagamento único, à parte da mensalidade)`;
+    summaryRows.push({ label: view.setupFeeLabel, value: setupValue });
+  }
   if (freight > 0) summaryRows.push({ label: 'Frete', value: `${money(freight)} (pagamento único)` });
   if (sla && sla !== 'não definido') summaryRows.push({ label: 'SLA', value: sla });
   if (!oneTime && !partsBudget) summaryRows.push({ label: 'Reajuste anual', value: readjustment });
@@ -387,7 +393,7 @@ export function buildInternalProposalSheet(
       ];
   // No avulso/venda o total único já inclui setup e frete (mesma conta da folha pública).
   // Só parcela setup/frete à parte na locação e no serviço mensal.
-  if (setup > 0 && !oneTime && !partsBudget) {
+  if (view.showSetupInTotals && !oneTime && !partsBudget) {
     paymentRows.push({
       due: 'Pagamento único',
       amount: money(setup),
@@ -447,8 +453,11 @@ export function buildInternalProposalSheet(
     monthlyPlain: amount(oneTime || partsBudget ? itemsSubtotal || shownAmount : monthly),
     freightAmount: money(freight),
     showFreight: freight > 0,
-    showSetup: view.hasSetupSelected,
+    showSetup: view.showSetupInTotals,
     setupLabel: view.setupFeeLabel,
+    setupLineLabel: oneTime || partsBudget
+      ? `${view.setupFeeLabel} (pagamento único)`
+      : `${view.setupFeeLabel} (pagamento único, à parte da mensalidade)`,
     setupAmount: money(setup),
     unitPriceColumn: oneTime || partsBudget ? 'Vr. unitário' : 'Vr. unit. mensal',
     subtotalColumn: oneTime || partsBudget ? 'Subtotal' : 'Subtotal mensal',
