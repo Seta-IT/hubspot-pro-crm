@@ -31,12 +31,15 @@ describe('proposta: telefone e WhatsApp da Seta Telecom', () => {
 
 describe('proposta de PRODUTOS: sem Setup, total sem dobrar e com centavos', () => {
   const src = readFileSync(join(process.cwd(), 'src/app/proposta/[id]/page.tsx'), 'utf8');
+  const share = readFileSync(join(process.cwd(), 'src/app/lib/proposal-share.ts'), 'utf8');
   it('setup so fora de PRODUTOS', () => {
-    assert.ok(src.includes(': !saleLike && isolatedSetupTotal > 0;'));
+    assert.ok(share.includes('saleLike ? 0 : isolatedSetupTotal'));
+    assert.ok(src.includes('resolveProposalCommercialPresentation(proposal)'));
     assert.ok(src.includes('const saleLike = isProductsOnly || isSpareParts;'));
   });
   it('total de venda = itens - desconto global + frete (sem oneTimeSetupTotal)', () => {
-    assert.ok(src.includes('Math.round((productsSubtotal + servicesSubtotal - globalDiscountVal + shippingCost) * 100) / 100'));
+    assert.ok(share.includes('itemsNet + shippingCost'));
+    assert.equal(share.includes('shippingCost + isolatedSetupTotal'), false);
     assert.equal(src.includes('shippingCost + isolatedSetupTotal'), false);
   });
   it('moeda com centavos em PRODUTOS', () => {
@@ -48,11 +51,12 @@ describe('proposta de PRODUTOS: sem Setup, total sem dobrar e com centavos', () 
 
 describe('proposta de SERVICOS de cobranca unica (todos os itens isRecurring=false)', () => {
   const src = readFileSync(join(process.cwd(), 'src/app/proposta/[id]/page.tsx'), 'utf8');
+  const share = readFileSync(join(process.cwd(), 'src/app/lib/proposal-share.ts'), 'utf8');
   it('detecta servico unico e mostra Valor Total sem /mes nem setup duplicado', () => {
-    assert.ok(src.includes('proposal.items.every((i) => i.isRecurring === false)'));
-    assert.ok(src.includes('const uniquePayment = isOneTimeServices || avulsoService;'));
-    assert.ok(src.includes('const showTotalInsteadOfMonthly = saleLike || uniquePayment;'));
-    assert.ok(src.includes('? oneTimeServicesSetupFee > 0'));
-    assert.ok(src.includes('Valor Total (Pagamento Único)'));
+    assert.ok(share.includes('items.every((i) => i.isRecurring === false)'));
+    assert.ok(src.includes('commercialView.uniquePayment'));
+    assert.ok(src.includes('showTotalInsteadOfMonthly = commercialView.saleLike || commercialView.uniquePayment'));
+    assert.ok(share.includes('isOneTimeServices ? explicitSetupFee'));
+    assert.ok(share.includes('Valor Total (Pagamento Único)'));
   });
 });

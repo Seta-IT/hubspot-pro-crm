@@ -92,8 +92,9 @@ describe('Rótulo Setup / Ativação vira Serviço só em propostas de serviço'
 
     assert.equal(page.includes('Setup / Ativação'), false);
     assert.equal(page.includes('Taxa de Setup (Isolada):'), false);
-    assert.ok(page.includes('proposalSetupFeeLabel(proposal)'));
+    assert.ok(page.includes('commercialView.setupFeeLabel') || page.includes('proposalSetupFeeLabel(proposal)'));
     assert.ok(page.includes("proposalSetupFeeLabel(proposal, 'isolated')"));
+    assert.ok(src('src/app/lib/proposal-share.ts').includes('proposalSetupFeeLabel(proposal)'));
 
     assert.equal(modals.includes('Setup único'), false);
     assert.equal(modals.includes('Incluir setup (R$)'), false);

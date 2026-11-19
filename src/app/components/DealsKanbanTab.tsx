@@ -694,12 +694,12 @@ export default function DealsKanbanTab({
               data-testid="kanban-copy-internal-link"
               onClick={async () => {
                 const url = await copyInternalProposalLink(createdProposalBanner.proposal.id);
-                onShowToast?.(url ? "Link interno da proposta copiado." : "Não foi possível copiar o link interno.");
+                onShowToast?.(url ? "Versão contrato da proposta copiada." : "Não foi possível copiar a Versão contrato.");
               }}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] border border-white/40 text-white hover:bg-white/10 text-xs font-semibold cursor-pointer"
             >
               <Copy className="w-3.5 h-3.5" />
-              Copiar link interno
+              Copiar Versão contrato
             </button>
             <a
               href={createdProposalBanner.publicUrl}

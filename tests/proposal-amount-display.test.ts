@@ -12,6 +12,7 @@ import {
   resolveProposalCommercialFigures,
   resolveProposalDocumentHeadings,
   storedMonthlyAppearsToIncludeSetup,
+  resolveProposalCommercialPresentation,
 } from '../src/app/lib/proposal-share';
 import { toInternalProposalSummary } from '../src/app/lib/internal-proposal-summary';
 import { displayProposalTechnicalClauses } from '../src/app/lib/proposal-technical-clauses';
@@ -460,5 +461,168 @@ describe('Folha interna: condições sem duplicar nem metadados brutos', () => {
     assert.equal(sheet.showContractNumber, false);
     assert.equal(sheet.summaryRows.find((row) => row.label === 'Prazo extra')?.value, '2 dias');
     assert.doesNotMatch(sheet.commercialNoteLines.join('\n'), /Criada por Assistente/);
+  });
+});
+
+
+function live4709(): ErpCommercialProposal {
+  return baseProposal({
+    id: 'prop-nec-dafiti-svc-20261105',
+    code: '4709',
+    title: 'Mapeamento de Cabeamento e Retirada de Equipamentos — DAFITI (Extrema/MG)',
+    budgetType: 'SERVICOS',
+    serviceType: 'Mapeamento de Cabeamento, Desinstalação',
+    contractMonths: 1,
+    monthlyRecurringTotal: 2800,
+    oneTimeSetupTotal: 15800,
+    setupFee: 0,
+    shippingCost: 0,
+    totalContractValue: 18600,
+    productsSubtotal: 0,
+    servicesSubtotal: 18600,
+    paymentCondition: '15 dias — PIX ou Boleto',
+    items: [
+      {
+        id: 'i1',
+        sku: '',
+        description: 'Mapeamento físico de cabeamento UTP, identificação e eliminação de fibras ópticas e retirada de switches/APs — CD Dafiti Extrema/MG (equipe de 6 pessoas)',
+        fiscalNature: 'SERVICO_TECNICO_TI_TELECOM',
+        ncmOrServiceCode: '',
+        quantity: 1,
+        unitPrice: 15800,
+        discountPercent: 0,
+        isRecurring: false,
+        itemType: 'SERVICE',
+        subtotal: 15800,
+        totalMonthly: 15800,
+      },
+      {
+        id: 'i2',
+        sku: '',
+        description: 'Despesas de Locomoção / Hospedagem',
+        fiscalNature: 'SERVICO_TECNICO_TI_TELECOM',
+        ncmOrServiceCode: '',
+        quantity: 1,
+        unitPrice: 2800,
+        discountPercent: 0,
+        isRecurring: true,
+        itemType: 'SERVICE',
+        subtotal: 2800,
+        totalMonthly: 2800,
+      },
+    ],
+  });
+}
+
+describe('Folha interna e lista usam o mesmo cálculo da proposta pública (4709/4720)', () => {
+  it('4709: total único R$ 18.600, as duas linhas, Serviço 15.800 só como taxa (sem somar de novo)', () => {
+    const proposal = live4709();
+    const pub = resolveProposalCommercialPresentation(proposal);
+    const amount = resolveProposalAmountDisplay(proposal);
+    const sheet = toInternalProposalSummary(proposal).sheet;
+    const html = buildInternalProposalPrintHtml(toInternalProposalSummary(proposal)).replace(/\u00A0/g, ' ');
+
+    assert.equal(pub.servicesSubtotal, 18600);
+    assert.equal(pub.displaySetupAmount, 15800);
+    assert.equal(pub.hasSetupSelected, true);
+    assert.equal(pub.uniquePayment, true);
+    assert.equal(pub.commercialTotalAmount, 18600);
+    assert.equal(amount.amount, 18600);
+    assert.equal(amount.suffix, '');
+    assert.equal(amount.setupAmount, 15800);
+    assert.equal(amount.oneTime, true);
+
+    assert.equal(sheet.lines.length, 2);
+    assert.match(sheet.lines[0].name, /Mapeamento físico/);
+    assert.equal(sheet.lines[0].subtotal, '15.800,00');
+    assert.equal(sheet.lines[1].name, 'Despesas de Locomoção / Hospedagem');
+    assert.equal(sheet.lines[1].subtotal, '2.800,00');
+    const totalRow = sheet.summaryRows.find((row) => /Valor total \(pagamento único\)/i.test(row.label));
+    assert.match((totalRow?.value || '').replace(/\u00A0/g, ' '), /R\$ 18\.600,00/);
+    assert.match(sheet.totalMonthly.replace(/\u00A0/g, ' '), /R\$ 18\.600,00/);
+    assert.equal(sheet.showSetup, true);
+    assert.match(sheet.setupAmount.replace(/\u00A0/g, ' '), /R\$ 15\.800,00/);
+    assert.equal(sheet.paymentRows.length, 1);
+    assert.match(sheet.paymentRows[0].amount.replace(/\u00A0/g, ' '), /R\$ 18\.600,00/);
+    assert.doesNotMatch(html, /34\.400,00/);
+    assert.match(html, /18\.600,00/);
+    assert.match(html, /Mapeamento físico/);
+    assert.match(html, /Despesas de Locomoção \/ Hospedagem/);
+  });
+
+  it('4720: serviço avulso de R$ 2.500 permanece íntegro, sem setup extra', () => {
+    const proposal = baseProposal({
+      id: 'prop-1795018862851-b57740',
+      code: '4720',
+      title: 'Suporte Técnico',
+      budgetType: 'SERVICOS',
+      serviceType: 'Suporte Técnico',
+      contractMonths: 1,
+      monthlyRecurringTotal: 2500,
+      oneTimeSetupTotal: 0,
+      setupFee: 0,
+      shippingCost: 0,
+      totalContractValue: 2500,
+      servicesSubtotal: 2500,
+      paymentCondition: 'À vista — Pagamento único',
+      items: [
+        {
+          id: 'i1',
+          sku: '',
+          description: 'Suporte Técnico Presencial/ Configuração',
+          fiscalNature: 'SERVICO_TECNICO_TI_TELECOM',
+          ncmOrServiceCode: '',
+          quantity: 1,
+          unitPrice: 2500,
+          discountPercent: 0,
+          isRecurring: true,
+          itemType: 'SERVICE',
+          subtotal: 2500,
+          totalMonthly: 2500,
+        },
+      ],
+    });
+    const pub = resolveProposalCommercialPresentation(proposal);
+    const sheet = toInternalProposalSummary(proposal).sheet;
+    assert.equal(pub.commercialTotalAmount, 2500);
+    assert.equal(pub.hasSetupSelected, false);
+    assert.equal(resolveProposalAmountDisplay(proposal).amount, 2500);
+    assert.equal(sheet.lines.length, 1);
+    assert.match(sheet.totalMonthly.replace(/\u00A0/g, ' '), /R\$ 2\.500,00/);
+    assert.equal(sheet.showSetup, false);
+    assert.equal(sheet.paymentRows.length, 1);
+    assert.match(sheet.paymentRows[0].amount.replace(/\u00A0/g, ' '), /R\$ 2\.500,00/);
+  });
+
+  it('folha pública, folha interna e lista compartilham resolveProposalCommercialPresentation', () => {
+    const page = src('src/app/proposta/[id]/page.tsx');
+    const sheet = src('src/app/lib/internal-proposal-sheet.ts');
+    const share = src('src/app/lib/proposal-share.ts');
+    assert.match(share, /export function resolveProposalCommercialPresentation/);
+    assert.match(page, /resolveProposalCommercialPresentation\(proposal\)/);
+    assert.match(sheet, /resolveProposalCommercialPresentation\(proposal\)/);
+    assert.match(src('src/app/lib/proposal-share.ts'), /resolveProposalAmountDisplay\(/);
+  });
+
+  it('rótulo visível passa a Versão contrato, sem mudar a rota /interno/proposta', () => {
+    const page = src('src/app/proposta/[id]/page.tsx');
+    const erp = src('src/app/components/ErpGestaoClickTab.tsx');
+    const kanban = src('src/app/components/DealsKanbanTab.tsx');
+    const view = src('src/app/components/InternalProposalSummaryView.tsx');
+    const pdf = src('src/app/lib/internal-proposal-pdf.ts');
+    const intern = src('src/app/interno/proposta/[id]/page.tsx');
+    assert.match(page, /Abrir Versão contrato/);
+    assert.match(page, /Copiar Versão contrato/);
+    assert.match(erp, /Abrir Versão contrato/);
+    assert.match(erp, /Copiar Versão contrato/);
+    assert.match(kanban, /Copiar Versão contrato/);
+    assert.match(view, /Versão contrato/);
+    assert.match(pdf, /Versão contrato —/);
+    assert.doesNotMatch(page, /Abrir Link interno/);
+    assert.doesNotMatch(erp, /Abrir Link interno/);
+    assert.match(intern, /\/interno\/proposta\//);
+    assert.match(src('src/app/lib/internal-proposal-summary.ts'), /INTERNAL_PROPOSAL_PATH_PREFIX = '\/interno\/proposta'/);
+    assert.match(page, /openInternalProposalLink/);
+    assert.match(erp, /openInternalProposalLink/);
   });
 });

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import type { InternalProposalSummaryModel } from '../lib/internal-proposal-summary';
 import { downloadInternalProposalPdf, printInternalProposal } from '../lib/internal-proposal-pdf';
 import { INTERNAL_FIELD_BLANK } from '../lib/internal-proposal-sheet';
@@ -10,12 +10,20 @@ const MISSING = 'text-[#9ca3af]';
  */
 export function InternalProposalSummaryView({ model }: { model: InternalProposalSummaryModel }) {
   const sheet = model.sheet;
+  useEffect(() => {
+    const previous = document.title;
+    const code = String(sheet.budgetNumber || '').trim();
+    document.title = code ? `Versão contrato — Orçamento Nº ${code}` : 'Versão contrato';
+    return () => {
+      document.title = previous;
+    };
+  }, [sheet.budgetNumber]);
   return (
     <div className="min-h-screen bg-[#f4f6fa] text-[#1f2937] print:bg-white" data-testid="internal-proposal-summary">
       <style>{`@media print { @page { size: A4; margin: 8mm 9mm; } .no-print { display: none !important; } }`}</style>
       <div className="no-print border-b border-[#dbe2ee] bg-white">
         <div className="mx-auto flex max-w-[794px] items-center justify-between px-4 py-3" data-testid="internal-proposal-toolbar">
-          <b className="text-[13px] tracking-[0.06em] text-[#1e3a6e]">{sheet.brandTitle}</b>
+          <b className="text-[13px] tracking-[0.06em] text-[#1e3a6e]">Versão contrato</b>
           <span>
             <button
               type="button"

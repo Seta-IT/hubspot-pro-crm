@@ -1039,6 +1039,168 @@ export function proposalPrimaryAmount(proposal: {
   return proposalMonthlyAmount(proposal) || Number(proposal.totalContractValue || 0);
 }
 
+
+/**
+ * Contas da folha pública (itens, subtotais, setup/serviço, total e pagamento único).
+ * A folha interna, a lista e o PDF devem usar esta função para não divergir:
+ * o total único é o TCV (ou a soma dos itens); o setup/serviço exibido como
+ * taxa única não é somado de novo quando já está nas linhas ou no TCV.
+ */
+export interface ProposalCommercialPresentationInput {
+  items?: Array<{
+    quantity?: number;
+    unitPrice?: number;
+    subtotal?: number;
+    totalMonthly?: number;
+    isRecurring?: boolean;
+    itemType?: string | null;
+    fiscalNature?: string | null;
+    discountPercent?: number;
+    discountAmount?: number;
+  }>;
+  budgetType?: string | null;
+  modality?: string | null;
+  serviceType?: string | null;
+  contractMonths?: number | null;
+  monthlyRecurringTotal?: number | null;
+  oneTimeSetupTotal?: number | null;
+  setupFee?: number | null;
+  shippingCost?: number | null;
+  totalContractValue?: number | null;
+  discountAmount?: number | null;
+  discountPercentGlobal?: number | null;
+  productsSubtotal?: number | null;
+  servicesSubtotal?: number | null;
+  commercialNotes?: string | null;
+  introductionText?: string | null;
+  title?: string | null;
+  paymentCondition?: string | null;
+}
+
+export interface ProposalCommercialPresentation {
+  oneTime: boolean;
+  uniquePayment: boolean;
+  uniquePaymentLabel: string;
+  saleLike: boolean;
+  isOneTimeServices: boolean;
+  months: number;
+  productsSubtotal: number;
+  servicesSubtotal: number;
+  itemsSubtotal: number;
+  globalDiscount: number;
+  itemDiscounts: number;
+  totalDiscounts: number;
+  hideFreight: boolean;
+  shippingCost: number;
+  displaySetupAmount: number;
+  hasSetupSelected: boolean;
+  setupFeeLabel: string;
+  /** Mensalidade recorrente, sem setup (0 no pagamento único). */
+  monthlyAmount: number;
+  /** Número principal: total único (avulso/venda) ou mensalidade (locação/serviço mensal). */
+  commercialTotalAmount: number;
+  uniqueTotalAmount: number;
+}
+
+function money2(value: number): number {
+  return Math.round((Number.isFinite(value) ? value : 0) * 100) / 100;
+}
+
+export function resolveProposalCommercialPresentation(
+  proposal: ProposalCommercialPresentationInput
+): ProposalCommercialPresentation {
+  const items = proposal.items || [];
+  const input = proposal as never;
+  const headings = resolveProposalDocumentHeadings(input);
+  const figures = resolveProposalCommercialFigures(input);
+  const saleLike = headings.isProductsOnly || headings.isSpareParts;
+  const hideFreight = proposalHidesFreight(input);
+  const shippingCost = hideFreight ? 0 : Math.max(0, Number(proposal.shippingCost || 0));
+
+  const productsSubtotal =
+    proposal.productsSubtotal != null && Number.isFinite(Number(proposal.productsSubtotal))
+      ? money2(Number(proposal.productsSubtotal))
+      : money2(
+          items
+            .filter((i) => inferProposalItemType(i as never) === 'PRODUCT')
+            .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0)
+        );
+
+  const servicesSubtotal =
+    proposal.servicesSubtotal != null && Number.isFinite(Number(proposal.servicesSubtotal))
+      ? money2(Number(proposal.servicesSubtotal))
+      : money2(
+          items
+            .filter((i) => inferProposalItemType(i as never) === 'SERVICE')
+            .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0)
+        );
+
+  const itemDiscounts = money2(
+    items.reduce((acc, it) => {
+      const gross = Math.max(1, Number(it.quantity || 1)) * Number(it.unitPrice || 0);
+      const net = Number(it.subtotal ?? it.totalMonthly ?? gross);
+      return acc + Math.max(0, gross - net);
+    }, 0)
+  );
+  const globalDiscount =
+    Math.max(0, Number(proposal.discountAmount || 0)) +
+    money2((productsSubtotal + servicesSubtotal) * (Number(proposal.discountPercentGlobal || 0) / 100));
+  const totalDiscounts = money2(itemDiscounts + globalDiscount);
+  const itemsNet = money2(productsSubtotal + servicesSubtotal - globalDiscount);
+
+  const isOneTimeServices =
+    headings.isServices &&
+    !headings.isRental &&
+    items.length > 0 &&
+    items.every((i) => i.isRecurring === false);
+
+  const explicitSetupFee = Math.max(0, Number(proposal.setupFee || 0));
+  const isolatedSetupTotal = Math.max(0, Number(proposal.oneTimeSetupTotal || 0));
+  const displaySetupAmount = isOneTimeServices ? explicitSetupFee : saleLike ? 0 : isolatedSetupTotal;
+  const uniquePayment = isOneTimeServices || figures.oneTime || saleLike;
+  const computedUniqueTotal = money2(itemsNet + (isOneTimeServices ? explicitSetupFee : 0) + shippingCost);
+  const storedTotal = Number(proposal.totalContractValue || 0);
+  const uniqueTotalAmount = storedTotal > 0 ? money2(storedTotal) : computedUniqueTotal;
+  const recurringMonthly = money2(
+    Number(proposal.monthlyRecurringTotal || 0) > 0 ? Number(proposal.monthlyRecurringTotal) : figures.oneTime ? 0 : figures.monthly
+  );
+  const commercialTotalAmount = saleLike
+    ? money2(itemsNet + shippingCost)
+    : uniquePayment
+      ? uniqueTotalAmount || computedUniqueTotal
+      : recurringMonthly || (storedTotal > 0 ? money2(storedTotal) : 0);
+
+  const avulso = isAvulsoServiceProposal(proposal);
+  return {
+    oneTime: figures.oneTime || saleLike || isOneTimeServices,
+    uniquePayment,
+    uniquePaymentLabel: avulso
+      ? 'Valor total (pagamento único)'
+      : uniquePayment
+        ? 'Valor Total (Pagamento Único)'
+        : 'Valor Mensal',
+    saleLike,
+    isOneTimeServices,
+    months: figures.months,
+    productsSubtotal,
+    servicesSubtotal,
+    itemsSubtotal: money2(productsSubtotal + servicesSubtotal),
+    globalDiscount,
+    itemDiscounts,
+    totalDiscounts,
+    hideFreight,
+    shippingCost,
+    displaySetupAmount,
+    hasSetupSelected: displaySetupAmount > 0,
+    setupFeeLabel: proposalSetupFeeLabel(proposal),
+    monthlyAmount: uniquePayment ? 0 : recurringMonthly,
+    commercialTotalAmount,
+    uniqueTotalAmount: uniquePayment || saleLike
+      ? commercialTotalAmount
+      : money2(recurringMonthly * Math.max(1, Number(proposal.contractMonths || figures.months || 1)) + displaySetupAmount + shippingCost),
+  };
+}
+
 export interface ProposalAmountDisplay {
   oneTime: boolean;
   /** Valor principal da lista/resumo: total no avulso/venda, mensalidade (sem setup) no recorrente. */
@@ -1052,42 +1214,21 @@ export interface ProposalAmountDisplay {
   termLabel: string;
 }
 
-export function resolveProposalAmountDisplay(proposal: {
-  budgetType?: string | null;
-  contractMonths?: number | null;
-  monthlyRecurringTotal?: number | null;
-  oneTimeSetupTotal?: number | null;
-  setupFee?: number | null;
-  shippingCost?: number | null;
-  totalContractValue?: number | null;
-}): ProposalAmountDisplay {
-  const oneTime = isOneTimeChargeProposal(proposal);
-  const monthlyAmount = proposalMonthlyAmount(proposal);
-  const setupAmount = proposalSetupAmount(proposal);
-  const shippingAmount = Math.max(0, Number(proposal.shippingCost || 0));
-  const storedTotal = Number(proposal.totalContractValue || 0);
-  const totalAmount =
-    storedTotal > 0
-      ? Math.round(storedTotal * 100) / 100
-      : oneTime
-        ? Math.round((monthlyAmount + setupAmount + shippingAmount) * 100) / 100
-        : Math.round(
-            (monthlyAmount * Math.max(1, Number(proposal.contractMonths || 1)) +
-              setupAmount +
-              shippingAmount) *
-              100
-          ) / 100;
-  const amount = oneTime ? totalAmount || monthlyAmount : monthlyAmount || totalAmount;
-  const months = Math.max(1, Number(proposal.contractMonths || 1));
+export function resolveProposalAmountDisplay(
+  proposal: ProposalCommercialPresentationInput
+): ProposalAmountDisplay {
+  const view = resolveProposalCommercialPresentation(proposal);
+  const oneTime = view.oneTime;
+  const months = Math.max(1, Number(proposal.contractMonths || view.months || 1));
   return {
     oneTime,
-    amount,
+    amount: oneTime ? view.commercialTotalAmount : view.monthlyAmount,
     suffix: oneTime ? '' : '/mês',
     label: oneTime ? (isAvulsoServiceProposal(proposal) ? 'Pagamento único' : 'Valor total') : 'Valor mensal',
-    monthlyAmount,
-    setupAmount,
-    shippingAmount,
-    totalAmount,
+    monthlyAmount: oneTime ? view.commercialTotalAmount : view.monthlyAmount,
+    setupAmount: view.displaySetupAmount,
+    shippingAmount: view.shippingCost,
+    totalAmount: oneTime ? view.commercialTotalAmount : view.uniqueTotalAmount,
     termLabel: oneTime ? 'Pagamento único' : `TCV (${months}m)`,
   };
 }

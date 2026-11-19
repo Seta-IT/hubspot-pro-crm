@@ -63,6 +63,7 @@ import {
   resolveProposalLayoutKind,
   proposalSetupFeeLabel,
   resolveProposalAmountDisplay,
+  resolveProposalCommercialPresentation,
 } from '../../lib/proposal-share';
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
@@ -873,38 +874,12 @@ function PublicProposalPrintContent() {
   const expiredBannerText = proposalExpiredRevalidationMessage(proposal.validUntil);
   const expiredSinceLabel = formatProposalValidUntilPtBr(proposal.validUntil) || validUntilStr;
 
-  const recurringItems = proposal.items.filter((i) => i.isRecurring !== false);
-  const setupItems = proposal.items.filter((i) => i.isRecurring === false);
-
-  const productsSubtotal =
-    proposal.productsSubtotal ??
-    proposal.items
-      .filter((i) => inferProposalItemType(i) === 'PRODUCT')
-      .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0);
-
-  const servicesSubtotal =
-    proposal.servicesSubtotal ??
-    proposal.items
-      .filter((i) => inferProposalItemType(i) === 'SERVICE')
-      .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0);
-
-  const itemDiscountsSum = proposal.items.reduce((acc, it) => {
-    const gross = Math.max(1, Number(it.quantity || 1)) * Number(it.unitPrice || 0);
-    const net = Number(it.subtotal ?? it.totalMonthly ?? gross);
-    return acc + Math.max(0, gross - net);
-  }, 0);
-
-  const globalDiscountVal =
-    Number(proposal.discountAmount || 0) +
-    Math.round(
-      (productsSubtotal + servicesSubtotal) *
-        (Number(proposal.discountPercentGlobal || 0) / 100) *
-        100
-    ) /
-      100;
-
-  const totalDiscounts = Math.round((itemDiscountsSum + globalDiscountVal) * 100) / 100;
-  const isolatedSetupTotal = Number(proposal.oneTimeSetupTotal || 0);
+  const commercialView = resolveProposalCommercialPresentation(proposal);
+  const productsSubtotal = commercialView.productsSubtotal;
+  const servicesSubtotal = commercialView.servicesSubtotal;
+  const itemDiscountsSum = commercialView.itemDiscounts;
+  const globalDiscountVal = commercialView.globalDiscount;
+  const totalDiscounts = commercialView.totalDiscounts;
   const contractDurationMonths = Math.max(1, Number(proposal.contractMonths || 24));
   const activeLayout = resolveProposalLayoutKind(proposal.templateStyle);
   const activeTemplate = activeLayout;
@@ -932,22 +907,10 @@ function PublicProposalPrintContent() {
     isServices,
   } = docHeadings;
   const saleLike = isProductsOnly || isSpareParts;
-  const hideServiceFreight = proposalHidesFreight(proposal);
-  const shippingCost = hideServiceFreight ? 0 : Number(proposal.shippingCost || 0);
-  // PRODUTOS (venda): sem Setup na folha/PDF. Itens de pagamento unico de venda NAO sao setup
-  // (o oneTimeSetupTotal deles e a propria soma dos itens; soma-lo dobrava o total). Valores com
-  // centavos. LOCACAO/SERVICOS seguem exatamente como antes.
-  // SERVICOS com todos os itens de cobranca unica (isRecurring=false): sem "/mes", sem vigencia e sem
-  // Setup duplicado; exibe Valor Total = itens + setupFee explicito + frete (totalContractValue).
-  const isOneTimeServices =
-    isServices &&
-    !isRental &&
-    proposal.items.length > 0 &&
-    proposal.items.every((i) => i.isRecurring === false);
-  const oneTimeServicesSetupFee = Math.max(0, Number(proposal.setupFee || 0));
-  const hasSetupSelected = isOneTimeServices
-    ? oneTimeServicesSetupFee > 0
-    : !saleLike && isolatedSetupTotal > 0;
+  const hideServiceFreight = commercialView.hideFreight;
+  const shippingCost = commercialView.shippingCost;
+  const isOneTimeServices = commercialView.isOneTimeServices;
+  const hasSetupSelected = commercialView.hasSetupSelected;
   const formatBRL = (value: number | null | undefined): string =>
     saleLike
       ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value ?? 0))
@@ -969,10 +932,8 @@ function PublicProposalPrintContent() {
     .replace(avulsoService ? /reajuste anual(?:\s+pelo)?\s+IPCA/gi : /$^/, "")
     .replace(avulsoService ? /\s{2,}/g : /$^/, avulsoService ? " " : "")
     .trim();
-  const uniquePayment = isOneTimeServices || avulsoService;
-  const uniquePaymentLabel = avulsoService
-    ? "Valor total (pagamento único)"
-    : "Valor Total (Pagamento Único)";
+  const uniquePayment = commercialView.uniquePayment;
+  const uniquePaymentLabel = commercialView.uniquePaymentLabel;
   const hasContractVigencia =
     !avulsoService && !saleLike && (isRental || proposal.items.some((i) => i.isRecurring !== false));
   const sellerContact = resolveProposalSellerContact(proposal);
@@ -982,16 +943,11 @@ function PublicProposalPrintContent() {
         ? readablePaymentCondition(proposal.paymentCondition)
         : cleanProposalPaymentCondition(proposal.paymentCondition)
     ) || "Conforme condições acordadas";
-  const commercialTotalAmount = saleLike
-    ? // Venda: subtotal (itens ja liquidos do desconto do item) - desconto global + frete; sem setup.
-      Math.round((productsSubtotal + servicesSubtotal - globalDiscountVal + shippingCost) * 100) / 100
-    : uniquePayment
-      ? Number(proposal.totalContractValue || commercialFigures.monthly || 0)
-      : proposal.monthlyRecurringTotal || proposal.totalContractValue;
-  const displaySetupAmount = isOneTimeServices ? oneTimeServicesSetupFee : isolatedSetupTotal;
-  const setupFeeLabel = proposalSetupFeeLabel(proposal);
+  const commercialTotalAmount = commercialView.commercialTotalAmount;
+  const displaySetupAmount = commercialView.displaySetupAmount;
+  const setupFeeLabel = commercialView.setupFeeLabel;
   const setupFeeIsolatedLabel = proposalSetupFeeLabel(proposal, 'isolated');
-  const showTotalInsteadOfMonthly = saleLike || uniquePayment;
+  const showTotalInsteadOfMonthly = commercialView.saleLike || commercialView.uniquePayment;
 
 
   // Classes de cada modelo vêm do módulo comum (também usado pelo Recibo/Fatura de Locação).
@@ -1096,23 +1052,23 @@ function PublicProposalPrintContent() {
             <button
               type="button"
               data-testid="open-internal-link"
-              title="Abre o link interno desta proposta em uma nova aba"
+              title="Abre a Versão contrato desta proposta em uma nova aba"
               onClick={() => openInternalProposalLink(proposal.id)}
               className="inline-flex items-center gap-1.5 bg-white px-3 py-1.5 text-xs font-semibold text-[#1e3a6e] transition hover:bg-[#eef2fa] cursor-pointer"
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              Abrir Link interno
+              Abrir Versão contrato
             </button>
             <button
               type="button"
               data-testid="copy-internal-link"
-              title="Copiar link interno"
-              aria-label="Copiar link interno"
+              title="Copiar Versão contrato"
+              aria-label="Copiar Versão contrato"
               onClick={async () => {
                 await copyInternalProposalLink(proposal.id);
                 setInternalCopied(true);
                 setTimeout(() => setInternalCopied(false), 3000);
-                showLinkToast("Link interno copiado.");
+                showLinkToast("Versão contrato copiada.");
               }}
               className="inline-flex items-center border-l border-[#1e3a6e] bg-white px-2 text-[#1e3a6e] transition hover:bg-[#eef2fa] cursor-pointer"
             >
