@@ -581,6 +581,19 @@ Diretrizes do Marcéllo: *"nao tem o botão salvar, veja como funciona no hubspo
 - [ ] Pílulas da busca global respeitarem `moduleAccess`.
 - [ ] Remanescentes da troca de nomes: "GestãoClick" no painel em tempo real do ERP e parêntese faltando em Contatos & Empresas (em andamento); confirmar SKU de fallback `ITEM-n` na proposta pública.
 
+### 11.6. Pendências abertas (regra do Marcéllo, `[pt293u]`: todo item pendente vai para o roadmap)
+- [ ] Carga dos contatos do HubSpot (branch `nova/carga-contatos-hubspot`, commit `b85ba82`): bloqueada até liberar a leitura de contatos e empresas no conector do HubSpot ou chegarem os CSVs exportados; o CISO avalia o risco de o bloco de dados do CRM passar de 7,7 MB para cerca de 17,5 MB.
+- [ ] Título "Tickets/Chamados" que sobrou em `DealRecordDrawer.tsx:1473` deve virar **STI HUB Desk Service**.
+- [ ] GET de sessão de `/api/contacts` e `/api/deals` não aplica o escopo de carteira (`portfolioScope`).
+- [ ] Botões e cartões de atividade também em Contatos, Empresas e Chamados (hoje só na ficha do Negócio).
+- [ ] E-mail da ficha no editor novo (janela flutuante).
+- [ ] Reordenar os botões de atividade.
+- [ ] Imagem e anexo nas janelas de atividade (hoje aparecem como "em breve").
+- [ ] Sem decisão: cor `#C24E00` (`b5a64c0`).
+- [ ] Sem decisão: tecla Esc (`ba438d5`).
+- [ ] Sem decisão: respostas ao Fiscal.
+- [ ] Sem decisão: status com o Atlas.
+
 ## Próxima Etapa Planejada (Backlog de Integração ERP -> CRM)
 
 - [ ] **[AGUARDANDO DEFINIÇÃO DE REGRAS COM O MARCÉLLO ANTES DE IMPLEMENTAR] — Opção de criar/espelhar Negócio (Deal) no CRM ao criar uma Proposta Comercial no ERP:**
