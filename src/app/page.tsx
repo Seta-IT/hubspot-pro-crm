@@ -70,6 +70,7 @@ import { canDeleteDealsFromPermissions, canEditCrmItemFromPermissions, canEditDe
 import { canSendCrmEmailFromPermissions } from './lib/email-composer';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './components/ClientEmailComposerModal';
 import AssistenteIaPanel from './components/AssistenteIaPanel';
+import { ALVO_SECAO_ERP } from './lib/assistente-chat-texto';
 import {
   loadDurableJournal,
   acknowledgeDurableJournal,
@@ -1755,7 +1756,23 @@ export default function HubSpotProCrmApp() {
 
           {/* Right Status & Profile Controls */}
           <div className="flex items-center gap-2 shrink-0">
-            <AssistenteIaPanel system={headerSystem} userName={activeRbacUser?.name} />
+            <AssistenteIaPanel
+              system={headerSystem}
+              userName={activeRbacUser?.name}
+              onAbrirRegistro={(alvo) => {
+                if (alvo.type === 'TICKET') {
+                  setInitialTicketIdForDrawer(alvo.id);
+                  setActiveModule('SERVICE_DESK');
+                  return;
+                }
+                const secao = ALVO_SECAO_ERP[alvo.type];
+                if (!secao) return;
+                setErpInitialSection(secao as GestaoClickMenuSection);
+                setErpTargetEntity({ type: alvo.type, id: alvo.id, query: alvo.query });
+                setErpNavigationTrigger((n) => n + 1);
+                setActiveModule('ERP_GESTAOCLICK');
+              }}
+            />
             {isCrmActive && (
               <>
                 <button

@@ -18,7 +18,7 @@ import { z } from 'zod';
 import type { LlmToolDefinition } from './omniroute-client';
 import { nextServiceOrderCode } from '../erp/service-order-workflow';
 import { extractGcProposalNumber, formatProposalDisplayCode } from '../../app/lib/proposal-number';
-import { computeProposalTotals, isAvulsoServiceProposal } from '../../app/lib/proposal-share';
+import { computeProposalTotals, isAvulsoServiceProposal, proposalSetupFeeLabel, resolveEffectiveProposalBudgetType, resolveProposalAmountDisplay } from '../../app/lib/proposal-share';
 import type { ErpCommercialProposal } from '../../db/types';
 import { isProposalValidityExpired, formatProposalValidUntilPtBr } from '../../app/lib/proposal-validity';
 import { extrairIdentificadores, foldTexto, formatarCnpj, soDigitos, type Identificador } from './identificadores';
@@ -50,10 +50,39 @@ export type ToolResult =
       tabela?: ToolTable;
       totais?: Array<{ rotulo: string; valor: string }>;
       registro?: { tipo: string; id: string; codigo?: string };
+      /** Ficha completa do registro encontrado (mostrada ao usuario; nao vai ao modelo). */
+      detalhes?: DetalheRegistro[];
+      /** Botoes do registro: abrir, link do cliente, Versao contrato, PDF (sem token: o link e gerado no clique). */
+      acoes?: AcaoRegistro[];
       /** Unico texto que volta ao modelo depois da execucao (sem dados de clientes). */
       resumoParaModelo: string;
     }
   | { ok: false; status: number; mensagem: string; resumoParaModelo: string };
+
+export interface DetalheRegistro {
+  rotulo: string;
+  valor: string;
+}
+
+/** Alvo dentro da tela (mesmo mecanismo da busca global do cabecalho). */
+export interface AlvoRegistro {
+  type: 'PROPOSAL' | 'CONTRACT' | 'INVOICE' | 'SERVICE_ORDER' | 'CUSTOMER' | 'TICKET';
+  id: string;
+  query?: string;
+}
+
+/**
+ * Acoes do registro no chat. Nenhuma carrega token: o link do cliente (assinado) e pedido ao
+ * servidor no clique, com a sessao/MFA e o RBAC do usuario (mesma rota do botao da lista).
+ */
+export type AcaoRegistro =
+  | { tipo: 'abrir'; rotulo: string; alvo: AlvoRegistro; href: string }
+  | { tipo: 'link_cliente_proposta'; rotulo: string; propostaId: string }
+  | { tipo: 'link_cliente_fatura'; rotulo: string; faturaId: string }
+  | { tipo: 'versao_contrato'; rotulo: string; href: string }
+  | { tipo: 'pdf_proposta'; rotulo: string; propostaId: string }
+  | { tipo: 'link_pdf'; rotulo: string; href: string }
+  | { tipo: 'aviso'; rotulo: string };
 
 export interface ToolSummary {
   titulo: string;
@@ -1117,7 +1146,7 @@ const consultarPropostas: AssistenteTool<PropostasArgs> = {
         const itens: any[] = Array.isArray(p.items) ? p.items : [];
         return {
           ok: true,
-          mensagem: `Proposta ${numeroProposta(p)} de ${cut(p.companyName, 60)}: ${statusProposta(p.status)}, total ${formatBRL(totalPropostaRegistro(p))}, ${itens.length} itens.`,
+          mensagem: `Proposta ${numeroProposta(p)} de ${cut(p.companyName, 60)}: ${statusProposta(p.status)}, ${resumoValorProposta(p)}, ${itens.length} ${itens.length === 1 ? 'item' : 'itens'}.${p.validUntil ? ` Validade ${formatProposalValidUntilPtBr(p.validUntil) || formatDateBr(p.validUntil)}.` : ''} Os links e o PDF estão nos botões abaixo.`,
           totais: [
             { rotulo: 'Número', valor: numeroProposta(p) },
             { rotulo: 'Cliente', valor: cut(p.companyName, 60) },
@@ -1133,9 +1162,12 @@ const consultarPropostas: AssistenteTool<PropostasArgs> = {
           tabela: itens.length
             ? {
                 colunas: ['Item', 'Descrição', 'Qtd', 'Unitário', 'Cobrança', 'Subtotal'],
-                linhas: itens.slice(0, 60).map((i, idx) => [String(idx + 1), cut(i.description, 70), String(i.quantity ?? 1), formatBRL(i.unitPrice), cobrancaItem(i), formatBRL(i.subtotal ?? i.totalMonthly)]),
+                linhas: itens.slice(0, 60).map((i, idx) => [String(idx + 1), cut(i.description, 70), String(i.quantity ?? 1), formatBRL(i.unitPrice), cobrancaItem(i), formatBRL(i.subtotal ?? i.totalMonthly ?? Number(i.unitPrice || 0) * Number(i.quantity || 1))]),
               }
             : undefined,
+          detalhes: detalhesProposta(p),
+          acoes: acoesProposta(p),
+          registro: { tipo: 'proposta', id: String(p.id || ''), codigo: p.code ? String(p.code) : undefined },
           resumoParaModelo: `Proposta ${numeroProposta(p)} encontrada: cliente ${cut(p.companyName, 60)}; situação ${statusProposta(p.status)}; total ${formatBRL(totalPropostaRegistro(p))}; ${isAvulsoServiceProposal(p) ? 'pagamento único; ' : `prazo ${Number(p.contractMonths || 0)} meses; `}${propostaDoGestaoClick(p) ? 'importada do ERP de origem; ' : ''}itens: ${resumoItens(p) || 'nenhum'}.`,
         };
       }
@@ -1732,13 +1764,268 @@ function diagnosticoProposta(p: any, link: Identificador | undefined, a: { conte
   } else if (a.link_com_assinatura || link?.link?.comToken) {
     out.push('O link tinha a assinatura do cliente. Se mesmo assim não abre, a assinatura venceu (validade da proposta) ou foi trocada: gere um novo em "Copiar link do cliente" na lista de Orçamentos.');
   } else if (a.contexto === 'nao_abre' || link) {
-    out.push(`Por que não abre: o endereço /proposta/${cut(p.id, 60)} colado sem a assinatura do cliente (o trecho #t=... do link) não abre, por segurança (a página mostra "Link inválido ou sem permissão"). Para abrir, busque ${num} na lista de Orçamentos e use "Copiar link do cliente" (gera o link assinado) ou abra pela própria lista.`);
+    out.push(`Por que não abre: o endereço /proposta/${cut(p.id, 60)} colado sem a assinatura do cliente (o trecho #t=... do link) não abre, por segurança (a página mostra "Link inválido ou sem permissão"). Para abrir, use o botão "Copiar link do cliente" abaixo (gera o link assinado, com a sua permissão) ou o mesmo botão na lista de Orçamentos (busque ${num}).`);
   }
   if (p.validUntil && isProposalValidityExpired(p.validUntil) && !['APROVADA', 'CONVERTIDA_CONTRATO', 'RECUSADA'].includes(String(p.status))) {
     out.push(`A validade venceu em ${formatProposalValidUntilPtBr(p.validUntil)}: a proposta abre com o aviso de revalidação; atualize a validade para o cliente aceitar.`);
   }
   if (propostaDoGestaoClick(p)) out.push('Foi importada do ERP de origem (a sincronização é só de lá para o STI HUB ERP).');
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Ficha completa e acoes do registro encontrado (pedido do Marcéllo, 24/11/2026:
+// "sempre trazer as informações na forma mais completa possível, junto com links e
+// opções para copiar PDFs"). So leitura: nada aqui grava. O link do cliente nao sai
+// daqui (seria token): o chat pede ao servidor no clique, com a sessao e o RBAC do usuario.
+// ---------------------------------------------------------------------------
+const TIPO_ORCAMENTO_ROTULO: Record<string, string> = {
+  LOCACAO: 'Locação',
+  SERVICOS: 'Serviços',
+  PRODUTOS: 'Venda de produtos',
+  CONJUNTO: 'Conjunto (locação + serviços/produtos)',
+  SPARE_PARTS: 'Spare parts',
+};
+const docCnpj = (v: unknown) => {
+  const d = soDigitos(v);
+  return d.length === 14 ? formatarCnpj(d) : cut(v, 24);
+};
+const add = (out: DetalheRegistro[], rotulo: string, valor: unknown) => {
+  const v = String(valor ?? '').replace(/\s+/g, ' ').trim();
+  if (v && v !== '-' && v !== 'R$ 0,00' && v !== '0') out.push({ rotulo, valor: v.length > 300 ? `${v.slice(0, 299)}…` : v });
+};
+const comEmail = (nome: unknown, email: unknown) => [String(nome || '').trim(), email ? `<${String(email).trim()}>` : ''].filter(Boolean).join(' ');
+const caminhoInterno = (id: string) => `/interno/proposta/${encodeURIComponent(id)}`;
+
+export function tipoOrcamento(p: any): string {
+  if (isAvulsoServiceProposal(p)) return 'Serviço pontual (pagamento único)';
+  let t = String(p?.budgetType || '');
+  try {
+    t = resolveEffectiveProposalBudgetType(p);
+  } catch {
+    // tipo gravado
+  }
+  return TIPO_ORCAMENTO_ROTULO[t] || statusLabel(t);
+}
+
+/** Valores pelas regras do resumo: servico pontual sem /mes; locacao com setup e frete separados. */
+export function valoresProposta(p: any): DetalheRegistro[] {
+  const out: DetalheRegistro[] = [];
+  const meses = Math.max(1, Number(p?.contractMonths || 1));
+  let v: ReturnType<typeof resolveProposalAmountDisplay> | null = null;
+  try {
+    v = resolveProposalAmountDisplay({ ...p, items: Array.isArray(p?.items) ? p.items : [] });
+  } catch {
+    v = null;
+  }
+  if (isAvulsoServiceProposal(p) || v?.oneTime) {
+    add(out, isAvulsoServiceProposal(p) ? 'Pagamento único' : 'Valor total', formatBRL(v?.totalAmount || totalPropostaRegistro(p)));
+    if (Number(p?.shippingCost) > 0) add(out, 'Frete (incluso)', formatBRL(p.shippingCost));
+    return out;
+  }
+  const mensal = Number(v?.monthlyAmount || p?.monthlyRecurringTotal || 0);
+  add(out, 'Mensal', `${formatBRL(mensal)}/mês`);
+  add(out, 'Prazo', `${meses} ${meses === 1 ? 'mês' : 'meses'}`);
+  const setup = Number(v?.setupAmount ?? p?.oneTimeSetupTotal ?? 0);
+  if (setup > 0) add(out, `${proposalSetupFeeLabel(p)} (valor único, separado)`, formatBRL(setup));
+  if (Number(p?.shippingCost) > 0) add(out, 'Frete (valor único)', formatBRL(p.shippingCost));
+  add(out, 'Total do contrato', formatBRL(Number(p?.totalContractValue) || v?.totalAmount || totalPropostaRegistro(p)));
+  return out;
+}
+
+/** "R$ 2.350,00/mês por 36 meses (total R$ 84.600,00)" ou "R$ 18.600,00 em pagamento único". */
+export function resumoValorProposta(p: any): string {
+  const v = valoresProposta(p);
+  const get = (r: string) => v.find((x) => x.rotulo === r)?.valor;
+  if (get('Pagamento único')) return `${get('Pagamento único')} em pagamento único`;
+  if (get('Valor total')) return `total ${get('Valor total')}`;
+  const meses = Math.max(1, Number(p?.contractMonths || 1));
+  const setup = v.find((x) => x.rotulo.includes('valor único, separado'));
+  return `${get('Mensal') || '-'} por ${meses} ${meses === 1 ? 'mês' : 'meses'}${setup ? ` + ${setup.valor} de ${setup.rotulo.replace(/ \(valor único, separado\)/, '').toLowerCase()} (único)` : ''} (total ${get('Total do contrato') || formatBRL(totalPropostaRegistro(p))})`;
+}
+
+export function detalhesProposta(p: any): DetalheRegistro[] {
+  const out: DetalheRegistro[] = [];
+  add(out, 'Orçamento', numeroProposta(p));
+  add(out, 'Cliente', p?.companyName);
+  add(out, 'CNPJ', p?.companyCnpj ? docCnpj(p.companyCnpj) : '');
+  add(out, 'Contato', comEmail(p?.careOf || p?.contactName, p?.contactEmail));
+  add(out, 'Situação', statusProposta(p?.status));
+  add(out, 'Tipo', tipoOrcamento(p));
+  add(out, 'Título', p?.title);
+  if (p?.serviceType) add(out, 'Tipo de serviço', p.serviceType);
+  out.push(...valoresProposta(p));
+  add(out, 'Pagamento', p?.paymentCondition);
+  if (p?.validUntil) {
+    const venc = isProposalValidityExpired(p.validUntil) && !['APROVADA', 'CONVERTIDA_CONTRATO', 'RECUSADA'].includes(String(p.status));
+    add(out, 'Validade', `${formatProposalValidUntilPtBr(p.validUntil) || formatDateBr(p.validUntil)}${venc ? ' (vencida: precisa revalidar)' : ''}`);
+  }
+  add(out, 'Vendedor', comEmail(p?.sellerName, p?.sellerEmail));
+  add(out, 'Criada em', formatDateBr(p?.createdAt || p?.proposalDate));
+  if (p?.updatedAt) add(out, 'Atualizada em', formatDateBr(p.updatedAt));
+  if (p?.lastEmailSentAt) add(out, 'Último envio por e-mail', formatDateBr(p.lastEmailSentAt));
+  if (p?.readjustmentIndex) add(out, 'Reajuste', p.readjustmentIndex === 'IST_ANATEL' ? 'IST (Anatel)' : p.readjustmentIndex);
+  if (p?.convertedContractId) add(out, 'Contrato gerado', 'sim (veja em Contratos)');
+  const itens: any[] = Array.isArray(p?.items) ? p.items : [];
+  if (itens.length) add(out, 'Itens', `${itens.length} ${itens.length === 1 ? 'item' : 'itens'}: ${resumoItens(p, 6)}`);
+  if (propostaDoGestaoClick(p)) add(out, 'Origem', 'Importada do ERP de origem');
+  return out;
+}
+
+export function acoesProposta(p: any): AcaoRegistro[] {
+  const id = String(p?.id || '').trim();
+  if (!id) return [];
+  const out: AcaoRegistro[] = [{ tipo: 'abrir', rotulo: 'Abrir no sistema', alvo: { type: 'PROPOSAL', id }, href: '/?tela=ERP_PROPOSALS' }];
+  // Emitir o link de um RASCUNHO muda a situacao para Enviada (regra da rota): o chat nao faz isso.
+  if (String(p?.status || '') === 'RASCUNHO') {
+    out.push({ tipo: 'aviso', rotulo: 'Rascunho: o link do cliente sai quando a proposta for enviada (gerar o link pela lista muda a situação para Enviada).' });
+  } else {
+    out.push({ tipo: 'link_cliente_proposta', rotulo: 'Copiar link do cliente', propostaId: id });
+  }
+  out.push(
+    { tipo: 'versao_contrato', rotulo: 'Versão contrato', href: caminhoInterno(id) },
+    { tipo: 'pdf_proposta', rotulo: 'Baixar PDF', propostaId: id },
+    { tipo: 'link_pdf', rotulo: 'Copiar link do PDF', href: `${caminhoInterno(id)}?pdf=1` },
+  );
+  return out;
+}
+
+export function detalhesContrato(c: any): DetalheRegistro[] {
+  const out: DetalheRegistro[] = [];
+  add(out, 'Contrato', c?.contractNumber || c?.gestaoClickCode);
+  add(out, 'Cliente', c?.companyName);
+  add(out, 'CNPJ', c?.companyCnpj ? docCnpj(c.companyCnpj) : '');
+  add(out, 'Situação', statusLabel(c?.status));
+  add(out, 'Título', c?.title);
+  add(out, 'Mensal', `${formatBRL(c?.monthlyValue)}/mês`);
+  add(out, 'Vigência', `${formatDateBr(c?.startDate)} a ${formatDateBr(c?.endDate)}`);
+  if (c?.contractMonths) add(out, 'Prazo', `${Number(c.contractMonths)} meses`);
+  if (c?.dueDay) add(out, 'Dia de vencimento', String(c.dueDay));
+  add(out, 'Reajuste', c?.readjustmentIndex || 'não informado');
+  if (c?.lastReadjustmentDate) add(out, 'Último reajuste', `${formatDateBr(c.lastReadjustmentDate)}${c.lastReadjustmentPercent != null ? ` (${c.lastReadjustmentPercent}%)` : ''}`);
+  if (c?.nextDueDate) add(out, 'Próximo vencimento', formatDateBr(c.nextDueDate));
+  if (c?.lastBilledCompetence) add(out, 'Último faturamento', c.lastBilledCompetence);
+  if (c?.proposalNumber || c?.proposalId) add(out, 'Orçamento de origem', c.proposalNumber || c.proposalId);
+  add(out, 'Vendedor', c?.sellerName);
+  const eq: any[] = Array.isArray(c?.equipments) ? c.equipments : [];
+  if (eq.length) add(out, 'Equipamentos', `${eq.length}: ${eq.slice(0, 5).map((e) => cut(e?.description || e?.name || e?.model || e?.serialNumber, 40)).join('; ')}`);
+  return out;
+}
+
+export function detalhesFatura(f: any): DetalheRegistro[] {
+  const out: DetalheRegistro[] = [];
+  add(out, ehNotaFiscal(f) ? 'Nota' : 'Fatura', f?.documentNumber);
+  add(out, 'Tipo', tipoDocumentoFiscal(f?.documentType));
+  add(out, 'Cliente', f?.companyName);
+  add(out, 'CNPJ', f?.companyCnpj ? docCnpj(f.companyCnpj) : '');
+  add(out, 'Situação', statusLabel(statusFatura(f)));
+  add(out, 'Valor', formatBRL(f?.grossAmount));
+  if (Number(f?.netAmount) && Number(f.netAmount) !== Number(f.grossAmount)) add(out, 'Valor líquido', formatBRL(f.netAmount));
+  if (f?.competenceMonth) add(out, 'Competência', f.competenceMonth);
+  add(out, 'Emissão', formatDateBr(f?.issueDate));
+  add(out, 'Vencimento', formatDateBr(f?.dueDate));
+  if (f?.paidAt) add(out, 'Pagamento', `${formatDateBr(f.paidAt)}${f.paymentMethod ? ` (${f.paymentMethod})` : ''}`);
+  if (f?.contractNumber) add(out, 'Contrato', f.contractNumber);
+  if (f?.proposalNumber) add(out, 'Orçamento', f.proposalNumber);
+  if (f?.verificationCodeOrKey) add(out, ehNotaFiscal(f) ? 'Chave / verificação' : 'Código', f.verificationCodeOrKey);
+  if (f?.boletoDigitableLine) add(out, 'Linha digitável', f.boletoDigitableLine);
+  if (f?.itemsDescription || f?.description) add(out, 'Descrição', f.itemsDescription || f.description);
+  return out;
+}
+
+export function detalhesOs(o: any): DetalheRegistro[] {
+  const out: DetalheRegistro[] = [];
+  add(out, 'OS', o?.code);
+  add(out, 'Cliente', o?.companyName);
+  add(out, 'CNPJ', o?.companyCnpj ? docCnpj(o.companyCnpj) : '');
+  add(out, 'Situação', statusLabel(o?.status));
+  add(out, 'Descrição', o?.description);
+  add(out, 'Equipamento', [o?.equipmentName, o?.serialNumber ? `série ${o.serialNumber}` : ''].filter(Boolean).join(', '));
+  add(out, 'Técnico', o?.technicianName);
+  add(out, 'Vendedor', o?.sellerName);
+  add(out, 'Valor', formatBRL(o?.totalAmount));
+  add(out, 'Entrada', formatDateBr(o?.entryDate));
+  if (o?.exitDate) add(out, 'Saída', formatDateBr(o.exitDate));
+  if (o?.technicalReport) add(out, 'Laudo', o.technicalReport);
+  return out;
+}
+
+export function detalhesChamado(t: any): DetalheRegistro[] {
+  const out: DetalheRegistro[] = [];
+  add(out, 'Chamado', t?.key);
+  add(out, 'Assunto', t?.subject);
+  add(out, 'Situação', statusChamado(t?.status));
+  add(out, 'Prioridade', TICKET_PRIORIDADE_ROTULO[String(t?.priority || '')] || t?.priority);
+  add(out, 'Cliente', t?.company?.name || t?.companyName);
+  add(out, 'Solicitante', comEmail(t?.requesterName, t?.requesterEmail));
+  add(out, 'Responsável', t?.assigneeName || t?.assignee?.name);
+  add(out, 'Aberto em', formatDateBr(t?.createdAt));
+  if (t?.updatedAt) add(out, 'Atualizado em', formatDateBr(t.updatedAt));
+  return out;
+}
+
+export function detalhesEmpresa(c: any): DetalheRegistro[] {
+  const out: DetalheRegistro[] = [];
+  add(out, 'Cliente', c?.name || c?.legalName);
+  if (c?.legalName && c.legalName !== c.name) add(out, 'Razão social', c.legalName);
+  add(out, 'CNPJ', c?.cnpj ? docCnpj(c.cnpj) : '');
+  add(out, 'Cidade/UF', [c?.city, c?.state].filter(Boolean).join('/'));
+  add(out, 'Telefone', c?.phone);
+  add(out, 'E-mail', c?.email);
+  return out;
+}
+
+/** Ficha, acoes e registro (para o contexto da conversa) de um achado da busca. */
+function fichaDoAchado(x: Achado): { detalhes: DetalheRegistro[]; acoes: AcaoRegistro[]; registro?: { tipo: string; id: string; codigo?: string } } {
+  const b = x.bruto || {};
+  const id = String(b.id || '');
+  switch (x.tipo) {
+    case 'Orçamento':
+      return { detalhes: detalhesProposta(b), acoes: acoesProposta(b), registro: { tipo: 'proposta', id, codigo: b.code ? String(b.code) : undefined } };
+    case 'Contrato':
+      return {
+        detalhes: detalhesContrato(b),
+        acoes: id ? [{ tipo: 'abrir', rotulo: 'Abrir no sistema', alvo: { type: 'CONTRACT', id }, href: '/?tela=ERP_CONTRACTS' }] : [],
+        registro: { tipo: 'contrato', id, codigo: b.contractNumber ? String(b.contractNumber) : undefined },
+      };
+    case 'Fatura':
+    case 'Nota fiscal': {
+      const acoes: AcaoRegistro[] = id ? [{ tipo: 'abrir', rotulo: 'Abrir no sistema', alvo: { type: 'INVOICE', id }, href: '/?tela=ERP_OVERVIEW' }] : [];
+      if (id && !ehNotaFiscal(b) && !['RASCUNHO', 'CANCELADA'].includes(String(b.status || ''))) {
+        acoes.push({ tipo: 'link_cliente_fatura', rotulo: 'Copiar link da fatura (cliente)', faturaId: id });
+      }
+      return { detalhes: detalhesFatura(b), acoes, registro: { tipo: ehNotaFiscal(b) ? 'nota' : 'fatura', id, codigo: b.documentNumber ? String(b.documentNumber) : undefined } };
+    }
+    case 'OS':
+      return {
+        detalhes: detalhesOs(b),
+        acoes: id ? [{ tipo: 'abrir', rotulo: 'Abrir no sistema', alvo: { type: 'SERVICE_ORDER', id, query: String(b.code || '') }, href: '/?tela=ERP_OVERVIEW' }] : [],
+        registro: { tipo: 'ordem_servico', id, codigo: b.code ? String(b.code) : undefined },
+      };
+    case 'Chamado':
+      return {
+        detalhes: detalhesChamado(b),
+        acoes: id ? [{ tipo: 'abrir', rotulo: 'Abrir no STI HUB Desk Service', alvo: { type: 'TICKET', id, query: String(b.key || '') }, href: '/?tela=CHAMADOS_QUEUE' }] : [],
+        registro: { tipo: 'chamado', id, codigo: b.key ? String(b.key) : undefined },
+      };
+    case 'Cliente':
+      return {
+        detalhes: detalhesEmpresa(b),
+        acoes: id ? [{ tipo: 'abrir', rotulo: 'Abrir cadastro', alvo: { type: 'CUSTOMER', id }, href: '/?tela=ERP_OVERVIEW' }] : [],
+      };
+    default:
+      return { detalhes: [], acoes: [] };
+  }
+}
+
+/** Tabela de itens do orcamento (mesma do consultar_propostas). */
+function tabelaItensProposta(p: any): ToolTable | undefined {
+  const itens: any[] = Array.isArray(p?.items) ? p.items : [];
+  if (!itens.length) return undefined;
+  return {
+    colunas: ['Item', 'Descrição', 'Qtd', 'Unitário', 'Cobrança', 'Subtotal'],
+    linhas: itens.slice(0, 60).map((i, idx) => [String(idx + 1), cut(i.description, 70), String(i.quantity ?? 1), formatBRL(i.unitPrice), cobrancaItem(i), formatBRL(i.subtotal ?? i.totalMonthly ?? Number(i.unitPrice || 0) * Number(i.quantity || 1))]),
+  };
 }
 
 const buscarSchema = z
@@ -1808,6 +2095,12 @@ export async function buscaUniversal(a: BuscarArgs, api: ApiCaller): Promise<Too
 
   if (achados.length === 1) {
     const x = achados[0];
+    // Orcamento: a ficha completa (com os itens) vem do GET por id, com o mesmo RBAC da tela.
+    if (x.tipo === 'Orçamento' && x.bruto?.id && !(Array.isArray(x.bruto.items) && x.bruto.items.length)) {
+      const full = await api({ method: 'GET', path: `/api/erp/proposals/${encodeURIComponent(String(x.bruto.id))}` });
+      if (full.status >= 200 && full.status < 300 && full.body?.data && !Array.isArray(full.body.data)) x.bruto = { ...x.bruto, ...full.body.data };
+    }
+    const ficha = fichaDoAchado(x);
     const linhas: string[] = [];
     let registro: { tipo: string; id: string; codigo?: string } | undefined;
     const totais: Array<{ rotulo: string; valor: string }> = [];
@@ -1827,12 +2120,16 @@ export async function buscaUniversal(a: BuscarArgs, api: ApiCaller): Promise<Too
       linhas.push(`Encontrei ${x.tipo === 'OS' ? 'a OS' : x.tipo === 'Fatura' || x.tipo === 'Nota fiscal' || x.tipo === 'Venda' ? `a ${x.tipo.toLowerCase()}` : `o ${x.tipo.toLowerCase()}`} ${x.numero !== '-' ? `${x.numero} ` : ''}— ${x.descricao}: ${x.situacao}${x.valor !== '-' ? `, ${x.valor}` : ''}${x.data !== '-' ? `, ${x.data}` : ''}.`);
     }
     if (amplo) linhas.push(`(Não achei como o tipo pedido; este é o registro com esse número.)`);
+    registro = registro || ficha.registro;
+    const tabelaFinal = x.tipo === 'Orçamento' ? tabelaItensProposta(x.bruto) : ficha.detalhes.length ? undefined : tabela;
     return {
       ok: true,
       mensagem: `${linhas.join(' ')}${avisoNegado}`.trim(),
-      tabela,
+      ...(tabelaFinal ? { tabela: tabelaFinal } : {}),
       ...(totais.length ? { totais } : {}),
       ...(registro ? { registro } : {}),
+      ...(ficha.detalhes.length ? { detalhes: ficha.detalhes } : {}),
+      ...(ficha.acoes.length ? { acoes: ficha.acoes } : {}),
       resumoParaModelo: `Busca universal: 1 registro (${x.tipo}) mostrado ao usuário${x.tipo === 'Orçamento' ? `, número ${x.numero}` : ''}.`,
     };
   }
