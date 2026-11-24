@@ -178,17 +178,31 @@ describe('assistente — ferramentas', () => {
 
 // ---------------------------------------------------------------------------
 describe('assistente — fluxo de confirmação', () => {
-  it('chat só propõe: nenhuma rota é chamada antes do Confirmar', async () => {
+  it('leitura sai direto (sem cartão, sem token), só com GET e auditada (Marcéllo: "Sem confirmação")', async () => {
     const { api, calls } = fakeApi({});
     const llm = fakeLlm({ toolCalls: [{ name: 'consultar', args: { entidade: 'contratos', status: 'ATIVO', busca: null } as any }] });
     const d = deps({ api, llm });
     const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'contratos ativos?' }] }, d);
     assert.equal(r.status, 200);
+    assert.equal(r.body.tipo, 'resultado');
+    assert.equal(r.body.proposta, undefined, 'sem cartão Confirmar');
+    assert.equal((r.body.acao as any).acao, 'leitura');
+    assert.ok((r.body.resultado as any).mensagem);
+    assert.doesNotMatch(JSON.stringify(r.body), /"token"/);
+    assert.ok(calls.length >= 1 && calls.every((c) => c.method === 'GET'));
+    assert.equal(d.audits.length, 1);
+    assert.equal(d.audits[0].tipo, 'leitura');
+  });
+
+  it('gravação continua só propondo: nenhuma rota de escrita antes do Confirmar', async () => {
+    const { api, calls } = fakeApi({});
+    const llm = fakeLlm({ toolCalls: [{ name: 'abrir_chamado', args: { assunto: 'Impressora parada' } }] });
+    const d = deps({ api, llm });
+    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'abra um chamado da impressora' }] }, d);
     assert.equal(r.body.tipo, 'proposta');
-    const p = r.body.proposta as any;
-    assert.equal(p.acao, 'leitura');
-    assert.ok(p.token);
-    assert.equal(calls.length, 0);
+    assert.equal((r.body.proposta as any).acao, 'gravacao');
+    assert.ok((r.body.proposta as any).token);
+    assert.ok(calls.every((c) => c.method === 'GET'), 'nada gravado antes do Confirmar');
     assert.equal(d.audits.length, 0);
   });
 

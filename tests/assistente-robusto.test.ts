@@ -10,7 +10,7 @@ import { rotearPergunta, periodoRelativo, termoDeBusca } from '../src/modules/as
 import { extrairIdentificadores, normalizarPergunta, corrigirPalavra, cpfValido, cnpjValido, type TipoIdentificador } from '../src/modules/assistente/identificadores';
 import { BASE_CONHECIMENTO, buscarConhecimento, responderConhecimento, resumoConhecimentoParaPrompt } from '../src/modules/assistente/conhecimento';
 import { getTool, statusCombina, toolDefinitionsFor, type ApiCaller, type ApiCallRequest, type AssistenteUser } from '../src/modules/assistente/tools';
-import { handleChat, handleExecute, type AssistenteDeps, type AssistenteAuditEntry } from '../src/modules/assistente/service';
+import { handleChat, type AssistenteDeps, type AssistenteAuditEntry } from '../src/modules/assistente/service';
 import { isAllowedAssistenteRoute } from '../src/modules/assistente/api-caller';
 import type { LlmClient } from '../src/modules/assistente/omniroute-client';
 
@@ -498,18 +498,17 @@ describe('assistente robusto — datas relativas', () => {
 // 4) Busca universal (execução, mesmo RBAC das rotas da tela)
 // ---------------------------------------------------------------------------
 describe('assistente robusto — busca universal', () => {
-  it('caso real: chat + confirmar acham o orçamento 4725 e explicam o link sem assinatura', async () => {
+  it('caso real: o chat (sem cartão) acha o orçamento 4725 e explica o link sem assinatura', async () => {
     const { api } = apiCompleta();
     const llm = llmQueNaoDeveSerChamado();
     const d = deps({ api, llm });
     const chat = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'Proposta Comercial #prop-1795473263142-d5b63b não localizada, por que essa proposta não abre?' }] }, d);
     assert.equal(chat.status, 200);
-    assert.equal(chat.body.tipo, 'proposta', 'sai o cartão de busca (só leitura)');
-    assert.equal((chat.body.proposta as any).ferramenta, 'buscar');
-    assert.equal((chat.body.proposta as any).acao, 'leitura');
+    assert.equal(chat.body.tipo, 'resultado', 'busca é leitura: sai direto, sem cartão');
+    assert.equal((chat.body.acao as any).ferramenta, 'buscar');
+    assert.equal((chat.body.acao as any).acao, 'leitura');
     assert.equal(llm.calls, 0, 'o caso claro não depende do modelo');
-    const exec = await handleExecute({ token: (chat.body.proposta as any).token, confirmar: true }, d);
-    assert.equal(exec.status, 200);
+    const exec = { status: 200, body: chat.body.resultado as any };
     assert.equal(exec.body.ok, true);
     const msg = String(exec.body.mensagem);
     assert.match(msg, /4725/);

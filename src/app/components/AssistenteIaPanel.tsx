@@ -168,6 +168,7 @@ function AcoesRegistroChat({ acoes, cor, onAbrirRegistro }: { acoes: AcaoRegistr
               disabled={carregando}
               className={btn}
               style={{ borderColor: cor, color: cor }}
+              title="Gera o link assinado para o cliente (cria ou reaproveita o link curto /p/). Só acontece neste clique."
               onClick={async () => {
                 set(i, { tipo: 'carregando', texto: 'Gerando o link do cliente…' });
                 const r = a.tipo === 'link_cliente_proposta' ? await requestSignedProposalLink(a.propostaId) : await requestSignedInvoiceLink(a.faturaId);
@@ -204,7 +205,7 @@ type Item =
   | { id: string; tipo: 'usuario'; texto: string }
   | { id: string; tipo: 'assistente'; texto: string; erro?: boolean }
   | { id: string; tipo: 'proposta'; texto?: string; proposta: Proposta; estado: 'pendente' | 'executando' | 'confirmada' | 'cancelada' | 'erro' }
-  | { id: string; tipo: 'resultado'; resultado: Resultado };
+  | { id: string; tipo: 'resultado'; resultado: Resultado; consulta?: { titulo: string; linhas: string[] } };
 
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -283,6 +284,24 @@ export default function AssistenteIaPanel({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setItems((cur) => [...cur, { id: uid(), tipo: 'assistente', texto: data?.error || 'Não foi possível falar com o assistente.', erro: true }]);
+      } else if (data?.tipo === 'resultado' && data.resultado) {
+        // Leitura: executada direto no servidor (sem cartão), com as permissões do usuário.
+        const r = data.resultado;
+        const resultado: Resultado = {
+          ok: r?.ok === true,
+          mensagem: String(r?.mensagem || ''),
+          tabela: r?.tabela,
+          totais: r?.totais,
+          detalhes: Array.isArray(r?.detalhes) ? r.detalhes : undefined,
+          acoes: Array.isArray(r?.acoes) ? r.acoes : undefined,
+          resumoParaModelo: r?.resumoParaModelo,
+        };
+        const consulta = data.acao && typeof data.acao.titulo === 'string' ? { titulo: String(data.acao.titulo), linhas: Array.isArray(data.acao.linhas) ? data.acao.linhas.map(String) : [] } : undefined;
+        setItems((cur) => [
+          ...cur,
+          ...(data.texto ? [{ id: uid(), tipo: 'assistente' as const, texto: String(data.texto) }] : []),
+          { id: uid(), tipo: 'resultado' as const, resultado, consulta },
+        ]);
       } else if (data?.tipo === 'proposta' && data.proposta) {
         setItems((cur) => [...cur, { id: uid(), tipo: 'proposta', texto: data.texto || '', proposta: data.proposta, estado: 'pendente' }]);
       } else {
@@ -369,7 +388,7 @@ export default function AssistenteIaPanel({
               <Bot className="w-4 h-4" />
               <div className="leading-tight">
                 <p className="text-sm font-semibold">Assistente STI-hub</p>
-                <p className="text-[10px] text-white/80">Confirma cada ação antes de executar</p>
+                <p className="text-[10px] text-white/80">Consultas são imediatas; alterações pedem confirmação</p>
               </div>
             </div>
             <button type="button" onClick={() => setOpen(false)} aria-label="Fechar (Esc)" title="Fechar (Esc)" className="p-1 rounded hover:bg-white/15 cursor-pointer">
@@ -388,7 +407,7 @@ export default function AssistenteIaPanel({
                   <li>Rascunho de proposta, abertura de chamado e de OS</li>
                 </ul>
                 <p className="flex items-center gap-1 text-[11px] text-slate-500">
-                  <ShieldCheck className="w-3.5 h-3.5" /> Uso só as suas permissões e peço confirmação antes de qualquer ação.
+                  <ShieldCheck className="w-3.5 h-3.5" /> Uso só as suas permissões. Consultas saem na hora; o que grava ou altera dados pede confirmação.
                 </p>
                 <p className="text-[11px] text-slate-500">Todo texto do chat pode ser selecionado e copiado; cada resposta tem o botão Copiar.</p>
               </div>
@@ -468,6 +487,12 @@ export default function AssistenteIaPanel({
               const r = it.resultado;
               return (
                 <div key={it.id} data-testid="assistente-resultado" className={`rounded-md border p-3 text-[12px] select-text ${r.ok ? 'bg-white border-slate-200' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                  {it.consulta && (
+                    <p className="mb-1 text-[10.5px] text-slate-500" data-testid="assistente-consulta">
+                      {it.consulta.titulo}
+                      {it.consulta.linhas.length ? ` · ${it.consulta.linhas.join(' · ')}` : ''}
+                    </p>
+                  )}
                   <div className="flex items-start gap-2">
                     <p className="font-semibold whitespace-pre-wrap flex-1">{r.mensagem}</p>
                     <span className="shrink-0">
