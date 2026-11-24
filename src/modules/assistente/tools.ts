@@ -18,9 +18,14 @@ import { z } from 'zod';
 import type { LlmToolDefinition } from './omniroute-client';
 import { nextServiceOrderCode } from '../erp/service-order-workflow';
 import { extractGcProposalNumber, formatProposalDisplayCode } from '../../app/lib/proposal-number';
-import { computeProposalTotals, isAvulsoServiceProposal, proposalSetupFeeLabel, resolveEffectiveProposalBudgetType, resolveProposalAmountDisplay } from '../../app/lib/proposal-share';
+import { buildProposalInstallments, computeProposalTotals, isAvulsoServiceProposal, proposalSetupFeeLabel, resolveEffectiveProposalBudgetType, resolveProposalAmountDisplay } from '../../app/lib/proposal-share';
 import type { ErpCommercialProposal } from '../../db/types';
 import { isProposalValidityExpired, formatProposalValidUntilPtBr } from '../../app/lib/proposal-validity';
+import {
+  FORMA_PAGAMENTO_ERP, INDICES_REAJUSTE, MENSAGEM_SEM_CARTAO, PERGUNTA_SERVICO_MODO, PERGUNTA_TIPO_PROPOSTA, ROTULO_FORMA_PAGAMENTO, ROTULO_INDICE,
+  ROTULO_TIPO_PROPOSTA, TIPOS_PROPOSTA, normalizarFormaPagamento, normalizarIndice, normalizarTipoProposta, perguntaCamposDoTipo,
+  type FormaPagamento, type IndiceReajuste, type TipoProposta,
+} from './proposta-tipo';
 import { extrairIdentificadores, foldTexto, formatarCnpj, soDigitos, type Identificador } from './identificadores';
 
 export type ApiCallRequest = { method: 'GET' | 'POST' | 'PATCH'; path: string; body?: Record<string, unknown> };
@@ -110,6 +115,8 @@ export interface AssistenteTool<A = any> {
   preparar?(args: A, api: ApiCaller): Promise<{ ok: true; args: A } | { ok: false; texto: string }>;
   /** Normaliza argumentos do modelo antes do zod (ex.: "2.800,00" => 2800). */
   coagir?(args: any): any;
+  /** Antes do zod: pergunta ao usuario o que falta (ex.: o tipo da proposta), ou null. */
+  faltando?(args: any): string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -722,39 +729,168 @@ const itemSchema = z
     quantidade: z.number().positive().max(100000),
     /** Opcional: sem valor, o item fica "a definir" (R$ 0) para preencher no ERP. */
     valor_unitario: z.number().min(0).max(100_000_000).optional(),
+    /** Legado (o tipo agora e da proposta inteira, em tipo_proposta): aceito e ignorado. */
     tipo: z.enum(['locacao', 'servico', 'produto']).optional(),
   })
   .strict();
 const propostaSchema = z
   .object({
     cliente: shortText(160),
+    /** Obrigatorio (24/11/2026): o assistente pergunta o tipo antes de montar o rascunho. */
+    tipo_proposta: z.enum(['produtos', 'servico_pontual', 'servico_mensal', 'locacao']),
     titulo: z.string().trim().max(160).optional(),
     prazo_meses: z.number().int().min(1).max(120).optional(),
     itens: z.array(itemSchema).min(1).max(30),
+    /** Setup / ativacao (locacao) ou implantacao (servico mensal): valor unico, a parte da mensalidade. */
+    setup: z.number().min(0).max(100_000_000).optional(),
+    indice_reajuste: z.enum(INDICES_REAJUSTE).optional(),
+    frete: z.number().min(0).max(10_000_000).optional(),
+    prazo_entrega: z.string().trim().max(120).optional(),
+    forma_pagamento: z.enum(['boleto', 'pix', 'ted']).optional(),
     observacoes: z.string().trim().max(1000).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((a, ctx) => {
+    const recorrente = a.tipo_proposta === 'locacao' || a.tipo_proposta === 'servico_mensal';
+    if (recorrente && !a.prazo_meses) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['prazo_meses'], message: 'Prazo em meses obrigatório para locação e serviço mensal.' });
+    if (!recorrente && a.setup) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['setup'], message: 'Setup só em locação ou serviço mensal.' });
+    if (!recorrente && a.indice_reajuste) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['indice_reajuste'], message: 'Reajuste só em locação ou serviço mensal.' });
+    if (a.frete && a.tipo_proposta !== 'produtos' && a.tipo_proposta !== 'locacao') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['frete'], message: 'Frete só em produtos ou locação.' });
+  });
 type PropostaArgs = z.infer<typeof propostaSchema>;
 
 const NATUREZA: Record<string, string> = { locacao: 'LOCACAO_BENS_MOVEIS', servico: 'SERVICO_TECNICO_TI_TELECOM', produto: 'VENDA_EQUIPAMENTO' };
+
+/** Como o tipo da proposta vira orcamento no ERP (mesmas regras da tela de Orcamentos). */
+const TIPO_ERP: Record<TipoProposta, { budgetType: 'PRODUTOS' | 'SERVICOS' | 'LOCACAO'; itemType: 'PRODUCT' | 'SERVICE'; fiscalNature: string; recorrente: boolean }> = {
+  produtos: { budgetType: 'PRODUTOS', itemType: 'PRODUCT', fiscalNature: 'VENDA_EQUIPAMENTO', recorrente: false },
+  // Servico pontual = SERVICOS com prazo 1 (avulso, pagamento unico), igual a tela.
+  servico_pontual: { budgetType: 'SERVICOS', itemType: 'SERVICE', fiscalNature: 'SERVICO_TECNICO_TI_TELECOM', recorrente: true },
+  servico_mensal: { budgetType: 'SERVICOS', itemType: 'SERVICE', fiscalNature: 'SERVICO_TECNICO_TI_TELECOM', recorrente: true },
+  locacao: { budgetType: 'LOCACAO', itemType: 'PRODUCT', fiscalNature: 'LOCACAO_BENS_MOVEIS', recorrente: true },
+};
+const mensalTipo = (t: TipoProposta) => t === 'locacao' || t === 'servico_mensal';
 const totalProposta = (a: PropostaArgs) => a.itens.reduce((s, i) => s + i.quantidade * (i.valor_unitario || 0), 0);
 const semValor = (a: PropostaArgs) => a.itens.some((i) => !i.valor_unitario);
-const tituloProposta = (a: PropostaArgs) => a.titulo || `Proposta${a.prazo_meses ? ` de ${a.prazo_meses} meses` : ''}`;
+const mesesDaProposta = (a: PropostaArgs) => (mensalTipo(a.tipo_proposta) ? a.prazo_meses || 1 : 1);
+const tituloProposta = (a: PropostaArgs) => {
+  if (a.titulo) return a.titulo;
+  if (a.tipo_proposta === 'locacao') return `Proposta de Locação${a.prazo_meses ? ` — ${a.prazo_meses} meses` : ''}`;
+  if (a.tipo_proposta === 'servico_mensal') return `Proposta de Serviços${a.prazo_meses ? ` — ${a.prazo_meses} meses` : ''}`;
+  if (a.tipo_proposta === 'servico_pontual') return 'Proposta de Serviços';
+  return 'Proposta de Produtos';
+};
+
+/** Corpo do POST /api/erp/proposals (exportado para teste). */
+export function corpoRascunhoProposta(a: PropostaArgs, company: { id: string; name: string; cnpj?: string }, agora = Date.now()): Record<string, unknown> {
+  const cfg = TIPO_ERP[a.tipo_proposta];
+  const forma = (a.forma_pagamento || 'boleto') as FormaPagamento;
+  const meses = mesesDaProposta(a);
+  const items = a.itens.map((i, idx) => ({
+    id: `pi-${agora}-${idx + 1}`,
+    sku: '',
+    description: i.descricao,
+    itemType: cfg.itemType,
+    fiscalNature: cfg.fiscalNature,
+    ncmOrServiceCode: '',
+    quantity: i.quantidade,
+    unitPrice: i.valor_unitario || 0,
+    discountPercent: 0,
+    isRecurring: cfg.recorrente,
+    totalMonthly: Math.round(i.quantidade * (i.valor_unitario || 0) * 100) / 100,
+  }));
+  const base: Record<string, unknown> = {
+    title: tituloProposta(a),
+    status: 'RASCUNHO',
+    budgetType: cfg.budgetType,
+    contractMonths: meses,
+    companyId: company.id,
+    companyName: company.name,
+    companyCnpj: company.cnpj || '',
+    items,
+    // Setup sempre separado da mensalidade (nunca somado no valor mensal).
+    setupFee: mensalTipo(a.tipo_proposta) ? a.setup || 0 : 0,
+    shippingCost: a.frete || 0,
+    ...(mensalTipo(a.tipo_proposta) ? { readjustmentIndex: a.indice_reajuste || 'IPCA' } : {}),
+    ...(a.prazo_entrega ? { deliveryLeadTime: a.prazo_entrega, deliveryForecast: a.prazo_entrega } : {}),
+  };
+  const rotulo = ROTULO_FORMA_PAGAMENTO[forma];
+  if (semValor(a)) {
+    // Sem todos os valores nao gera parcelas (ficariam zeradas); so a forma escolhida.
+    base.paymentCondition = `${rotulo} — valores a definir`;
+  } else {
+    const totais = computeProposalTotals({ ...base, contractMonths: meses } as unknown as ErpCommercialProposal);
+    const firstDue = new Date(agora + 15 * 86_400_000).toISOString().slice(0, 10);
+    const built = buildProposalInstallments(totais, { count: 1, method: FORMA_PAGAMENTO_ERP[forma], firstDueDate: firstDue, methodLabel: rotulo });
+    base.installments = built.installments;
+    base.paymentCondition = built.paymentCondition.includes(rotulo) ? built.paymentCondition : `${rotulo} — ${built.paymentCondition}`;
+  }
+  const notas = [a.observacoes, semValor(a) ? 'Criada pelo assistente de IA: há itens sem valor unitário, preencher.' : ''].filter(Boolean).join('\n');
+  if (notas) base.internalNotes = notas;
+  return base;
+}
+
+/**
+ * Antes do zod: sem tipo, pergunta o tipo; com tipo, pede so os campos que faltam para ele.
+ * Cartao nunca: so Boleto, Pix ou Ted / Transferencia.
+ */
+function faltandoProposta(a: any): string | null {
+  const tipo = a?.tipo_proposta;
+  if (tipo === 'servico') return PERGUNTA_SERVICO_MODO;
+  if (!tipo || !(TIPOS_PROPOSTA as readonly string[]).includes(tipo)) return PERGUNTA_TIPO_PROPOSTA;
+  if (a.forma_pagamento === 'cartao') return MENSAGEM_SEM_CARTAO;
+  const faltam: string[] = [];
+  if (!a.cliente || !String(a.cliente).trim()) faltam.push('o cliente (nome ou CNPJ)');
+  if (!Array.isArray(a.itens) || !a.itens.length) {
+    faltam.push(tipo === 'produtos' ? 'os itens com quantidade' : tipo === 'locacao' ? 'os equipamentos com quantidade' : 'a descrição do serviço');
+  }
+  if (mensalTipo(tipo) && !a.prazo_meses) faltam.push('o prazo do contrato em meses');
+  if (!faltam.length) return null;
+  return `${perguntaCamposDoTipo(tipo as TipoProposta)}\nAinda falta: ${faltam.join(', ')}.`;
+}
+
+function coagirProposta(a: any): any {
+  if (!a || typeof a !== 'object') return a;
+  const out = { ...a };
+  if ('tipo_proposta' in out) out.tipo_proposta = normalizarTipoProposta(out.tipo_proposta) ?? out.tipo_proposta;
+  if ('forma_pagamento' in out) out.forma_pagamento = normalizarFormaPagamento(out.forma_pagamento) ?? out.forma_pagamento;
+  if ('indice_reajuste' in out) out.indice_reajuste = normalizarIndice(out.indice_reajuste) ?? out.indice_reajuste;
+  for (const k of ['setup', 'frete'] as const) if (k in out) out[k] = parseNumeroBR(out[k]);
+  // Setup 0 / frete 0 ("sem setup") = sem o campo.
+  if (out.setup === 0) delete out.setup;
+  if (out.frete === 0) delete out.frete;
+  // Servico pontual e produtos nao tem prazo de contrato (pagamento unico).
+  if (out.tipo_proposta === 'servico_pontual' || out.tipo_proposta === 'produtos') {
+    delete out.prazo_meses;
+    delete out.indice_reajuste;
+  }
+  if (out.tipo_proposta === 'servico_pontual' || out.tipo_proposta === 'servico_mensal') delete out.frete;
+  return out;
+}
 
 const criarRascunhoProposta: AssistenteTool<PropostaArgs> = {
   name: 'criar_rascunho_proposta',
   rotas: ['GET /api/companies', 'POST /api/erp/proposals'],
   disponivel: (u) => u.moduleAccess.erp,
   preparar: prepararCliente,
+  faltando: faltandoProposta,
+  coagir: coagirProposta,
   descricao:
-    'Cria uma proposta/orçamento como RASCUNHO no ERP (não envia ao cliente). Use direto quando pedirem proposta/orçamento: passe o cliente como o usuário escreveu (o sistema identifica a empresa), os itens com quantidade e, se houver, o prazo em meses. Valor unitário é opcional: sem valor, o item fica a definir.',
+    'Cria uma proposta/orçamento como RASCUNHO no ERP (não envia ao cliente). Exige tipo_proposta: se o usuário não disse o tipo (Produtos, Serviços pontual ou mensal, Locação), NÃO chame esta ferramenta; pergunte o tipo primeiro. ' +
+    'Campos por tipo: locacao = prazo_meses, valor mensal por item, setup (ativação, valor único à parte) e indice_reajuste; servico_mensal = prazo_meses, valor mensal, setup opcional, indice_reajuste; servico_pontual = valor do serviço (pagamento único), sem prazo; produtos = itens com quantidade e valor, frete e prazo_entrega. ' +
+    'forma_pagamento só boleto, pix ou ted (Ted / Transferência); nunca cartão. Valor unitário é opcional: sem valor, o item fica a definir.',
   tipo: 'gravacao',
   parameters: {
     type: 'object',
     properties: {
       cliente: { type: 'string', description: 'Nome ou CNPJ do cliente, como o usuário escreveu.' },
+      tipo_proposta: {
+        type: 'string',
+        enum: ['produtos', 'servico_pontual', 'servico_mensal', 'locacao'],
+        description: 'Tipo escolhido pelo usuário. Obrigatório: nunca suponha; pergunte se não foi dito.',
+      },
       titulo: { type: 'string', description: 'Título curto da proposta (opcional).' },
-      prazo_meses: { type: 'integer', minimum: 1, maximum: 120, description: 'Prazo do contrato em meses (ex.: 36), se informado.' },
+      prazo_meses: { type: 'integer', minimum: 1, maximum: 120, description: 'Prazo do contrato em meses. Obrigatório em locacao e servico_mensal; não use em produtos nem servico_pontual.' },
       itens: {
         type: 'array',
         minItems: 1,
@@ -764,74 +900,62 @@ const criarRascunhoProposta: AssistenteTool<PropostaArgs> = {
           properties: {
             descricao: { type: 'string' },
             quantidade: { type: 'number' },
-            valor_unitario: { type: 'number', description: 'Valor unitário mensal em reais (opcional; omita se não informado).' },
-            tipo: { type: 'string', enum: ['locacao', 'servico', 'produto'], description: 'Padrão locacao.' },
+            valor_unitario: { type: 'number', description: 'Locação e serviço mensal: valor MENSAL (sem o setup). Serviço pontual: valor do serviço. Produtos: preço unitário. Omita se não informado.' },
           },
           required: ['descricao', 'quantidade'],
           additionalProperties: false,
         },
       },
+      setup: { type: 'number', description: 'Setup / ativação (locação) ou implantação (serviço mensal): valor único, cobrado à parte da mensalidade. Nunca some na mensalidade.' },
+      indice_reajuste: { type: 'string', enum: [...INDICES_REAJUSTE], description: 'Índice de reajuste (locação e serviço mensal). Padrão IPCA.' },
+      frete: { type: 'number', description: 'Valor do frete (produtos ou locação).' },
+      prazo_entrega: { type: 'string', description: 'Prazo de entrega (produtos), ex.: "10 dias úteis".' },
+      forma_pagamento: { type: 'string', enum: ['boleto', 'pix', 'ted'], description: 'Boleto, Pix ou Ted / Transferência. Padrão boleto.' },
       observacoes: { type: 'string', description: 'Observações internas (opcional).' },
     },
-    required: ['cliente', 'itens'],
+    required: ['cliente', 'tipo_proposta', 'itens'],
     additionalProperties: false,
   },
-  schema: propostaSchema,
+  schema: propostaSchema as unknown as z.ZodType<PropostaArgs>,
   modulos: () => ['erp'],
-  resumo: (a) => ({
-    titulo: 'Criar rascunho de proposta',
-    linhas: [
-      `Cliente: ${a.cliente}`,
-      `Título: ${tituloProposta(a)}`,
-      ...(a.prazo_meses ? [`Prazo: ${a.prazo_meses} meses`] : []),
-      ...a.itens.map((i) => `${i.quantidade} x ${i.descricao} (${i.tipo || 'locacao'}) a ${i.valor_unitario ? formatBRL(i.valor_unitario) : 'valor a definir'}`),
-      `Total${a.itens.some((i) => (i.tipo || 'locacao') === 'locacao') ? ' mensal' : ''}: ${formatBRL(totalProposta(a))}${semValor(a) ? ' (há itens sem valor; preencha no ERP)' : ''}`,
-      ...(a.observacoes ? [`Observações: ${cut(a.observacoes, 200)}`] : []),
-      'Situação: rascunho (nada é enviado ao cliente)',
-    ],
-  }),
+  resumo: (a) => {
+    const mensal = mensalTipo(a.tipo_proposta);
+    const pontual = a.tipo_proposta === 'servico_pontual';
+    const total = totalProposta(a);
+    return {
+      titulo: 'Criar rascunho de proposta',
+      linhas: [
+        `Tipo: ${ROTULO_TIPO_PROPOSTA[a.tipo_proposta]}`,
+        `Cliente: ${a.cliente}`,
+        `Título: ${tituloProposta(a)}`,
+        ...(mensal ? [`Prazo: ${a.prazo_meses} meses`] : []),
+        ...a.itens.map((i) => `${i.quantidade} x ${i.descricao} a ${i.valor_unitario ? `${formatBRL(i.valor_unitario)}${mensal ? '/mês' : ''}` : 'valor a definir'}`),
+        mensal
+          ? `${a.tipo_proposta === 'locacao' ? 'Mensalidade' : 'Valor mensal'}: ${formatBRL(total)}`
+          : `${pontual ? 'Valor do serviço (pagamento único)' : 'Total dos itens'}: ${formatBRL(total)}`,
+        ...(mensal ? [`${a.tipo_proposta === 'locacao' ? 'Setup / ativação' : 'Setup / implantação'}: ${a.setup ? `${formatBRL(a.setup)} (pagamento único, à parte da mensalidade)` : 'sem setup'}`] : []),
+        ...(mensal ? [`Índice de reajuste: ${ROTULO_INDICE[(a.indice_reajuste || 'IPCA') as IndiceReajuste]}${a.indice_reajuste ? '' : ' (padrão)'}`] : []),
+        ...(a.tipo_proposta === 'produtos' || a.tipo_proposta === 'locacao' ? [`Frete: ${a.frete ? formatBRL(a.frete) : 'sem frete'}`] : []),
+        ...(a.prazo_entrega ? [`Prazo de entrega: ${a.prazo_entrega}`] : []),
+        `Forma de pagamento: ${ROTULO_FORMA_PAGAMENTO[(a.forma_pagamento || 'boleto') as FormaPagamento]}${a.forma_pagamento ? '' : ' (padrão; pode ser Pix ou Ted / Transferência)'}`,
+        ...(semValor(a) ? ['Há itens sem valor: preencha no ERP.'] : []),
+        ...(a.observacoes ? [`Observações: ${cut(a.observacoes, 200)}`] : []),
+        'Situação: rascunho (nada é enviado ao cliente)',
+      ],
+    };
+  },
   async executar(a, api) {
     const emp = await resolverEmpresa(a.cliente, api);
     if (!emp.ok) return emp.result;
-    const tipos = new Set(a.itens.map((i) => i.tipo || 'locacao'));
-    const budgetType = tipos.size > 1 ? 'CONJUNTO' : tipos.has('servico') ? 'SERVICOS' : tipos.has('produto') ? 'PRODUTOS' : 'LOCACAO';
-    const stamp = Date.now();
-    const body: Record<string, unknown> = {
-      title: tituloProposta(a),
-      status: 'RASCUNHO',
-      ...(a.prazo_meses ? { contractMonths: a.prazo_meses } : {}),
-      budgetType,
-      companyId: emp.company.id,
-      companyName: emp.company.name,
-      companyCnpj: emp.company.cnpj || '',
-      items: a.itens.map((i, idx) => {
-        const tipo = i.tipo || 'locacao';
-        return {
-          id: `pi-${stamp}-${idx + 1}`,
-          sku: '',
-          description: i.descricao,
-          itemType: tipo === 'servico' ? 'SERVICE' : 'PRODUCT',
-          fiscalNature: NATUREZA[tipo],
-          ncmOrServiceCode: '',
-          quantity: i.quantidade,
-          unitPrice: i.valor_unitario || 0,
-          discountPercent: 0,
-          isRecurring: tipo === 'locacao',
-          totalMonthly: Math.round(i.quantidade * (i.valor_unitario || 0) * 100) / 100,
-        };
-      }),
-      ...(a.observacoes || semValor(a)
-        ? { internalNotes: [a.observacoes, semValor(a) ? 'Criada pelo assistente de IA: há itens sem valor unitário, preencher.' : ''].filter(Boolean).join('\n') }
-        : {}),
-    };
+    const body = corpoRascunhoProposta(a, { id: String(emp.company.id), name: String(emp.company.name || ''), cnpj: emp.company.cnpj });
     const res = await api({ method: 'POST', path: '/api/erp/proposals', body });
     if (res.status < 200 || res.status >= 300) return apiError(res, 'criar a proposta');
     const p = res.body?.data || {};
     return {
       ok: true,
-      mensagem: `Rascunho de proposta ${p.code ? `#${p.code} ` : ''}criado para ${cut(emp.company.name, 60)}, no total de ${formatBRL(totalProposta(a))}. Nada foi enviado ao cliente.`,
+      mensagem: `Rascunho de proposta ${p.code ? `#${p.code} ` : ''}(${ROTULO_TIPO_PROPOSTA[a.tipo_proposta]}) criado para ${cut(emp.company.name, 60)}. Nada foi enviado ao cliente.`,
       registro: { tipo: 'proposta', id: String(p.id || ''), codigo: p.code ? String(p.code) : undefined },
-      resumoParaModelo: `Rascunho de proposta criado (código ${p.code || 'n/d'}). Não crie outra para o mesmo pedido.`,
+      resumoParaModelo: `Rascunho de proposta criado (código ${p.code || 'n/d'}, tipo ${a.tipo_proposta}). Não crie outra para o mesmo pedido.`,
     };
   },
 };

@@ -8,6 +8,10 @@
 //    ferramenta pelas rotas da tela com a sessao do usuario. Toda execucao vai para a auditoria.
 // O modelo nunca recebe dados do sistema nem segredos; so as mensagens do usuario (redigidas).
 // ============================================================================
+import {
+  PERGUNTA_SERVICO_MODO, PERGUNTA_TIPO_PROPOSTA, ehPerguntaFluxoProposta, ehPerguntaModoServico, ehPerguntaTipo, pedidoNovaProposta, pedidoSemDetalhes, perguntaCamposDoTipo,
+  tipoPropostaDaConversa, tipoPropostaNoTexto,
+} from './proposta-tipo';
 import { z } from 'zod';
 import { ASSISTENTE_LIMITS } from './config';
 import { LlmError, type LlmClient, type LlmMessage } from './omniroute-client';
@@ -93,9 +97,12 @@ function systemPrompt(user: AssistenteUser, now: number): string {
     'Proposta ou orçamento existente (tem número, ex.: 4709): para ver, use consultar_propostas; para mudar (acrescentar item ou despesa, alterar quantidade, valor ou campos), use editar_proposta direto com o número, sem consultar antes. Nunca use consultar com entidade negocios para propostas ou orçamentos.',
     'Valores em reais chegam no formato brasileiro (2800,00 ou 2.800,00 = dois mil e oitocentos): envie como número 2800.00.',
     'Ex.: "localize a proposta 4709 e adicione 2800,00 de despesas de locomoção e hospedagem" => editar_proposta {proposta:"4709", adicionar_itens:[{descricao:"Despesas de locomoção e hospedagem", valor_unitario:2800, tipo:"despesa", cobranca:"unica"}]}.',
-    'Proposta ou orçamento novo: chame criar_rascunho_proposta direto, sem consultar empresas antes. Passe o cliente como o usuário escreveu (o sistema identifica a empresa e pergunta se houver mais de uma), o prazo em meses e cada item com descrição e quantidade. Se o valor unitário não foi dito, omita: o item fica a definir. Não peça valores antes de montar o rascunho.',
-    'Ex.: "proposta de locação de 36 meses para X de 3 servidores Dell R640 com 256 GB e 3 SSDs de 2 TB" => criar_rascunho_proposta {cliente:"X", prazo_meses:36, itens:[{descricao:"Servidor Dell R640, 256 GB RAM, 3 SSD 2 TB", quantidade:3, tipo:"locacao"}]}.',
-    'Use o histórico: se o usuário já pediu uma proposta e agora escolheu ou confirmou a empresa (por nome, CNPJ ou número da lista), chame criar_rascunho_proposta com essa empresa e os itens do pedido original.',
+    'Proposta ou orçamento novo: o PRIMEIRO passo é o tipo. Se o usuário não disse o tipo, não chame ferramenta: pergunte "Qual é o tipo da proposta? 1. Produtos (venda) 2. Serviços — pontual (pagamento único) 3. Serviços — mensal 4. Locação". Se disse só "serviço", pergunte se é pontual ou mensal.',
+    'Com o tipo definido, peça os campos certos dele (só os que faltam): Locação = equipamentos e quantidades, prazo em meses, mensalidade por item, setup/ativação à parte (valor único, nunca somado na mensalidade) e índice de reajuste (IPCA, IGP-M, IST Anatel ou fixo); Serviço mensal = serviços, prazo em meses, valor mensal, setup/implantação opcional e índice de reajuste; Serviço pontual = descrição e valor do serviço (pagamento único, sem prazo em meses); Produtos = itens, quantidades, valor unitário, frete e prazo de entrega. Em todos: cliente e forma de pagamento.',
+    'Forma de pagamento: só Boleto, Pix ou Ted / Transferência (forma_pagamento boleto, pix ou ted). Nunca ofereça nem aceite cartão.',
+    'Quando tiver tipo, cliente e itens, chame criar_rascunho_proposta com tipo_proposta, sem consultar empresas antes (o sistema identifica a empresa e pergunta se houver mais de uma). Valor não dito: omita (fica a definir).',
+    'Ex.: "proposta de locação de 36 meses para X de 3 servidores Dell R640 com 256 GB, mensalidade 1.500,00 cada, setup 800,00, IPCA, boleto" => criar_rascunho_proposta {cliente:"X", tipo_proposta:"locacao", prazo_meses:36, itens:[{descricao:"Servidor Dell R640, 256 GB RAM", quantidade:3, valor_unitario:1500}], setup:800, indice_reajuste:"IPCA", forma_pagamento:"boleto"}.',
+    'Use o histórico: se o usuário já pediu uma proposta e agora escolheu ou confirmou a empresa (por nome, CNPJ ou número da lista), chame criar_rascunho_proposta com essa empresa, o tipo e os itens do pedido original.',
     'Link, PDF, Versão contrato ou dados completos "da proposta/dela/desse orçamento" sem número: use o "Registro em contexto" do histórico (consultar_propostas com esse número). Nunca use "link", "pdf", "proposta" ou "contrato" como termo de busca; sem registro no histórico, pergunte qual é o número. Os botões de link do cliente, Versão contrato e PDF aparecem junto do resultado.',
     'Não repita uma consulta que já está no histórico. Resultados chegam como "Resultado: ..." com o mínimo (quantidade e, para empresas, nome e CNPJ); o resto é mostrado direto ao usuário. Nunca invente números, nomes ou registros.',
     'Se houver mais de uma empresa possível, pergunte qual, listando as opções. Se faltar algo que impeça a ação (ex.: nenhum item), pergunte só isso.',
@@ -174,6 +181,10 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
   const history = buildHistory(parsed.data.mensagens);
   if (!history) return err(400, 'ENTRADA_INVALIDA', 'Envie uma mensagem.');
 
+  // Proposta nova: primeiro o tipo, depois os campos do tipo (sem depender do modelo).
+  const fluxo = fluxoNovaProposta(parsed.data.mensagens, deps.user);
+  if (fluxo) return { status: 200, body: { tipo: 'texto', texto: fluxo } };
+
   // Roteador deterministico: duvidas do sistema e buscas/listas claras sem depender do modelo.
   // A ferramenta continua so PROPOSTA (cartao de confirmacao), igual a do modelo.
   let rota: ReturnType<typeof rotearPergunta> = null;
@@ -186,11 +197,12 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
   try {
     const msgs = parsed.data.mensagens;
     const anterior = msgs.length >= 2 ? msgs[msgs.length - 2] : null;
-    const respondendoPergunta = !!anterior && anterior.papel === 'assistente' && /\?\s*$/.test(anterior.texto.trim());
+    const respondendoPergunta = !!anterior && anterior.papel === 'assistente' && (/\?\s*$/.test(anterior.texto.trim()) || ehPerguntaFluxoProposta(anterior.texto));
     // Resposta a "Qual proposta ou registro você quer?": número puro = número do orçamento.
     const respostaQual = !!anterior && anterior.papel === 'assistente' && anterior.texto.trim() === PERGUNTA_QUAL_REGISTRO && /^\s*(?:n[ºo°]?\s*)?#?\d{1,7}\s*$/i.test(last.texto);
     const textoRota = respostaQual ? `orçamento ${last.texto.replace(/\D+/g, '')}` : last.texto;
-    rota = rotearPergunta(textoRota, { agora: deps.now(), respondendoPergunta, contexto });
+    // Pedido de proposta nova com dados: vai ao modelo (que monta o rascunho), nunca vira consulta.
+    rota = pedidoNovaProposta(last.texto) ? null : rotearPergunta(textoRota, { agora: deps.now(), respondendoPergunta, contexto });
   } catch {
     rota = null;
   }
@@ -198,7 +210,7 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
   if (rota?.tipo === 'ferramenta') {
     const t = getTool(rota.ferramenta);
     if (t && t.disponivel(deps.user) && userCanUseTool(t, rota.args, deps.user)) {
-      const viaRota = await proporAcao(t.name, rota.args, '', deps);
+      const viaRota = await proporAcao(t.name, rota.args, '', deps, parsed.data.mensagens);
       if (viaRota.status === 200 && (viaRota.body.tipo === 'proposta' || viaRota.body.tipo === 'resultado')) return viaRota;
       if (viaRota.status === 429) return viaRota;
     }
@@ -222,7 +234,42 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
   // O modelo as vezes manda "link"/"pdf"/"proposta" como termo de busca: usa o registro em contexto.
   const ajuste = ajustarPorContexto(call.name, call.args || {}, contexto);
   if ('texto' in ajuste) return { status: 200, body: { tipo: 'texto', texto: ajuste.texto } };
-  return proporAcao(ajuste.nome, ajuste.args, result.text || '', deps);
+  return proporAcao(ajuste.nome, ajuste.args, result.text || '', deps, parsed.data.mensagens);
+}
+
+type Msg = { papel: 'usuario' | 'assistente'; texto: string };
+
+/**
+ * Passos de texto do rascunho de proposta: pergunta o tipo, o modo do servico e os campos
+ * do tipo. Null = segue o fluxo normal (o modelo monta o rascunho com os dados).
+ */
+export function fluxoNovaProposta(mensagens: Msg[], user: AssistenteUser): string | null {
+  const last = mensagens[mensagens.length - 1];
+  if (!last || last.papel !== 'usuario') return null;
+  const anterior = mensagens.length >= 2 ? mensagens[mensagens.length - 2] : null;
+  const aposTipo = !!anterior && anterior.papel === 'assistente' && ehPerguntaTipo(anterior.texto);
+  const aposModo = !!anterior && anterior.papel === 'assistente' && ehPerguntaModoServico(anterior.texto);
+  const pedido = pedidoNovaProposta(last.texto);
+  if (!aposTipo && !aposModo && !pedido) return null;
+  if (!user.moduleAccess.erp) return pedido ? 'Seu usuário não tem acesso ao módulo ERP, então não posso montar propostas.' : null;
+  const tipo = tipoPropostaNoTexto(last.texto, aposTipo);
+  if (aposTipo || aposModo) {
+    if (tipo === 'servico') return PERGUNTA_SERVICO_MODO;
+    if (aposModo && tipo !== 'servico_pontual' && tipo !== 'servico_mensal') {
+      const modo = tipoPropostaNoTexto(`servico ${last.texto}`);
+      if (modo === 'servico_pontual' || modo === 'servico_mensal') return pedidoSemDetalhes(last.texto) ? perguntaCamposDoTipo(modo) : null;
+      return null;
+    }
+    if (!tipo) return null; // resposta fora do esperado: o modelo le o historico
+    // O pedido original ja trazia cliente/itens: o modelo monta com o historico + o tipo.
+    const pedidoOriginal = mensagens.length >= 3 ? mensagens[mensagens.length - 3] : null;
+    if (pedidoOriginal && pedidoOriginal.papel === 'usuario' && !pedidoSemDetalhes(pedidoOriginal.texto)) return null;
+    const soOpcao = aposTipo && /^\s*(?:opcao\s*|tipo\s*)?[1-4]\s*[).:-]?\s*$/i.test(last.texto);
+    return soOpcao || pedidoSemDetalhes(last.texto) ? perguntaCamposDoTipo(tipo) : null;
+  }
+  if (!tipo) return PERGUNTA_TIPO_PROPOSTA;
+  if (tipo === 'servico') return PERGUNTA_SERVICO_MODO;
+  return pedidoSemDetalhes(last.texto) ? perguntaCamposDoTipo(tipo) : null;
 }
 
 /** Busca so com palavra generica => registro em contexto (ou pergunta qual). */
@@ -241,12 +288,21 @@ export function ajustarPorContexto(
 }
 
 /** Valida, confere modulos, prepara (so leitura) e assina a proposta de acao para o cartao. */
-async function proporAcao(nome: string, rawArgs: unknown, textoModelo: string, deps: AssistenteDeps): Promise<ServiceResponse> {
+async function proporAcao(nome: string, rawArgs: unknown, textoModelo: string, deps: AssistenteDeps, mensagens: Msg[] = []): Promise<ServiceResponse> {
   const uid = deps.user.uid;
   const tool = getTool(nome);
   if (!tool) return { status: 200, body: { tipo: 'texto', texto: 'Essa ação não está disponível nesta etapa do assistente.' } };
-  const cleaned = coerceNumbers(tool.name, cleanArgs(rawArgs || {}));
+  const cleaned: any = coerceNumbers(tool.name, cleanArgs(rawArgs || {}));
+  // Modelo que esquece o tipo da proposta: usa o que o USUARIO ja escolheu na conversa (nunca chuta).
+  if (tool.name === 'criar_rascunho_proposta' && cleaned && typeof cleaned === 'object' && !cleaned.tipo_proposta) {
+    const tipoConversa = tipoPropostaDaConversa(mensagens);
+    if (tipoConversa) cleaned.tipo_proposta = tipoConversa;
+  }
   const args = tool.coagir ? tool.coagir(cleaned) : cleaned;
+  if (tool.faltando && tool.disponivel(deps.user)) {
+    const pergunta = tool.faltando(args);
+    if (pergunta) return { status: 200, body: { tipo: 'texto', texto: pergunta } };
+  }
   const valid = tool.schema.safeParse(args);
   if (!valid.success) {
     const campos = valid.error.issues.map((i) => i.path.join('.') || '(dados)').slice(0, 6).join(', ');
