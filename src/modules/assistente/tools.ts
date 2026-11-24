@@ -831,6 +831,12 @@ export function refProposta(v: unknown): string {
   return String(v ?? '').trim().replace(/^(?:a\s+)?(?:proposta|or[cç]amento)\s*(?:n[ºo°.]*\s*)?/i, '').replace(/^#\s*/, '').trim();
 }
 
+/** Id interno do STI-hub (ex.: prop-1795473263142-d5b63b). */
+export function pareceIdProposta(v: unknown): boolean {
+  return /^prop-[a-z0-9-]+$/i.test(refProposta(v));
+}
+
+
 function mesmaProposta(p: any, ref: string): boolean {
   const r = refProposta(ref);
   if (!r) return false;
@@ -846,6 +852,21 @@ type PropostaLocalizada = { ok: true; proposta: any } | { ok: false; texto: stri
 export async function localizarProposta(ref: string, api: ApiCaller): Promise<PropostaLocalizada> {
   const r = refProposta(ref);
   if (!r) return { ok: false, status: 400, texto: 'Informe o número da proposta.' };
+  if (pareceIdProposta(r)) {
+    const full = await api({ method: 'GET', path: `/api/erp/proposals/${encodeURIComponent(r)}` });
+    if (full.status >= 200 && full.status < 300 && full.body?.data && !Array.isArray(full.body.data)) {
+      return { ok: true, proposta: full.body.data };
+    }
+    if (full.status === 403 || full.status === 401) return { ok: false, status: full.status, texto: apiError(full, 'abrir a proposta').mensagem };
+    return {
+      ok: false,
+      status: full.status || 404,
+      texto:
+        full.status === 404
+          ? `Não encontrei a proposta ${cut(r, 30)}. Confira o número na tela de Orçamentos.`
+          : `Não consegui abrir a proposta ${cut(r, 30)}.`,
+    };
+  }
   const qs = new URLSearchParams({ q: r, limit: '20', offset: '0', status: 'TODOS', type: 'TODOS' });
   const res = await api({ method: 'GET', path: `/api/erp/proposals?${qs.toString()}` });
   if (res.status < 200 || res.status >= 300) {
@@ -911,7 +932,7 @@ const consultarPropostas: AssistenteTool<PropostasArgs> = {
   }),
   async executar(a, api) {
     // Numero exato => a proposta completa com os itens.
-    if (a.busca && extractGcProposalNumber(refProposta(a.busca)) !== null) {
+    if (a.busca && (extractGcProposalNumber(refProposta(a.busca)) !== null || pareceIdProposta(a.busca))) {
       const loc = await localizarProposta(a.busca, api);
       if (loc.ok) {
         const p = loc.proposta;

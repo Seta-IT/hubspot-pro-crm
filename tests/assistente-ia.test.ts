@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { createInMemoryRepository } from '../src/db/repository';
 import { CrmApiRouter } from '../src/api/router';
 import { resolveStiHubSigningSecret, signStiHubSessionToken } from '../src/app/lib/auth';
-import { ASSISTENTE_TOOLS, buscaCombina, catalogoAcoes, getTool, parseNumeroBR, refProposta, resolverEmpresa, toolDefinitionsFor, type ApiCaller, type ApiCallRequest, type AssistenteUser } from '../src/modules/assistente/tools';
+import { ASSISTENTE_TOOLS, buscaCombina, catalogoAcoes, getTool, parseNumeroBR, pareceIdProposta, refProposta, resolverEmpresa, toolDefinitionsFor, type ApiCaller, type ApiCallRequest, type AssistenteUser } from '../src/modules/assistente/tools';
 import { handleChat, handleExecute, redactSecrets, type AssistenteAuditEntry, type AssistenteDeps } from '../src/modules/assistente/service';
 import { sessionBinding, signActionToken, signAuditReceipt, verifyActionToken } from '../src/modules/assistente/confirmation';
 import { createSessionApiCaller, isAllowedAssistenteRoute } from '../src/modules/assistente/api-caller';
@@ -667,6 +667,32 @@ describe('assistente — propostas: localizar 4709 e acrescentar despesa', () =>
     assert.equal(parseNumeroBR('abc'), 'abc');
     assert.equal(refProposta('proposta 4709'), '4709');
     assert.equal(refProposta('#4709'), '4709');
+    assert.equal(pareceIdProposta('prop-1795473263142-d5b63b'), true);
+    assert.equal(pareceIdProposta('proposta prop-1795473263142-d5b63b'), true);
+    assert.equal(pareceIdProposta('4709'), false);
+  });
+
+  it('consultar_propostas pelo id prop-... chama GET /:id direto mesmo se a lista vier vazia', async () => {
+    const alvo = {
+      ...PROP,
+      id: 'prop-1795473263142-d5b63b',
+      code: '4725',
+      companyName: 'Condomínio do Parangaba',
+      status: 'ENVIADA',
+      contractMonths: 36,
+      monthlyRecurringTotal: 2350,
+      totalContractValue: 84600,
+    };
+    const { api, calls } = fakeApi({
+      'GET /api/erp/proposals': () => ({ status: 200, body: { data: [], total: 0 } }),
+      'GET /api/erp/proposals/prop-1795473263142-d5b63b': () => ({ status: 200, body: { data: alvo } }),
+    });
+    const r = await getTool('consultar_propostas')!.executar({ busca: 'prop-1795473263142-d5b63b' }, api);
+    assert.equal(r.ok, true);
+    if (!r.ok) return;
+    assert.match(r.mensagem, /Proposta 4725 de Condomínio do Parangaba/);
+    assert.ok(calls.some((c) => c.method === 'GET' && c.path === '/api/erp/proposals/prop-1795473263142-d5b63b'));
+    assert.ok(calls.every((c) => !c.path.startsWith('/api/erp/proposals?')), 'não depende da lista quando a busca é um id prop-...');
   });
 
   it('consultar_propostas pelo número traz número, cliente, total, situação e itens (não confunde 14709)', async () => {

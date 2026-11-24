@@ -851,13 +851,15 @@ function PublicProposalPrintContent() {
           <h1 className="text-lg font-semibold text-slate-900">
             {scopeDenied
               ? "Sem permissão para ver esta proposta"
+              : publicLinkInvalid
+              ? "Link inválido ou sem permissão"
               : `Proposta Comercial #${rawId || "Não identificada"} não localizada`}
           </h1>
           <p className="text-xs text-slate-600 leading-relaxed">
             {scopeDenied
               ? "Sua sessão não inclui esta proposta. Peça acesso a um administrador da Seta Telecom."
               : publicLinkInvalid
-              ? "Este link de proposta é inválido. Solicite um novo link ao seu consultor Seta Telecom."
+              ? "Este link de proposta é inválido ou você não tem permissão para abri-lo. Solicite um novo link ao seu consultor Seta Telecom."
               : <>Não encontramos nenhum orçamento com o identificador <strong>{rawId}</strong>. Volte ao painel da Seta Telecom para abrir ou gerar o link da proposta desejada.</>}
           </p>
           {!linkToken && !isInternalUser && (

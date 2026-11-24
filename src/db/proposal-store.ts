@@ -166,8 +166,10 @@ export function proposalRowValues(p: AnyP): unknown[] {
   const code = String(p.code || '').trim();
   const n = extractGcProposalNumber(code);
   const display = formatProposalDisplayCode(code);
+  // id entra só em gravações novas (insert/update); linhas antigas continuam
+  // encontráveis pelo casamento exato de id/code em buildWhere, sem backfill.
   const searchText = normSearch(
-    `${code} ${display} ${p.title || ''} ${p.companyName || ''} ${p.companyCnpj || ''} ${p.sellerName || ''} ${p.contactName || ''} ${p.careOf || ''}`
+    `${p.id || ''} ${code} ${display} ${p.title || ''} ${p.companyName || ''} ${p.companyCnpj || ''} ${p.sellerName || ''} ${p.contactName || ''} ${p.careOf || ''}`
   );
   const digits = `${display} ${p.companyCnpj || ''}`.replace(/\D+/g, '');
   return [
@@ -302,14 +304,18 @@ function buildWhere(f: ProposalListFilters, params: unknown[], opts: { skipStatu
   const where: string[] = [];
   const q = normSearch(f.q || '');
   if (q) {
+    const raw = String(f.q || '').trim();
     params.push(`%${q.replace(/[%_\\]/g, (m) => `\\${m}`)}%`);
     const qi = params.length;
-    const digits = String(f.q || '').replace(/\D+/g, '');
+    params.push(raw.toLowerCase());
+    const exact = params.length;
+    const exactClause = `lower(id) = $${exact} OR (code <> '' AND lower(code) = $${exact})`;
+    const digits = raw.replace(/\D+/g, '');
     if (digits.length >= 2) {
       params.push(`%${digits}%`);
-      where.push(`(search_text LIKE $${qi} OR search_digits LIKE $${params.length})`);
+      where.push(`(${exactClause} OR search_text LIKE $${qi} OR search_digits LIKE $${params.length})`);
     } else {
-      where.push(`search_text LIKE $${qi}`);
+      where.push(`(${exactClause} OR search_text LIKE $${qi})`);
     }
   }
   if (!opts.skipStatus && f.status && f.status !== 'TODOS') {
