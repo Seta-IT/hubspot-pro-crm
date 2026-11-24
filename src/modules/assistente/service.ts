@@ -21,6 +21,8 @@ import {
   type ToolResult,
 } from './tools';
 import { signActionToken, verifyActionToken } from './confirmation';
+import { rotearPergunta, hojeIso } from './roteador';
+import { resumoConhecimentoParaPrompt } from './conhecimento';
 
 export interface AssistenteAuditEntry {
   tool: string;
@@ -77,14 +79,16 @@ const chatSchema = z.object({ mensagens: z.array(mensagemSchema).min(1).max(60) 
 const execSchema = z.object({ token: z.string().min(10).max(16_000), confirmar: z.boolean() });
 
 function systemPrompt(user: AssistenteUser, now: number): string {
-  const d = new Date(now);
-  const hoje = d.toISOString().slice(0, 10);
+  const hoje = hojeIso(now);
   const mods = [user.moduleAccess.crm && 'CRM', user.moduleAccess.erp && 'ERP', user.moduleAccess.chamados && 'STI HUB Desk Service'].filter(Boolean).join(', ') || 'nenhum';
   return [
     'Você é o Assistente do STI-hub, sistema da Seta Telecom com STI HUB CRM, STI HUB ERP e STI HUB Desk Service.',
-    'Responda sempre em português do Brasil, de forma curta e direta, sem emojis.',
-    `Hoje é ${hoje}. Módulos liberados para este usuário: ${mods}.`,
+    'Responda sempre em português do Brasil, de forma curta e direta, sem emojis. Quando houver registro, cite o número dele.',
+    `Hoje é ${hoje} (horário de Brasília). Módulos liberados para este usuário: ${mods}.`,
+    'Entenda pedidos informais, com erros de digitação e sinônimos: orçamento = proposta; OS = O.S. = ordem de serviço; NF/NF-e/NFS-e/NFCom = nota fiscal; boleto/cobrança = fatura; cliente = empresa; chamado = ticket. Converta datas relativas (hoje, ontem, mês passado, semana passada, últimos 30 dias, outubro) para AAAA-MM-DD.',
     'Faça a ação que o usuário pediu. Para consulta, relatório, proposta, chamado ou OS, chame UMA ferramenta por resposta.',
+    'Para achar qualquer registro por número, código prop-..., link colado (/proposta/..., /interno/proposta/..., /p/...), contrato, fatura, nota ou chave de 44 dígitos, OS, chave de chamado (ex.: SETA-123), CNPJ/CPF, e-mail, telefone ou nome parcial, use buscar. Se perguntarem por que algo "não abre" ou "não foi localizado", use buscar com contexto nao_abre. Nunca diga que não encontrou algo sem chamar uma ferramenta: você não vê os dados.',
+    'Listas e relatórios: consultar/relatorio com a entidade certa (contratos, vendas, ordens_servico, empresas, fornecedores, contatos, faturas, notas_fiscais, contas_receber, contas_pagar, produtos, estoque, chamados, negocios) e situação quando dita (vencido, aberto, pago, ATIVO, ENCERRADO, sem estoque). Painel do mês (feitas x aprovadas, faturado): painel.',
     'Proposta ou orçamento existente (tem número, ex.: 4709): para ver, use consultar_propostas; para mudar (acrescentar item ou despesa, alterar quantidade, valor ou campos), use editar_proposta direto com o número, sem consultar antes. Nunca use consultar com entidade negocios para propostas ou orçamentos.',
     'Valores em reais chegam no formato brasileiro (2800,00 ou 2.800,00 = dois mil e oitocentos): envie como número 2800.00.',
     'Ex.: "localize a proposta 4709 e adicione 2800,00 de despesas de locomoção e hospedagem" => editar_proposta {proposta:"4709", adicionar_itens:[{descricao:"Despesas de locomoção e hospedagem", valor_unitario:2800, tipo:"despesa", cobranca:"unica"}]}.',
@@ -95,8 +99,10 @@ function systemPrompt(user: AssistenteUser, now: number): string {
     'Se houver mais de uma empresa possível, pergunte qual, listando as opções. Se faltar algo que impeça a ação (ex.: nenhum item), pergunte só isso.',
     'Antes de qualquer ação o usuário confirma num cartão; não diga que algo foi feito, diga que preparou a ação para confirmação.',
     'Datas sempre no formato AAAA-MM-DD nos argumentos.',
-    'Fora do seu escopo nesta etapa: emitir nota fiscal, emitir recibo, enviar e-mail, WhatsApp ou qualquer mensagem a clientes, excluir registros e alterar usuários ou permissões. Se pedirem, explique que ainda não está disponível e indique a tela do sistema.',
+    'Fora do seu escopo: emitir nota fiscal, emitir recibo, dar baixa em pagamento, aprovar ou converter proposta, enviar e-mail, WhatsApp ou qualquer mensagem a clientes, excluir registros e alterar usuários ou permissões. Se pedirem, explique que ainda não está disponível e indique a tela do sistema.',
     'Nunca peça nem repita senhas, tokens ou chaves.',
+    'Base de conhecimento do STI-hub (use para dúvidas de "como faço", regras e erros; responda em texto, sem ferramenta):',
+    resumoConhecimentoParaPrompt(),
   ].join('\n');
 }
 
@@ -166,6 +172,26 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
   const history = buildHistory(parsed.data.mensagens);
   if (!history) return err(400, 'ENTRADA_INVALIDA', 'Envie uma mensagem.');
 
+  // Roteador deterministico: duvidas do sistema e buscas/listas claras sem depender do modelo.
+  // A ferramenta continua so PROPOSTA (cartao de confirmacao), igual a do modelo.
+  let rota: ReturnType<typeof rotearPergunta> = null;
+  try {
+    const msgs = parsed.data.mensagens;
+    const anterior = msgs.length >= 2 ? msgs[msgs.length - 2] : null;
+    const respondendoPergunta = !!anterior && anterior.papel === 'assistente' && /\?\s*$/.test(anterior.texto.trim());
+    rota = rotearPergunta(last.texto, { agora: deps.now(), respondendoPergunta });
+  } catch {
+    rota = null;
+  }
+  if (rota?.tipo === 'texto') return { status: 200, body: { tipo: 'texto', texto: rota.texto } };
+  if (rota?.tipo === 'ferramenta') {
+    const t = getTool(rota.ferramenta);
+    if (t && t.disponivel(deps.user) && userCanUseTool(t, rota.args, deps.user)) {
+      const viaRota = await proporAcao(t.name, rota.args, '', deps);
+      if (viaRota.status === 200 && viaRota.body.tipo === 'proposta') return viaRota;
+    }
+  }
+
   let result;
   try {
     result = await deps.llm.complete([{ role: 'system', content: systemPrompt(deps.user, deps.now()) }, ...history], toolDefinitionsFor(deps.user));
@@ -181,9 +207,15 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
     const texto = (result.text || '').slice(0, 4000) || 'Não entendi. Pode reformular?';
     return { status: 200, body: { tipo: 'texto', texto } };
   }
-  const tool = getTool(call.name);
+  return proporAcao(call.name, call.args || {}, result.text || '', deps);
+}
+
+/** Valida, confere modulos, prepara (so leitura) e assina a proposta de acao para o cartao. */
+async function proporAcao(nome: string, rawArgs: unknown, textoModelo: string, deps: AssistenteDeps): Promise<ServiceResponse> {
+  const uid = deps.user.uid;
+  const tool = getTool(nome);
   if (!tool) return { status: 200, body: { tipo: 'texto', texto: 'Essa ação não está disponível nesta etapa do assistente.' } };
-  const cleaned = coerceNumbers(tool.name, cleanArgs(call.args || {}));
+  const cleaned = coerceNumbers(tool.name, cleanArgs(rawArgs || {}));
   const args = tool.coagir ? tool.coagir(cleaned) : cleaned;
   const valid = tool.schema.safeParse(args);
   if (!valid.success) {
@@ -220,7 +252,7 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
     status: 200,
     body: {
       tipo: 'proposta',
-      texto: result.text ? result.text.slice(0, 1000) : '',
+      texto: textoModelo ? textoModelo.slice(0, 1000) : '',
       proposta: { token, ferramenta: tool.name, acao: tool.tipo, titulo: resumo.titulo, linhas: resumo.linhas },
     },
   };
