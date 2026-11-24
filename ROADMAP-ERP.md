@@ -303,3 +303,17 @@
   - Rotas `GET /api/erp/rental-contracts/:id/versions` e `POST /api/erp/rental-contracts/:id/restore-version` + painel `ContractVersionHistoryPanel` e formatação compacta A4 de página única (`@page { size: A4 portrait; margin: 7mm }`, `max-height: 282mm`).
 - **`[t19u]` — Botão `Visualizar recibo (rascunho)` na aba de faturamento:**
   - Pré-visualização client-side do recibo A4 (mesmo template do recibo final) com marca d'água `RASCUNHO — NÃO É DOCUMENTO FISCAL`, Nº provisório e botões `Imprimir / Baixar PDF`, `Voltar e editar` e `Finalizar faturamento`; zero efeitos colaterais (sem fatura, título, NF, e-mail ou arquivo salvo). Teste automatizado garante que vencimento e valores do rascunho batem com a fatura final.
+
+---
+
+## 6. Pendências abertas (regra do Marcéllo: o que não foi corrigido nesta leva vai para o roadmap)
+
+Itens remanescentes da revisão dos orçamentos importados do GestãoClick e de pontos de OS/histórico, registrados em 24/11/2026. Não implementar sem alinhamento quando o item exigir OK explícito.
+
+- [ ] **Prazos duvidosos dos 612 orçamentos de tipo já corrigido.** Onde o texto era claro, o `contractMonths` e o total contratual (mensal × meses + setup + frete) já foram gravados (519 casos). Permanecem para revisão os 66 listados no CSV `orcamentos-gc-prazo-duvidosos.csv` da revisão de 24/11/2026: prazos conflitantes ou em intervalo (ex. “6 a 12 meses”, “36 ou 60 meses”, “3 a 5 anos”); menções ambíguas; prazo só em dias (15 ou 60 dias); valores gravados como mensal que na verdade são o total do contrato (4300, 3640); serviço 4518 que só cita o prazo do contrato de locação como contexto; e 43 sem prazo numérico no texto comercial (modelo “XX meses” ignorado).
+- [ ] **15 orçamentos sem tipo** (`prop-gc-*`, códigos 4687–4702, inclusive a duplicata `GC-ORC-4695`). A regra nova de classificação não encontrou texto comercial de alta confiança (sem introdução; o item curinga / natureza fiscal padrão do sync antigo não conta como sinal). Ficaram sem `budgetType`.
+- [ ] **290 orçamentos só com o modelo padrão de locação nas observações** (“Prazo inicial da Locação será de XX meses” / comodato) e os de **confiança média**, mantidos como Produto. Inclui vendas confirmadas com o texto padrão (ex. 4695 Mundivox). Não reclassificar em massa sem revisão caso a caso.
+- [ ] **3199 Localiza:** setup com natureza fiscal de locação. Definir regra de exibição quando o mensal é 0 (o setup não deve ser lido como mensalidade). Esta proposta não entrou na correção de tipo/prazo desta leva; outro agente já tratava o setup.
+- [ ] **Esvaziar o JSON das OS após o período dual.** Exige OK explícito do Marcéllo antes de qualquer apagamento.
+- [ ] **Conferir o dual das OS após a próxima edição** (se a OS editada no STI-hub continua coerente com o período em que GC e STI-hub convivem).
+- [ ] **Histórico com “Locação Pura” preservado de propósito.** Não reescrever registros históricos que usam essa denominação; a preservação foi intencional.
