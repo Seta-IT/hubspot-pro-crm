@@ -26,6 +26,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { computeProposalTotals } from '../../src/app/lib/proposal-share';
 import { extractGcProposalNumber } from '../../src/app/lib/proposal-number';
+import { fiscalNatureForBudgetType, inferGcContractMonths, inferGcProposalBudgetType } from '../../src/modules/erp/gc-proposal-budget-type';
 import {
   applyProposalDiff,
   ensureProposalsTable,
@@ -58,15 +59,6 @@ const md5 = (s: string) => createHash('md5').update(s).digest('hex');
 // ------------------------------------------------------------ mapeamento GC -> STI-hub
 // Mesmo mapeamento validado em /workspace/gc-import-orcamentos/build-payload.ts (2 divergencias
 // de total app x GC em 2069, ambas de dado do GC), agora com vinculos por id GC.
-function budgetTypeOf(o: Rec): 'PRODUTOS' | 'SERVICOS' | 'LOCACAO' {
-  const cc = norm(o.nome_centro_custo);
-  const P = (o.produtos || []).length;
-  const S = (o.servicos || []).length;
-  if (cc.includes('LOCA')) return 'LOCACAO';
-  if (!P && S) return 'SERVICOS';
-  if (/SERVICO|SUPORTE|CONSULTORIA/.test(cc) && S && !P) return 'SERVICOS';
-  return 'PRODUTOS';
-}
 function statusOf(sit: string) {
   const s = String(sit || '').toLowerCase();
   if (s.includes('concretiz') || s.includes('aprov')) return 'APROVADA';
@@ -75,16 +67,7 @@ function statusOf(sit: string) {
   return 'ENVIADA';
 }
 function contractMonthsOf(o: Rec): number {
-  for (const e of o.atributos || []) {
-    const a = e?.atributo;
-    if (a && /prazo/i.test(String(a.nome || a.descricao || ''))) {
-      const m = String(a.conteudo || '').match(/(\d+)/);
-      if (m && +m[1] >= 1 && +m[1] <= 120) return +m[1];
-    }
-  }
-  const m = String(o.introducao || '').match(/(\d+)\s*meses/i);
-  if (m && +m[1] >= 1 && +m[1] <= 120) return +m[1];
-  return 1;
+  return inferGcContractMonths(o);
 }
 
 interface Links {
@@ -144,8 +127,8 @@ interface MapStats {
 export function mapGcProposal(o: Rec, links: Links, st: MapStats, importedAt: string): Rec {
   const gcId = String(o.id);
   const codigo = String(o.codigo);
-  const budgetType = budgetTypeOf(o);
-  const nature = budgetType === 'PRODUTOS' ? 'VENDA_EQUIPAMENTO' : 'LOCACAO_BENS_MOVEIS';
+  const budgetType = inferGcProposalBudgetType(o).budgetType;
+  const nature = fiscalNatureForBudgetType(budgetType);
   const lines = [
     ...(o.produtos || []).map((x: Rec) => ({ k: 'P', g: x.produto })),
     ...(o.servicos || []).map((x: Rec) => ({ k: 'S', g: x.servico })),
@@ -213,7 +196,7 @@ export function mapGcProposal(o: Rec, links: Links, st: MapStats, importedAt: st
     validUntil: String(o.previsao_entrega || date),
     deliveryForecast: String(o.previsao_entrega || ''),
     deliveryLeadTime: String(o.validade || ''),
-    contractMonths: contractMonthsOf(o),
+    contractMonths: inferGcContractMonths(o),
     paymentCondition: [o.condicao_pagamento, o.nome_forma_pagamento].filter(Boolean).join(' • '),
     installments: [],
     shippingCost: num(o.valor_frete),

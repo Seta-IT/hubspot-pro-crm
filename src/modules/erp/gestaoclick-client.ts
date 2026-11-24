@@ -27,6 +27,12 @@ import fs from 'fs';
 import path from 'path';
 import { calculateBrazilianTaxBreakdown } from './erp-tax-engine';
 import { gestaoClickFetch } from './gestaoclick-http';
+import { computeProposalTotals } from '../../app/lib/proposal-share';
+import {
+  fiscalNatureForBudgetType,
+  inferGcContractMonths,
+  inferGcProposalBudgetType,
+} from './gc-proposal-budget-type';
 
 export interface GestaoClickCnpjEntity {
   id: string;
@@ -419,6 +425,121 @@ function parseAttributeValue(atributos: unknown, keyword: string): string | null
   return null;
 }
 
+
+/** Mapeia um orçamento do GC para proposta STI-hub, com tipo e prazo da regra compartilhada. */
+export function mapGcOrcamentoToProposal(
+  o: Record<string, unknown>,
+  options?: { companyCnpj?: string }
+): ErpCommercialProposal {
+  const gcId = String(o.id || '');
+  const codigo = String(o.codigo || gcId);
+  const companyName = String(o.nome_cliente || 'Cliente Seta Telecom').trim();
+  const sellerName = normalizeOwnerName(String(o.nome_vendedor || 'Marcelo Mira'));
+  const rawSit = String(o.nome_situacao || 'Em aberto').toLowerCase();
+  const status: ErpProposalStatus = rawSit.includes('concretiz') || rawSit.includes('aprov')
+    ? 'APROVADA'
+    : rawSit.includes('cancel') || rawSit.includes('recus')
+      ? 'RECUSADA'
+      : rawSit.includes('andamento') || rawSit.includes('negocia')
+        ? 'EM_NEGOCIACAO'
+        : 'ENVIADA';
+
+  const introducao = String(o.introducao || '');
+  const classified = inferGcProposalBudgetType(o);
+  const budgetType = classified.budgetType;
+  const nature = fiscalNatureForBudgetType(budgetType);
+  const contractMonths = inferGcContractMonths(o);
+  const shippingCost = Number(o.valor_frete || 0) || 0;
+  const rawTotal = Number(o.valor_total || o.valor_produtos || 0);
+
+  const items: ErpProposalItem[] = [];
+  const pushItem = (kind: 'P' | 'S', g: Record<string, unknown> | undefined, idx: number) => {
+    if (!g) return;
+    const qty = Math.max(1, Number(g.quantidade || 1));
+    const unitPrice = Number(g.valor_venda || 0);
+    const totalItem = Number(g.valor_total || qty * unitPrice);
+    const name = String((kind === 'P' ? g.nome_produto : g.nome_servico) || '').trim() || (kind === 'P' ? 'Item' : 'Serviço');
+    const isRecurring = budgetType === 'LOCACAO' || (budgetType === 'SERVICOS' && contractMonths > 1);
+    items.push({
+      id: `gc-prop-item-${gcId}-${idx}`,
+      sku: String((kind === 'P' ? g.produto_id : g.servico_id) || `GC-${idx + 1}`),
+      description: `${name}${g.detalhes ? ` — ${String(g.detalhes)}` : ''}`,
+      itemType: kind === 'S' ? 'SERVICE' : 'PRODUCT',
+      fiscalNature: kind === 'S' && budgetType !== 'LOCACAO' ? 'SERVICO_TECNICO_TI_TELECOM' : nature,
+      ncmOrServiceCode: String(g.detalhes || ''),
+      quantity: qty,
+      unitPrice,
+      discountPercent: Number(g.desconto_porcentagem || 0),
+      isRecurring,
+      totalMonthly: totalItem,
+    });
+  };
+  if (Array.isArray(o.produtos)) {
+    o.produtos.forEach((entry: unknown, idx: number) => {
+      pushItem('P', (entry as { produto?: Record<string, unknown> })?.produto, items.length);
+    });
+  }
+  if (Array.isArray(o.servicos)) {
+    o.servicos.forEach((entry: unknown) => {
+      pushItem('S', (entry as { servico?: Record<string, unknown> })?.servico, items.length);
+    });
+  }
+  if (items.length === 0) {
+    const totalVal = rawTotal;
+    items.push({
+      id: `gc-prop-item-${gcId}-1`,
+      sku: `GC-ORC-${codigo}`,
+      description: `Orçamento #${codigo}`,
+      fiscalNature: nature,
+      itemType: budgetType === 'SERVICOS' ? 'SERVICE' : 'PRODUCT',
+      ncmOrServiceCode: '',
+      quantity: 1,
+      unitPrice: totalVal,
+      discountPercent: 0,
+      isRecurring: budgetType === 'LOCACAO' || (budgetType === 'SERVICOS' && contractMonths > 1),
+      totalMonthly: totalVal,
+    });
+  }
+
+  const dataStr = String(o.data || new Date().toISOString().slice(0, 10));
+  const recSum = items.filter((i) => i.isRecurring !== false).reduce((s, i) => s + Number(i.totalMonthly || 0), 0);
+  const setupSum = items.filter((i) => i.isRecurring === false).reduce((s, i) => s + Number(i.totalMonthly || 0), 0);
+  const monthlyRecurringTotal = recSum || (budgetType === 'PRODUTOS' ? 0 : rawTotal);
+  const oneTimeSetupTotal = budgetType === 'PRODUTOS' ? (setupSum || rawTotal) : setupSum;
+  const payment = [o.condicao_pagamento, o.nome_forma_pagamento].filter(Boolean).join(' • ');
+
+  const base: ErpCommercialProposal = {
+    id: `prop-gc-${gcId}`,
+    code: String(codigo),
+    title: `Orçamento #${codigo} — ${companyName}`,
+    budgetType,
+    companyId: o.cliente_id ? `comp-gc-${String(o.cliente_id)}` : null,
+    companyName,
+    companyCnpj: options?.companyCnpj || '',
+    contactId: null,
+    contactName: String(o.aos_cuidados_de || '').trim(),
+    dealId: null,
+    sellerName,
+    status,
+    contractMonths,
+    paymentCondition: payment,
+    validUntil: String(o.previsao_entrega || dataStr),
+    items,
+    shippingCost,
+    setupFee: 0,
+    monthlyRecurringTotal,
+    oneTimeSetupTotal,
+    totalContractValue: Math.round((monthlyRecurringTotal * (budgetType === 'PRODUTOS' ? 1 : contractMonths) + oneTimeSetupTotal + shippingCost) * 100) / 100,
+    commercialNotes: introducao || 'Proposta comercial importada do ERP de origem.',
+    technicalClauses: String(o.observacoes || ''),
+    convertedContractId: null,
+    convertedInvoiceId: null,
+    createdAt: `${dataStr}T12:00:00.000Z`,
+    updatedAt: `${dataStr}T12:00:00.000Z`,
+  };
+  return computeProposalTotals(base) as ErpCommercialProposal;
+}
+
 export async function fetchLiveGestaoClickSnapshot(options?: {
   forceRefresh?: boolean;
   credentials?: GestaoClickCredentials;
@@ -453,16 +574,15 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
 
   await sleep(360);
 
-  // Batch 3 (servicos + orcamentos)
-  const [servicosRes, orcamentosRes] = await Promise.all([
-    fetchGcEndpoint<Record<string, unknown>>('/servicos', creds),
-    fetchGcEndpoint<Record<string, unknown>>('/orcamentos', creds),
-  ]);
+  // Batch 3 (servicos). Orçamentos entram na carga paginada do lote seguinte (não só a 1ª página).
+  const servicosRes = await fetchGcEndpoint<Record<string, unknown>>('/servicos', creds);
 
   await sleep(360);
 
-  // Batch 4 (contratos + vendas) — carga completa paginada (20 por pagina no GestaoClick)
+  // Batch 4 (orcamentos + contratos + vendas) — carga completa paginada (20 por pagina no GestaoClick)
   const gcPage: GcPageFetcher = (ep) => fetchGcEndpoint<Record<string, unknown>>(ep, creds);
+  const orcamentosRes = await fetchAllGcPages('/orcamentos', gcPage);
+  await sleep(360);
   const contratosRes = await fetchAllGcPages('/contratos', gcPage);
   await sleep(360);
   const vendasRes = await fetchAllGcPages('/vendas', gcPage);
@@ -695,97 +815,10 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
     });
   }
 
-  // 3. Map Orçamentos -> ERP Commercial Proposals
-  const mappedProposals: ErpCommercialProposal[] = [];
-
-  for (const o of orcamentosRes.data.slice(0, 12)) {
-    const gcId = String(o.id || '');
-    const codigo = String(o.codigo || gcId);
-    const companyName = String(o.nome_cliente || 'Cliente Seta Telecom').trim();
-    const sellerName = normalizeOwnerName(String(o.nome_vendedor || 'Marcelo Mira'));
-    const rawSit = String(o.nome_situacao || 'Em aberto').toLowerCase();
-    const status: ErpProposalStatus = rawSit.includes('concretiz') || rawSit.includes('aprov')
-      ? 'APROVADA'
-      : rawSit.includes('cancel') || rawSit.includes('recus')
-        ? 'RECUSADA'
-        : 'ENVIADA';
-
-    const introducao = String(o.introducao || '');
-    const contractMonths = parseContractMonthsFromAttributesOrText(o.atributos, introducao);
-    const totalVal = Math.max(100, Number(o.valor_total || o.valor_produtos || 1500));
-
-    const items: ErpProposalItem[] = [];
-    if (Array.isArray(o.produtos) && o.produtos.length > 0) {
-      o.produtos.forEach((entry: unknown, idx: number) => {
-        const prod = (entry as { produto?: Record<string, unknown> })?.produto;
-        if (!prod) return;
-        const qty = Math.max(1, Number(prod.quantidade || 1));
-        const unitPrice = Number(prod.valor_venda || totalVal);
-        const totalItem = Number(prod.valor_total || qty * unitPrice);
-        items.push({
-          id: `gc-prop-item-${gcId}-${idx}`,
-          sku: String(prod.produto_id || `GC-${idx + 1}`),
-          description: `${String(prod.nome_produto || 'Equipamento Telecom')}${prod.detalhes ? ` — ${String(prod.detalhes)}` : ''}`,
-          fiscalNature: 'LOCACAO_BENS_MOVEIS',
-          ncmOrServiceCode: 'NCM 8517.62.59',
-          quantity: qty,
-          unitPrice,
-          discountPercent: 0,
-          isRecurring: true,
-          totalMonthly: totalItem,
-        });
-      });
-    }
-
-    if (items.length === 0) {
-      items.push({
-        id: `gc-prop-item-${gcId}-1`,
-        sku: `GC-ORC-${codigo}`,
-        description: `Solução de Locação de Infraestrutura Telecom & TI (Orçamento de origem #${codigo})`,
-        fiscalNature: 'LOCACAO_BENS_MOVEIS',
-        ncmOrServiceCode: 'NCM 8517.62.59',
-        quantity: 1,
-        unitPrice: totalVal,
-        discountPercent: 0,
-        isRecurring: true,
-        totalMonthly: totalVal,
-      });
-    }
-
-    const dataStr = String(o.data || '2026-10-20');
-    mappedProposals.push({
-      id: `prop-gc-${gcId}`,
-      code: String(codigo), // numeracao GestaoClick pura (ex.: 4696)
-      title: `Orçamento #${codigo} — ${companyName}`,
-      companyId: o.cliente_id ? `comp-gc-${String(o.cliente_id)}` : null,
-      companyName,
-      companyCnpj: resolveClientCnpj(o, companyName),
-      contactId: null,
-      contactName: String(o.aos_cuidados_de || 'Decisor de TI / Compras').trim() || 'Decisor TI',
-      dealId: null,
-      sellerName,
-      status,
-      contractMonths,
-      paymentCondition: `${String(o.condicao_pagamento || 'Mensal')} • Validade ${String(o.validade || '7 dias')}`,
-      validUntil: String(o.previsao_entrega || dataStr),
-      items,
-      shippingCost: Number(o.valor_frete || 0),
-      setupFee: 0,
-      monthlyRecurringTotal: totalVal,
-      oneTimeSetupTotal: 0,
-      totalContractValue: totalVal * contractMonths + Number(o.valor_frete || 0),
-      commercialNotes:
-        introducao.slice(0, 360) ||
-        'Proposta Comercial importada do ERP de origem (Seta Telecom Matriz #118887). Dispensa de ISSQN em locação de bens móveis (LC 116/03 e Súmula Vinculante 31 STF).',
-      technicalClauses:
-        String(o.observacoes || '').slice(0, 400) ||
-        'Remessa dos equipamentos mediante NF-e CFOP 5.908/6.908 permanecendo sob propriedade da Seta Telecom durante a vigência.',
-      convertedContractId: null,
-      convertedInvoiceId: null,
-      createdAt: `${dataStr}T12:00:00.000Z`,
-      updatedAt: `${dataStr}T12:00:00.000Z`,
-    });
-  }
+  // 3. Map Orçamentos -> ERP Commercial Proposals (todos os orçamentos paginados; tipo pela regra compartilhada)
+  const mappedProposals: ErpCommercialProposal[] = orcamentosRes.data.map((o) =>
+    mapGcOrcamentoToProposal(o, { companyCnpj: resolveClientCnpj(o, String(o.nome_cliente || '')) })
+  );
 
   // 4. Map Contratos (/contratos tipos LO e CO) -> ERP Rental Contracts (todos, sem teto)
   const mappedRentalContracts: ErpRentalContract[] = [];
