@@ -340,7 +340,7 @@ export default function AssistenteIaPanel({ system = 'crm', userName }: { system
                     void send();
                   }
                 }}
-                placeholder="Ex.: quantos contratos ativos temos?"
+                placeholder="Ex.: proposta 4709, faturas vencidas, um CNPJ ou um link colado"
                 className="flex-1 resize-none rounded-md border border-slate-300 px-3 py-2 text-[12.5px] focus:outline-none focus:ring-2"
                 style={{ ['--tw-ring-color' as string]: accent.base }}
               />
