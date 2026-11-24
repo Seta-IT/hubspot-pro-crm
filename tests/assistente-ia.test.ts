@@ -125,7 +125,7 @@ describe('assistente — ferramentas', () => {
       'GET /api/companies': () => ({ status: 200, body: { data: COMPANIES } }),
       'POST /api/erp/proposals': (r) => ({ status: 201, body: { data: { id: 'prop-1', code: '1001', ...r.body } } }),
     });
-    const args = { cliente: 'alfa ltda', titulo: 'Locação de PABX', itens: [{ descricao: 'PABX', quantidade: 2, valor_unitario: 300, tipo: 'locacao' as const }] };
+    const args = { cliente: 'alfa ltda', tipo_proposta: 'locacao' as const, prazo_meses: 12, titulo: 'Locação de PABX', itens: [{ descricao: 'PABX', quantidade: 2, valor_unitario: 300, tipo: 'locacao' as const }] };
     const r = await getTool('criar_rascunho_proposta')!.executar(args, api);
     assert.equal(r.ok, true);
     const post = calls.find((c) => c.method === 'POST')!;
@@ -137,7 +137,7 @@ describe('assistente — ferramentas', () => {
 
   it('rascunho de proposta: empresa ambígua não grava nada', async () => {
     const { api, calls } = fakeApi({ 'GET /api/companies': () => ({ status: 200, body: { data: COMPANIES } }) });
-    const r = await getTool('criar_rascunho_proposta')!.executar({ cliente: 'Alfa', titulo: 'T', itens: [{ descricao: 'x', quantidade: 1, valor_unitario: 1 }] }, api);
+    const r = await getTool('criar_rascunho_proposta')!.executar({ cliente: 'Alfa', tipo_proposta: 'produtos', titulo: 'T', itens: [{ descricao: 'x', quantidade: 1, valor_unitario: 1 }] }, api);
     assert.equal(r.ok, false);
     assert.equal(calls.filter((c) => c.method === 'POST').length, 0);
   });
@@ -257,11 +257,18 @@ describe('assistente — fluxo de confirmação', () => {
     assert.equal(verifyActionToken('outro-segredo', good, { uid: ALL.uid, sid: 'sessao-1', now: Date.now() }).ok, false);
   });
 
-  it('argumentos inválidos do modelo viram pergunta, sem proposta', async () => {
-    const d = deps({ llm: fakeLlm({ toolCalls: [{ name: 'criar_rascunho_proposta', args: { cliente: 'Alfa' } }] }) });
-    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'faça uma proposta' }] }, d);
+  it('argumentos incompletos do modelo viram pergunta, sem proposta', async () => {
+    // "faça uma proposta" sem tipo: pergunta o tipo antes de qualquer coisa (sem modelo).
+    const llm0 = fakeLlm({ toolCalls: [{ name: 'criar_rascunho_proposta', args: { cliente: 'Alfa' } }] });
+    const r0 = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'faça uma proposta' }] }, deps({ llm: llm0 }));
+    assert.equal(r0.body.tipo, 'texto');
+    assert.match(String(r0.body.texto), /tipo da proposta/);
+    assert.equal(llm0.calls.length, 0);
+    // Com tipo e sem itens: pede os campos do tipo e diz o que falta.
+    const d = deps({ llm: fakeLlm({ toolCalls: [{ name: 'criar_rascunho_proposta', args: { cliente: 'Alfa', tipo_proposta: 'produtos' } }] }) });
+    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'gere uma proposta de produtos para a Alfa com 2 switches' }] }, d);
     assert.equal(r.body.tipo, 'texto');
-    assert.match(String(r.body.texto), /titulo|itens/);
+    assert.match(String(r.body.texto), /Ainda falta: os itens com quantidade/);
   });
 
   it('limites: tamanho da mensagem e mensagens por minuto', async () => {
@@ -635,7 +642,7 @@ describe('assistente — fluxo da proposta (A3C cloud, 36 meses)', () => {
     assert.ok(cat.every((c) => c.rotas.length > 0));
     assert.ok(cat.find((c) => c.acao === 'criar_rascunho_proposta')!.rotas.includes('POST /api/erp/proposals'));
     const def = toolDefinitionsFor(ALL).find((t) => t.function.name === 'criar_rascunho_proposta')!;
-    assert.deepEqual((def.function.parameters as any).required, ['cliente', 'itens']);
+    assert.deepEqual((def.function.parameters as any).required, ['cliente', 'tipo_proposta', 'itens']);
     assert.deepEqual((def.function.parameters as any).properties.itens.items.required, ['descricao', 'quantidade']);
     assert.equal(ASSISTENTE_TOOLS.every((t) => typeof t.disponivel === 'function'), true);
   });

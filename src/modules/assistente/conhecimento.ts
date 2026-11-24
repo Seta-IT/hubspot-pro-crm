@@ -119,9 +119,9 @@ export const BASE_CONHECIMENTO: EntradaConhecimento[] = [
   {
     id: 'criar-orcamento',
     titulo: 'Criar orçamento / proposta',
-    chaves: [['criar orcamento', 5], ['novo orcamento', 5], ['fazer orcamento', 5], ['criar proposta', 5], ['nova proposta', 5], ['fazer proposta', 5], ['montar proposta', 5], ['como faco um orcamento', 6], ['como faco uma proposta', 6]],
+    chaves: [['tipos de proposta', 6], ['tipo de proposta', 6], ['tipos de orcamento', 6], ['gerar proposta', 5], ['gerar orcamento', 5], ['criar orcamento', 5], ['novo orcamento', 5], ['fazer orcamento', 5], ['criar proposta', 5], ['nova proposta', 5], ['fazer proposta', 5], ['montar proposta', 5], ['como faco um orcamento', 6], ['como faco uma proposta', 6]],
     resposta:
-      'Para criar: Orçamentos / Propostas → escolha Produtos, Locação ou Serviços → "Novo". Preencha cliente (por nome ou CNPJ), itens, prazo e forma de pagamento (Boleto, Pix ou Ted / Transferência). Eu também posso montar um rascunho: diga, por exemplo, "proposta de locação de 36 meses para <cliente> de 3 servidores Dell R640". O rascunho não é enviado ao cliente.',
+      'Para criar: Orçamentos / Propostas → escolha o tipo → "Novo". O tipo vem primeiro, porque muda os campos: Produtos (itens, quantidades, valor unitário, frete e prazo de entrega); Serviços pontual (descrição e valor do serviço, pagamento único, sem "/mês"); Serviços mensal (prazo em meses, valor mensal, setup/implantação opcional e índice de reajuste); Locação (equipamentos, prazo em meses, mensalidade, setup/ativação cobrado à parte e índice de reajuste: IPCA, IGP-M, IST ou fixo). Em todos: cliente (nome ou CNPJ) e forma de pagamento, só Boleto, Pix ou Ted / Transferência. Eu também monto o rascunho: peça "gerar uma proposta" que eu pergunto o tipo e depois os campos dele. O rascunho passa pelo seu "Confirmar" e não é enviado ao cliente.',
   },
   {
     id: 'editar-orcamento',
@@ -227,7 +227,7 @@ export const BASE_CONHECIMENTO: EntradaConhecimento[] = [
     titulo: 'O que o assistente faz',
     chaves: [['o que voce faz', 6], ['o que voce sabe', 6], ['o que voce consegue', 6], ['ajuda', 2], ['como usar', 4], ['comandos', 4], ['o que posso perguntar', 6], ['voce consegue', 3]],
     resposta:
-      'Eu procuro qualquer registro pelo número, código prop-..., link colado, CNPJ/CPF, e-mail, telefone ou nome: orçamentos, contratos, faturas, notas, OS, chamados, clientes, fornecedores e produtos. Também mostro listas e relatórios (ex.: "faturas vencidas", "contas a receber do mês passado", "painel de outubro", "estoque do R640"), monto rascunho de proposta, edito proposta, abro OS e chamado. Consultas e buscas saem na hora; o que grava ou altera dados (rascunho, edição, OS, chamado) passa pelo seu "Confirmar". Não emito nota, não envio e-mail/WhatsApp, não excluo registros nem mudo permissões.',
+      'Eu procuro qualquer registro pelo número, código prop-..., link colado, CNPJ/CPF, e-mail, telefone ou nome: orçamentos, contratos, faturas, notas, OS, chamados, clientes, fornecedores e produtos. Também mostro listas e relatórios (ex.: "faturas vencidas", "contas a receber do mês passado", "painel de outubro", "estoque do R640"), monto rascunho de proposta (pergunto primeiro o tipo: Produtos, Serviços pontual ou mensal, Locação), edito proposta, abro OS e chamado. Consultas e buscas saem na hora; o que grava ou altera dados (rascunho, edição, OS, chamado) passa pelo seu "Confirmar". Não emito nota, não envio e-mail/WhatsApp, não excluo registros nem mudo permissões.',
   },
 ];
 
