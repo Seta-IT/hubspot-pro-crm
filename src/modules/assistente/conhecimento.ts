@@ -227,7 +227,7 @@ export const BASE_CONHECIMENTO: EntradaConhecimento[] = [
     titulo: 'O que o assistente faz',
     chaves: [['o que voce faz', 6], ['o que voce sabe', 6], ['o que voce consegue', 6], ['ajuda', 2], ['como usar', 4], ['comandos', 4], ['o que posso perguntar', 6], ['voce consegue', 3]],
     resposta:
-      'Eu procuro qualquer registro pelo número, código prop-..., link colado, CNPJ/CPF, e-mail, telefone ou nome: orçamentos, contratos, faturas, notas, OS, chamados, clientes, fornecedores e produtos. Também mostro listas e relatórios (ex.: "faturas vencidas", "contas a receber do mês passado", "painel de outubro", "estoque do R640"), monto rascunho de proposta, edito proposta, abro OS e chamado. Toda ação passa pelo seu "Confirmar". Não emito nota, não envio e-mail/WhatsApp, não excluo registros nem mudo permissões.',
+      'Eu procuro qualquer registro pelo número, código prop-..., link colado, CNPJ/CPF, e-mail, telefone ou nome: orçamentos, contratos, faturas, notas, OS, chamados, clientes, fornecedores e produtos. Também mostro listas e relatórios (ex.: "faturas vencidas", "contas a receber do mês passado", "painel de outubro", "estoque do R640"), monto rascunho de proposta, edito proposta, abro OS e chamado. Consultas e buscas saem na hora; o que grava ou altera dados (rascunho, edição, OS, chamado) passa pelo seu "Confirmar". Não emito nota, não envio e-mail/WhatsApp, não excluo registros nem mudo permissões.',
   },
 ];
 

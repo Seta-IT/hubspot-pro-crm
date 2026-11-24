@@ -168,19 +168,21 @@ function deps(over: Partial<AssistenteDeps> = {}): AssistenteDeps & { audits: As
 type Msg = { papel: 'usuario' | 'assistente'; texto: string };
 const PERGUNTA_PRINT = 'Proposta Comercial #prop-1795473263142-d5b63b não localizada, por que essa proposta não abre?';
 
-/** Primeira volta do print: busca + Confirmar => historico igual ao do navegador. */
+/** Primeira volta do print: a busca (leitura) sai direto => historico igual ao do navegador. */
 async function primeiraVolta(d: AssistenteDeps): Promise<{ historico: Msg[]; exec: any }> {
   const chat = await handleChat({ mensagens: [{ papel: 'usuario', texto: PERGUNTA_PRINT }] }, d);
-  assert.equal(chat.body.tipo, 'proposta');
-  const exec = await handleExecute({ token: (chat.body.proposta as any).token, confirmar: true }, d);
-  assert.equal(exec.body.ok, true);
+  assert.equal(chat.body.tipo, 'resultado', 'leitura sem cartão');
+  const exec = chat.body.resultado as any;
+  assert.equal(exec.ok, true);
   const historico: Msg[] = [
     { papel: 'usuario', texto: PERGUNTA_PRINT },
-    { papel: 'assistente', texto: `Ação preparada: ${(chat.body.proposta as any).titulo} (confirmada).` },
-    { papel: 'assistente', texto: `Resultado: ${exec.body.resumoParaModelo}` },
+    { papel: 'assistente', texto: `Resultado: ${exec.resumoParaModelo}` },
   ];
-  return { historico, exec: exec.body };
+  return { historico, exec };
 }
+
+/** Acao executada (leitura) ou proposta (gravacao). */
+const acaoDe = (r: { body: Record<string, unknown> }) => (r.body.acao || r.body.proposta) as any;
 
 const CTX_4725: RegistroContexto = { tipo: 'proposta', ref: '4725' };
 const CTX_CONTRATO: RegistroContexto = { tipo: 'contrato', ref: 'LOC-2026-101' };
@@ -222,15 +224,15 @@ describe('assistente — caso do print: "traga o link da proposta" depois do 472
     const llm = llmFake();
     const d = deps({ api, llm });
     const { historico } = await primeiraVolta(d);
+    calls.length = 0;
     const chat = await handleChat({ mensagens: [...historico, { papel: 'usuario', texto: 'traga o link da proposta' }] }, d);
-    assert.equal(chat.body.tipo, 'proposta');
-    const card = chat.body.proposta as any;
+    assert.equal(chat.body.tipo, 'resultado', 'consulta sai direto, sem "Confirmar"');
+    const card = chat.body.acao as any;
     assert.equal(card.ferramenta, 'consultar_propostas');
     assert.ok(card.linhas.includes('Busca: "4725"'), card.linhas.join(' | '));
     assert.ok(!card.linhas.some((l: string) => /"link"/.test(l)), 'o termo "link" não vira busca');
     assert.equal(llm.calls, 0);
-    calls.length = 0;
-    const exec = await handleExecute({ token: card.token, confirmar: true }, d);
+    const exec = { body: chat.body.resultado as any };
     assert.equal(exec.body.ok, true);
     assert.match(String(exec.body.mensagem), /^Proposta 4725 de Condomínio do Parangaba/);
     assert.doesNotMatch(String(exec.body.mensagem), /39 propostas|UP LINK|ROUTERLINK/);
@@ -269,9 +271,9 @@ describe('assistente — caso do print: "traga o link da proposta" depois do 472
       },
       deps({ llm }),
     );
-    assert.equal(r.body.tipo, 'proposta');
-    assert.equal((r.body.proposta as any).ferramenta, 'consultar_propostas');
-    assert.ok((r.body.proposta as any).linhas.includes('Busca: "4725"'));
+    assert.equal(r.body.tipo, 'resultado');
+    assert.equal(acaoDe(r).ferramenta, 'consultar_propostas');
+    assert.ok(acaoDe(r).linhas.includes('Busca: "4725"'));
   });
 
   it('registro citado pelo usuário (sem confirmar a busca) também vale como contexto', async () => {
@@ -285,8 +287,8 @@ describe('assistente — caso do print: "traga o link da proposta" depois do 472
       },
       deps(),
     );
-    assert.equal((r.body.proposta as any).ferramenta, 'consultar_propostas');
-    assert.ok((r.body.proposta as any).linhas.includes('Busca: "prop-1795473263142-d5b63b"'));
+    assert.equal(acaoDe(r).ferramenta, 'consultar_propostas');
+    assert.ok(acaoDe(r).linhas.includes('Busca: "prop-1795473263142-d5b63b"'));
   });
 
   it('o modelo mandando busca "link" é corrigido para o registro em contexto', async () => {
@@ -298,8 +300,8 @@ describe('assistente — caso do print: "traga o link da proposta" depois do 472
     ];
     const r = await handleChat({ mensagens: hist }, deps({ llm }));
     assert.equal(llm.calls, 1);
-    assert.equal((r.body.proposta as any).ferramenta, 'consultar_propostas');
-    assert.ok((r.body.proposta as any).linhas.includes('Busca: "4725"'));
+    assert.equal(acaoDe(r).ferramenta, 'consultar_propostas');
+    assert.ok(acaoDe(r).linhas.includes('Busca: "4725"'));
   });
 
   it('o modelo mandando busca "link" sem contexto => pergunta qual proposta', async () => {
@@ -531,7 +533,7 @@ describe('assistente — ficha completa e ações', () => {
       { mensagens: [{ papel: 'usuario', texto: 'orçamento 4725' }, { papel: 'assistente', texto: `Resultado: x.${marcaContexto({ tipo: 'proposta', id: 'p', codigo: '4725' })}` }, { papel: 'usuario', texto: 'traga o link da proposta' }] },
       deps({ api, user: CRM_ONLY, llm: llmFake() }),
     );
-    assert.notEqual((r.body.proposta as any)?.ferramenta, 'consultar_propostas');
+    assert.notEqual(acaoDe(r)?.ferramenta, 'consultar_propostas');
     assert.equal(calls.length, 0);
   });
 

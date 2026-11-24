@@ -99,7 +99,7 @@ function systemPrompt(user: AssistenteUser, now: number): string {
     'Link, PDF, Versão contrato ou dados completos "da proposta/dela/desse orçamento" sem número: use o "Registro em contexto" do histórico (consultar_propostas com esse número). Nunca use "link", "pdf", "proposta" ou "contrato" como termo de busca; sem registro no histórico, pergunte qual é o número. Os botões de link do cliente, Versão contrato e PDF aparecem junto do resultado.',
     'Não repita uma consulta que já está no histórico. Resultados chegam como "Resultado: ..." com o mínimo (quantidade e, para empresas, nome e CNPJ); o resto é mostrado direto ao usuário. Nunca invente números, nomes ou registros.',
     'Se houver mais de uma empresa possível, pergunte qual, listando as opções. Se faltar algo que impeça a ação (ex.: nenhum item), pergunte só isso.',
-    'Antes de qualquer ação o usuário confirma num cartão; não diga que algo foi feito, diga que preparou a ação para confirmação.',
+    'Consultas, buscas, relatórios e painel executam na hora e o resultado aparece direto para o usuário. Ações que gravam ou alteram dados (rascunho, edição de proposta, chamado, OS) passam por um cartão de confirmação: para essas, não diga que algo foi feito, diga que preparou a ação para confirmação.',
     'Datas sempre no formato AAAA-MM-DD nos argumentos.',
     'Fora do seu escopo: emitir nota fiscal, emitir recibo, dar baixa em pagamento, aprovar ou converter proposta, enviar e-mail, WhatsApp ou qualquer mensagem a clientes, excluir registros e alterar usuários ou permissões. Se pedirem, explique que ainda não está disponível e indique a tela do sistema.',
     'Nunca peça nem repita senhas, tokens ou chaves.',
@@ -199,7 +199,8 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
     const t = getTool(rota.ferramenta);
     if (t && t.disponivel(deps.user) && userCanUseTool(t, rota.args, deps.user)) {
       const viaRota = await proporAcao(t.name, rota.args, '', deps);
-      if (viaRota.status === 200 && viaRota.body.tipo === 'proposta') return viaRota;
+      if (viaRota.status === 200 && (viaRota.body.tipo === 'proposta' || viaRota.body.tipo === 'resultado')) return viaRota;
+      if (viaRota.status === 429) return viaRota;
     }
   }
 
@@ -270,6 +271,24 @@ async function proporAcao(nome: string, rawArgs: unknown, textoModelo: string, d
     finalArgs = again.data;
   }
   const resumo = tool.resumo(finalArgs);
+  // Leitura (consultas, buscas, fichas, painel): executa direto, sem cartao (aprovado pelo
+  // Marcéllo em 24/11/2026: "Sem confirmação"). Mesma sessao/RBAC das telas e auditoria.
+  // So o que grava ou altera dados continua com o cartao Confirmar.
+  if (tool.tipo === 'leitura') {
+    if (!(await deps.rateLimit(`exec:m:${uid}`, ASSISTENTE_LIMITS.executePerUserPerMinute, 60_000))) {
+      return err(429, 'LIMITE_EXECUCOES', 'Muitas consultas em pouco tempo. Aguarde um minuto.');
+    }
+    const body = await executarFerramenta(tool, finalArgs, deps);
+    return {
+      status: 200,
+      body: {
+        tipo: 'resultado',
+        texto: textoModelo ? textoModelo.slice(0, 1000) : '',
+        acao: { ferramenta: tool.name, acao: tool.tipo, titulo: resumo.titulo, linhas: resumo.linhas },
+        resultado: body,
+      },
+    };
+  }
   const { token } = signActionToken(deps.secret, {
     uid,
     sid: deps.sid,
@@ -288,7 +307,7 @@ async function proporAcao(nome: string, rawArgs: unknown, textoModelo: string, d
 }
 
 // ---------------------------------------------------------------------------
-// Executar (somente apos Confirmar)
+// Executar (gravacao: somente apos Confirmar; leitura ja sai direto do chat)
 // ---------------------------------------------------------------------------
 function moduloAuditoria(mods: string[], tool: string): 'CRM' | 'ERP' | 'CHAMADOS' {
   if (mods.includes('chamados') || tool === 'abrir_chamado') return 'CHAMADOS';
@@ -317,6 +336,12 @@ export async function handleExecute(rawBody: unknown, deps: AssistenteDeps): Pro
   if (!(await deps.consumeNonce(p.n, ASSISTENTE_LIMITS.proposalTtlMs + 60_000))) {
     return err(409, 'JA_EXECUTADA', 'Essa ação já foi confirmada antes.');
   }
+  return { status: 200, body: await executarFerramenta(tool, valid.data, deps) };
+}
+
+/** Executa a ferramenta com a sessao do usuario, audita e monta a resposta (sem token). */
+async function executarFerramenta(tool: NonNullable<ReturnType<typeof getTool>>, args: any, deps: AssistenteDeps): Promise<Record<string, unknown>> {
+  const valid = { data: args };
   const resumo = tool.resumo(valid.data);
   let result: ToolResult;
   try {
@@ -335,11 +360,11 @@ export async function handleExecute(rawBody: unknown, deps: AssistenteDeps): Pro
     registro: result.ok && result.registro ? `${result.registro.tipo}:${result.registro.codigo || result.registro.id}` : undefined,
   });
   if (!result.ok) {
-    return { status: 200, body: { ok: false, mensagem: result.mensagem, resumoParaModelo: result.resumoParaModelo } };
+    return { ok: false, mensagem: result.mensagem, resumoParaModelo: result.resumoParaModelo };
   }
   const { ok: _ok, ...rest } = result;
   void _ok;
   // Marca o registro para o proximo pedido ("traga o link da proposta") agir sobre ele.
   const resumoParaModelo = `${rest.resumoParaModelo || ''}${marcaContexto(rest.registro)}`.trim();
-  return { status: 200, body: { ok: true, ...rest, resumoParaModelo } };
+  return { ok: true, ...rest, resumoParaModelo };
 }
