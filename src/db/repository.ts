@@ -1,3 +1,4 @@
+import { mergeGcServiceOrders, type GcServiceOrderConflict } from './erp-service-orders-table';
 import {
   buildDefaultCrmItemPermissions,
   buildDefaultErpItemPermissions,
@@ -4761,6 +4762,9 @@ export class CrmRepository {
     return this.ensureErp();
   }
 
+  /** OS do GestaoClick que nao foram mescladas no ultimo sync por CNPJ do cliente divergente. */
+  lastGcServiceOrderConflicts: GcServiceOrderConflict[] = [];
+
   getErpOverview() {
     const erp = this.ensureErp();
     const activeContracts = erp.rentalContracts.filter((c) => c.status !== 'ENCERRADO');
@@ -7688,7 +7692,14 @@ export class CrmRepository {
       erp.salesOrders = upsertRecordsById(erp.salesOrders || [], snapshot.mappedSalesOrders);
     }
     if (snapshot.mappedServiceOrders && snapshot.mappedServiceOrders.length > 0) {
-      erp.serviceOrders = upsertRecordsById(erp.serviceOrders || [], snapshot.mappedServiceOrders);
+      // Upsert por id (nunca por CNPJ). CNPJ do cliente divergente do ja gravado => conflito: a OS
+      // existente fica intacta (Trava Fiscal; erp-service-orders-table.ts).
+      const merged = mergeGcServiceOrders(erp.serviceOrders || [], snapshot.mappedServiceOrders);
+      erp.serviceOrders = merged.list;
+      this.lastGcServiceOrderConflicts = merged.conflicts;
+      if (merged.conflicts.length) {
+        console.warn(`[GC sync] ${merged.conflicts.length} O.S. com CNPJ do cliente divergente nao foram mescladas:`, merged.conflicts.map((c) => c.code || c.id).join(', '));
+      }
     }
     if (snapshot.mappedSuppliers && snapshot.mappedSuppliers.length > 0) {
       // Upsert por id do GestãoClick (fallback CNPJ/CPF, Trava Fiscal). NUNCA
