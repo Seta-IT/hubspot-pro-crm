@@ -60,7 +60,7 @@ describe('Sincronizar GestãoClick / regime fiscal: 2FA + admin ou ERP FULL', ()
 
 describe('Aviso neutro no 401/403', () => {
   it('sync e config têm mensagem em português; outros status não', () => {
-    assert.match(String(gestaoClickDeniedMessage(403, 'sync')), /^Sem permissão para sincronizar o GestãoClick/);
+    assert.match(String(gestaoClickDeniedMessage(403, 'sync')), /^Sem permissão para sincronizar o STI HUB ERP/);
     assert.match(String(gestaoClickDeniedMessage(401, 'config')), /^Sem permissão para alterar a configuração fiscal/);
     assert.equal(gestaoClickDeniedMessage(500, 'sync'), null);
     assert.equal(gestaoClickDeniedMessage(200, 'config'), null);

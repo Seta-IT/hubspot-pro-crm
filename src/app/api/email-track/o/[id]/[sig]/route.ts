@@ -8,5 +8,8 @@ export const fetchCache = 'force-no-store';
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
-  return handleEmailTrackRequest(new URL(req.url).pathname, undefined, clientIpFromHeaders(req.headers));
+  return handleEmailTrackRequest(new URL(req.url).pathname, undefined, clientIpFromHeaders(req.headers), undefined, {
+    userAgent: req.headers.get('user-agent'),
+    method: req.method,
+  });
 }

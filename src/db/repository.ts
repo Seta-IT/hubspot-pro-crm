@@ -15,6 +15,7 @@ import { RecordIdConflictError, assertNewRecordId, formatProposalCode, nextFreeC
 import { stripLeanMarker } from '../modules/bootstrap/lean-payload';
 import { parseBillingRecipientEmails } from '../modules/erp/billing-recipient-emails';
 import { isLegacyProposalCode, migrateLegacyProposalCodes, nextGcProposalNumber } from '../app/lib/proposal-number';
+import { buildDefaultTechnicalSupportClauses, isTechnicalSupportProposal } from '../app/lib/proposal-technical-clauses';
 import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
 import path from 'path';
@@ -914,6 +915,52 @@ export function linkedProposalIdFromDeal(
   return raw || null;
 }
 
+
+// Lote 1-b (anti-ressurreicao): tombstones de ids apagados, gravados DENTRO do estado
+// (crm_state_v1.recordTombstones) -- sem DDL. So bloqueiam a RECRIACAO pelo journal do navegador
+// (e o backfill de seed) de um id que nao existe mais no servidor; codigo do servidor nao e afetado.
+export const TOMBSTONE_COLLECTIONS = [
+  'contacts',
+  'companies',
+  'deals',
+  'tasks',
+  'erp.rentalContracts',
+  'erp.invoices',
+  'erp.catalog',
+  'erp.suppliers',
+  'erp.employees',
+  'erp.salesOrders',
+  'erp.serviceOrders',
+  'erp.purchaseOrders',
+] as const;
+export type TombstoneCollection = (typeof TOMBSTONE_COLLECTIONS)[number];
+const TOMBSTONE_MAX_PER_COLLECTION = 5000;
+const TOMBSTONE_TTL_MS = 400 * 24 * 60 * 60 * 1000;
+
+function tombstoneCollectionArray(state: CrmDatabaseState, key: TombstoneCollection): Array<{ id?: string }> | undefined {
+  if (key.startsWith('erp.')) {
+    const erp = state.erp as unknown as Record<string, unknown> | undefined;
+    const arr = erp ? erp[key.slice(4)] : undefined;
+    return Array.isArray(arr) ? (arr as Array<{ id?: string }>) : undefined;
+  }
+  const arr = (state as unknown as Record<string, unknown>)[key];
+  return Array.isArray(arr) ? (arr as Array<{ id?: string }>) : undefined;
+}
+
+function snapshotTombstoneIds(
+  state: CrmDatabaseState,
+  keys: readonly TombstoneCollection[] = TOMBSTONE_COLLECTIONS
+): Map<TombstoneCollection, Set<string>> {
+  const out = new Map<TombstoneCollection, Set<string>>();
+  for (const key of keys) {
+    const arr = tombstoneCollectionArray(state, key);
+    const ids = new Set<string>();
+    if (arr) for (const r of arr) if (r && typeof r.id === 'string' && r.id) ids.add(r.id);
+    out.set(key, ids);
+  }
+  return out;
+}
+
 export class CrmRepository {
   private state: CrmDatabaseState;
   private persistPath: string | null;
@@ -991,6 +1038,61 @@ export class CrmRepository {
         erp: createSeedErpState(),
       };
     }
+  }
+
+  /**
+   * CISO 19/11: tombstone so nasce de exclusao EXPLICITA (metodos delete* chamados por rotas que
+   * ja validaram a alcada, ou exclusoes do journal ja filtradas pelo router). Recebe os ids da
+   * colecao antes da exclusao e registra os que sumiram (sem guarda de "colecao zerada").
+   */
+  private recordDeletedSince(key: TombstoneCollection, before: Set<string>): void {
+    if (!before.size) return;
+    const arr = tombstoneCollectionArray(this.state, key) || [];
+    const after = new Set(arr.map((r) => (r && typeof r.id === 'string' ? r.id : '')));
+    const gone: string[] = [];
+    for (const id of before) if (!after.has(id)) gone.push(id);
+    if (gone.length) this.addRecordTombstones(key, gone);
+  }
+
+  private tombstoneIdsOf(key: TombstoneCollection): Set<string> {
+    return snapshotTombstoneIds(this.state, [key]).get(key) || new Set();
+  }
+
+  /**
+   * Lote 1-b: registra tombstones explicitamente (ex.: script de limpeza/expurgo que apaga direto
+   * no estado). Nao persiste sozinho: o chamador salva/persiste o estado.
+   */
+  addRecordTombstones(key: TombstoneCollection, ids: string[], deletedAt: string = new Date().toISOString()): void {
+    if (!ids.length) return;
+    const all = (this.state.recordTombstones ||= {});
+    const bucket = (all[key] ||= {});
+    for (const id of ids) if (id) bucket[id] = deletedAt;
+    const cutoff = Date.now() - TOMBSTONE_TTL_MS;
+    let entries = Object.entries(bucket).filter(([, at]) => {
+      const t = Date.parse(at);
+      return !Number.isFinite(t) || t >= cutoff;
+    });
+    if (entries.length > TOMBSTONE_MAX_PER_COLLECTION) {
+      entries = entries.sort((a, b) => (a[1] < b[1] ? 1 : -1)).slice(0, TOMBSTONE_MAX_PER_COLLECTION);
+    }
+    all[key] = Object.fromEntries(entries);
+  }
+
+  isRecordTombstoned(key: TombstoneCollection, id: string | undefined | null): boolean {
+    if (!id) return false;
+    const bucket = this.state.recordTombstones?.[key];
+    if (!bucket) return false;
+    if (Object.prototype.hasOwnProperty.call(bucket, id)) return true;
+    const lower = id.toLowerCase();
+    if (lower === id) return false;
+    return Object.prototype.hasOwnProperty.call(bucket, lower);
+  }
+
+  private tombstoneKeyForArray(target: unknown[]): TombstoneCollection | null {
+    for (const key of TOMBSTONE_COLLECTIONS) {
+      if (tombstoneCollectionArray(this.state, key) === target) return key;
+    }
+    return null;
   }
 
   private hydrateParsedState(parsed: CrmDatabaseState): CrmDatabaseState {
@@ -1439,6 +1541,7 @@ export class CrmRepository {
     reconciled: boolean;
     appliedCount: number;
     fiscalDropped?: number;
+    tombstoneBlocked?: number;
   } {
     if (!journal || typeof journal !== "object") {
       return { reconciled: false, appliedCount: 0 };
@@ -1447,6 +1550,10 @@ export class CrmRepository {
     // a alcada da sessao; chamada direta ao repositorio (contexto interno) segue liberada.
     const canIssueFiscal = options?.canIssueFiscalDocuments !== false;
     let fiscalDropped = 0;
+    let tombstoneBlocked = 0;
+    // Exclusoes deste journal ja foram autorizadas pelo router (sanitizeJournalDeletions): os ids
+    // que sumirem durante a reconciliacao viram tombstone explicito.
+    const tombBeforeReconcile = snapshotTombstoneIds(this.state);
 
     let appliedCount = 0;
 
@@ -1488,10 +1595,16 @@ export class CrmRepository {
       deletedIds?: Set<string>
     ) => {
       if (!Array.isArray(incoming) || incoming.length === 0) return;
+      const tombKey = this.tombstoneKeyForArray(target);
       for (const item of incoming) {
         if (!item || !item.id || (deletedIds && deletedIds.has(item.id))) continue;
         const idx = target.findIndex((existing) => existing.id === item.id);
         if (idx === -1) {
+          // Lote 1-b: id apagado no servidor (tombstone) nao e recriado pelo journal antigo.
+          if (tombKey && this.isRecordTombstoned(tombKey, item.id)) {
+            tombstoneBlocked++;
+            continue;
+          }
           target.unshift(structuredClone(item));
           appliedCount++;
         } else {
@@ -1679,11 +1792,16 @@ export class CrmRepository {
     }
 
     if (appliedCount > 0) {
+      for (const [key, before] of tombBeforeReconcile) this.recordDeletedSince(key, before);
       this.save();
     }
-    return fiscalDropped > 0
-      ? { reconciled: appliedCount > 0, appliedCount, fiscalDropped }
-      : { reconciled: appliedCount > 0, appliedCount };
+    const result: { reconciled: boolean; appliedCount: number; fiscalDropped?: number; tombstoneBlocked?: number } = {
+      reconciled: appliedCount > 0,
+      appliedCount,
+    };
+    if (fiscalDropped > 0) result.fiscalDropped = fiscalDropped;
+    if (tombstoneBlocked > 0) result.tombstoneBlocked = tombstoneBlocked;
+    return result;
   }
 
   resetToSeed(): CrmDatabaseState {
@@ -2012,9 +2130,11 @@ export class CrmRepository {
   }
 
   deleteContact(id: string): boolean {
+    const tombBefore = this.tombstoneIdsOf('contacts');
     const before = this.state.contacts.length;
     this.state.contacts = this.state.contacts.filter((c) => c.id !== id);
     if (this.state.contacts.length < before) {
+      this.recordDeletedSince('contacts', tombBefore);
       this.save();
       return true;
     }
@@ -2194,6 +2314,7 @@ export class CrmRepository {
   }
 
   deleteCompany(id: string): boolean {
+    const tombBefore = this.tombstoneIdsOf('companies');
     const before = this.state.companies.length;
     this.state.companies = this.state.companies.filter((c) => c.id !== id);
     if (this.state.companies.length < before) {
@@ -2204,6 +2325,7 @@ export class CrmRepository {
       for (const d of this.state.deals) {
         if (d.companyId === id) d.companyId = null;
       }
+      this.recordDeletedSince('companies', tombBefore);
       this.save();
       return true;
     }
@@ -2600,9 +2722,11 @@ export class CrmRepository {
   }
 
   deleteDeal(id: string): boolean {
+    const tombBefore = this.tombstoneIdsOf('deals');
     const before = this.state.deals.length;
     this.state.deals = this.state.deals.filter((d) => d.id !== id);
     if (this.state.deals.length < before) {
+      this.recordDeletedSince('deals', tombBefore);
       this.save();
       return true;
     }
@@ -3020,7 +3144,7 @@ export class CrmRepository {
       name: input.name.trim(),
       slug: slugBase || `form-${Date.now()}`,
       title: input.title || input.name.trim(),
-      description: input.description || 'Formulário integrado ao HubSpot Pro CRM.',
+      description: input.description || 'Formulário integrado ao STI HUB CRM.',
       targetType: input.targetType || 'LEAD_CAPTURE',
       fields:
         input.fields && input.fields.length > 0
@@ -3519,7 +3643,9 @@ export class CrmRepository {
       | 'UNSUBSCRIBE_MARKETING'
       | 'RESUBSCRIBE_WITH_CONSENT'
       | 'EXIT_SEQUENCE_ONLY'
-      | 'RECORD_HARD_BOUNCE';
+      | 'RECORD_HARD_BOUNCE'
+      | 'RECORD_SPAM_COMPLAINT'
+      | 'UNSUBSCRIBE_PURPOSE';
     reason?: string;
     legalBasis?: LgpdLegalBasis;
     categories?: string[];
@@ -3639,6 +3765,60 @@ export class CrmRepository {
       };
     }
 
+    // Fase 3: descadastro so da finalidade (categoria) do e-mail; demais finalidades preservadas.
+    if (input.action === 'UNSUBSCRIBE_PURPOSE') {
+      const drop = new Set((input.categories || []).map((c) => String(c)));
+      if (contact && drop.size > 0) {
+        contact.communicationCategories = (contact.communicationCategories || []).filter((c) => !drop.has(c));
+        contact.updatedAt = now;
+        this.createTimelineEvent({
+          type: 'HEALTH_ALERT',
+          title: 'Descadastro de finalidade de marketing (LGPD)',
+          body: `O contato ${contact.email} deixou de receber: ${[...drop].join(', ')}. Motivo: ${input.reason || 'link de descadastro'}.`,
+          contactId: contact.id,
+          companyId: contact.companyId,
+          actor: 'Preference Center LGPD',
+          metadata: { action: input.action, categories: [...drop] },
+        });
+      }
+      this.save();
+      return { contact, suppressionEntry: null, exitedEnrollmentsCount: 0, globalSubscriptionPreserved: true };
+    }
+
+    // Fase 3: reclamacao de spam => supressao permanente e global (nunca reenviar).
+    if (input.action === 'RECORD_SPAM_COMPLAINT') {
+      const targetEmail = contact ? contact.email.toLowerCase() : cleanEmail;
+      if (contact) {
+        contact.subscriptionStatus = 'SUPPRESSED_SPAM';
+        contact.lgpdConsent = false;
+        contact.communicationCategories = [];
+        contact.unsubscribedAt = now;
+        contact.unsubscribeReason = input.reason || 'Reclamação de spam (feedback loop do provedor)';
+        contact.updatedAt = now;
+      }
+      if (targetEmail) {
+        const existing = this.state.suppressionList.find(
+          (s) => s.email.toLowerCase() === targetEmail && s.reason === 'SPAM_COMPLAINT'
+        );
+        if (existing) {
+          suppressionEntry = existing;
+        } else {
+          suppressionEntry = {
+            id: `sup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            email: targetEmail,
+            contactId: contact?.id || null,
+            reason: 'SPAM_COMPLAINT',
+            scope: 'GLOBAL_ALL',
+            source: input.reason || 'ESP Complaint Webhook',
+            createdAt: now,
+          };
+          this.state.suppressionList.unshift(suppressionEntry);
+        }
+      }
+      this.save();
+      return { contact, suppressionEntry, exitedEnrollmentsCount: 0, globalSubscriptionPreserved: false };
+    }
+
     if (input.action === 'RECORD_HARD_BOUNCE') {
       const targetEmail = contact ? contact.email.toLowerCase() : cleanEmail;
       if (contact) {
@@ -3662,7 +3842,12 @@ export class CrmRepository {
           }
         }
       }
-      if (targetEmail) {
+      const existingBounce = targetEmail
+        ? this.state.suppressionList.find((s) => s.email.toLowerCase() === targetEmail && s.reason === 'HARD_BOUNCE')
+        : undefined;
+      if (existingBounce) {
+        suppressionEntry = existingBounce;
+      } else if (targetEmail) {
         suppressionEntry = {
           id: `sup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           email: targetEmail,
@@ -3701,7 +3886,7 @@ export class CrmRepository {
       }
       if (targetEmail) {
         this.state.suppressionList = this.state.suppressionList.filter(
-          (s) => s.email.toLowerCase() !== targetEmail || s.reason === 'HARD_BOUNCE'
+          (s) => s.email.toLowerCase() !== targetEmail || s.reason === 'HARD_BOUNCE' || s.reason === 'SPAM_COMPLAINT'
         );
       }
       this.save();
@@ -4012,7 +4197,7 @@ export class CrmRepository {
       id: input.id || `tkt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       key: nextKey,
       subject: input.subject.trim(),
-      description: (input.description || 'Chamado registrado no Service Desk.').trim(),
+      description: (input.description || 'Chamado registrado no STI HUB Desk Service.').trim(),
       category,
       priority,
       status: input.status || 'OPEN',
@@ -4059,7 +4244,7 @@ export class CrmRepository {
       companyId: ticket.companyId,
       dealId: ticket.dealId,
       metadata: { ticketId: ticket.id, ticketKey: ticket.key, priority: ticket.priority },
-      actor: 'Service Desk (NOC Seta Telecom)',
+      actor: 'STI HUB Desk Service (NOC Seta Telecom)',
     });
 
     this.save();
@@ -4295,10 +4480,10 @@ export class CrmRepository {
     }
     ticket.comments.push({
       id: `cmt-os-${Date.now()}`,
-      author: 'Integração NOC - GestãoClick ERP',
+      author: 'Integração NOC - STI HUB ERP',
       authorRole: 'AGENT',
       isInternal: true,
-      body: `Ordem de Serviço Técnica O.S. #${newOs.code} gerada automaticamente no GestãoClick ERP para a fila "${newOs.technicianName}"${ticket.equipmentSerial ? ` (Equipamento/Circuito: ${ticket.equipmentSerial})` : ''}.`,
+      body: `Ordem de Serviço Técnica O.S. #${newOs.code} gerada automaticamente no STI HUB ERP para a fila "${newOs.technicianName}"${ticket.equipmentSerial ? ` (Equipamento/Circuito: ${ticket.equipmentSerial})` : ''}.`,
       createdAt: new Date().toISOString(),
     });
     ticket.updatedAt = new Date().toISOString();
@@ -4426,30 +4611,41 @@ export class CrmRepository {
         purchaseOrders: this.state.erp.purchaseOrders || seedErp.purchaseOrders,
       };
     }
-    // Ensure new seed fiscal document types (NFE_VENDA_PRODUTO, NFCE_CONSUMIDOR, NFE_REMESSA_LOCACAO) exist
-    if (Array.isArray(this.state.erp.invoices)) {
+    // Lote 1-b (a): base ja inicializada (tem dados reais de ERP) NAO recebe mais seed de volta.
+    // Antes, toda requisicao reinjetava faturas e pedidos de compra de demonstracao que o usuario
+    // tinha apagado (ex.: inv-nfe-rem-0412). Seed so entra em base vazia e nunca com tombstone.
+    const erpNow = this.state.erp;
+    const erpInitialized =
+      (Array.isArray(erpNow.invoices) && erpNow.invoices.length > 0) ||
+      (Array.isArray(erpNow.rentalContracts) && erpNow.rentalContracts.length > 0) ||
+      (Array.isArray(erpNow.purchaseOrders) && erpNow.purchaseOrders.length > 0) ||
+      (Array.isArray(erpNow.salesOrders) && erpNow.salesOrders.length > 0) ||
+      (Array.isArray(erpNow.serviceOrders) && erpNow.serviceOrders.length > 0) ||
+      (Array.isArray(erpNow.proposals) && erpNow.proposals.length > 0) ||
+      Boolean(this.state.recordTombstones && Object.keys(this.state.recordTombstones).length > 0);
+    if (!erpInitialized && Array.isArray(this.state.erp.invoices)) {
       const existingIds = new Set(this.state.erp.invoices.map((i) => i.id));
       for (const seedInv of seedErp.invoices) {
-        if (!existingIds.has(seedInv.id)) {
+        if (!existingIds.has(seedInv.id) && !this.isRecordTombstoned('erp.invoices', seedInv.id)) {
           this.state.erp.invoices.push(seedInv);
         }
       }
     }
-    // Enrich existing purchaseOrders with fiscal metadata from seed & add any new seed purchaseOrders
+    // Enriquece pedidos de compra existentes com metadados fiscais do seed (nao recria nenhum).
     if (!Array.isArray(this.state.erp.purchaseOrders) || this.state.erp.purchaseOrders.length === 0) {
-      this.state.erp.purchaseOrders = seedErp.purchaseOrders;
+      if (!erpInitialized) {
+        this.state.erp.purchaseOrders = (seedErp.purchaseOrders || []).filter(
+          (po) => !this.isRecordTombstoned('erp.purchaseOrders', po.id)
+        );
+      } else if (!Array.isArray(this.state.erp.purchaseOrders)) {
+        this.state.erp.purchaseOrders = [];
+      }
     } else if (Array.isArray(seedErp.purchaseOrders)) {
       const seedPoMap = new Map(seedErp.purchaseOrders.map((po) => [po.id, po]));
       this.state.erp.purchaseOrders = this.state.erp.purchaseOrders.map((po) => {
         const seedMatch = seedPoMap.get(po.id);
         return seedMatch ? { ...seedMatch, ...po, cfopEntrada: po.cfopEntrada || seedMatch.cfopEntrada, supplierCnpj: po.supplierCnpj || seedMatch.supplierCnpj, nfeAccessKey: po.nfeAccessKey || seedMatch.nfeAccessKey, itemsSummary: po.itemsSummary || seedMatch.itemsSummary, costCenter: po.costCenter || seedMatch.costCenter, icmsCreditAmount: po.icmsCreditAmount ?? seedMatch.icmsCreditAmount, pisCofinsCreditAmount: po.pisCofinsCreditAmount ?? seedMatch.pisCofinsCreditAmount } : po;
       });
-      const existingPoIds = new Set(this.state.erp.purchaseOrders.map((po) => po.id));
-      for (const seedPo of seedErp.purchaseOrders) {
-        if (!existingPoIds.has(seedPo.id)) {
-          this.state.erp.purchaseOrders.push(seedPo);
-        }
-      }
     }
     if (
       this.state.erp.gestaoClickConfig &&
@@ -4876,10 +5072,12 @@ export class CrmRepository {
       totalContractValue,
       commercialNotes:
         input.commercialNotes ||
-        'Locação pura de bens móveis sem mão de obra (Dispensa de ISSQN conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
+        'Locação de bens móveis sem mão de obra (Dispensa de ISSQN conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
       technicalClauses:
         input.technicalClauses ||
-        '',
+        (isTechnicalSupportProposal({ budgetType: inferredBudgetType, serviceType: input.serviceType })
+          ? buildDefaultTechnicalSupportClauses({ ...input, budgetType: inferredBudgetType })
+          : ''),
       convertedContractId: input.convertedContractId ?? null,
       convertedInvoiceId: input.convertedInvoiceId ?? null,
       version: 1,
@@ -5843,7 +6041,7 @@ export class CrmRepository {
         dueDate,
         paidAt: null,
         paymentMethod: 'BOLETO_PIX',
-        serviceCodeLc116: 'N/A — Locação Pura de Bens Móveis (Veto Item 3.01 LC 116/03 + SV 31 STF)',
+        serviceCodeLc116: 'N/A — Locação de Bens Móveis (Veto Item 3.01 LC 116/03 + SV 31 STF)',
         cfop: `N/A (Fatura de Locação ref. NF-e Remessa CFOP ${ctr.remessaCfop} nº ${ctr.remessaNfeNumber})`,
         cstIcms: '41 - Não Tributada',
         cstPisCofins: '01 - Operação Tributável Alíquota Básica',
@@ -5995,11 +6193,13 @@ export class CrmRepository {
 
   deleteRentalContract(idOrNum: string): boolean {
     const erp = this.ensureErp();
+    const tombBefore = this.tombstoneIdsOf('erp.rentalContracts');
     const before = erp.rentalContracts.length;
     erp.rentalContracts = erp.rentalContracts.filter(
       (c) => c.id !== idOrNum && c.contractNumber.toLowerCase() !== idOrNum.toLowerCase()
     );
     if (erp.rentalContracts.length !== before) {
+      this.recordDeletedSince('erp.rentalContracts', tombBefore);
       this.save();
       return true;
     }
@@ -6080,11 +6280,13 @@ export class CrmRepository {
 
   deleteInvoice(idOrDoc: string): boolean {
     const erp = this.ensureErp();
+    const tombBefore = this.tombstoneIdsOf('erp.invoices');
     const before = erp.invoices.length;
     erp.invoices = erp.invoices.filter(
       (i) => i.id !== idOrDoc && i.documentNumber.toLowerCase() !== idOrDoc.toLowerCase()
     );
     if (erp.invoices.length !== before) {
+      this.recordDeletedSince('erp.invoices', tombBefore);
       this.save();
       return true;
     }
@@ -6108,11 +6310,13 @@ export class CrmRepository {
 
   deleteCatalogItem(idOrSku: string): boolean {
     const erp = this.ensureErp();
+    const tombBefore = this.tombstoneIdsOf('erp.catalog');
     const before = erp.catalog.length;
     erp.catalog = erp.catalog.filter(
       (c) => c.id !== idOrSku && c.gestaoClickCode.toLowerCase() !== idOrSku.toLowerCase()
     );
     if (erp.catalog.length !== before) {
+      this.recordDeletedSince('erp.catalog', tombBefore);
       this.save();
       return true;
     }
@@ -6289,7 +6493,11 @@ export class CrmRepository {
     const list = (erp[collection] || []) as unknown as Array<Record<string, unknown>>;
     const filtered = list.filter((r) => String(r.id) !== id);
     if (filtered.length !== list.length) {
+      const tombKey = `erp.${collection}` as TombstoneCollection;
+      const tracked = (TOMBSTONE_COLLECTIONS as readonly string[]).includes(tombKey);
+      const tombBefore = tracked ? this.tombstoneIdsOf(tombKey) : null;
       (erp as unknown as Record<string, unknown>)[collection] = filtered;
+      if (tombBefore) this.recordDeletedSince(tombKey, tombBefore);
       this.save();
       return true;
     }
@@ -6393,7 +6601,7 @@ export class CrmRepository {
       remessaNfeNumber,
       remessaCfop: '5.908',
       legalBasisNote:
-        'Locação pura de bens móveis sem fornecimento de mão de obra. Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF.',
+        'Locação de bens móveis sem fornecimento de mão de obra. Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF.',
       lastBilledCompetence: competence,
       createdAt: nowIso,
       updatedAt: nowIso,
@@ -6565,7 +6773,7 @@ export class CrmRepository {
       remessaCfop: input.remessaCfop || '5.908',
       legalBasisNote:
         input.legalBasisNote ||
-        'Locação de Bens Móveis pura (Não incidência de ISSQN conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
+        'Locação de Bens Móveis (Não incidência de ISSQN conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
       lastBilledCompetence: input.lastBilledCompetence || null,
       createdAt: nowIso,
       updatedAt: nowIso,
@@ -6731,7 +6939,7 @@ export class CrmRepository {
       dueDate,
       paidAt: null,
       paymentMethod: 'BOLETO_PIX',
-      serviceCodeLc116: 'N/A — Locação Pura de Bens Móveis (Veto Item 3.01 LC 116/03 + SV 31 STF)',
+      serviceCodeLc116: 'N/A — Locação de Bens Móveis (Veto Item 3.01 LC 116/03 + SV 31 STF)',
       cfop: `N/A (Fatura de Locação ref. NF-e Remessa CFOP ${contract.remessaCfop} nº ${contract.remessaNfeNumber})`,
       cstIcms: '41 - Não Tributada',
       cstPisCofins: '01 - Operação Tributável Alíquota Básica',
@@ -7311,7 +7519,7 @@ export class CrmRepository {
       id: `sync-gc-${Date.now()}`,
       timestamp: nowIso,
       status: 'SUCCESS',
-      summary: `Sincronização GestãoClick concluída com sucesso: ${erp.catalog.length} equipamentos/serviços, ${erp.proposals.length} propostas comerciais, ${erp.rentalContracts.length} contratos de locação e ${erp.invoices.length} faturas/recibos atualizados.`,
+      summary: `Sincronização STI HUB ERP concluída com sucesso: ${erp.catalog.length} equipamentos/serviços, ${erp.proposals.length} propostas comerciais, ${erp.rentalContracts.length} contratos de locação e ${erp.invoices.length} faturas/recibos atualizados.`,
       recordsSynced: totalSynced,
     });
 
@@ -7355,7 +7563,7 @@ export class CrmRepository {
         name: gcComp.name,
         domain: gcComp.domain || null,
         cnpj: gcComp.cnpj || null,
-        industry: gcComp.industry || 'B2B & Locação Telecom (GestãoClick)',
+        industry: gcComp.industry || 'B2B & Locação Telecom (STI HUB ERP)',
         size: gcComp.size || '51-200 funcionários',
         annualRevenue: gcComp.annualRevenue || 15_000_000,
         city: gcComp.city || 'São Paulo',
@@ -7364,7 +7572,7 @@ export class CrmRepository {
         completenessScore: 88,
         enrichedAt: now,
         lastActivityAt: now,
-        enrichmentSource: 'GestãoClick ERP API (Matriz #118887)',
+        enrichmentSource: 'STI HUB ERP',
         ownerName: gcComp.ownerName || 'Marcelo Lopes Mira',
         isTargetAccount: true,
         icpTier: 'TIER_1',
@@ -7415,7 +7623,7 @@ export class CrmRepository {
           isUnworked: false,
           companyId: comp?.id || null,
           enrichedAt: now,
-          enrichmentSource: 'GestãoClick ERP API',
+          enrichmentSource: 'STI HUB ERP',
           nextBestAction: null,
           customProperties: {
             gestaoClickClientId: gcCont.gestaoClickClientId,
@@ -7530,7 +7738,7 @@ export class CrmRepository {
     erp.gestaoClickConfig.users = snapshot.users;
     erp.gestaoClickConfig.lastSyncAt = snapshot.fetchedAt;
 
-    const historySummary = `Sincronização Ao Vivo GestãoClick [ERP-GROK • Loja ${snapshot.store.nome} #${snapshot.store.id} • MCP ${snapshot.mcpStatus}]: ${snapshot.totals.clientes} clientes, ${snapshot.totals.produtos} produtos, ${snapshot.totals.servicos} serviços, ${snapshot.totals.orcamentos} orçamentos, ${snapshot.totals.contratos} contratos de locação, ${snapshot.totals.recebimentos} recebimentos e ${snapshot.totals.pagamentos} pagamentos na base real.`;
+    const historySummary = `Sincronização Ao Vivo STI HUB ERP [Loja ${snapshot.store.nome} #${snapshot.store.id} • MCP ${snapshot.mcpStatus}]: ${snapshot.totals.clientes} clientes, ${snapshot.totals.produtos} produtos, ${snapshot.totals.servicos} serviços, ${snapshot.totals.orcamentos} orçamentos, ${snapshot.totals.contratos} contratos de locação, ${snapshot.totals.recebimentos} recebimentos e ${snapshot.totals.pagamentos} pagamentos na base real.`;
 
     if (
       !erp.gestaoClickConfig.syncHistory.length ||
@@ -7741,9 +7949,11 @@ export class CrmRepository {
 
   deleteTask(id: string): boolean {
     this.ensureTasksAndTemplates();
+    const tombBefore = this.tombstoneIdsOf('tasks');
     const before = this.state.tasks!.length;
     this.state.tasks = this.state.tasks!.filter((t) => t.id !== id);
     if (this.state.tasks.length < before) {
+      this.recordDeletedSince('tasks', tombBefore);
       this.save();
       return true;
     }
@@ -10490,7 +10700,7 @@ export class CrmRepository {
       },
       {
         code: "1.1",
-        label: "Locação Pura de Bens Móveis (0% ISS — Súmula Vinculante 31 STF & Veto 3.01 LC 116)",
+        label: "Locação de Bens Móveis (0% ISS — Súmula Vinculante 31 STF & Veto 3.01 LC 116)",
         level: "SUBITEM",
         monthlyBrl: grossRevenueRentalSv31,
         ytdBrl: r2(grossRevenueRentalSv31 * ytdFactor),

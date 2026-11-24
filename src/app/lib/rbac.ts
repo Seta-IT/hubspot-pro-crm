@@ -164,7 +164,7 @@ export const CRM_MODULE_ITEMS_CATALOG: ModuleItemCrudPermission[] = [
     itemId: 'chamados.filas_noc',
     system: 'CRM',
     module: 'CHAMADOS',
-    moduleLabel: 'Service Hub & Chamados NOC',
+    moduleLabel: 'STI HUB Desk Service & NOC',
     itemLabel: 'Central de Chamados & Filas NOC (N1, N2, N3, RMA & Faturamento)',
     view: true,
     edit: true,
@@ -174,7 +174,7 @@ export const CRM_MODULE_ITEMS_CATALOG: ModuleItemCrudPermission[] = [
     itemId: 'chamados.sla_notas_os',
     system: 'CRM',
     module: 'CHAMADOS',
-    moduleLabel: 'Service Hub & Chamados NOC',
+    moduleLabel: 'STI HUB Desk Service & NOC',
     itemLabel: 'Gestão de SLA Dinâmico, Notas Técnicas Internas & Conversão em O.S.',
     view: true,
     edit: true,
@@ -184,7 +184,7 @@ export const CRM_MODULE_ITEMS_CATALOG: ModuleItemCrudPermission[] = [
     itemId: 'chamados.portal_csat',
     system: 'CRM',
     module: 'CHAMADOS',
-    moduleLabel: 'Service Hub & Chamados NOC',
+    moduleLabel: 'STI HUB Desk Service & NOC',
     itemLabel: 'Portal Externo do Cliente (/portal) & Avaliação CSAT',
     view: true,
     edit: true,
@@ -656,7 +656,7 @@ export interface ErpRoleDefinitionMatrix {
 export const CRM_ROLES_CATALOG: Record<CrmAccountRole, CrmRoleDefinitionMatrix> = {
   CRM_ADMIN: {
     role: 'CRM_ADMIN',
-    label: 'Administrador CRM (Acesso Total CRM & Chamados)',
+    label: 'Administrador CRM (Acesso Total CRM & STI HUB Desk Service)',
     badgeColor: 'bg-emerald-600 text-white',
     description:
       'Controle total (Visualizar, Editar e Deletar) em todos os módulos e itens do CRM (Sales Hub, Marketing Hub, Workflows DAG, Data Health, Chamados NOC e Administração CRM).',
@@ -701,7 +701,7 @@ export const CRM_ROLES_CATALOG: Record<CrmAccountRole, CrmRoleDefinitionMatrix> 
   },
   CRM_SERVICE_NOC: {
     role: 'CRM_SERVICE_NOC',
-    label: 'Atendimento, Service Hub & Engenharia NOC',
+    label: 'Atendimento, STI HUB Desk Service & Engenharia NOC',
     badgeColor: 'bg-purple-600 text-white',
     description:
       'Controle total da Central de Chamados JSM (Filas NOC N1/N2/N3, RMA e Faturamento), SLA Dinâmico, Notas Internas e Portal do Cliente (/portal).',
@@ -1049,7 +1049,7 @@ export const RBAC_ROLES_CATALOG: Record<StiHubRole, RolePermissionsMatrix> = {
     label: 'Engenharia NOC, Chamados & Ordens de Serviço',
     badgeColor: 'bg-purple-600 text-white',
     description:
-      'Acesso total ao Service Desk (Tickets/SLA 24x7), ERP Ordens de Serviço (1.378 O.S.) e consulta de Números de Série (S/N) no Estoque.',
+      'Acesso total ao STI HUB Desk Service (Tickets/SLA 24x7), ERP Ordens de Serviço (1.378 O.S.) e consulta de Números de Série (S/N) no Estoque.',
     portfolioScope: 'ALL',
     maxDiscountPercent: 0,
     itemPermissions: buildDefaultItemPermissionsForRole('SUPPORT_NOC_OS'),
@@ -1433,7 +1433,7 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
     required: false,
     hubspotSynced: true,
     gestaoClickSynced: false,
-    description: 'Identifica o papel decisório do contato na conta B2B (sincronizado do HubSpot #4369067).',
+    description: 'Identifica o papel decisório do contato na conta B2B (sincronizado do STI HUB CRM).',
   },
   {
     id: 'cf-cont-persona',
@@ -1526,14 +1526,14 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
   {
     id: 'cf-comp-gc-id',
     internalName: 'gestaoclick_client_id',
-    label: 'ID do Cliente no GestãoClick (#118887)',
+    label: 'ID do Cliente no ERP de origem',
     objectType: 'COMPANY',
     groupName: 'Integração ERP-GROK',
     dataType: 'TEXT',
     required: false,
     hubspotSynced: true,
     gestaoClickSynced: true,
-    description: 'Chave externa de sincronização bidirecional com o ERP GestãoClick.',
+    description: 'Chave externa de sincronização bidirecional com o ERP de origem.',
   },
 
   // DEAL PROPERTIES (Sales Hub Portal #4369067)
@@ -1548,7 +1548,7 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
     required: true,
     hubspotSynced: true,
     gestaoClickSynced: true,
-    description: 'Distingue locação pura de bens móveis (0% ISS) de venda ou serviços técnicos.',
+    description: 'Distingue locação de bens móveis (0% ISS) de venda ou serviços técnicos.',
   },
   {
     id: 'cf-deal-priority',
@@ -1618,7 +1618,7 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
     internalName: 'hs_ticket_priority',
     label: 'Severidade SLA do Chamado',
     objectType: 'TICKET',
-    groupName: 'Service Hub & NOC 24x7',
+    groupName: 'STI HUB Desk Service & NOC 24x7',
     dataType: 'ENUM_SELECT',
     options: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'],
     required: true,
@@ -1643,7 +1643,7 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
     internalName: 'hs_resolution',
     label: 'Laudo Técnico de Resolução',
     objectType: 'TICKET',
-    groupName: 'Service Hub & NOC 24x7',
+    groupName: 'STI HUB Desk Service & NOC 24x7',
     dataType: 'TEXT',
     required: false,
     hubspotSynced: true,
@@ -1655,9 +1655,9 @@ export const INITIAL_CUSTOM_FIELDS: CustomFieldDefinition[] = [
   {
     id: 'cf-prop-channel',
     internalName: 'canal_venda_gc',
-    label: 'Canal de Venda (GestãoClick)',
+    label: 'Canal de Venda (STI HUB ERP)',
     objectType: 'PROPOSAL',
-    groupName: 'Orçamentos GestãoClick',
+    groupName: 'Orçamentos STI HUB ERP',
     dataType: 'ENUM_SELECT',
     options: ['Cliente Recorrente', 'Prospecção Ativa B2B', 'Indicação Comercial', 'Licitação'],
     required: true,
@@ -1725,7 +1725,7 @@ export const INITIAL_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     category: 'ERP_FINANCE_FISCAL',
     subjectTemplate: '[Seta Telecom] Fatura / Recibo de Locação #{{fatura.numero}} (Isento de ISS — SV 31 STF) — {{empresa.razao_social}}',
     bodyTemplate:
-      'Prezado(a) {{contato.nome}} ({{empresa.razao_social}}),\n\nSegue a Fatura / Recibo de Locação de Bens Móveis Nº {{fatura.numero}} referente ao Contrato {{contrato.numero}}.\n\n• Valor Líquido: {{fatura.valor}}\n• Amparo Legal: Operação de Locação Pura de Bens Móveis (Art. 565 do Código Civil) — Não incidência de ISSQN conforme Veto ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF, vinculada à NF-e de Remessa CFOP 5.908.\n\nAtenciosamente,\nFaturamento & Contratos • SETA TELECOM LTDA',
+      'Prezado(a) {{contato.nome}} ({{empresa.razao_social}}),\n\nSegue a Fatura / Recibo de Locação de Bens Móveis Nº {{fatura.numero}} referente ao Contrato {{contrato.numero}}.\n\n• Valor Líquido: {{fatura.valor}}\n• Amparo Legal: Operação de Locação de Bens Móveis (Art. 565 do Código Civil) — Não incidência de ISSQN conforme Veto ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF, vinculada à NF-e de Remessa CFOP 5.908.\n\nAtenciosamente,\nFaturamento & Contratos • SETA TELECOM LTDA',
     variables: ['{{contato.nome}}', '{{empresa.razao_social}}', '{{fatura.numero}}', '{{contrato.numero}}', '{{fatura.valor}}'],
     updatedAt: '2026-10-26T15:00:00.000Z',
   },
@@ -1743,11 +1743,11 @@ export const INITIAL_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
   {
     id: 'tpl-crm-service-sla',
     code: 'CRM_SERVICE_SLA_UPDATE',
-    name: 'Service Hub — Resposta de Chamado NOC 24x7 & Atualização de O.S.',
+    name: 'STI HUB Desk Service — Resposta de Chamado NOC 24x7 & Atualização de O.S.',
     category: 'CRM_SERVICE',
     subjectTemplate: '[Seta Telecom • NOC 24x7] Atualização do Protocolo #{{chamado.protocolo}} — {{empresa.razao_social}}',
     bodyTemplate:
-      'Olá, {{contato.nome}},\n\nNossa equipe de Engenharia NOC N2 atualizou o chamado #{{chamado.protocolo}} (O.S. GestãoClick vinculada):\n\n• Equipamento (S/N): {{chamado.serial}}\n• Status SLA: No Prazo (Atendimento Prioritário)\n• Parecer Técnico: {{chamado.resolucao}}\n\nAcompanhe em tempo real no Portal do Cliente: https://sti-hub.vercel.app/portal?ticket={{chamado.protocolo}}\n\nAtenciosamente,\nNOC 24x7 • SETA TELECOM LTDA',
+      'Olá, {{contato.nome}},\n\nNossa equipe de Engenharia NOC N2 atualizou o chamado #{{chamado.protocolo}} (O.S. do STI HUB ERP vinculada):\n\n• Equipamento (S/N): {{chamado.serial}}\n• Status SLA: No Prazo (Atendimento Prioritário)\n• Parecer Técnico: {{chamado.resolucao}}\n\nAcompanhe em tempo real no Portal do Cliente: https://sti-hub.vercel.app/portal?ticket={{chamado.protocolo}}\n\nAtenciosamente,\nNOC 24x7 • SETA TELECOM LTDA',
     variables: ['{{contato.nome}}', '{{empresa.razao_social}}', '{{chamado.protocolo}}', '{{chamado.serial}}', '{{chamado.resolucao}}'],
     updatedAt: '2026-10-26T15:00:00.000Z',
   },
@@ -1758,7 +1758,7 @@ export const INITIAL_EMAIL_TEMPLATES: EmailTemplateRecord[] = [
     category: 'CRM_MARKETING',
     subjectTemplate: 'Como reduzir em até 28% o OPEX de TI e Telefonia IP na {{empresa.razao_social}}',
     bodyTemplate:
-      'Olá, {{contato.nome}},\n\nEmpresas líderes como Nubank, TOTVS e RD Station substituíram a compra imobilizada (CAPEX) de switches, firewalls SD-WAN e centrais PABX IP pelo modelo de Locação Pura da Seta Telecom (100% dedutível e isento de ISS conforme Súmula Vinculante 31 do STF, com SLA 99,95% e substituição expressa de hardware).\n\nSolicite uma simulação tributária e técnica gratuita para a {{empresa.razao_social}}.\n\nEquipe de Growth • SETA TELECOM LTDA (SETA | IT)',
+      'Olá, {{contato.nome}},\n\nEmpresas líderes como Nubank, TOTVS e RD Station substituíram a compra imobilizada (CAPEX) de switches, firewalls SD-WAN e centrais PABX IP pelo modelo de Locação da Seta Telecom (100% dedutível e isento de ISS conforme Súmula Vinculante 31 do STF, com SLA 99,95% e substituição expressa de hardware).\n\nSolicite uma simulação tributária e técnica gratuita para a {{empresa.razao_social}}.\n\nEquipe de Growth • SETA TELECOM LTDA (SETA | IT)',
     variables: ['{{contato.nome}}', '{{empresa.razao_social}}'],
     updatedAt: '2026-10-26T15:00:00.000Z',
   },

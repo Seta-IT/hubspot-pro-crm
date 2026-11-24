@@ -587,7 +587,7 @@ export async function lookupCnpjInReceitaFederal(
         website: domain,
         gestaoClickId: gcEntity.id,
         gestaoClickActive: gcEntity.ativo === '1',
-        source: 'GestãoClick ERP (#118887) + Receita Federal',
+        source: 'STI HUB ERP + Receita Federal',
         fetchedAt: nowIso,
       },
     };
@@ -672,6 +672,6 @@ export async function lookupCnpjInReceitaFederal(
   // 4º: Sem fallback fictício na Av. Paulista para CNPJs inexistentes
   return {
     ok: false,
-    error: 'CNPJ não encontrado no GestãoClick nem na base da Receita Federal.',
+    error: 'CNPJ não encontrado no STI HUB ERP nem na base da Receita Federal.',
   };
 }

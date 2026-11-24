@@ -9,6 +9,7 @@ import {
   type ProposalLightTemplateId,
 } from '../lib/proposal-share';
 import { PROPOSAL_SHEET_COMMON_TW } from '../lib/proposal-sheet-theme';
+import { AppSelect } from './AppSelect';
 
 export function ProposalTemplateSelect({
   value,
@@ -20,19 +21,16 @@ export function ProposalTemplateSelect({
   className?: string;
 }) {
   return (
-    <select
+    <AppSelect
       value={resolveProposalLayoutKind(value || undefined)}
-      onChange={(e) => onChange(resolveProposalLayoutKind(e.target.value))}
+      onChange={(v) => onChange(resolveProposalLayoutKind(v))}
       className={className || PROPOSAL_SHEET_COMMON_TW.templateSelect}
-      title="Escolher Template / Layout do Documento A4"
-      aria-label="Modelo do documento"
-    >
-      {PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((opt) => (
-        <option key={opt.id} value={opt.id} className="text-slate-900">
-          Modelo: {opt.shortLabel}
-        </option>
-      ))}
-    </select>
+      ariaLabel="Modelo do documento"
+      options={PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((opt) => ({
+        value: opt.id,
+        label: `Modelo: ${opt.shortLabel}`,
+      }))}
+    />
   );
 }
 

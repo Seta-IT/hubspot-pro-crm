@@ -7,6 +7,7 @@ import {
   projectBootstrapCompanies,
   topIssuesBySeverity,
 } from '../modules/bootstrap/lean-payload';
+import { dealMatchesAssociationSearch, parseAssociationSort, sortForAssociation } from './association-search';
 import {
   CRM_MODULE_ITEMS_CATALOG,
   CRM_ROLES_CATALOG,
@@ -46,8 +47,12 @@ import {
   loadStateFromPostgres,
   syncStateToPostgres,
 } from '../db/postgres';
+import { currentStateRequestContext, runWithStateRequestContext } from '../db/state-request-context';
+import type { CrmDatabaseState } from '../db/types';
 import {
+  countSetaDeskTickets,
   createSetaDeskPipeline,
+  loadSetaDeskTicketUsageRefs,
   isLegacyDemoServiceTicket,
   isSetaDeskPostgresEnabled,
   listSetaDeskPipelines,
@@ -59,6 +64,14 @@ import {
   type SetaDeskBaseline,
 } from '../db/setadesk-store';
 import { canManageSetaDeskPipelines, parseSetaDeskPipelineWrite } from './setadesk-pipeline-guards';
+import {
+  isPortalTicketLookupRoute,
+  paginateTickets,
+  parseTicketsPageParams,
+  PORTAL_LOOKUP_TIME_FLOOR_MS,
+  setaDeskLoadPlanForRoute,
+  type SetaDeskUsageCheckKind,
+} from './setadesk-route-plan';
 import { isSetaDeskEmailDirectRoute, matchMarkViewedPath, SETADESK_EMAIL_POLL_PATH } from '../modules/setadesk-email/routes';
 import { isSetaDeskEmailIntakeEnabled, resolveSetaDeskGraphConfig } from '../modules/setadesk-email/config';
 import { createSetaDeskGraphClient, type SetaDeskFetch } from '../modules/setadesk-email/graph-app-client';
@@ -77,6 +90,7 @@ import {
   hashProposal,
   isEmptyDiff,
   isProposalsTableState,
+  listDashboardProposalRows,
   listProposalsPage,
   maxProposalCodeNumber,
   PROPOSAL_SUMMARY_MARKER,
@@ -115,11 +129,90 @@ import { DataHealthService } from '../modules/data-health/health-service';
 import { EnrichmentService } from '../modules/enrichment/enrichment-service';
 import { WorkflowEngine } from '../modules/workflows/workflow-engine';
 import {
+  WF_ACTIONS,
+  WF_ACTION_LABELS,
+  WF_CONDITION_OPERATORS,
+  WF_OPERATOR_LABELS,
+  WF_READABLE_FIELDS,
+  WF_SCHEDULED_TRIGGERS,
+  WF_TRIGGERS,
+  WF_TRIGGER_LABELS,
+  WF_WRITABLE_FIELDS,
+  type WfTriggerType,
+} from '../modules/workflows/dag/catalog';
+import { validateWorkflowGraph } from '../modules/workflows/dag/graph';
+import { classifySignal } from '../modules/analytics/signal-classifier';
+import { MemorySignalStore, getDefaultSignalStore, type SignalStore } from '../modules/analytics/signal-store';
+import { syncSequenceEngagement } from '../modules/analytics/engagement-sync';
+import { handleAnalyticsRoute } from './analytics-routes';
+import { buildSendTimeScheduler, handleEnterpriseRoute } from './enterprise-routes';
+import { MemoryExperimentStore, getDefaultExperimentStore, type ExperimentStore } from '../modules/enterprise/experiment-store';
+import { MemoryAiSuggestionStore, getDefaultAiSuggestionStore, type AiSuggestionStore } from '../modules/enterprise/ai-marketing';
+import { tickExperiments } from '../modules/enterprise/experiments';
+import { collectHumanEngagement, resolveSendWindow, SEND_TIME_SOURCE_LABELS, suggestForContact } from '../modules/enterprise/send-time';
+import { readAssistenteConfig } from '../modules/assistente/config';
+import { createOmniRouteClient, type LlmClient } from '../modules/assistente/omniroute-client';
+import { MemoryWorkflowStore, getDefaultWorkflowStore, type WorkflowStore } from '../modules/workflows/dag/store';
+import {
+  WORKFLOW_CRON_PATH,
+  WORKFLOW_MAX_DEPTH,
+  WorkflowError,
+  activateWorkflow,
+  createWorkflowDefinition,
+  emitWorkflowEvent,
+  isWorkflowsLiveEnabled,
+  normalizeGraph,
+  pauseWorkflow,
+  recordSimulation,
+  resolveRunReview,
+  resolveWebhookAllowedHosts,
+  resolveWorkflowTestRecipients,
+  runWorkflowsTick,
+  saveWorkflowDraft,
+  simulateWorkflow,
+  type WebhookFetch,
+  type WorkflowDeps,
+} from '../modules/workflows/dag/engine';
+import {
   OFFICIAL_10_CADENCE_STATES_CATALOG,
   OFFICIAL_13_EXIT_RULES_CATALOG,
   resolveCanonicalEnrollmentState,
   SequenceService,
 } from '../modules/sequences/sequence-service';
+import {
+  SEQUENCE_CRON_PATH,
+  createGraphSequenceMailer,
+  describeOwnerMailboxes,
+  runSequenceScheduler,
+} from '../modules/sequences/sequence-live-sender';
+import { isSequenceLiveSendEnabled, resolveSequenceTestRecipients } from '../modules/sequences/sequence-live-config';
+import {
+  MARKETING_CRON_PATH,
+  applyEspEvent,
+  applyUnsubscribe,
+  campaignFunnel,
+  enqueueCampaign,
+  marketingPreflight,
+  processMarketingQueue,
+  resolveReviewSend,
+  sendMarketingTest,
+  type MarketingDeps,
+} from '../modules/marketing/campaign-dispatcher';
+import { getDefaultMarketingStore, MemoryMarketingStore, type MarketingStore } from '../modules/marketing/marketing-store';
+import {
+  approveTemplate,
+  createTemplate,
+  rejectTemplate,
+  saveTemplateDraft,
+  submitTemplateForReview,
+  TemplateWorkflowError,
+} from '../modules/marketing/template-service';
+import { isMarketingLiveSendEnabled, isMarketingPurpose, MARKETING_PURPOSES, MARKETING_PURPOSE_LABELS } from '../modules/marketing/marketing-config';
+import type { HttpFetch, SmtpTransportLike } from '../modules/marketing/esp-adapters';
+import type { TxtResolver } from '../modules/marketing/domain-auth';
+import type { NormalizedEspEvent } from '../modules/marketing/resend-webhook';
+import type { DistributedLockStore } from '../db/distributed-lock';
+import { TEMPLATE_BLOCK_LABELS } from '../modules/marketing/template-blocks';
 import type { SequenceExitRuleTrigger } from '../db/types';
 import { AiInsightsService } from '../modules/ai-insights/ai-insights-service';
 import nodemailer from 'nodemailer';
@@ -157,12 +250,14 @@ import { handleAuxListsRoute, isAuxListsRoute } from './aux-lists-routes';
 import { LoginIpFailureGuard } from './login-ip-guard';
 import { rateLimitIpKey } from './client-ip';
 import { sanitizeApiResponseBody } from '../db/iam-security';
+import { isProposalLinkPreviewAgent, isServiceCreatedProposal, nextClientProposalView } from '../app/lib/proposal-client-view';
 import {
   classifySalesAgentRoute,
   getConfiguredSalesAgentTokenHashes,
   isAcceptedServiceTokenHash,
   SALES_AGENT_ACTOR_EMAIL,
   SALES_AGENT_ACTOR_NAME,
+  SALES_AGENT_CREATED_NOTE,
   SALES_AGENT_SERVICE_ID,
   SERVICE_CREATES_PER_DAY,
   SERVICE_LIST_DEFAULT_LIMIT,
@@ -379,6 +474,16 @@ export function buildClearSessionCookie(): string {
 export { isSessionTokenRevoked, revokeSessionTokenBestEffort } from '../app/lib/session-revocation';
 import { isSessionTokenRevoked, revokeSessionTokenBestEffort } from '../app/lib/session-revocation';
 import { normalizeServiceOrderStatus, validateDuplicateServiceOrderInput } from '../modules/erp/service-order-workflow';
+import {
+  computeErpDashboard,
+  isValidMonthParam,
+  lastMonths,
+  proposalToDashboardRow,
+  resolveProposalApprovalDate,
+  todayInSaoPaulo,
+  toLocalYmd,
+  type DashboardProposalRow,
+} from '../modules/erp/dashboard-metrics';
 
 type StiHubUserRecordLike = { id: string; email: string };
 let resendKeyFormatWarned = false;
@@ -446,7 +551,7 @@ export function sanitizeSalesAgentCreateBody(
     if (k.startsWith('_') || k.startsWith('iam') || SVC_PROPOSAL_FORBIDDEN_FIELDS.includes(k)) continue;
     out[k] = v;
   }
-  out.commercialNotes = [typeof out.commercialNotes === 'string' ? out.commercialNotes : '', `Criada por ${SALES_AGENT_ACTOR_NAME}.`]
+  out.commercialNotes = [typeof out.commercialNotes === 'string' ? out.commercialNotes : '', SALES_AGENT_CREATED_NOTE]
     .filter(Boolean)
     .join(' ');
   return out;
@@ -587,8 +692,10 @@ export interface ApiRequest {
 }
 
 /**
- * loadSetaDeskTickets so roda em rotas autenticadas de chamados.
- * Qualquer rota publica (portal, auth, proposta, health, etc.) fica de fora.
+ * Carga COMPLETA dos chamados (loadSetaDeskTickets sem filtro): so rotas autenticadas de
+ * chamados (/api/tickets*). Rota publica nunca carrega a lista. Exceções, todas parciais e
+ * definidas em setadesk-route-plan.ts: o portal publico carrega no maximo o chamado da chave
+ * informada (com tempo constante na resposta) e as rotas que so criam chamado nao leem nada.
  */
 export function shouldLoadSetaDeskTicketsForRoute(method: string, path: string): boolean {
   const clean = (path || '/').replace(/\/+$/, '') || '/';
@@ -925,14 +1032,101 @@ export function isAuthorizedSetaDeskEmailPollCron(
 }
 
 /** Decide se o estado vai para o Postgres apos a rota: mutacoes 2xx/3xx e o cron diario autenticado (2xx). */
+/** Fase 2 (19/11): GET /api/cron/sequences do Vercel Cron (flag _cronAuthorized definida pelo bridge). */
+export function isAuthorizedSequencesCron(
+  method: string,
+  cleanPath: string,
+  query: Record<string, string | undefined>
+): boolean {
+  return method === 'GET' && cleanPath === SEQUENCE_CRON_PATH && query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+}
+
+/** Fase 3 (19/11): GET /api/cron/marketing (fila das campanhas) autenticado pelo bridge. */
+export function isAuthorizedMarketingCron(
+  method: string,
+  cleanPath: string,
+  query: Record<string, string | undefined>
+): boolean {
+  return method === 'GET' && cleanPath === MARKETING_CRON_PATH && query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+}
+
+/** Fase 4 (19/11): GET /api/cron/workflows (automacoes duraveis) autenticado pelo bridge. */
+export function isAuthorizedWorkflowsCron(
+  method: string,
+  cleanPath: string,
+  query: Record<string, string | undefined>
+): boolean {
+  return method === 'GET' && cleanPath === WORKFLOW_CRON_PATH && query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+}
+
+/**
+ * Perf 19/11 (lote 1): o bootstrap NAO faz mais a carga ao vivo do GestaoClick por padrao.
+ * So com BOOTSTRAP_LIVE_GESTAOCLICK=1 (ou "true") o comportamento antigo volta.
+ */
+/** CISO 19/11 (c): rotas que, com a carga do estado falhando, respondem so leitura (sem gravar). */
+const STATE_READ_FALLBACK_PATHS = new Set(["/api/bootstrap", "/api/state"]);
+
+/** Lote 1-b (c): rotas que devolvem reconciliation.journalAck. */
+const JOURNAL_ACK_PATHS = new Set(["/api/bootstrap", "/api/state", "/api/state/reconcile"]);
+
+export function isBootstrapLiveGestaoClickEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = String(env.BOOTSTRAP_LIVE_GESTAOCLICK || '').trim().toLowerCase();
+  return v === '1' || v === 'true';
+}
+
+/**
+ * Perf 24/11: crons autenticados com a flag LIVE (ou a de entrada de e-mail) desligada
+ * nao leem nem regravam o crm_state_v1 — mesmo padrao do poll de e-mail (CISO 17/11).
+ * A autenticacao do cron (Bearer CRON_SECRET via bridge) permanece obrigatória.
+ */
+export function shouldSkipCrmStateLoad(
+  method: string,
+  cleanPath: string,
+  query: Record<string, string | undefined>,
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  if (isAuthorizedSetaDeskEmailPollCron(method, cleanPath, query) && !isSetaDeskEmailIntakeEnabled(env)) return true;
+  if (isAuthorizedMarketingCron(method, cleanPath, query) && !isMarketingLiveSendEnabled(env)) return true;
+  if (isAuthorizedWorkflowsCron(method, cleanPath, query) && !isWorkflowsLiveEnabled(env)) return true;
+  if (isAuthorizedSequencesCron(method, cleanPath, query) && !isSequenceLiveSendEnabled(env)) return true;
+  return false;
+}
+
 export function shouldPersistAfterDispatch(
   method: string,
   cleanPath: string,
   query: Record<string, string | undefined>,
-  status: number
+  status: number,
+  env: NodeJS.ProcessEnv = process.env
 ): boolean {
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return status >= 200 && status < 400;
+  if (shouldSkipCrmStateLoad(method, cleanPath, query, env)) return false;
+  if (isAuthorizedSequencesCron(method, cleanPath, query)) return status >= 200 && status < 300;
+  if (isAuthorizedMarketingCron(method, cleanPath, query)) return status >= 200 && status < 300;
+  if (isAuthorizedWorkflowsCron(method, cleanPath, query)) return status >= 200 && status < 300;
   return isAuthorizedDailySyncCron(method, cleanPath, query) && status >= 200 && status < 300;
+}
+
+/** Fase 3: dependencias injetaveis do envio de campanhas (testes nunca saem para a rede). */
+export interface MarketingRouterOptions {
+  store?: MarketingStore;
+  env?: NodeJS.ProcessEnv;
+  espFetch?: HttpFetch;
+  smtpTransportFactory?: (url: string) => SmtpTransportLike;
+  lock?: DistributedLockStore;
+  resolver?: TxtResolver;
+  now?: () => Date;
+  sleep?: (ms: number) => Promise<void>;
+  origin?: string;
+}
+
+/** Fase 4: dependencias injetaveis das automacoes (testes nunca saem para a rede). */
+export interface WorkflowsRouterOptions {
+  store?: WorkflowStore;
+  env?: NodeJS.ProcessEnv;
+  lock?: DistributedLockStore;
+  now?: () => Date;
+  webhookFetch?: WebhookFetch;
 }
 
 export class CrmApiRouter {
@@ -975,9 +1169,13 @@ export class CrmApiRouter {
   private readonly mailboxFetch: FetchLike;
   private readonly mailboxSendLimiter = newMailboxSendLimiter();
 
+  /** Fase 3: campanhas de marketing (tabelas mkt_*, fora do crm_state_v1) e dependencias injetaveis. */
+  private readonly marketingStore: MarketingStore;
+  private readonly marketingOptions: MarketingRouterOptions;
+
   constructor(
     repo?: CrmRepository,
-    options?: { certificateStore?: CertificateStore; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike }
+    options?: { certificateStore?: CertificateStore; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike; marketing?: MarketingRouterOptions; workflows?: WorkflowsRouterOptions; signalStore?: SignalStore; enterprise?: { experiments?: ExperimentStore; ai?: AiSuggestionStore; llm?: LlmClient | null } }
   ) {
     this.isSingletonRepo = !repo;
     this.repo = repo || getRepository();
@@ -986,6 +1184,383 @@ export class CrmApiRouter {
       (!repo ? getDefaultCertificateStore() : isPostgresEnabled() ? new PostgresCertificateStore() : new MemoryCertificateStore());
     this.mailboxStore = options?.mailboxStore || (!repo ? getDefaultMailboxStore() : new MemoryMailboxStore());
     this.mailboxFetch = options?.mailboxFetch || ((input, init) => fetch(input, init));
+    this.marketingOptions = options?.marketing || {};
+    this.marketingStore = this.marketingOptions.store || (!repo ? getDefaultMarketingStore() : new MemoryMarketingStore());
+    this.workflowOptions = options?.workflows || {};
+    this.workflowStore = this.workflowOptions.store || (!repo ? getDefaultWorkflowStore() : new MemoryWorkflowStore());
+    this.signalStore = options?.signalStore || (!repo ? getDefaultSignalStore() : new MemorySignalStore());
+    this.experimentStore = options?.enterprise?.experiments || (!repo ? getDefaultExperimentStore() : new MemoryExperimentStore());
+    this.aiSuggestionStore = options?.enterprise?.ai || (!repo ? getDefaultAiSuggestionStore() : new MemoryAiSuggestionStore());
+    this.injectedLlm = options?.enterprise?.llm;
+  }
+
+  /** Fase 6: testes A/B, sugestoes de IA (aprovacao humana) e cliente do provedor de IA. */
+  private readonly experimentStore: ExperimentStore;
+  private readonly aiSuggestionStore: AiSuggestionStore;
+  private readonly injectedLlm: LlmClient | null | undefined;
+  private aiClient(): LlmClient | null {
+    if (this.injectedLlm !== undefined) return this.injectedLlm;
+    // Nunca em teste: sem chamada real a provedor pago (a suite injeta um cliente simulado).
+    if (process.env.NODE_ENV === 'test') return null;
+    const cfg = readAssistenteConfig(this.marketingOptions.env || process.env);
+    return cfg ? createOmniRouteClient(cfg) : null;
+  }
+  private experimentTick(deps: { store: MarketingStore }) {
+    return async () => {
+      const env = this.marketingOptions.env || process.env;
+      const now = (this.marketingOptions.now || (() => new Date()))();
+      const exps = await this.experimentStore.listByStatus(['TESTING']);
+      if (!exps.length) return;
+      const audience = [...new Set(exps.flatMap((e) => (e.sendTimeOptimization ? e.holdoutContactIds : [])))];
+      const sched = audience.length ? await buildSendTimeScheduler(this.repo, this.signalStore, env, now, audience) : null;
+      await tickExperiments(this.repo, { store: deps.store, experiments: this.experimentStore, signals: this.signalStore, env, now: () => now }, sched?.scheduleFor);
+    };
+  }
+
+  /** Fase 5: sinais de engajamento classificados (crm_engagement_signals). */
+  private readonly signalStore: SignalStore;
+
+  /** Fase 4: automacoes duraveis (tabelas wf_*, fora do crm_state_v1). */
+  private readonly workflowStore: WorkflowStore;
+  private readonly workflowOptions: WorkflowsRouterOptions;
+  /** Eventos de gatilho gerados durante a requisicao (gravados antes de responder). */
+  private pendingWorkflowEvents: Array<Promise<unknown>> = [];
+
+  private workflowDeps(query: Record<string, string | undefined>): WorkflowDeps {
+    const o = this.workflowOptions;
+    return {
+      store: this.workflowStore,
+      env: o.env,
+      lock: o.lock,
+      now: o.now,
+      marketing: this.marketingDeps(query),
+      webhookFetch:
+        o.webhookFetch ||
+        (async (url, init) => {
+          const r = await fetch(url, { ...init, signal: AbortSignal.timeout(10000) });
+          return { ok: r.ok, status: r.status };
+        }),
+      persist: this.canPersistToPostgres()
+        ? async () => {
+            const failed = await this.persistStateToPostgres();
+            if (failed) throw new Error('persist failed');
+          }
+        : undefined,
+      reloadState: this.canPersistToPostgres() ? () => this.reloadStateForSequenceRun() : undefined,
+    };
+  }
+
+  /** Gatilho das automacoes (Fase 4). Sem WORKFLOWS_LIVE nada e gravado. Nunca derruba a rota. */
+  private queueWorkflowEvent(type: WfTriggerType, contactId: string | null | undefined, context: Record<string, unknown> = {}, eventId?: string): void {
+    if (!contactId || !isWorkflowsLiveEnabled(this.workflowOptions.env || process.env)) return;
+    this.pendingWorkflowEvents.push(
+      emitWorkflowEvent({ store: this.workflowStore, env: this.workflowOptions.env, now: this.workflowOptions.now }, { type, contactId, context, eventId }).catch(() => {
+        console.error(`[workflows] falha ao registrar evento ${type}`);
+      })
+    );
+  }
+
+  private async flushWorkflowEvents(): Promise<void> {
+    if (!this.pendingWorkflowEvents.length) return;
+    const list = this.pendingWorkflowEvents;
+    this.pendingWorkflowEvents = [];
+    await Promise.all(list);
+  }
+
+  /** Fase 3: dependencias do envio de campanhas (ESP so via fetch/transporte injetaveis). */
+  private marketingDeps(query: Record<string, string | undefined>): MarketingDeps {
+    void query;
+    const o = this.marketingOptions;
+    return {
+      store: this.marketingStore,
+      mailbox: this.mailboxStore,
+      env: o.env,
+      esp: {
+        fetch: o.espFetch || ((url, init) => fetch(url, init) as unknown as ReturnType<HttpFetch>),
+        smtpTransportFactory: o.smtpTransportFactory || ((url: string) => nodemailer.createTransport(url) as unknown as SmtpTransportLike),
+      },
+      lock: o.lock,
+      resolver: o.resolver,
+      now: o.now,
+      sleep: o.sleep,
+      reloadState: this.canPersistToPostgres() ? () => this.reloadStateForSequenceRun() : undefined,
+      origin: o.origin,
+    };
+  }
+
+  /** Fase 3: alcada de marketing (aprovar modelo, envio real, teste, fila) = admin ou CRM total, com 2FA. */
+  private marketingPrivilege(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean }
+  ): { allowed: boolean; authenticated: boolean; actor: string } {
+    if (ctx.trustedInternal) return { allowed: true, authenticated: true, actor: 'Sistema STI-hub' };
+    const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+    const user = sess && sess.authenticated ? sess.user : null;
+    if (!sess || !sess.authenticated || !user) return { allowed: false, authenticated: false, actor: '' };
+    const actorRec = this.repo.findRbacUserRecord(user.id, user.email);
+    const allowed = Boolean(sess.mfaVerified && (sess.effectiveActionGuards?.canManageUsersRbac || isModuleFullControl(actorRec, 'CRM')));
+    return { allowed, authenticated: true, actor: String(user.email || user.name || '').toLowerCase() };
+  }
+
+  /** Fase 3: rotas de campanhas reais (modelos, dominio, fila, funil, eventos do ESP, descadastro). */
+  private async handleMarketingLive(
+    method: string,
+    cleanPath: string,
+    query: Record<string, string | undefined>,
+    body: Record<string, unknown>,
+    ctx: { trustedInternal: boolean }
+  ): Promise<ApiResponse | null> {
+    if (!cleanPath.startsWith('/api/marketing/') && cleanPath !== MARKETING_CRON_PATH) return null;
+    const deps = this.marketingDeps(query);
+    const forbidden = (p: { authenticated: boolean }): ApiResponse => ({
+      status: p.authenticated ? 403 : 401,
+      body: { error: 'Ação restrita a administradores ou ao controle total do CRM (com 2FA).' },
+    });
+    const wrap = async (fn: () => Promise<ApiResponse>): Promise<ApiResponse> => {
+      try {
+        return await fn();
+      } catch (err) {
+        if (err instanceof TemplateWorkflowError) return { status: err.status, body: { error: err.message } };
+        throw err;
+      }
+    };
+
+    // Cron da fila (Vercel Cron com CRON_SECRET) ----------------------------------------------
+    if (cleanPath === MARKETING_CRON_PATH && method === 'GET') {
+      const cronOk = query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+      if (!ctx.trustedInternal && !cronOk) return { status: query._sessionToken ? 403 : 401, body: { error: 'Forbidden' } };
+      const result = await processMarketingQueue(this.repo, deps, { beforeQueue: this.experimentTick(deps) });
+      return { status: 200, body: { data: result } };
+    }
+
+    // Fase 6: testes A/B, horario de envio, agendamento, IA e central de preferencias -----------
+    {
+      const ent = await handleEnterpriseRoute(this.repo, method, cleanPath, query, body, ctx, {
+        marketing: deps,
+        experiments: this.experimentStore,
+        signals: this.signalStore,
+        ai: this.aiSuggestionStore,
+        llm: () => this.aiClient(),
+        env: this.marketingOptions.env || process.env,
+        now: this.marketingOptions.now || (() => new Date()),
+        privilege: () => this.marketingPrivilege(query, ctx),
+        audit: (e) => {
+          try {
+            this.repo.appendSecurityAuditLog({ ...e, actorName: e.actorEmail, module: 'CRM' });
+          } catch {
+            // auditoria nunca derruba a rota
+          }
+        },
+      });
+      if (ent) return ent;
+    }
+
+    // Rotas internas (so contexto confiavel do servidor; nunca HTTP) ------------------------------
+    if (cleanPath === '/api/marketing/esp-events' && method === 'POST') {
+      if (!ctx.trustedInternal) return { status: 404, body: { error: 'Not found' } };
+      const ev = body.event as NormalizedEspEvent | undefined;
+      if (!ev || typeof ev.providerEventId !== 'string' || typeof ev.type !== 'string') return { status: 400, body: { error: 'evento inválido' } };
+      const r = await applyEspEvent(this.repo, deps, ev);
+      let humanClick = true;
+      if (!r.duplicate && r.contactId && ev.type === 'CLICKED') {
+        // Fase 5: clique do ESP classificado (robo/scanner x humano provavel), com motivo.
+        const send = r.campaignId ? await this.marketingStore.getSend(r.campaignId, r.contactId) : null;
+        const c = classifySignal({ kind: 'CLICK', userAgent: ev.userAgent ?? null, ip: ev.ip ?? null, sentAt: send?.sentAt || null, at: ev.at, env: this.marketingOptions.env });
+        humanClick = c.classification === 'CLICK_HUMAN';
+        await this.signalStore
+          .record({ id: `sig-esp-${ev.providerEventId}`.slice(0, 200), source: 'ESP', kind: 'CLICK', classification: c.classification, reasons: c.reasons, at: ev.at, trackingId: send?.trackingId || null, contactId: r.contactId, campaignId: r.campaignId, messageSource: 'MARKETING', url: ev.detail, linkIndex: null, uaFamily: c.uaFamily, ipNetwork: c.ipNetwork, secondsSinceSent: c.secondsSinceSent })
+          .catch(() => undefined);
+      }
+      if (!r.duplicate && r.contactId) {
+        // Clique de robo/scanner nao dispara automacao de "Link clicado".
+        const t = ev.type === 'DELIVERED' ? 'EMAIL_DELIVERED' : ev.type === 'OPENED' ? 'EMAIL_OPENED' : ev.type === 'CLICKED' && humanClick ? 'LINK_CLICKED' : null;
+        if (t) this.queueWorkflowEvent(t, r.contactId, { campaignId: r.campaignId }, `esp:${ev.providerEventId}`);
+      }
+      return { status: 200, body: { data: r } };
+    }
+    if (cleanPath === '/api/marketing/unsubscribe-apply' && method === 'POST') {
+      if (!ctx.trustedInternal) return { status: 404, body: { error: 'Not found' } };
+      const c = body.claims as { contactId?: unknown; campaignId?: unknown; purpose?: unknown } | undefined;
+      if (!c || typeof c.contactId !== 'string' || typeof c.campaignId !== 'string' || !isMarketingPurpose(c.purpose)) {
+        return { status: 400, body: { error: 'pedido inválido' } };
+      }
+      const scope = body.scope === 'ALL_MARKETING' ? 'ALL_MARKETING' : 'PURPOSE';
+      const r = await applyUnsubscribe(this.repo, deps, { contactId: c.contactId, campaignId: c.campaignId, purpose: c.purpose }, scope);
+      return { status: r.ok ? 200 : 404, body: { data: r } };
+    }
+
+    // Diagnostico ----------------------------------------------------------------------------------
+    if (cleanPath === '/api/marketing/live-status' && method === 'GET') {
+      const pre = await marketingPreflight(deps, { forceDns: query.forceDns === '1' });
+      const cfg = pre.config;
+      return {
+        status: 200,
+        body: {
+          data: {
+            liveEnabled: pre.liveEnabled,
+            ready: pre.ready,
+            problems: pre.problems,
+            provider: cfg.provider,
+            fromEmail: cfg.fromEmail,
+            fromName: cfg.fromName,
+            fromDomain: cfg.fromDomain,
+            postalAddressConfigured: Boolean(cfg.postalAddress),
+            maxPerMinute: cfg.maxPerMinute,
+            maxPerRun: cfg.maxPerRun,
+            allowlistActive: pre.allowlistActive,
+            trackingEnabled: pre.trackingEnabled,
+            domain: pre.domain,
+            purposes: MARKETING_PURPOSES.map((id) => ({ id, label: MARKETING_PURPOSE_LABELS[id] })),
+            blockTypes: TEMPLATE_BLOCK_LABELS,
+          },
+        },
+      };
+    }
+
+    // Modelos --------------------------------------------------------------------------------------
+    if (cleanPath === '/api/marketing/templates') {
+      if (method === 'GET') return { status: 200, body: { data: await this.marketingStore.listTemplates() } };
+      if (method === 'POST') {
+        const actor = this.sessionUserEmail(query) || (ctx.trustedInternal ? 'Sistema STI-hub' : '');
+        if (!actor) return { status: 401, body: { error: 'Sessão necessária.' } };
+        return wrap(async () => {
+          const r = await createTemplate(this.marketingStore, body as never, actor);
+          return { status: 201, body: { data: r } };
+        });
+      }
+    }
+    const tplMatch = cleanPath.match(/^\/api\/marketing\/templates\/(mtpl-[A-Za-z0-9-]{1,60})(?:\/(submit|approve|reject|test-send))?$/);
+    if (tplMatch) {
+      const [, id, action] = tplMatch;
+      const actor = this.sessionUserEmail(query) || (ctx.trustedInternal ? 'Sistema STI-hub' : '');
+      if (!action && method === 'GET') {
+        const t = await this.marketingStore.getTemplate(id);
+        if (!t) return { status: 404, body: { error: 'Modelo não encontrado.' } };
+        return { status: 200, body: { data: { template: t, versions: await this.marketingStore.listVersions(id) } } };
+      }
+      if (!actor) return { status: 401, body: { error: 'Sessão necessária.' } };
+      if (!action && method === 'PUT') {
+        return wrap(async () => ({ status: 200, body: { data: await saveTemplateDraft(this.marketingStore, id, body as never, actor) } }));
+      }
+      if (action === 'submit' && method === 'POST') {
+        return wrap(async () => ({ status: 200, body: { data: await submitTemplateForReview(this.marketingStore, id, actor) } }));
+      }
+      if ((action === 'approve' || action === 'reject') && method === 'POST') {
+        const priv = this.marketingPrivilege(query, ctx);
+        if (!priv.allowed) return forbidden(priv);
+        return wrap(async () => ({
+          status: 200,
+          body: { data: action === 'approve' ? await approveTemplate(this.marketingStore, id, actor) : await rejectTemplate(this.marketingStore, id, actor, body.note) },
+        }));
+      }
+      if (action === 'test-send' && method === 'POST') {
+        const priv = this.marketingPrivilege(query, ctx);
+        if (!priv.allowed) return forbidden(priv);
+        const r = await sendMarketingTest(deps, {
+          templateId: id,
+          version: body.version !== undefined ? Number(body.version) : undefined,
+          to: String(body.to || ''),
+          actor,
+        });
+        return r.ok
+          ? { status: 200, body: { data: { sent: true, provider: r.provider } } }
+          : { status: r.status, body: { error: r.problems.join(' '), problems: r.problems } };
+      }
+    }
+
+    // Fila e funil ---------------------------------------------------------------------------------
+    if (cleanPath === '/api/marketing/queue/process' && method === 'POST') {
+      const priv = this.marketingPrivilege(query, ctx);
+      if (!priv.allowed) return forbidden(priv);
+      const max = Number(body.maxSends);
+      const result = await processMarketingQueue(this.repo, deps, { maxSends: Number.isFinite(max) && max > 0 ? max : undefined, beforeQueue: this.experimentTick(deps) });
+      return { status: 200, body: { data: result } };
+    }
+    const reviewMatch = cleanPath.match(/^\/api\/marketing\/campaigns\/([A-Za-z0-9_.:-]{1,120})\/review$/);
+    if (reviewMatch && method === 'POST') {
+      const priv = this.marketingPrivilege(query, ctx);
+      if (!priv.allowed) return forbidden(priv);
+      const decision = String(body.decision || '');
+      if (!['MARK_SENT', 'REQUEUE', 'DISCARD'].includes(decision)) return { status: 400, body: { error: 'Decisão inválida.' } };
+      const r = await resolveReviewSend(this.repo, deps, {
+        campaignId: reviewMatch[1],
+        contactId: String(body.contactId || ''),
+        decision: decision as 'MARK_SENT' | 'REQUEUE' | 'DISCARD',
+        actor: priv.actor || 'Sistema STI-hub',
+      });
+      return r.ok ? { status: 200, body: { data: r } } : { status: 409, body: { error: r.error } };
+    }
+    const funnelMatch = cleanPath.match(/^\/api\/marketing\/campaigns\/([A-Za-z0-9_.:-]{1,120})\/funnel$/);
+    if (funnelMatch && method === 'GET') {
+      const campaign = this.repo.getMarketingCampaignById(funnelMatch[1]);
+      if (!campaign) return { status: 404, body: { error: 'Campanha não encontrada.' } };
+      return { status: 200, body: { data: { campaignName: campaign.name, ...(await campaignFunnel(deps, campaign.id)) } } };
+    }
+
+    // Disparo real (substitui a simulacao so com MARKETING_LIVE_SEND ligado) -------------------
+    if (cleanPath === '/api/marketing/campaigns/dispatch' && method === 'POST' && isMarketingLiveSendEnabled(this.marketingOptions.env || process.env)) {
+      const priv = this.marketingPrivilege(query, ctx);
+      if (!priv.allowed) return forbidden(priv);
+      const templateId = String(body.templateId || '');
+      if (!templateId) return { status: 400, body: { error: 'Envio real exige um modelo aprovado (templateId).' } };
+      const campaign = this.repo.getMarketingCampaignById(String(body.campaignId || ''));
+      if (!campaign) return { status: 404, body: { error: 'Campanha não encontrada.' } };
+      const pre = await marketingPreflight(deps);
+      if (!pre.ready) return { status: 409, body: { error: 'Envio real bloqueado.', problems: pre.problems } };
+      let contacts = this.repo.listContacts();
+      if (Array.isArray(body.contactIds) && body.contactIds.length > 0) {
+        const idSet = new Set(body.contactIds.map((x) => String(x)));
+        contacts = contacts.filter((c) => idSet.has(c.id));
+      } else if (body.segmentId) {
+        const seg = this.repo.listMarketingSegments().find((x) => x.id === String(body.segmentId));
+        if (!seg) return { status: 404, body: { error: 'Segmento não encontrado.' } };
+        const idSet = new Set(seg.matchedContactIds || []);
+        contacts = contacts.filter((c) => idSet.has(c.id));
+      } else {
+        return { status: 400, body: { error: 'Informe o segmento (segmentId) ou os contatos (contactIds).' } };
+      }
+      // Fase 6: agendamento por data/hora (horario de Brasilia) e/ou otimizacao de horario por contato.
+      const env = this.marketingOptions.env || process.env;
+      const nowD = (this.marketingOptions.now || (() => new Date()))();
+      let scheduleAtIso: string | null = null;
+      if (body.scheduleAt) {
+        const raw = String(body.scheduleAt);
+        const ms = Date.parse(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw) ? `${raw}:00-03:00` : raw);
+        if (!Number.isFinite(ms) || ms <= nowD.getTime() || ms > nowD.getTime() + 180 * 86400000) {
+          return { status: 400, body: { error: 'Data/hora de agendamento inválida (futura, até 180 dias; horário de Brasília).' } };
+        }
+        scheduleAtIso = new Date(ms).toISOString();
+      }
+      const sto = body.sendTimeOptimization === true ? await buildSendTimeScheduler(this.repo, this.signalStore, env, scheduleAtIso ? new Date(scheduleAtIso) : nowD, contacts.map((c) => c.id)) : null;
+      const scheduleFor = sto ? sto.scheduleFor : scheduleAtIso ? () => ({ at: scheduleAtIso!, by: 'AGENDAMENTO' as const }) : undefined;
+      return wrap(async () => {
+        const r = await enqueueCampaign(this.repo, deps, { campaignId: campaign.id, templateId, contacts, scheduleFor });
+        return {
+          status: 200,
+          body: {
+            data: {
+              mode: 'LIVE',
+              campaignId: r.campaignId,
+              campaignName: campaign.name,
+              deliveryChannel: 'MARKETING_ESP',
+              templateId: r.templateId,
+              templateVersion: r.templateVersion,
+              purpose: r.purpose,
+              queuedCount: r.queuedCount,
+              alreadyQueuedCount: r.alreadyQueuedCount,
+              dispatchedCount: 0,
+              blockedSuppressedCount: r.blockedCount,
+              blockedContacts: r.blockedContacts,
+              deliveredContacts: [],
+              scheduledAt: scheduleAtIso,
+              sendTimeOptimization: Boolean(sto),
+              sendTimeSources: sto?.sources || null,
+            },
+          },
+        };
+      });
+    }
+    return null;
   }
 
   getRepository(): CrmRepository {
@@ -1287,13 +1862,181 @@ export class CrmApiRouter {
     };
   }
 
-  private rejectIfRecordInUse(kind: RecordUsageKind, ref: RecordUsageRef): ApiResponse | null {
-    const counts = countRecordUsage(kind, ref, this.recordUsageSources());
+  private rejectIfRecordInUse(
+    kind: RecordUsageKind,
+    ref: RecordUsageRef,
+    overrides?: Partial<RecordUsageSources>
+  ): ApiResponse | null {
+    const counts = countRecordUsage(kind, ref, { ...this.recordUsageSources(), ...(overrides || {}) });
     if (recordUsageTotal(counts) <= 0) return null;
     return { status: 409, body: recordInUseBody(counts) };
   }
 
+  /**
+   * Piso de tempo (ms) das rotas do portal que localizam chamado por chave + e-mail. Producao:
+   * PORTAL_LOOKUP_TIME_FLOOR_MS. Na suite de testes o padrao e 0 (os testes de tempo ligam).
+   */
+  portalLookupTimeFloorMs = process.env.NODE_ENV === 'test' ? 0 : PORTAL_LOOKUP_TIME_FLOOR_MS;
+
+  /** Fase 4: automacoes visuais duraveis (/api/workflows/v2/*) e cron /api/cron/workflows. */
+  private async handleWorkflowsV2(
+    method: string,
+    cleanPath: string,
+    query: Record<string, string | undefined>,
+    body: Record<string, unknown>,
+    ctx: { trustedInternal: boolean }
+  ): Promise<ApiResponse | null> {
+    if (!cleanPath.startsWith('/api/workflows/v2') && cleanPath !== WORKFLOW_CRON_PATH) return null;
+    const deps = this.workflowDeps(query);
+    const env = this.workflowOptions.env || process.env;
+    const now = () => (this.workflowOptions.now || (() => new Date()))();
+    const forbidden = (p: { authenticated: boolean }): ApiResponse => ({
+      status: p.authenticated ? 403 : 401,
+      body: { error: 'Ação restrita a administradores ou ao controle total do CRM (com 2FA).' },
+    });
+    const guard = async (fn: () => Promise<ApiResponse>): Promise<ApiResponse> => {
+      try {
+        return await fn();
+      } catch (err) {
+        if (err instanceof WorkflowError) return { status: err.status, body: { error: err.message, details: err.details ?? null } };
+        throw err;
+      }
+    };
+
+    if (cleanPath === WORKFLOW_CRON_PATH) {
+      if (method !== 'GET') return { status: 405, body: { error: 'Method not allowed' } };
+      const cronOk = query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+      if (!ctx.trustedInternal && !cronOk) return { status: query._sessionToken ? 403 : 401, body: { error: 'Forbidden' } };
+      const result = await runWorkflowsTick(this.repo, deps);
+      return { status: 200, body: { data: result } };
+    }
+
+    if (cleanPath === '/api/workflows/v2/catalog' && method === 'GET') {
+      return {
+        status: 200,
+        body: {
+          data: {
+            liveEnabled: isWorkflowsLiveEnabled(env),
+            testRecipientsConfigured: Boolean(resolveWorkflowTestRecipients(env)),
+            webhookAllowedHosts: [...resolveWebhookAllowedHosts(env)],
+            maxDepth: WORKFLOW_MAX_DEPTH,
+            triggers: WF_TRIGGERS.map((id) => ({ id, label: WF_TRIGGER_LABELS[id], scheduled: WF_SCHEDULED_TRIGGERS.includes(id) })),
+            actions: WF_ACTIONS.map((id) => ({ id, label: WF_ACTION_LABELS[id] })),
+            operators: WF_CONDITION_OPERATORS.map((id) => ({ id, label: WF_OPERATOR_LABELS[id] })),
+            readableFields: WF_READABLE_FIELDS,
+            writableFields: WF_WRITABLE_FIELDS,
+          },
+        },
+      };
+    }
+
+    if (cleanPath === '/api/workflows/v2' && method === 'GET') {
+      const defs = await this.workflowStore.listDefinitions();
+      return { status: 200, body: { data: defs.map((d) => ({ ...d, validation: validateWorkflowGraph(d.graph) })) } };
+    }
+    if (cleanPath === '/api/workflows/v2' && method === 'POST') {
+      const priv = this.marketingPrivilege(query, ctx);
+      if (!priv.allowed) return forbidden(priv);
+      return guard(async () => {
+        const d = await createWorkflowDefinition(this.workflowStore, { name: body.name, description: body.description, graph: body.graph }, priv.actor, now());
+        return { status: 201, body: { data: { ...d, validation: validateWorkflowGraph(d.graph) } } };
+      });
+    }
+    if (cleanPath === '/api/workflows/v2/validate' && method === 'POST') {
+      return { status: 200, body: { data: validateWorkflowGraph(normalizeGraph(body.graph)) } };
+    }
+    if (cleanPath === '/api/workflows/v2/events' && method === 'POST') {
+      const priv = this.marketingPrivilege(query, ctx);
+      if (!priv.allowed) return forbidden(priv);
+      const type = String(body.type || '') as WfTriggerType;
+      if (!WF_TRIGGERS.includes(type) || WF_SCHEDULED_TRIGGERS.includes(type)) return { status: 400, body: { error: 'Tipo de evento inválido.' } };
+      const contactId = String(body.contactId || '');
+      if (!this.repo.getContactById(contactId)) return { status: 404, body: { error: 'Contato não encontrado.' } };
+      const context = body.context && typeof body.context === 'object' ? (body.context as Record<string, unknown>) : {};
+      const eventId = body.eventId ? `ext:${String(body.eventId).slice(0, 150)}` : undefined;
+      const recorded = await emitWorkflowEvent({ store: this.workflowStore, env: this.workflowOptions.env, now: this.workflowOptions.now }, { type, contactId, context, eventId });
+      return { status: 202, body: { data: { recorded, liveEnabled: isWorkflowsLiveEnabled(env) } } };
+    }
+
+    const contactRuns = cleanPath.match(/^\/api\/workflows\/v2\/contacts\/([^/]+)\/runs$/);
+    if (contactRuns && method === 'GET') {
+      const runs = await this.workflowStore.listRunsByContact(decodeURIComponent(contactRuns[1]), 100);
+      const withSteps = await Promise.all(runs.map(async (r) => ({ ...r, steps: await this.workflowStore.listSteps(r.id) })));
+      return { status: 200, body: { data: withSteps } };
+    }
+    const runSteps = cleanPath.match(/^\/api\/workflows\/v2\/runs\/([^/]+)\/steps$/);
+    if (runSteps && method === 'GET') {
+      const run = await this.workflowStore.getRun(decodeURIComponent(runSteps[1]));
+      if (!run) return { status: 404, body: { error: 'Execução não encontrada.' } };
+      return { status: 200, body: { data: { run, steps: await this.workflowStore.listSteps(run.id) } } };
+    }
+    const runReview = cleanPath.match(/^\/api\/workflows\/v2\/runs\/([^/]+)\/review$/);
+    if (runReview && method === 'POST') {
+      const priv = this.marketingPrivilege(query, ctx);
+      if (!priv.allowed) return forbidden(priv);
+      const decision = body.decision === 'EXIT' ? 'EXIT' : body.decision === 'CONTINUE' ? 'CONTINUE' : null;
+      if (!decision) return { status: 400, body: { error: 'Decisão inválida (CONTINUE ou EXIT).' } };
+      return guard(async () => ({ status: 200, body: { data: await resolveRunReview(this.workflowStore, decodeURIComponent(runReview[1]), decision, priv.actor, now()) } }));
+    }
+
+    const m = cleanPath.match(/^\/api\/workflows\/v2\/(wfd-[^/]+)(?:\/(simulate|activate|pause|runs))?$/);
+    if (!m) return { status: 404, body: { error: 'Not found' } };
+    const id = decodeURIComponent(m[1]);
+    const sub = m[2] || '';
+    if (!sub && method === 'GET') {
+      const d = await this.workflowStore.getDefinition(id);
+      if (!d) return { status: 404, body: { error: 'Fluxo não encontrado.' } };
+      return { status: 200, body: { data: { ...d, validation: validateWorkflowGraph(d.graph) } } };
+    }
+    if (sub === 'runs' && method === 'GET') {
+      return { status: 200, body: { data: await this.workflowStore.listRunsByWorkflow(id, 200) } };
+    }
+    const priv = this.marketingPrivilege(query, ctx);
+    if (!priv.allowed) return forbidden(priv);
+    return guard(async () => {
+      if (!sub && (method === 'PUT' || method === 'PATCH')) {
+        const d = await saveWorkflowDraft(this.workflowStore, id, { name: body.name, description: body.description, graph: body.graph }, priv.actor, now());
+        return { status: 200, body: { data: { ...d, validation: validateWorkflowGraph(d.graph) } } };
+      }
+      if (sub === 'simulate' && method === 'POST') {
+        const d = await this.workflowStore.getDefinition(id);
+        if (!d) return { status: 404, body: { error: 'Fluxo não encontrado.' } };
+        const result = await simulateWorkflow(this.repo, deps, d.graph, String(body.contactId || ''));
+        const saved = await recordSimulation(this.workflowStore, id, result, now());
+        return { status: 200, body: { data: { simulation: result, workflow: saved } } };
+      }
+      if (sub === 'activate' && method === 'POST') {
+        return { status: 200, body: { data: await activateWorkflow(this.workflowStore, id, priv.actor, now()) } };
+      }
+      if (sub === 'pause' && method === 'POST') {
+        return { status: 200, body: { data: await pauseWorkflow(this.workflowStore, id, priv.actor, now()) } };
+      }
+      return { status: 405, body: { error: 'Method not allowed' } };
+    });
+  }
+
   async dispatch(req: ApiRequest): Promise<ApiResponse> {
+    // CISO 19/11 (c): contexto por requisicao; a carga do estado marca se pode gravar.
+    return runWithStateRequestContext({ stateLoadOk: true }, () => this.dispatchTimed(req));
+  }
+
+  private async dispatchTimed(req: ApiRequest): Promise<ApiResponse> {
+    const startedAt = Date.now();
+    const method = String(req.method || '').toUpperCase();
+    const cleanPath = (String(req.path || '/').split('?')[0].replace(/\/+$/, '') || '/');
+    if (!isPortalTicketLookupRoute(method, cleanPath)) return this.dispatchInner(req);
+    // Portal: caminho igual para "existe" e "nao existe" (comparacao constante + piso de tempo).
+    let response: ApiResponse;
+    try {
+      response = await this.dispatchInner(req);
+    } finally {
+      const wait = startedAt + this.portalLookupTimeFloorMs - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    }
+    return response;
+  }
+
+  private async dispatchInner(req: ApiRequest): Promise<ApiResponse> {
     const method = req.method.toUpperCase();
     const rawUrl = req.path || "/";
     const [pathname, queryString] = rawUrl.split("?");
@@ -1365,17 +2108,21 @@ export class CrmApiRouter {
 
     this.proposalTableCtx = null;
     this.repo.setProposalNumberingHint(null);
-    // CISO 17/11: cron da entrada de e-mail com a flag desligada nao le o crm_state_v1 (~7 MB por
-    // execucao no Neon); a rota responde 200 { enabled: false } sem tocar em nada.
-    // 18/11: GET /api/health anonimo (monitores) responde so {status:'ok'} e nao depende do estado:
-    // nao le os ~7,7 MB do crm_state_v1. Com sessao (admin) ou contexto interno, carrega como antes.
-    const anonymousHealth = isAnonymousHealthProbe(method, cleanPath, query, trustedInternal);
-    const skipStateLoad =
-      (isAuthorizedSetaDeskEmailPollCron(method, cleanPath, query) && !isSetaDeskEmailIntakeEnabled()) || anonymousHealth;
     this.serviceOrdersCtx = null;
-    if (this.isSingletonRepo && isPostgresEnabled() && !skipStateLoad) {
+    // CISO 17/11 + perf 24/11: crons autenticados com a flag LIVE (ou a de entrada de e-mail)
+    // desligada nao leem o crm_state_v1 (~4,5 MB por execucao no Neon).
+    const cronFlagEnv =
+      cleanPath === MARKETING_CRON_PATH
+        ? this.marketingOptions.env || process.env
+        : cleanPath === WORKFLOW_CRON_PATH
+          ? this.workflowOptions.env || process.env
+          : process.env;
+    const skipStateLoad = shouldSkipCrmStateLoad(method, cleanPath, query, cronFlagEnv);
+    if (this.isSingletonRepo && this.stateStoreEnabled()) {
+      let stateLoadOk = false;
+      if (!skipStateLoad) {
       try {
-        const pgState = await loadStateFromPostgres();
+        const pgState = await this.loadStateFromStore();
         if (pgState) {
           const osMode = getErpStorageMode(pgState, SERVICE_ORDERS_RESOURCE);
           if (osMode === 'table' && pgState.erp) {
@@ -1393,10 +2140,28 @@ export class CrmApiRouter {
           if (isProposalsTableState(pgState)) {
             this.proposalTableCtx = { hydrated: new Map(), strictInserts: false };
           }
+          stateLoadOk = true;
+          this.pgInitialized = true;
         }
-        this.pgInitialized = true;
       } catch {
         // Fallback to local state if PostgreSQL is unreachable
+      }
+      }
+      if (!stateLoadOk) {
+        // CISO 19/11 (c): sem carga bem-sucedida o estado em memoria e fallback local (arquivo,
+        // seed ou requisicao anterior): NADA desta requisicao grava no Postgres. Escrita => 503;
+        // bootstrap/state seguem so leitura (journalAck=false, o navegador mantem o journal).
+        const sctx = currentStateRequestContext();
+        if (sctx) sctx.stateLoadOk = false;
+        if (!skipStateLoad) {
+          console.error('[estado] carga do crm_state_v1 falhou; gravacao bloqueada nesta requisicao.');
+          if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && !STATE_READ_FALLBACK_PATHS.has(cleanPath)) {
+            return {
+              status: 503,
+              body: { error: 'Base de dados temporariamente indisponível (nada foi gravado). Tente de novo em instantes.', code: 'STATE_STORE_UNAVAILABLE' },
+            };
+          }
+        }
       }
     }
     if (this.proposalTableCtx) {
@@ -1424,29 +2189,38 @@ export class CrmApiRouter {
     await this.ensureCompanyEmitterHydrated();
 
     // SetaDesk: chamados vem das tabelas setadesk_* (fonte de verdade) quando ha Postgres.
-    // Rotas /api/tickets* e, com permissao de Chamados, /api/bootstrap e /api/state.
-    // Rota publica nunca dispara o load. O baseline (e o sync posterior) so vale em /api/tickets*.
+    // E1 (18/11): o crm_state_v1 nao guarda mais serviceTickets; a lista em memoria comeca vazia
+    // e cada rota carrega so o que usa (setaDeskLoadPlanForRoute). /api/tickets* carrega todos;
+    // bootstrap/state so com permissao de Chamados e sem historico; portal so a chave informada.
+    // Nao ha mais reconciliacao com o legado do JSON no caminho quente (reconcileLegacy: false).
     let setaDeskBaseline: SetaDeskBaseline | null = null;
     let setaDeskLoaded = false;
     const ticketRoute = shouldLoadSetaDeskTicketsForRoute(method, cleanPath);
     const bootstrapPath = isSetaDeskBootstrapPath(cleanPath);
     const chamadosAccess = this.hasChamadosTicketAccess(query, { trustedInternal });
+    const routePlan = ticketRoute || bootstrapPath ? null : setaDeskLoadPlanForRoute(method, cleanPath, query, body);
+    if (this.isSingletonRepo && isPostgresEnabled()) {
+      // Nunca reaproveita chamados de uma requisicao anterior nem do arquivo local.
+      this.repo.replaceServiceTickets([]);
+    }
     if (
       this.isSingletonRepo &&
       isSetaDeskPostgresEnabled() &&
-      (ticketRoute || (bootstrapPath && chamadosAccess))
+      (ticketRoute || (bootstrapPath && chamadosAccess) || (routePlan && !routePlan.usageCheck))
     ) {
       try {
-        const loaded = await loadSetaDeskTickets(
-          ticketRoute ? this.repo.getState().serviceTickets || [] : [],
-          bootstrapPath && !ticketRoute ? { includeComments: false, reconcileLegacy: false } : undefined
-        );
+        const loadOptions = ticketRoute
+          ? { reconcileLegacy: false }
+          : bootstrapPath
+            ? { includeComments: false, reconcileLegacy: false }
+            : { includeComments: routePlan!.includeComments, reconcileLegacy: false, keys: routePlan!.refs };
+        const loaded = await loadSetaDeskTickets([], loadOptions);
         if (loaded) {
           this.repo.replaceServiceTickets(loaded.tickets);
           setaDeskLoaded = true;
-          if (ticketRoute) setaDeskBaseline = loaded.baseline;
+          if (ticketRoute || routePlan?.sync) setaDeskBaseline = loaded.baseline;
         }
-        const needed = setaDeskBaseline ? ticketKeysNeededForRoute(method, cleanPath, body) : 0;
+        const needed = setaDeskBaseline ? this.setaDeskTicketKeysNeeded(method, cleanPath, body) : 0;
         const reservePipelineId =
           body && typeof body === 'object' && typeof (body as { pipelineId?: unknown }).pipelineId === 'string'
             ? String((body as { pipelineId: string }).pipelineId)
@@ -1462,6 +2236,13 @@ export class CrmApiRouter {
             : '[SetaDesk] Postgres indisponivel; usando estado local:',
           (err as Error)?.message || err
         );
+        // Rota que grava chamado sem a fonte de verdade: 503 (nunca grava em cima de lista vazia).
+        if (routePlan?.sync && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+          return {
+            status: 503,
+            body: { error: 'STI HUB Desk Service temporariamente indisponível. Tente de novo em instantes.', code: 'SETADESK_STORE_UNAVAILABLE' },
+          };
+        }
       }
     }
 
@@ -1487,6 +2268,7 @@ export class CrmApiRouter {
     }
 
     const rawResponse = await this.handleRoute(method, cleanPath, query, body, { trustedInternal, mailerRawBody, certRawBody, setaDeskLoaded });
+    await this.flushWorkflowEvents();
     // Contencao 29/10/2026: nenhuma resposta HTTP expoe totpSecret, passwordHash, codigos OTP etc.
     const response = isHttpRequest
       ? {
@@ -1506,13 +2288,36 @@ export class CrmApiRouter {
         }
       : rawResponse;
 
+    let persistedAfterDispatch = false;
     if (
       this.canPersistToPostgres() &&
       !isSetaDeskEmailDirectRoute(method, cleanPath) &&
-      (shouldPersistAfterDispatch(method, cleanPath, query, response.status) || journalReconciled)
+      (shouldPersistAfterDispatch(method, cleanPath, query, response.status, cronFlagEnv) || journalReconciled)
     ) {
-      const failed = await this.persistStateToPostgres();
+      const outcome = { ok: false };
+      const failed = await this.persistStateToPostgres(outcome);
       if (failed) return failed;
+      persistedAfterDispatch = outcome.ok;
+    }
+
+    // Lote 1-b (c): confirma ao navegador que o journal enviado foi aplicado E gravado, para ele
+    // limpar o localStorage (journal velho nunca mais "ressuscita" registro apagado).
+    if (
+      response.status === 200 &&
+      method === "POST" &&
+      JOURNAL_ACK_PATHS.has(cleanPath) &&
+      response.body &&
+      typeof response.body === "object"
+    ) {
+      const b = response.body as Record<string, unknown>;
+      const rec = b.reconciliation;
+      const sentJournal = cleanPath === "/api/state/reconcile" ? true : Boolean(body && body.reconcileJournal);
+      if (sentJournal && rec && typeof rec === "object") {
+        // Sem Postgres (arquivo/memoria) o repositorio ja gravou; com Postgres vale ESTA gravacao.
+        // Carga falhou nesta requisicao => canPersistToPostgres() falso, mas nada foi gravado.
+        const storeBacked = this.isSingletonRepo && this.stateStoreEnabled();
+        (rec as Record<string, unknown>).journalAck = storeBacked ? persistedAfterDispatch : true;
+      }
     }
 
     if (this.proposalTableCtx && response.status === 200) {
@@ -1600,7 +2405,8 @@ export class CrmApiRouter {
   /** Grava o estado (e, no modo tabela, o diff das propostas). Conflito => 409; falha => 503. */
   /** Gravacao no Neon so no repositorio singleton com Postgres configurado (isolado para teste). */
   private canPersistToPostgres(): boolean {
-    return this.isSingletonRepo && isPostgresEnabled();
+    // CISO 19/11 (c): exige que ESTA requisicao tenha carregado o estado do Postgres.
+    return this.isSingletonRepo && this.stateStoreEnabled() && currentStateRequestContext()?.stateLoadOk !== false;
   }
 
   private erpTablesDb(): ErpPgQ {
@@ -1649,44 +2455,165 @@ export class CrmApiRouter {
     return null;
   }
 
-  private async persistStateToPostgres(): Promise<ApiResponse | null> {
+  /** Pontos de troca para testes (sem banco): habilitacao, carga e gravacao do estado. */
+  private stateStoreEnabled(): boolean {
+    return isPostgresEnabled();
+  }
+
+  private loadStateFromStore(): Promise<CrmDatabaseState | null> {
+    return loadStateFromPostgres();
+  }
+
+  private async writeStateToStore(state: CrmDatabaseState, options?: Parameters<typeof syncStateToPostgres>[1]): Promise<void> {
+    await syncStateToPostgres(state, options);
+  }
+
+  /** Fase 2: grava o estado antes/depois de cada envio real da cadencia; falha => lanca (nao envia). */
+  private async persistSequenceClaim(): Promise<void> {
+    if (!this.proposalTableCtx) {
+      await this.writeStateToStore(this.repo.getState());
+      return;
+    }
+    const failed = await this.persistStateToPostgres();
+    if (failed) throw new Error('SEQUENCE_STATE_PERSIST_FAILED');
+  }
+
+  /**
+   * Trava global (19/11): depois de obter a trava do cron, rele o estado do Postgres para decidir os
+   * envios com o que a execucao anterior (de qualquer instancia) gravou. Propostas em memoria (modo
+   * tabela) sao preservadas; falha de leitura => lanca (o executor nao envia).
+   */
+  private async reloadStateForSequenceRun(): Promise<void> {
+    const pgState = await loadStateFromPostgres();
+    if (!pgState) return;
+    if (this.proposalTableCtx && pgState.erp) {
+      pgState.erp.proposals = this.repo.listProposals();
+    }
+    this.repo.loadState(pgState);
+  }
+
+  /** E-mail do usuario da sessao (dono da inscricao na cadencia), ou null. */
+  private sessionUserEmail(query: Record<string, string | undefined>): string | null {
+    const tok = query._sessionToken;
+    if (!tok) return null;
+    try {
+      const sess = this.repo.resolveSessionFromToken(tok);
+      const email = sess?.authenticated ? String(sess.user?.email || '').trim().toLowerCase() : '';
+      return email || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * E1: quantas chaves reservar na sequencia antes da rota. Nas rotas publicas que criam chamado
+   * (portal e formulario), so reserva quando o corpo de fato vai abrir um chamado, para nao gastar
+   * numeros da fila com envios invalidos.
+   */
+  /**
+   * E1: contagem de chamados para telas do CRM/ERP. Com Postgres, conta nas setadesk_* (o JSON nao
+   * tem mais a lista); sem Postgres, a lista em memoria. Falha de leitura => null (nao inventa zero).
+   */
+  private async countServiceTicketsForReport(): Promise<number | null> {
+    if (this.isSingletonRepo && isSetaDeskPostgresEnabled()) {
+      try {
+        return await countSetaDeskTickets();
+      } catch (err) {
+        console.error('[SetaDesk] Falha ao contar chamados:', (err as Error)?.message || err);
+        return null;
+      }
+    }
+    return this.repo.listServiceTickets().length;
+  }
+
+  /**
+   * E1: chamados que referenciam a empresa/contato (so os com O.S.), lidos das setadesk_* DEPOIS
+   * da autenticacao da rota. Sem Postgres: lista em memoria. Falha de leitura => 503 (nunca
+   * apaga sem checar o uso).
+   */
+  private async ticketUsageOverrides(
+    kind: SetaDeskUsageCheckKind,
+    id: string
+  ): Promise<Partial<RecordUsageSources> | ApiResponse> {
+    if (!(this.isSingletonRepo && isSetaDeskPostgresEnabled())) return {};
+    try {
+      const refs = await loadSetaDeskTicketUsageRefs(kind, id);
+      return refs ? { tickets: refs } : {};
+    } catch (err) {
+      console.error('[SetaDesk] Falha ao checar uso por chamados:', (err as Error)?.message || err);
+      return {
+        status: 503,
+        body: { error: 'Não foi possível verificar os chamados vinculados agora (nada foi apagado). Tente de novo.', code: 'SETADESK_STORE_UNAVAILABLE' },
+      };
+    }
+  }
+
+  private setaDeskTicketKeysNeeded(method: string, cleanPath: string, body: Record<string, unknown>): number {
+    if (method === 'POST' && cleanPath === '/api/portal/tickets') {
+      const subject = String(body?.subject || '').trim();
+      const email = String(body?.email || '').trim().toLowerCase();
+      return subject && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? 1 : 0;
+    }
+    if (method === 'POST' && cleanPath === '/api/forms/submit') {
+      const formId = String(body?.formId || 'form-enterprise-demo');
+      const form = this.repo.getWebFormById(formId) || this.repo.listWebForms()[0];
+      return form && (form.autoCreateTicket || form.targetType === 'SUPPORT_TICKET') ? 1 : 0;
+    }
+    return ticketKeysNeededForRoute(method, cleanPath, body || {});
+  }
+
+  /** outcome (opcional) recebe o resultado DESTA gravacao (journalAck por requisicao). */
+  private async persistStateToPostgres(outcome?: { ok: boolean }): Promise<ApiResponse | null> {
+    const r = await this.persistStateToPostgresDetailed();
+    if (outcome) outcome.ok = r.ok;
+    return r.response;
+  }
+
+  /**
+   * Grava o estado e devolve o resultado DESTA chamada (CISO 19/11 (a): o journalAck e por
+   * requisicao, nunca um campo da instancia compartilhado entre requisicoes concorrentes).
+   */
+  private async persistStateToPostgresDetailed(): Promise<{ response: ApiResponse | null; ok: boolean }> {
+    if (!this.canPersistToPostgres()) return { response: null, ok: false };
     const ctx = this.proposalTableCtx;
     const osPlan = this.serviceOrdersPersistPlan();
-    if ('response' in osPlan) return osPlan.response;
+    if ('response' in osPlan) return { response: osPlan.response, ok: false };
     const erpTables = osPlan.erpTables;
     if (!ctx) {
       try {
-        await syncStateToPostgres(this.repo.getState(), erpTables.length ? { erpTables } : undefined);
+        await this.writeStateToStore(this.repo.getState(), erpTables.length ? { erpTables } : undefined);
+        return { response: null, ok: true };
       } catch (err) {
         // Sem OS alteradas: falha temporaria do PostgreSQL e ignorada (comportamento anterior).
-        const r = this.erpTablePersistError(err, erpTables);
-        if (r) return r;
+        return { response: this.erpTablePersistError(err, erpTables), ok: false };
       }
-      return null;
     }
     const diff = diffHydratedProposals(ctx.hydrated, this.repo.listProposals());
     const gcInserts = this.repo.takePendingGcProposalInserts();
     try {
-      await syncStateToPostgres(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts, gcInserts }, ...(erpTables.length ? { erpTables } : {}) });
-      return null;
+      await this.writeStateToStore(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts, gcInserts }, ...(erpTables.length ? { erpTables } : {}) });
+      return { response: null, ok: true };
     } catch (err) {
       if (err instanceof ErpTableWriteConflictError || err instanceof ErpTableCnpjError) {
-        return this.erpTablePersistError(err, erpTables);
+        return { response: this.erpTablePersistError(err, erpTables), ok: false };
       }
       if (err instanceof ProposalWriteConflictError) {
         return {
-          status: 409,
-          body: {
-            error: 'Este orçamento foi alterado por outra pessoa ou aba depois que você o abriu. Recarregue e tente de novo (nada foi gravado).',
-            code: 'PROPOSAL_VERSION_CONFLICT',
-            proposalId: err.proposalId,
+          ok: false,
+          response: {
+            status: 409,
+            body: {
+              error: 'Este orçamento foi alterado por outra pessoa ou aba depois que você o abriu. Recarregue e tente de novo (nada foi gravado).',
+              code: 'PROPOSAL_VERSION_CONFLICT',
+              proposalId: err.proposalId,
+            },
           },
         };
       }
       if (!isEmptyDiff(diff)) {
-        return { status: 503, body: { error: 'Não foi possível gravar o orçamento agora (nada foi gravado). Tente de novo.', code: 'PROPOSALS_STORE_UNAVAILABLE' } };
+        return { ok: false, response: { status: 503, body: { error: 'Não foi possível gravar o orçamento agora (nada foi gravado). Tente de novo.', code: 'PROPOSALS_STORE_UNAVAILABLE' } } };
       }
-      return this.erpTablePersistError(err, erpTables);
+      return { response: this.erpTablePersistError(err, erpTables), ok: false };
     }
   }
 
@@ -1753,6 +2680,81 @@ export class CrmApiRouter {
     const list = sortServiceOrdersForList((this.repo.getErpState().serviceOrders || []) as ErpServiceOrder[]);
     const page = paginateErpRecordsInMemory(SERVICE_ORDERS_SPEC, list, pageQ, serviceOrderColumnValue);
     return { status: 200, body: { ...page, storage: mode === 'dual' ? 'json-fallback' : 'json' } };
+  }
+
+  /**
+   * GET /api/erp/dashboard?mes=AAAA-MM — painel ERP calculado na hora pelos dados do STI-hub
+   * (19/11/2026). Propostas no escopo da sessao (restrito = so as proprias, sem vendas importadas);
+   * recebido/pago/faturado/saldos so com alcada financeira (Financeiro/Bancos != NONE) ou admin.
+   */
+  private async erpLiveDashboard(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): Promise<ApiResponse> {
+    const today = todayInSaoPaulo();
+    const month = isValidMonthParam(query.mes) ? String(query.mes) : today.slice(0, 7);
+    let includeFinance = !ctx.serviceAccount;
+    const isInternal = ctx.trustedInternal || ctx.serviceAccount || (query._fromHttpBridge !== '1' && !query._sessionToken);
+    if (!isInternal) {
+      const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+      if (!sess || !sess.authenticated || !sess.user) {
+        return { status: 401, body: { error: 'Sessão expirada. Entre de novo.', code: 'SESSION_REQUIRED' } };
+      }
+      const moduleAccess = (sess.user as { moduleAccess?: { erp?: boolean } }).moduleAccess;
+      if (!moduleAccess || moduleAccess.erp !== true) {
+        return { status: 403, body: { error: 'Seu usuário não tem acesso ao ERP.', code: 'ERP_MODULE_FORBIDDEN' } };
+      }
+      const roleId = String(sess.user.roleId || '');
+      const isAdmin = Boolean(sess.effectiveActionGuards?.canManageUsersRbac) || roleId === 'SUPER_ADMIN' || roleId === 'DIRETORIA';
+      const finAccess = String(sess.erpPermissions?.financeBanksAccess || 'NONE');
+      includeFinance = isAdmin || finAccess !== 'NONE';
+    }
+
+    const scope = this.proposalScope(query, ctx);
+    const restricted = scope.kind === 'session' && scope.restricted;
+    const months = lastMonths(month);
+    const since = new Date(`${months[0]}-01T00:00:00Z`);
+    since.setUTCDate(since.getUTCDate() - 2);
+    let proposals: DashboardProposalRow[] = [];
+    if (scope.kind !== 'denied') {
+      if (this.proposalTableCtx) {
+        const owner = restricted && scope.kind === 'session' ? { id: String(scope.access.user.id || ''), email: String(scope.access.user.email || '') } : null;
+        try {
+          const rows = await listDashboardProposalRows(this.proposalsDb(), since.toISOString(), owner);
+          proposals = rows.map((r) => ({
+            status: r.status,
+            total: r.total,
+            fromGc: r.fromGc,
+            createdAt: toLocalYmd(r.createdRaw) ? r.createdRaw : r.createdCol,
+            approvedAt: resolveProposalApprovalDate({
+              status: r.status,
+              converted: r.converted,
+              statusHistory: r.approvedHist ? [{ date: r.approvedHist, status: 'APROVADA' }] : [],
+              approvedAt: r.approvedRaw,
+              updatedAt: r.updatedCol,
+            }),
+          }));
+        } catch {
+          return { status: 503, body: { error: 'Painel temporariamente indisponível. Tente de novo em instantes.', code: 'DASHBOARD_UNAVAILABLE' } };
+        }
+      } else {
+        proposals = this.filterProposalsByScope(this.repo.listProposals(), query, ctx).map((p) => proposalToDashboardRow(p as unknown as Record<string, any>));
+      }
+    }
+
+    const erp = this.repo.getErpOverview();
+    const data = computeErpDashboard({
+      month,
+      today,
+      proposals,
+      invoices: erp.invoices || [],
+      financialEntries: erp.financialEntries || [],
+      salesOrders: erp.salesOrders || [],
+      bankAccounts: erp.bankAccounts || [],
+      includeFinance,
+      includeImportedSales: scope.kind !== 'denied' && !restricted,
+    });
+    return { status: 200, body: { data } };
   }
 
   /** GET /api/erp/proposals no modo tabela: pagina + filtros no SQL, no escopo da sessao. */
@@ -2151,12 +3153,164 @@ export class CrmApiRouter {
    * Pacote K (D-I2): journal do navegador com a alcada fiscal da sessao. Sem a alcada, faturas/NF
    * NOVAS do journal sao descartadas (e auditadas); o journal nunca gera fatura de contrato.
    */
+  /**
+   * CISO 19/11 (bloqueio do lote 1-b): exclusoes do journal do navegador so valem com a MESMA
+   * alcada do DELETE por rota (canDeleteCrmRecords / canDeleteErpRecords ou canDeleteRecords, com o
+   * modulo habilitado) e dentro da carteira (escopo PROPRIOS/EQUIPE so apaga o que enxerga).
+   * Generico: TODA chave deleted*Ids do journal passa aqui; chave sem regra conhecida (inclusive
+   * futuras) e descartada para sessoes. Registro inexistente ou em uso tambem e descartado, para
+   * que so nasca tombstone de exclusao autorizada. Contexto interno/conta de servico nao filtra.
+   */
+  private sanitizeJournalDeletions(
+    journal: ClientDurableJournal,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean },
+    resource: string,
+    fiscalAllowed: boolean
+  ): number {
+    const rec = journal as unknown as Record<string, unknown>;
+    // Sem a alcada fiscal, deletedInvoiceIds segue para a guarda do Pacote L (3) no repositorio,
+    // que descarta TODAS e audita como ERP_FISCAL_ISSUANCE_DENIED (comportamento ja revisado).
+    const keys = Object.keys(rec).filter(
+      (k) =>
+        /^deleted[A-Za-z0-9_]*Ids$/.test(k) &&
+        Array.isArray(rec[k]) &&
+        (rec[k] as unknown[]).length > 0 &&
+        !(k === 'deletedInvoiceIds' && !fiscalAllowed)
+    );
+    if (!keys.length) return 0;
+    if (ctx.trustedInternal || ctx.serviceAccount) return 0;
+    if (query._fromHttpBridge !== '1' && !query._sessionToken) return 0; // chamada em processo, sem HTTP
+
+    const token = query._sessionToken || null;
+    const sess = token && verifyStiHubSessionToken(token).valid ? this.repo.resolveSessionFromToken(token) : null;
+    const authed = sess && sess.authenticated ? sess : null;
+    const guards = authed ? authed.effectiveActionGuards : null;
+    const canCrm = Boolean(
+      authed && authed.moduleAccess?.crm && (authed.crmPermissions?.canDeleteCrmRecords || guards?.canDeleteRecords)
+    );
+    const canErp = Boolean(
+      authed && authed.moduleAccess?.erp && (authed.erpPermissions?.canDeleteErpRecords || guards?.canDeleteRecords)
+    );
+    const isAdmin = Boolean(guards?.canManageUsersRbac);
+    const restricted = !isAdmin && String((authed?.user as { scope?: string } | undefined)?.scope || 'PROPRIOS') !== 'TODOS';
+
+    const eq = (a: unknown, b: string) => String(a ?? '').toLowerCase() === b.toLowerCase();
+    const erp = this.repo.getErpState();
+    const crmSee = (r: { contactId?: string | null; companyId?: string | null; dealId?: string | null }) =>
+      this.sessionCanSeeCrmRecord(query, ctx, r);
+    const inUse = (kind: RecordUsageKind, ref: RecordUsageRef) => {
+      try {
+        return recordUsageTotal(countRecordUsage(kind, ref, this.recordUsageSources())) > 0;
+      } catch {
+        return true; // fail-closed
+      }
+    };
+    type Rule = { module: 'CRM' | 'ERP'; allow: (ref: string) => boolean };
+    const unrestrictedOnly = (find: (ref: string) => unknown): ((ref: string) => boolean) => (ref) =>
+      Boolean(find(ref)) && !restricted;
+    const rules: Record<string, Rule> = {
+      deletedContactIds: { module: 'CRM', allow: (ref) => {
+        const c = this.repo.getContactById(ref);
+        return Boolean(c) && crmSee({ contactId: c!.id }) && !inUse('contact', { id: c!.id, email: c!.email });
+      } },
+      deletedCompanyIds: { module: 'CRM', allow: (ref) => {
+        const c = this.repo.getCompanyById(ref);
+        return Boolean(c) && crmSee({ companyId: c!.id }) && !inUse('company', { id: c!.id, name: c!.name, cnpj: c!.cnpj });
+      } },
+      deletedDealIds: { module: 'CRM', allow: (ref) => {
+        const d = this.repo.getDealById(ref);
+        return Boolean(d) && crmSee({ dealId: d!.id }) && !inUse('deal', { id: d!.id });
+      } },
+      deletedTaskIds: { module: 'CRM', allow: (ref) => {
+        const t = (this.repo.getState().tasks || []).find((x) => x && x.id === ref);
+        if (!t) return false;
+        if (!restricted) return true;
+        const links = { contactId: t.contactId, companyId: t.companyId, dealId: t.dealId };
+        if (!links.contactId && !links.companyId && !links.dealId) return false; // sem vinculo: fail-closed
+        return (!links.contactId || crmSee({ contactId: links.contactId })) &&
+          (!links.companyId || crmSee({ companyId: links.companyId })) &&
+          (!links.dealId || crmSee({ dealId: links.dealId }));
+      } },
+      deletedTicketIds: { module: 'CRM', allow: unrestrictedOnly((ref) =>
+        (this.repo.getState().serviceTickets || []).find((t) => t && (t.id === ref || t.key === ref))) },
+      deletedProposalIds: { module: 'ERP', allow: (ref) => {
+        const p = (erp.proposals || []).find((x) => x && (x.id === ref || eq(x.code, ref)));
+        return Boolean(p) && this.hasFullProposalAccess(query, ctx, p);
+      } },
+      deletedInvoiceIds: { module: 'ERP', allow: (ref) => {
+        const i = (erp.invoices || []).find((x) => x && (x.id === ref || eq(x.documentNumber, ref)));
+        return Boolean(i) && this.isInvoiceVisibleToSession(i!, query, ctx);
+      } },
+      deletedContractIds: { module: 'ERP', allow: (ref) => {
+        const c = (erp.rentalContracts || []).find((x) => x && (x.id === ref || eq(x.contractNumber, ref)));
+        if (!c) return false;
+        const visible = this.isInvoiceVisibleToSession({
+          rentalContractId: c.id,
+          contractNumber: c.contractNumber,
+          proposalId: c.proposalId,
+          proposalNumber: (c as { proposalNumber?: string | null }).proposalNumber ?? null,
+          dealId: c.dealId,
+        }, query, ctx);
+        return visible && !inUse('rentalContract', { id: c.id, contractNumber: c.contractNumber });
+      } },
+      deletedCatalogItemIds: { module: 'ERP', allow: (ref) => {
+        const it = (erp.catalog || []).find((x) => x && (x.id === ref || eq(x.gestaoClickCode, ref)));
+        return Boolean(it) && !restricted && !inUse('catalogItem', { id: it!.id, name: it!.name, sku: it!.gestaoClickCode, gestaoClickCode: it!.gestaoClickCode });
+      } },
+      deletedSupplierIds: { module: 'ERP', allow: unrestrictedOnly((ref) => (erp.suppliers || []).find((x) => x && x.id === ref)) },
+      deletedEmployeeIds: { module: 'ERP', allow: unrestrictedOnly((ref) => (erp.employees || []).find((x) => x && x.id === ref)) },
+      deletedSalesOrderIds: { module: 'ERP', allow: unrestrictedOnly((ref) => (erp.salesOrders || []).find((x) => x && (x.id === ref || eq(x.code, ref)))) },
+      deletedServiceOrderIds: { module: 'ERP', allow: unrestrictedOnly((ref) => (erp.serviceOrders || []).find((x) => x && (x.id === ref || eq(x.code, ref)))) },
+      deletedPurchaseOrderIds: { module: 'ERP', allow: unrestrictedOnly((ref) => (erp.purchaseOrders || []).find((x) => x && (x.id === ref || eq(x.code, ref)))) },
+    };
+
+    let dropped = 0;
+    const droppedByKey: string[] = [];
+    for (const key of keys) {
+      const refs = (rec[key] as unknown[]).filter((v): v is string => typeof v === 'string' && v.length > 0);
+      const rule = Object.prototype.hasOwnProperty.call(rules, key) ? rules[key] : undefined;
+      const permitted = rule ? (rule.module === 'CRM' ? canCrm : canErp) : false;
+      const kept = permitted && rule ? refs.filter((ref) => {
+        try {
+          return rule.allow(ref);
+        } catch {
+          return false;
+        }
+      }) : [];
+      const n = (rec[key] as unknown[]).length - kept.length;
+      if (n > 0) {
+        dropped += n;
+        droppedByKey.push(`${key}=${n}`);
+      }
+      rec[key] = kept;
+    }
+    if (dropped > 0) {
+      try {
+        this.repo.appendSecurityAuditLog({
+          actorEmail: authed?.user?.email || 'desconhecido',
+          actorName: authed?.user?.name || 'desconhecido',
+          actorRole: authed?.role?.id || 'desconhecido',
+          action: 'JOURNAL_DELETE_DENIED',
+          module: 'CRM',
+          resource: `journal ${resource}`.slice(0, 200),
+          status: 'BLOCKED',
+          ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+          details: `Journal: ${dropped} exclusao(oes) descartada(s) (sem alcada de exclusao, fora da carteira, inexistente ou em uso): ${droppedByKey.join(', ')}`.slice(0, 500),
+        });
+      } catch {
+        // auditoria nunca derruba a resposta
+      }
+    }
+    return dropped;
+  }
+
   private reconcileJournalForSession(
     journal: ClientDurableJournal,
     query: Record<string, string | undefined>,
     ctx: { trustedInternal: boolean; serviceAccount?: boolean },
     resource: string
-  ): { reconciled: boolean; appliedCount: number; fiscalDropped?: number } {
+  ): { reconciled: boolean; appliedCount: number; fiscalDropped?: number; tombstoneBlocked?: number; deletionsDropped?: number } {
     const priv = this.fiscalIssuancePrivilege(query, ctx);
     // A1 (link assinado): journal do navegador reconciliado sem token de link assinado.
     // CISO 30/10: escopo PROPRIOS/EQUIPE no journal de propostas (sanitizeProposalJournal).
@@ -2190,7 +3344,10 @@ export class CrmApiRouter {
         }
       }
     }
-    const rec = this.repo.reconcileClientState(sanitizedJournal, { canIssueFiscalDocuments: priv.allowed });
+    const deletionsDropped = this.sanitizeJournalDeletions(sanitizedJournal, query, ctx, resource, priv.allowed);
+    const rec: { reconciled: boolean; appliedCount: number; fiscalDropped?: number; tombstoneBlocked?: number; deletionsDropped?: number } =
+      this.repo.reconcileClientState(sanitizedJournal, { canIssueFiscalDocuments: priv.allowed });
+    if (deletionsDropped > 0) rec.deletionsDropped = deletionsDropped;
     if (rec.fiscalDropped && rec.fiscalDropped > 0) {
       try {
         this.repo.appendSecurityAuditLog({
@@ -2961,6 +4118,9 @@ export class CrmApiRouter {
    */
   private static isProposalOwnedBy(p: ErpCommercialProposal, user: { id: string; email: string }): boolean {
     const norm = (v: unknown) => String(v || '').trim().toLowerCase();
+    // Conta de serviço grava sellerUserId do vendedor citado (ex.: usr-seta-01). Qualquer
+    // sessão Seta que já passou no MFA trata essa proposta como sua para ver e editar.
+    if (isServiceCreatedProposal(p)) return true;
     if (p.sellerUserId) return norm(p.sellerUserId) !== '' && norm(p.sellerUserId) === norm(user.id);
     return norm(p.sellerEmail) !== '' && norm(p.sellerEmail) === norm(user.email);
   }
@@ -3090,6 +4250,10 @@ export class CrmApiRouter {
     'convertedInvoiceIds',
     'approvalIdempotencyKeySha256',
     'sellerUserId',
+    'createdByServiceAccount',
+    'firstViewedAt',
+    'lastViewedAt',
+    'viewCount',
     'approvalMode',
     'approvalJustification',
     'approvedBy',
@@ -3619,6 +4783,7 @@ export class CrmApiRouter {
       v.claims.jti
     );
     try { stopFollowupForProposal(this.repo, found!, 'PROPOSAL_VIEW'); } catch { /* parada nunca altera o 200 do link */ }
+    void this.notePublicProposalView(found!, query);
     return {
       status: 200,
       body: { kind: 'proposal', data: toPublicProposalDto(found!), proposalId: found!.id, token, issuerAddress: formatIssuerAddress(this.companyEmitter) },
@@ -3830,6 +4995,24 @@ export class CrmApiRouter {
    * anterior a atual: a resposta e sempre o DTO atual. Token adulterado/ausente,
    * proposta inexistente ou RASCUNHO => 404 generico.
    */
+  /** Uma escrita da proposta já carregada. Sessão interna e pré-visualização de link não contam. */
+  private async notePublicProposalView(
+    proposal: ErpCommercialProposal,
+    query: Record<string, string | undefined>
+  ): Promise<void> {
+    if (this.resolveProposalSessionAccess(query)) return;
+    if (isProposalLinkPreviewAgent(query._userAgent)) return;
+    const next = nextClientProposalView(proposal, new Date().toISOString());
+    proposal.firstViewedAt = next.firstViewedAt;
+    proposal.lastViewedAt = next.lastViewedAt;
+    proposal.viewCount = next.viewCount;
+    try {
+      await this.persistStateToPostgres();
+    } catch {
+      // a contagem não derruba a página do cliente
+    }
+  }
+
   private viewProposalViaLink(pathId: string, query: Record<string, string | undefined>): ApiResponse {
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
     if (!this.proposalLinkLimiters.viewIp.hit(`ip:${ip}`)) {
@@ -3849,6 +5032,7 @@ export class CrmApiRouter {
       v.claims.jti
     );
     try { stopFollowupForProposal(this.repo, found!, 'PROPOSAL_VIEW'); } catch { /* parada nunca altera o 200 do link */ }
+    void this.notePublicProposalView(found!, query);
     return {
       status: 200,
       body: { data: toPublicProposalDto(found!), issuerAddress: formatIssuerAddress(this.companyEmitter) },
@@ -4384,7 +5568,7 @@ export class CrmApiRouter {
         isHttpRequest &&
         query._cronAuthorized === "1" &&
         method === "GET" &&
-        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup" || cleanPath === SETADESK_EMAIL_POLL_PATH);
+        (cleanPath === "/api/erp/daily-sync" || cleanPath === "/api/crm/proposal-followup" || cleanPath === SETADESK_EMAIL_POLL_PATH || cleanPath === SEQUENCE_CRON_PATH || cleanPath === MARKETING_CRON_PATH || cleanPath === WORKFLOW_CRON_PATH);
       const requestSessionToken =
         query._sessionToken;
 
@@ -4664,7 +5848,17 @@ export class CrmApiRouter {
         (cleanPath === "/api/bootstrap" || cleanPath === "/api/state") &&
         (method === "GET" || method === "POST")
       ) {
-        if (this.isSingletonRepo && !this.gcInitialized && process.env.GESTAOCLICK_ACCESS_TOKEN) {
+        // Perf 19/11 (lote 1): a carga ao vivo do GestaoClick (contratos, vendas e O.S. paginados a
+        // 3 req/s, ~40+ chamadas) saiu do bootstrap: era o p50 de 9,6 s / p95 de 46,7 s da abertura
+        // do app em toda instancia fria. O GC segue pelo cron diario (/api/erp/daily-sync), pelo
+        // sync manual (/api/erp/gestaoclick/sync) e pela ingestao /api/v1/erp/sync/run.
+        // BOOTSTRAP_LIVE_GESTAOCLICK=1 religa o comportamento antigo (rollback sem deploy de codigo).
+        if (
+          this.isSingletonRepo &&
+          !this.gcInitialized &&
+          isBootstrapLiveGestaoClickEnabled() &&
+          process.env.GESTAOCLICK_ACCESS_TOKEN
+        ) {
           this.gcInitialized = true;
           try {
             await this.repo.syncLiveGestaoClick({ forceRefresh: false });
@@ -4740,7 +5934,7 @@ export class CrmApiRouter {
               workflows: state.workflows.length,
               sequences: state.sequences.length,
               webForms: (state.webForms || []).length,
-              serviceTickets: (state.serviceTickets || []).length,
+              serviceTickets: await this.countServiceTicketsForReport(),
             },
           },
         };
@@ -4757,13 +5951,20 @@ export class CrmApiRouter {
             minScore: query.minScore ? Number(query.minScore) : undefined,
           });
           const companies = new Map(this.repo.listCompanies().map((c) => [c.id, c]));
-          const enrichedList = contacts.map((c) => ({
+          // Painel de associacao: ?sort= e ?limit=&offset= opcionais (sem eles, lista inteira).
+          const sortedContacts = sortForAssociation(
+            contacts,
+            parseAssociationSort(query.sort),
+            (c) => `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || ''
+          );
+          const contactsPage = paginate(sortedContacts, query.limit, query.offset);
+          const enrichedList = contactsPage.page.map((c) => ({
             ...c,
             company: c.companyId ? companies.get(c.companyId) || null : null,
           }));
           return {
             status: 200,
-            body: { data: enrichedList, total: enrichedList.length },
+            body: { data: enrichedList, total: contactsPage.total, limit: contactsPage.limit, offset: contactsPage.offset },
           };
         }
 
@@ -4787,6 +5988,7 @@ export class CrmApiRouter {
             entityType: "CONTACT",
             entityId: contact.id,
           });
+          this.queueWorkflowEvent('CONTACT_CREATED', contact.id, {}, `CONTACT_CREATED:${contact.id}`);
 
           contact = this.repo.getContactById(contact.id) || contact;
 
@@ -4858,6 +6060,7 @@ export class CrmApiRouter {
               actor: this.sessionActorName(query), // Pacote G: autor = sessao (ownerName e o responsavel, nao o autor)
             });
           }
+          if (updated) this.queueWorkflowEvent('CONTACT_UPDATED', updated.id, {});
           if (updated && updated.leadScore >= 80 && before.leadScore < 80) {
             this.workflowEngine.trigger(this.repo, {
               triggerType: 'SCORE_THRESHOLD',
@@ -4880,7 +6083,9 @@ export class CrmApiRouter {
           if (!existing) {
             return { status: 404, body: { error: 'Contato não encontrado.' } };
           }
-          const blocked = this.rejectIfRecordInUse('contact', { id: existing.id, email: existing.email });
+          const usage = await this.ticketUsageOverrides('contact', existing.id);
+          if ('status' in usage) return usage;
+          const blocked = this.rejectIfRecordInUse('contact', { id: existing.id, email: existing.email }, usage);
           if (blocked) return blocked;
           const deleted = this.repo.deleteContact(id);
           if (!deleted) {
@@ -4900,7 +6105,8 @@ export class CrmApiRouter {
             industry: query.industry,
           });
           // Paginacao opcional (?limit=&offset=; sem limit = lista inteira, compatibilidade).
-          const { page, total, limit, offset } = paginate(companies, query.limit, query.offset);
+          const sortedCompanies = sortForAssociation(companies, parseAssociationSort(query.sort), (c) => c.name || '');
+          const { page, total, limit, offset } = paginate(sortedCompanies, query.limit, query.offset);
           const contacts = this.repo.listContacts();
           const deals = this.repo.listDeals();
           const data = page.map((comp) => ({
@@ -5003,7 +6209,9 @@ export class CrmApiRouter {
           if (!existing) {
             return { status: 404, body: { error: 'Empresa não encontrada.' } };
           }
-          const blocked = this.rejectIfRecordInUse('company', { id: existing.id, name: existing.name, cnpj: existing.cnpj });
+          const usage = await this.ticketUsageOverrides('company', existing.id);
+          if ('status' in usage) return usage;
+          const blocked = this.rejectIfRecordInUse('company', { id: existing.id, name: existing.name, cnpj: existing.cnpj }, usage);
           if (blocked) return blocked;
           const deleted = this.repo.deleteCompany(id);
           if (!deleted) {
@@ -5064,9 +6272,16 @@ export class CrmApiRouter {
             rottingDealsCount: openDeals.filter((d) => d.isRotting).length,
           };
 
+          // Painel de associacao: ?search=, ?sort= e ?limit=&offset= opcionais (forecast segue sobre todos).
+          const dealSearch = typeof (query.search || query.q) === 'string' ? String(query.search || query.q) : '';
+          const dealsFiltered = dealSearch.trim()
+            ? enrichedDeals.filter((d) => dealMatchesAssociationSearch(d, dealSearch))
+            : enrichedDeals;
+          const dealsSorted = sortForAssociation(dealsFiltered, parseAssociationSort(query.sort), (d) => d.title || '');
+          const dealsPage = paginate(dealsSorted, query.limit, query.offset);
           return {
             status: 200,
-            body: { data: enrichedDeals, total: enrichedDeals.length, forecast },
+            body: { data: dealsPage.page, total: dealsPage.total, limit: dealsPage.limit, offset: dealsPage.offset, forecast },
           };
         }
 
@@ -5081,6 +6296,35 @@ export class CrmApiRouter {
           });
           return { status: 201, body: { data: deal } };
         }
+      }
+
+      if (cleanPath === SEQUENCE_CRON_PATH && method === 'GET') {
+        const cronOk = query._fromHttpBridge === '1' && query._cronAuthorized === '1';
+        if (!ctx.trustedInternal && !cronOk) {
+          return { status: query._sessionToken ? 403 : 401, body: { error: 'Forbidden' } };
+        }
+        const mailboxDeps = { repo: this.repo, store: this.mailboxStore, fetch: this.mailboxFetch, sendLimiter: this.mailboxSendLimiter };
+        let engagement: { enrollmentsUpdated: number; deliveriesWithSignals: number } | null = null;
+        const result = await runSequenceScheduler(this.repo, {
+          afterRun: async () => {
+            engagement = await syncSequenceEngagement(this.repo, this.signalStore);
+          },
+          // Fase 6: horario otimizado por contato (so cadencias com a opcao ligada).
+          sendTimeFor: (() => {
+            let eng: Awaited<ReturnType<typeof collectHumanEngagement>> | null = null;
+            return async (contactId: string, notBefore: Date) => {
+              if (!eng) eng = await collectHumanEngagement(this.repo, this.signalStore, notBefore);
+              const s = suggestForContact(this.repo, eng, contactId, notBefore, resolveSendWindow(process.env));
+              return { at: s.at, localDisplay: s.localDisplay, source: SEND_TIME_SOURCE_LABELS[s.source] };
+            };
+          })(),
+          mailer: createGraphSequenceMailer(mailboxDeps, String(query._origin || '') || undefined),
+          persist: this.canPersistToPostgres() ? () => this.persistSequenceClaim() : undefined,
+          reloadState: this.canPersistToPostgres() ? () => this.reloadStateForSequenceRun() : undefined,
+        });
+        // Fase 5: engagement = sincronizacao do rastreio com as cadencias (dentro da trava, via afterRun).
+        // Sem e-mails, nomes ou tokens na resposta: so contadores.
+        return { status: 200, body: { data: { ...result, engagement } } };
       }
 
       if (cleanPath === '/api/crm/proposal-followup' && method === 'GET') {
@@ -5169,6 +6413,10 @@ export class CrmApiRouter {
               entityId: updated.id,
               context: { fromStageId: existing.stageId, toStageId: updated.stageId },
             });
+            this.queueWorkflowEvent('PIPELINE_STAGE_CHANGED', updated.contactId, { dealId: updated.id, pipelineId: updated.pipelineId, fromStageId: existing.stageId, toStageId: updated.stageId });
+          }
+          if (updated && existing.status !== updated.status && (updated.status === 'WON' || updated.status === 'LOST')) {
+            this.queueWorkflowEvent(updated.status === 'WON' ? 'DEAL_WON' : 'DEAL_LOST', updated.contactId, { dealId: updated.id }, `${updated.status === 'WON' ? 'DEAL_WON' : 'DEAL_LOST'}:${updated.id}`);
           }
 
           return {
@@ -5287,6 +6535,20 @@ export class CrmApiRouter {
         }
       }
 
+      {
+        const wf = await this.handleWorkflowsV2(method, cleanPath, query, body as Record<string, unknown>, ctx);
+        if (wf) return wf;
+      }
+
+      if (cleanPath.startsWith('/api/analytics/')) {
+        return handleAnalyticsRoute(this.repo, method, cleanPath, query, body as Record<string, unknown>, ctx, {
+          signals: this.signalStore,
+          marketing: this.marketingStore,
+          workflows: this.workflowStore,
+          now: this.workflowOptions.now,
+        });
+      }
+
       // ======================================================================
       // WORKFLOWS (/api/workflows, /api/workflows/trigger, /api/workflows/:id)
       // ======================================================================
@@ -5396,6 +6658,7 @@ export class CrmApiRouter {
               forceMoveFromConflicting: Boolean(body.forceMoveFromConflicting || body.forceMove),
               allowReentryOverride: Boolean(body.allowReentryOverride),
               recipientTimezone: body.recipientTimezone ? String(body.recipientTimezone) : undefined,
+              enrolledByEmail: this.sessionUserEmail(query),
             });
             return { status: 201, body: { data: res } };
           }
@@ -5505,11 +6768,31 @@ export class CrmApiRouter {
         }
       }
 
+      if (cleanPath === '/api/sequences/live-status' && method === 'GET') {
+        const liveSendEnabled = isSequenceLiveSendEnabled();
+        const list = this.repo.listSequenceEnrollments(query.sequenceId ? { sequenceId: query.sequenceId } : undefined);
+        const ownerMailboxes = liveSendEnabled
+          ? await describeOwnerMailboxes(this.repo, null, (o) => this.mailboxStore.listAccounts(o), list.filter((e) => this.sequenceService.isEnrollmentActive(e.status)))
+          : {};
+        return {
+          status: 200,
+          body: {
+            data: {
+              enabled: liveSendEnabled,
+              testAllowlistActive: Boolean(resolveSequenceTestRecipients()),
+              mailboxFeatureEnabled: isMailboxFeatureEnabled(),
+              ownerMailboxes,
+            },
+          },
+        };
+      }
+
       if (cleanPath === '/api/sequences/enroll' && method === 'POST') {
         const res = this.sequenceService.enrollContact(this.repo, {
           sequenceId: String(body.sequenceId),
           contactId: String(body.contactId),
           dealId: body.dealId ? String(body.dealId) : null,
+          enrolledByEmail: this.sessionUserEmail(query),
         });
         return { status: 201, body: { data: res } };
       }
@@ -5577,11 +6860,11 @@ export class CrmApiRouter {
           const compA = this.repo.getCompanyById(primaryId);
           const compB = this.repo.getCompanyById(duplicateId);
           if (compA && compB && haveConflictingCnpjs(compA.cnpj, compB.cnpj)) {
+            // 422 Unprocessable Entity: regra fiscal — CNPJs distintos jamais são unificados (nem matriz/filial ou mesmo grupo econômico)
             return {
-              status: 400,
+              status: 422,
               body: {
-                error:
-                  'Bloqueio Fiscal: Empresas com CNPJs diferentes não podem ser unificadas (cada CNPJ possui personalidade jurídica e faturamento próprios).',
+                error: `Bloqueio Fiscal: as empresas "${compA.name}" (CNPJ ${compA.cnpj}) e "${compB.name}" (CNPJ ${compB.cnpj}) possuem CNPJs diferentes e não podem ser unificadas, mesmo que compartilhem domínio, grupo econômico ou sejam matriz/filial (cada CNPJ possui personalidade jurídica e faturamento próprios).`,
                 code: 'CONFLICTING_CNPJ_MERGE_BLOCKED',
                 primaryCnpj: compA.cnpj,
                 duplicateCnpj: compB.cnpj,
@@ -5601,7 +6884,7 @@ export class CrmApiRouter {
         } catch (mergeErr) {
           const msg = mergeErr instanceof Error ? mergeErr.message : 'Erro ao mesclar registros.';
           return {
-            status: msg.includes('Bloqueio Fiscal') ? 400 : 404,
+            status: msg.includes('Bloqueio Fiscal') ? 422 : 404,
             body: { error: msg },
           };
         }
@@ -5893,6 +7176,11 @@ export class CrmApiRouter {
           });
           return { status: 201, body: { data: created } };
         }
+      }
+
+      {
+        const live = await this.handleMarketingLive(method, cleanPath, query, body as Record<string, unknown>, ctx);
+        if (live) return live;
       }
 
       if (cleanPath === '/api/marketing/campaigns/dispatch' && method === 'POST') {
@@ -6355,6 +7643,7 @@ export class CrmApiRouter {
             entityId: contact.id,
             context: { formId: form.id },
           }),
+          ...(this.queueWorkflowEvent('FORM_SUBMITTED', contact.id, { formId: form.id }), []),
           ...this.workflowEngine.trigger(this.repo, {
             triggerType: 'CONTACT_CREATED',
             entityType: 'CONTACT',
@@ -6417,14 +7706,20 @@ export class CrmApiRouter {
               contract: t.contractId ? contracts.get(t.contractId) || null : null,
               serviceOrder: t.serviceOrderId ? serviceOrders.get(t.serviceOrderId) || null : null,
             }))
-            .filter((t) => !searchQ || ticketMatchesSearchServer(t, searchQ))
-            .map((t) => maskTicketForResponse(t));
+            .filter((t) => !searchQ || ticketMatchesSearchServer(t, searchQ));
 
+          // E1: lista paginada (limit 1..500, padrao 100; offset ou cursor). total = filtrados.
+          const page = paginateTickets(enrichedTickets, parseTicketsPageParams(query));
           return {
             status: 200,
             body: {
-              data: enrichedTickets,
-              total: enrichedTickets.length,
+              data: page.data.map((t) => maskTicketForResponse(t)),
+              total: page.total,
+              limit: page.limit,
+              offset: page.offset,
+              hasMore: page.hasMore,
+              nextOffset: page.nextOffset,
+              nextCursor: page.nextCursor,
               kpis,
             },
           };
@@ -6439,7 +7734,7 @@ export class CrmApiRouter {
             return {
               status: 400,
               body: {
-                error: `Valor inválido em: ${badTicketEnums.join(', ')}. Use os valores do Service Desk (status: ${TICKET_CREATE_ENUMS.status.join(', ')}).`,
+                error: `Valor inválido em: ${badTicketEnums.join(', ')}. Use os valores do STI HUB Desk Service (status: ${TICKET_CREATE_ENUMS.status.join(', ')}).`,
                 code: 'TICKET_CREATE_FIELD_INVALID',
                 fields: badTicketEnums,
               },
@@ -7028,7 +8323,7 @@ export class CrmApiRouter {
           ? [
               {
                 properties: {
-                  subject: 'Migração de Webhooks legados HubSpot v3 para HubSpot Pro CRM (iFood)',
+                  subject: 'Migração de Webhooks legados para o STI HUB CRM (iFood)',
                   content: 'Validar chaves de API e fila de eventos em produção após importação.',
                   hs_ticket_priority: 'HIGH',
                   hs_pipeline_stage: 'OPEN',
@@ -7197,7 +8492,7 @@ export class CrmApiRouter {
 
           this.repo.createServiceTicket({
             subject,
-            description: String(p.content || p.description || 'Importado via HubSpot Service Hub.'),
+            description: String(p.content || p.description || 'Importado do Desk Service de origem.'),
             // Pacote J (4): valores do HubSpot fora do enum do STI-hub => padrao (nunca grava cru).
             priority: (TICKET_CREATE_ENUMS.priority.includes(String(p.hs_ticket_priority || '')) ? p.hs_ticket_priority : 'HIGH') as TicketPriority,
             status: (TICKET_CREATE_ENUMS.status.includes(String(p.hs_pipeline_stage || '')) ? p.hs_pipeline_stage : 'OPEN') as TicketStatus,
@@ -7221,7 +8516,7 @@ export class CrmApiRouter {
           body: {
             data: {
               success: true,
-              source: body.accessToken ? 'HubSpot Private App API (v3)' : 'HubSpot CRM Payload Importer',
+              source: body.accessToken ? 'API do CRM de origem (v3)' : 'Importador de payload do CRM de origem',
               companiesImported,
               contactsImported,
               dealsImported,
@@ -7245,6 +8540,10 @@ export class CrmApiRouter {
       // ======================================================================
       // PHASE 4: ERP BRASIL, PROPOSTAS, LOCAÇÃO & FISCAL GESTÃOCLICK (/api/erp/*)
       // ======================================================================
+      if (cleanPath === '/api/erp/dashboard' && method === 'GET') {
+        return await this.erpLiveDashboard(query, ctx);
+      }
+
       if (cleanPath === '/api/erp/overview' && method === 'GET') {
         // Escopo de propostas (CISO 30/10) + visao da config GestaoClick do pacote I sobre o erp ja filtrado.
         const ov = this.scopeBootstrapProposals({ erp: this.repo.getErpOverview() }, query, ctx).erp;
@@ -7302,6 +8601,7 @@ export class CrmApiRouter {
           const created = this.repo.createProposal({
             ...this.stripServerOnlyProposalFields(createInput, query, ctx, 'create'),
             ...createStatus.serverFields,
+            ...(ctx.serviceAccount ? { status: 'RASCUNHO', createdByServiceAccount: true } : {}),
           } as { title: string; [k: string]: unknown });
           if (createStatus.audit) {
             const sc = this.proposalScope(query, ctx);
@@ -7452,7 +8752,13 @@ export class CrmApiRouter {
           .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());
         // (d) Fora do escopo => mesmo 404 de inexistente.
         const found = found0 && CrmApiRouter.proposalVisibleIn(this.proposalScope(query, ctx), found0) ? found0 : undefined;
-        if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        if (!found0) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        if (!found) {
+          const sessionOk = Boolean(query._sessionToken && verifyStiHubSessionToken(query._sessionToken).valid);
+          return sessionOk
+            ? this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN')
+            : { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        }
         const accepted = found.status === 'APROVADA' || found.status === 'CONVERTIDA_CONTRATO';
         return {
           status: 200,
@@ -7467,6 +8773,9 @@ export class CrmApiRouter {
                 signatureModality: accepted ? found.digitalSignature?.modality || null : null,
                 convertedContractId: found.convertedContractId || null,
               },
+              firstViewedAt: found.firstViewedAt || null,
+              lastViewedAt: found.lastViewedAt || null,
+              viewCount: Math.max(0, Number(found.viewCount || 0)),
               updatedAt: found.updatedAt,
             },
           },
@@ -7481,6 +8790,13 @@ export class CrmApiRouter {
           // completa (comportamento anterior). Qualquer outro chamador: so com link assinado.
           // M1: sessao sem ERP / sem acesso a propostas / fora do escopo PROPRIOS-EQUIPE => link.
           if (!this.hasFullProposalAccess(query, ctx)) {
+            const exists = this.repo
+              .listProposals()
+              .some((p) => p.id === propId.trim() || String(p.code || '').toLowerCase() === propId.trim().toLowerCase());
+            if (!exists) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+            if (!query.proposalLinkToken && query._sessionToken && verifyStiHubSessionToken(query._sessionToken).valid) {
+              return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+            }
             return this.viewProposalViaLink(propId.trim(), query);
           }
           const found = this.repo
@@ -7488,6 +8804,9 @@ export class CrmApiRouter {
             .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());
           if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
           if (!this.hasFullProposalAccess(query, ctx, found)) {
+            if (this.resolveProposalSessionAccess(query)) {
+              return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+            }
             return this.viewProposalViaLink(propId.trim(), query);
           }
           return { status: 200, body: { data: found, issuerAddress: formatIssuerAddress(this.companyEmitter) } };
@@ -8491,7 +9810,7 @@ export class CrmApiRouter {
             return {
               status: priv.authenticated ? 403 : 401,
               body: {
-                error: 'Permissão negada: a sincronização diária do GestãoClick exige 2FA e perfil administrador ou controle total do ERP.',
+                error: 'Permissão negada: a sincronização diária do STI HUB ERP exige 2FA e perfil administrador ou controle total do ERP.',
                 code: 'ERP_DAILY_SYNC_FORBIDDEN',
               },
             };
@@ -8722,7 +10041,7 @@ export class CrmApiRouter {
           return {
             status: 400,
             body: {
-              error: `Campo(s) não aceito(s) na sincronização GestãoClick: ${gcForbidden.join(', ')}. As credenciais vêm só do servidor.`,
+              error: `Campo(s) não aceito(s) na sincronização STI HUB ERP: ${gcForbidden.join(', ')}. As credenciais vêm só do servidor.`,
               code: 'GESTAOCLICK_CREDENTIALS_IN_BODY',
             },
           };
@@ -8740,7 +10059,7 @@ export class CrmApiRouter {
             return {
               status: gcSess && gcSess.authenticated ? 403 : 401,
               body: {
-                error: 'Permissão negada: a sincronização GestãoClick exige 2FA e perfil administrador ou controle total do ERP.',
+                error: 'Permissão negada: a sincronização STI HUB ERP exige 2FA e perfil administrador ou controle total do ERP.',
                 code: 'GESTAOCLICK_SYNC_FORBIDDEN',
               },
             };
@@ -8785,7 +10104,7 @@ export class CrmApiRouter {
           return {
             status: gcPriv.authenticated ? 403 : 401,
             body: {
-              error: 'Permissão negada: alterar a configuração fiscal/GestãoClick exige 2FA e perfil administrador ou controle total do ERP.',
+              error: 'Permissão negada: alterar a configuração fiscal/STI HUB ERP exige 2FA e perfil administrador ou controle total do ERP.',
               code: 'GESTAOCLICK_CONFIG_FORBIDDEN',
             },
           };
@@ -8798,7 +10117,7 @@ export class CrmApiRouter {
               error:
                 parsedCfg.code === 'GESTAOCLICK_CONFIG_EMPTY'
                   ? 'Nenhum campo editável informado.'
-                  : `Campo(s) não aceito(s) ou inválido(s) na configuração GestãoClick: ${parsedCfg.fields.join(', ')}. Editáveis: razão social, CNPJ, inscrições municipal/estadual, nome da loja, regime tributário, alíquota de ISS (0 a 5%) e NF mensal automática de locação (true/false).`,
+                  : `Campo(s) não aceito(s) ou inválido(s) na configuração STI HUB ERP: ${parsedCfg.fields.join(', ')}. Editáveis: razão social, CNPJ, inscrições municipal/estadual, nome da loja, regime tributário, alíquota de ISS (0 a 5%) e NF mensal automática de locação (true/false).`,
               code: parsedCfg.code,
               fields: parsedCfg.fields,
             },
@@ -10950,12 +12269,12 @@ export class CrmApiRouter {
               crmCompaniesMapped: this.repo.listCompanies().length,
               crmContactsMapped: this.repo.listContacts().length,
               crmDealsMapped: this.repo.listDeals().length,
-              chamadosMapped: this.repo.listServiceTickets().length,
+              chamadosMapped: (await this.countServiceTicketsForReport()) ?? 0,
             },
             incrementalNewOrUpdated: Number(body.incrementalCount || 7),
             cursorTimestamp: nowIso,
             status: 'SUCCESS',
-            summary: `Sincronização incremental diária concluída (${elapsed}ms): base GestãoClick Loja Matriz #118887 reconciliada com os schemas de CRM, ERP e Chamados.`,
+            summary: `Sincronização incremental diária concluída (${elapsed}ms): base STI HUB ERP reconciliada com os schemas de CRM, ERP e STI HUB Desk Service.`,
           };
           this.syncLogs.unshift(newLog);
           return {

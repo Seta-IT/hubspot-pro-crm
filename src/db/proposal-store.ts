@@ -166,8 +166,10 @@ export function proposalRowValues(p: AnyP): unknown[] {
   const code = String(p.code || '').trim();
   const n = extractGcProposalNumber(code);
   const display = formatProposalDisplayCode(code);
+  // id entra só em gravações novas (insert/update); linhas antigas continuam
+  // encontráveis pelo casamento exato de id/code em buildWhere, sem backfill.
   const searchText = normSearch(
-    `${code} ${display} ${p.title || ''} ${p.companyName || ''} ${p.companyCnpj || ''} ${p.sellerName || ''} ${p.contactName || ''} ${p.careOf || ''}`
+    `${p.id || ''} ${code} ${display} ${p.title || ''} ${p.companyName || ''} ${p.companyCnpj || ''} ${p.sellerName || ''} ${p.contactName || ''} ${p.careOf || ''}`
   );
   const digits = `${display} ${p.companyCnpj || ''}`.replace(/\D+/g, '');
   return [
@@ -302,14 +304,18 @@ function buildWhere(f: ProposalListFilters, params: unknown[], opts: { skipStatu
   const where: string[] = [];
   const q = normSearch(f.q || '');
   if (q) {
+    const raw = String(f.q || '').trim();
     params.push(`%${q.replace(/[%_\\]/g, (m) => `\\${m}`)}%`);
     const qi = params.length;
-    const digits = String(f.q || '').replace(/\D+/g, '');
+    params.push(raw.toLowerCase());
+    const exact = params.length;
+    const exactClause = `lower(id) = $${exact} OR (code <> '' AND lower(code) = $${exact})`;
+    const digits = raw.replace(/\D+/g, '');
     if (digits.length >= 2) {
       params.push(`%${digits}%`);
-      where.push(`(search_text LIKE $${qi} OR search_digits LIKE $${params.length})`);
+      where.push(`(${exactClause} OR search_text LIKE $${qi} OR search_digits LIKE $${params.length})`);
     } else {
-      where.push(`search_text LIKE $${qi}`);
+      where.push(`(${exactClause} OR search_text LIKE $${qi})`);
     }
   }
   if (!opts.skipStatus && f.status && f.status !== 'TODOS') {
@@ -341,7 +347,7 @@ function buildWhere(f: ProposalListFilters, params: unknown[], opts: { skipStatu
     const pe = params.length;
     // Mesma regra de isProposalOwnedBy: sellerUserId manda; sem ele, sellerEmail.
     where.push(
-      `((coalesce(seller_user_id,'') <> '' AND lower(trim(seller_user_id)) = $${pi} AND $${pi} <> '') OR (coalesce(seller_user_id,'') = '' AND coalesce(seller_email,'') <> '' AND lower(trim(seller_email)) = $${pe} AND $${pe} <> ''))`
+      `((coalesce(seller_user_id,'') <> '' AND lower(trim(seller_user_id)) = $${pi} AND $${pi} <> '') OR (coalesce(seller_user_id,'') = '' AND coalesce(seller_email,'') <> '' AND lower(trim(seller_email)) = $${pe} AND $${pe} <> '') OR coalesce(data->>'createdByServiceAccount','') = 'true' OR position('criada por assistente de vendas' in lower(coalesce(data->>'commercialNotes',''))) > 0)`
     );
   }
   return where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -392,6 +398,59 @@ export async function listProposalsPage(db: PgQ, f: ProposalListFilters): Promis
     counts,
     openCount: Number(c.abertas) || 0,
   };
+}
+
+/**
+ * Painel ERP em tempo real: so as colunas que o painel usa (status, total, origem, criacao e data
+ * da aprovacao), das propostas fora de RASCUNHO criadas ou atualizadas desde `sinceIso`, no
+ * escopo da sessao. A data da aprovacao e a 1a entrada APROVADA/CONVERTIDA do statusHistory.
+ * O agrupamento por mes fica em dashboard-metrics.ts (datas mistas ISO e DD/MM/AAAA).
+ */
+export interface DashboardProposalDbRow {
+  status: string | null;
+  total: number;
+  fromGc: boolean;
+  converted: boolean;
+  createdRaw: string | null;
+  createdCol: string | null;
+  approvedRaw: string | null;
+  approvedHist: string | null;
+  updatedCol: string | null;
+}
+
+export async function listDashboardProposalRows(
+  db: PgQ,
+  sinceIso: string,
+  owner: { id: string; email: string } | null
+): Promise<DashboardProposalDbRow[]> {
+  const params: unknown[] = [];
+  const ownerWhere = owner ? buildWhere({ owner }, params) : '';
+  params.push(sinceIso);
+  const si = params.length;
+  const extra = `coalesce(status,'') <> 'RASCUNHO' AND (created_at >= $${si}::timestamptz OR updated_at >= $${si}::timestamptz)`;
+  const where = ownerWhere ? `${ownerWhere} AND ${extra}` : `WHERE ${extra}`;
+  const r = await db.query(
+    `SELECT status, total::float8 AS total, (gc_id IS NOT NULL) AS from_gc,
+            (is_converted OR coalesce(data->>'convertedInvoiceId','') <> '') AS converted,
+            data->>'createdAt' AS created_raw, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_col,
+            data->>'approvedAt' AS approved_raw,
+            (SELECT h.e->>'date' FROM jsonb_array_elements(CASE WHEN jsonb_typeof(data->'statusHistory') = 'array' THEN data->'statusHistory' ELSE '[]'::jsonb END) WITH ORDINALITY AS h(e, i)
+              WHERE h.e->>'status' IN ('APROVADA','CONVERTIDA_CONTRATO') ORDER BY h.i LIMIT 1) AS approved_hist,
+            to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_col
+       FROM erp_proposals ${where}`,
+    params
+  );
+  return (r.rows || []).map((x: any) => ({
+    status: x.status ?? null,
+    total: Number(x.total) || 0,
+    fromGc: Boolean(x.from_gc),
+    converted: Boolean(x.converted),
+    createdRaw: x.created_raw ?? null,
+    createdCol: x.created_col ?? null,
+    approvedRaw: x.approved_raw ?? null,
+    approvedHist: x.approved_hist ?? null,
+    updatedCol: x.updated_col ?? null,
+  }));
 }
 
 export async function countProposals(db: PgQ): Promise<{ total: number; open: number }> {

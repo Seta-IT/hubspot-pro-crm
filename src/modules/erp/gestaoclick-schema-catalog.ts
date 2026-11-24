@@ -298,7 +298,7 @@ export const GESTAOCLICK_FULL_RESOURCE_SCHEMAS: GestaoClickResourceSchema[] = [
       'enderecos', 'atributos', 'produtos', 'anexos'
     ],
     hubspotMapping: {
-      object: 'tickets (Service Hub)',
+      object: 'tickets (STI HUB Desk Service)',
       keyFields: { codigo: 'subject (OS #codigo)', nome_situacao: 'hs_pipeline_stage', observacoes: 'content', nome_tecnico: 'hubspot_owner_id' }
     },
     stiHubTarget: { collection: 'state.erp.serviceOrders + state.serviceTickets', primaryKey: 'id' }

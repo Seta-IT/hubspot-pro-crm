@@ -674,6 +674,16 @@ export class DataHealthService {
     );
     const mergedCompanyIds = new Set<string>();
     for (const pair of companyDups) {
+      // REGRA FISCAL: revalida com o estado atual (um merge anterior pode ter preenchido o CNPJ do primário)
+      const currentPrimary = repo.getCompanyById(pair.primary.id);
+      const currentDuplicate = repo.getCompanyById(pair.duplicate.id);
+      if (
+        !currentPrimary ||
+        !currentDuplicate ||
+        haveConflictingCnpjs(currentPrimary.cnpj, currentDuplicate.cnpj)
+      ) {
+        continue;
+      }
       if (
         pair.confidenceScore >= minConfidence &&
         !mergedCompanyIds.has(pair.primary.id) &&

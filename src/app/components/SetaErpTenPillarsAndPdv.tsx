@@ -136,7 +136,7 @@ export const SETA_ERP_TEN_PILLARS: SetaErpPillarItem[] = [
   {
     num: 8,
     title: 'OS e suporte',
-    subtitle: 'Ordens de Serviço Técnicas Integradas ao NOC Service Desk SLA',
+    subtitle: 'Ordens de Serviço Técnicas Integradas ao NOC STI HUB Desk Service SLA',
     metrics: '1.378 O.S. • SLA 94%',
     section: 'ORDENS_SERVICOS',
     subId: 'OS_GERENCIAR',
@@ -156,7 +156,7 @@ export const SETA_ERP_TEN_PILLARS: SetaErpPillarItem[] = [
   {
     num: 10,
     title: 'Integrações e IA',
-    subtitle: 'Conector Ao Vivo GestãoClick ERP-GROK, Servidor MCP e Copiloto IA',
+    subtitle: 'Conector Ao Vivo STI HUB ERP, Servidor MCP e Copiloto IA',
     metrics: 'API + MCP Online',
     section: 'CONFIGURACOES',
     subId: 'CFG_GERAIS',

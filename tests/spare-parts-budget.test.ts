@@ -108,7 +108,7 @@ describe('Spare Parts / Hard Parts é tipo de orçamento', () => {
     assert.equal(antigo.headline.includes('Spare Parts / Hard Parts'), false);
 
     const form = src('src/app/components/ErpEditModals.tsx');
-    assert.match(form, /value="SPARE_PARTS"/);
+    assert.match(form, /value:\s*'SPARE_PARTS'/);
     assert.match(src('src/app/components/GestaoClickSidebar.tsx'), /ORC_SPARE_PARTS/);
   });
 });

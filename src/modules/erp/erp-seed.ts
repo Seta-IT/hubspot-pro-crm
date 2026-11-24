@@ -291,7 +291,7 @@ export function createSeedErpState(): ErpDatabaseState {
       remessaNfeNumber: '000.453.100',
       remessaCfop: '5.908',
       legalBasisNote:
-        'Locação de Bens Móveis pura (Art. 565 a 578 do Código Civil). Não incidência de ISSQN conforme Súmula Vinculante nº 31 do STF e Veto ao item 3.01 da LC 116/2003.',
+        'Locação de Bens Móveis (Art. 565 a 578 do Código Civil). Não incidência de ISSQN conforme Súmula Vinculante nº 31 do STF e Veto ao item 3.01 da LC 116/2003.',
       lastBilledCompetence: '11/2026',
       sellerName: 'Marcelo Mira',
       costCenter: 'LOCAÇÃO DE EQUIPAMENTO',
@@ -423,7 +423,7 @@ export function createSeedErpState(): ErpDatabaseState {
       remessaNfeNumber: '000.412.890',
       remessaCfop: '5.908',
       legalBasisNote:
-        'Locação de Bens Móveis pura (Art. 565 do Código Civil). Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF. Remessa acobertada por NF-e CFOP 5.908.',
+        'Locação de Bens Móveis (Art. 565 do Código Civil). Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da LC 116/2003 e Súmula Vinculante nº 31 do STF. Remessa acobertada por NF-e CFOP 5.908.',
       lastBilledCompetence: '10/2026',
       sellerName: 'Marcelo Mira',
       costCenter: 'LOCAÇÃO DE EQUIPAMENTO',
@@ -2068,7 +2068,7 @@ export function createSeedErpState(): ErpDatabaseState {
           timestamp: daysAgoIso(0),
           status: 'SUCCESS',
           summary:
-            'Sincronização GestãoClick (Credencial ERP-GROK • Loja Matriz #118887): 1.184 clientes, 786 produtos, 39 serviços, 2.077 orçamentos, 344 contratos de locação e 196 lançamentos financeiros mapeados.',
+            'Sincronização STI HUB ERP (Loja Matriz #118887): 1.184 clientes, 786 produtos, 39 serviços, 2.077 orçamentos, 344 contratos de locação e 196 lançamentos financeiros mapeados.',
           recordsSynced: 4922,
         },
       ],

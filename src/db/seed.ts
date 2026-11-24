@@ -33,7 +33,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_1',
       ownerName: 'Marcelo Lopes Mira',
       enrichedAt: daysAgoIso(1),
-      enrichmentSource: 'Receita Federal (RFB) • GestãoClick #118887 (Orçamento #4695)',
+      enrichmentSource: 'Receita Federal (RFB) • STI HUB ERP (Orçamento #4695)',
       customProperties: {
         tradeName: 'MUNDIVOX TELECOM',
         customerType: 'Pessoa Jurídica',
@@ -81,7 +81,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_1',
       ownerName: 'Marcelo Mira',
       enrichedAt: daysAgoIso(1),
-      enrichmentSource: 'Receita Federal (RFB) • GestãoClick #118887',
+      enrichmentSource: 'Receita Federal (RFB) • STI HUB ERP',
       customProperties: {
         tradeName: '01.936.069/0001-94',
         customerType: 'Pessoa jurídica',
@@ -122,7 +122,7 @@ export function createInitialSeedState(): CrmDatabaseState {
             uploadedAt: '26/10/2026',
           },
         ],
-        notes: 'Cliente corporativo estratégico cadastrado via integração Receita Federal (RFB) & Serasa Experian no GestãoClick.',
+        notes: 'Cliente corporativo estratégico cadastrado via integração Receita Federal (RFB) & Serasa Experian no STI HUB ERP.',
       },
       lastActivityAt: daysAgoIso(1),
       createdAt: daysAgoIso(5),
@@ -144,7 +144,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_1',
       ownerName: 'Marcelo Mira',
       enrichedAt: daysAgoIso(2),
-      enrichmentSource: 'Receita Federal (RFB) • GestãoClick #118887',
+      enrichmentSource: 'Receita Federal (RFB) • STI HUB ERP',
       customProperties: {
         tradeName: '2S INOVACOES',
         customerType: 'Pessoa jurídica',
@@ -176,7 +176,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_1',
       ownerName: 'Marcelo Lopes Mira',
       enrichedAt: daysAgoIso(5),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       customProperties: {
         tier: 'Enterprise',
         accountExecutive: 'Marcelo Lopes Mira',
@@ -202,7 +202,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_1',
       ownerName: 'Marcelo Lopes Mira',
       enrichedAt: daysAgoIso(10),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       customProperties: {
         tier: 'Enterprise',
         erpPartner: true,
@@ -255,7 +255,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_1',
       ownerName: 'Evelyn Ternero Seta Telecom',
       enrichedAt: daysAgoIso(7),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       customProperties: {
         tier: 'Enterprise',
         accountExecutive: 'Evelyn Ternero Seta Telecom',
@@ -281,7 +281,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       icpTier: 'TIER_2',
       ownerName: 'Marcelo Lopes Mira',
       enrichedAt: daysAgoIso(4),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       customProperties: {
         tier: 'Mid-Market',
         accountExecutive: 'Marcelo Lopes Mira',
@@ -396,7 +396,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       isUnworked: false,
       companyId: 'comp-nubank',
       enrichedAt: daysAgoIso(5),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       nextBestAction: {
         actionType: 'MEETING',
         title: 'Alinhar aprovação final com comitê executivo',
@@ -473,7 +473,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       isUnworked: false,
       companyId: 'comp-totvs',
       enrichedAt: daysAgoIso(8),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       nextBestAction: {
         actionType: 'PROPOSAL',
         title: 'Revisar escopo técnico da POC Enterprise',
@@ -514,7 +514,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       isUnworked: false,
       companyId: 'comp-vtex',
       enrichedAt: daysAgoIso(7),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       nextBestAction: {
         actionType: 'FOLLOW_UP',
         title: 'Destravar Proposta Comercial (19 dias sem retorno)',
@@ -636,7 +636,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       isUnworked: false,
       companyId: 'comp-rdstation',
       enrichedAt: daysAgoIso(4),
-      enrichmentSource: 'HubSpotPro-CorporateCatalog-v2 • GestãoClick #118887',
+      enrichmentSource: 'STI HUB CRM Catálogo Corporativo v2 • STI HUB ERP',
       nextBestAction: {
         actionType: 'EMAIL',
         title: 'Apresentar plano de expansão (Upsell Q4)',
@@ -1139,7 +1139,7 @@ export function createInitialSeedState(): CrmDatabaseState {
     },
     {
       id: 'deal-rdstation-won',
-      title: 'RD Station - Licenciamento Anual HubSpot Pro Suite',
+      title: 'RD Station - Licenciamento Anual STI HUB CRM Suite',
       value: 168000,
       currency: 'BRL',
       pipelineId: 'pipe-enterprise-b2b',
@@ -1206,7 +1206,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       lastActivityAt: daysAgoIso(1),
       closedAt: daysAgoIso(5),
       lostReason: null,
-      wonReason: 'Locação pura aprovada com isenção de ISS (SV 31 STF)',
+      wonReason: 'Locação aprovada com isenção de ISS (SV 31 STF)',
       nextBestAction: {
         actionType: 'PROPOSAL',
         title: 'Acompanhar faturamento mensal no módulo ERP',
@@ -1773,9 +1773,9 @@ export function createInitialSeedState(): CrmDatabaseState {
           delayDays: 0,
           delayHours: 0,
           waitForEvent: 'NONE',
-          subject: 'Locação Pura de Servidores, Switches & Spare Parts (0% ISS — SV 31 STF) para {{companyName}}',
+          subject: 'Locação de Servidores, Switches & Spare Parts (0% ISS — SV 31 STF) para {{companyName}}',
           bodyTemplate:
-            'Olá {{firstName}}, tudo bem? Na Seta Telecom apoiamos empresas do porte da {{companyName}} na substituição de CAPEX por Locação Pura de Servidores Dell/Cisco, PABX IP e Contratos de Spare Parts com SLA NOC 24x7 e 0% de ISSQN (Súmula Vinculante 31 STF).',
+            'Olá {{firstName}}, tudo bem? Na Seta Telecom apoiamos empresas do porte da {{companyName}} na substituição de CAPEX por Locação de Servidores Dell/Cisco, PABX IP e Contratos de Spare Parts com SLA NOC 24x7 e 0% de ISSQN (Súmula Vinculante 31 STF).',
           stepType: 'AUTO_EMAIL',
           condition: 'ALWAYS',
           sentCount: 38,
@@ -2159,7 +2159,7 @@ export function createInitialSeedState(): CrmDatabaseState {
       id: 'form-enterprise-demo',
       name: 'Diagnóstico Enterprise & Solicitação de Demo',
       slug: 'diagnostico-enterprise-demo',
-      title: 'Solicite uma Demonstração Executiva do HubSpot Pro CRM',
+      title: 'Solicite uma Demonstração Executiva do STI HUB CRM',
       description:
         'Formulário de alta conversão do site principal. Qualifica o lead automaticamente, enriquece o domínio corporativo e abre negócio no funil comercial.',
       targetType: 'DEMO_REQUEST',
@@ -2185,11 +2185,11 @@ export function createInitialSeedState(): CrmDatabaseState {
     },
     {
       id: 'form-support-portal',
-      name: 'Portal do Cliente — Abertura de Chamado Técnico (Service Desk)',
+      name: 'Portal do Cliente — Abertura de Chamado Técnico (STI HUB Desk Service)',
       slug: 'portal-suporte-tecnico',
       title: 'Central de Ajuda & Suporte Técnico Enterprise (SLA 24x7)',
       description:
-        'Formulário embedado no Portal do Cliente e dentro do SaaS. Abre automaticamente um ticket rastreado com SLA no Service Desk (JSM).',
+        'Formulário embedado no Portal do Cliente e dentro do SaaS. Abre automaticamente um ticket rastreado com SLA no STI HUB Desk Service (JSM).',
       targetType: 'SUPPORT_TICKET',
       fields: [
         { name: 'firstName', label: 'Seu Nome', type: 'TEXT', required: true, placeholder: 'Nome completo' },
@@ -2513,7 +2513,7 @@ Diretoria Comercial • SETA TELECOM LTDA (SETA | IT)`,
 
 Estou passando para acompanhar a avaliação da nossa Proposta Comercial enviada para a {{company.name}}.
 
-Lembrando que estruturamos o modelo em Locação Pura de Bens Móveis (LC 116/03 + Súmula Vinculante 31 do STF), garantindo economia tributária direta (isenção de ISSQN) e substituição expressa de hardware pelo nosso NOC.
+Lembrando que estruturamos o modelo em Locação de Bens Móveis (LC 116/03 + Súmula Vinculante 31 do STF), garantindo economia tributária direta (isenção de ISSQN) e substituição expressa de hardware pelo nosso NOC.
 
 Conseguimos alinhar uma rápida call amanhã para revisar a minuta contratual e o cronograma de ativação (NF-e Remessa CFOP 5.908)?
 
@@ -2593,7 +2593,7 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
       name: "Amparo Legal Isenção ISS Locação (LC 116/03 + SV 31 STF)",
       category: "Fiscal & Jurídico",
       content:
-        "Enquadramento Tributário (0% ISSQN): Operação de Locação Pura de Bens Móveis (Art. 565 do Código Civil), sem fornecimento de mão de obra. Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da Lei Complementar nº 116/2003 e Súmula Vinculante nº 31 do STF, acompanhada de NF-e de Remessa em Locação (CFOP 5.908/6.908).",
+        "Enquadramento Tributário (0% ISSQN): Operação de Locação de Bens Móveis (Art. 565 do Código Civil), sem fornecimento de mão de obra. Não incidência de ISSQN conforme Veto Presidencial ao item 3.01 da Lei Complementar nº 116/2003 e Súmula Vinculante nº 31 do STF, acompanhada de NF-e de Remessa em Locação (CFOP 5.908/6.908).",
       usageCount: 48,
       createdAt: daysAgoIso(45),
       updatedAt: daysAgoIso(2),
@@ -2922,7 +2922,7 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
       id: 'mktemail-6',
       name: 'Locação de Soluções Tecnológicas Completas para o seu Negó-',
       subject: 'Locação de Soluções Tecnológicas Completas para o seu Negócio (Lote #3)',
-      preheader: 'Reduza custos tributários com locação pura de equipamentos (SV 31 STF).',
+      preheader: 'Reduza custos tributários com locação de equipamentos (SV 31 STF).',
       status: 'SENT',
       emailType: 'REGULAR',
       sendingProvider: 'MARKETING_ESP',
@@ -3085,7 +3085,7 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
   const marketingCampaigns: NonNullable<CrmDatabaseState['marketingCampaigns']> = [
     {
       id: 'cmp-1',
-      name: 'Campanha ABM Q4 — Substituição CAPEX por Locação Pura (0% ISS — SV 31 STF)',
+      name: 'Campanha ABM Q4 — Substituição CAPEX por Locação (0% ISS — SV 31 STF)',
       objective: 'Gerar oportunidades de locação recorrente de servidores, switches PoE e FortiGate SD-WAN em contas Enterprise Tier 1.',
       status: 'ACTIVE',
       channel: 'LinkedIn Ads + E-mail ABM + Landing Page',
@@ -3139,10 +3139,10 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
     },
     {
       id: 'cmp-3',
-      name: 'SD-WAN FortiGate Dual-WAN, Renovação & Spare Parts Base GestãoClick (#118887)',
+      name: 'SD-WAN FortiGate Dual-WAN, Renovação & Spare Parts Base STI HUB ERP',
       objective: 'Expansão de contratos ativos, renovação 24/36m e oferta de redundância BGP/SD-WAN na carteira Seta Telecom.',
       status: 'IN_PROGRESS',
-      channel: 'E-mail Marketing Base GestãoClick (#118887)',
+      channel: 'E-mail Marketing Base STI HUB ERP',
       sendingProvider: 'MARKETING_ESP',
       utmCampaign: 'sdwan-fortigate-renovacao-gc',
       budgetBrl: 8500,
@@ -3212,7 +3212,7 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
     },
     {
       id: 'seg-clientes-locacao-gc',
-      name: 'Carteira Ativa Locação & Contratos GestãoClick (#118887)',
+      name: 'Carteira Ativa Locação & Contratos STI HUB ERP',
       description: 'Base de clientes com contrato de locação/serviços ativo para campanhas de renovação, aditivos e spare parts.',
       type: 'STATIC',
       filterExpression: "lifecyclestage = 'CUSTOMER' AND gestaoclick_contract_active = true",
@@ -3229,9 +3229,9 @@ Sucesso do Cliente & Expansão • SETA TELECOM LTDA`,
   const marketingLandingPages: NonNullable<CrmDatabaseState['marketingLandingPages']> = [
     {
       id: 'lp-locacao-sv31',
-      name: 'LP Executiva — Locação Pura de Servidores, PABX IP & SD-WAN (0% ISS SV 31 STF)',
+      name: 'LP Executiva — Locação de Servidores, PABX IP & SD-WAN (0% ISS SV 31 STF)',
       slug: 'locacao-equipamentos-ti-telecom-sv31',
-      title: 'Substitua CAPEX por Locação Pura com 0% de ISSQN e SLA NOC 24x7',
+      title: 'Substitua CAPEX por Locação com 0% de ISSQN e SLA NOC 24x7',
       subtitle: 'Simule a redução imediata de TCO em servidores, switches PoE, terminais IP Yealink e firewalls FortiGate.',
       formId: 'form-enterprise-demo',
       campaignId: 'cmp-1',

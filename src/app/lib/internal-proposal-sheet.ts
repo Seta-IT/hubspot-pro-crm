@@ -1,7 +1,13 @@
 import type { ErpCommercialProposal } from '../../db/types';
 import { DEFAULT_COMPANY_EMITTER_SETTINGS } from '../../modules/erp/daily-sync-service';
 import { formatIssuerAddress, type IssuerAddressInput } from './company-issuer-address';
-import { proposalHidesFreight, readablePaymentCondition, resolveProposalCommercialFigures } from './proposal-share';
+import { cleanProposalTechnicalClauses, readablePaymentCondition, resolveProposalCommercialFigures, resolveProposalCommercialPresentation, resolveProposalDocumentHeadings } from './proposal-share';
+import {
+  buildDefaultTechnicalSupportClauseParts,
+  displayProposalTechnicalClauses,
+  isDefaultTechnicalSupportClauses,
+  isTechnicalSupportProposal,
+} from './proposal-technical-clauses';
 import { formatProposalValidUntilPtBr, isProposalValidityExpired } from './proposal-validity';
 import {
   FORBIDDEN_TEMPLATE_CNPJ,
@@ -87,6 +93,21 @@ export interface InternalProposalSheet {
   monthlyPlain: string;
   freightAmount: string;
   showFreight: boolean;
+  /** Linha SERVIÇOS/PRODUTOS/PEÇAS no bloco abaixo da tabela. Some quando é igual ao TOTAL e não há frete, desconto ou setup extra. */
+  showItemsSubtotal: boolean;
+  showDiscount: boolean;
+  discountAmount: string;
+  showSetup: boolean;
+  setupLabel: string;
+  setupLineLabel: string;
+  setupAmount: string;
+  unitPriceColumn: string;
+  subtotalColumn: string;
+  itemsTotalLabel: string;
+  grandTotalLabel: string;
+  contractHint: string;
+  /** Barra de nº do contrato: só em locação e serviço mensal (não em avulso nem produtos). */
+  showContractNumber: boolean;
   totalMonthly: string;
   paymentRows: Array<{ due: string; amount: string; method: string; methodMissing: boolean; note: string }>;
   commercialNote: string;
@@ -136,6 +157,91 @@ export function rowsFromFreeConditionText(value: unknown): Array<{ label: string
     }
     return { label: '', value: line };
   });
+}
+
+
+function foldConditionKey(text: string): string {
+  return String(text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function stripInternalMarkup(text: string): string {
+  return String(text || '')
+    .replace(/^(?:>>>|\|{2,}|>{2,}|[›»]+)\s*/u, '')
+    .replace(/\s*(?:>>>|\|{3,})\s*/g, ' ')
+    .trim();
+}
+
+const BARE_CONDITION_HEADINGS = new Set([
+  'proposta',
+  'proposta comercial',
+  'orcamento',
+  'orcamento comercial',
+  'proposta de servico',
+  'proposta de locacao',
+]);
+
+function officialConditionLabelKey(label: string): string {
+  const key = foldConditionKey(label);
+  if (key === 'prazo de entrega' || key === 'previsao de entrega') return 'prazo de entrega estimado';
+  if (key === 'valor total pagamento unico') return 'valor total';
+  return key;
+}
+
+function isAssistantMetadataLine(text: string): boolean {
+  return /criada por\s+assistente(\s+de\s+vendas)?/i.test(text);
+}
+
+function isNoticeBoilerplate(text: string): boolean {
+  const key = foldConditionKey(text);
+  if (!key) return false;
+  for (const notice of SETA_INTERNAL_PROPOSAL_NOTICES) {
+    const n = foldConditionKey(notice);
+    if (key === n) return true;
+    if (key.length >= 40 && (key.includes(n) || n.includes(key))) return true;
+  }
+  return (
+    /disponibilidade dos produtos e precos/.test(key) ||
+    /cotacoes com valores em dolar|ptax no dia de faturamento/.test(key) ||
+    /apresentamos abaixo a nossa proposta/.test(key) ||
+    /somos uma empresa nacional/.test(key) ||
+    /esta proposta contempla exclusivamente/.test(key)
+  );
+}
+
+function isBareConditionHeading(text: string): boolean {
+  return BARE_CONDITION_HEADINGS.has(foldConditionKey(text));
+}
+
+function isUsableFreeConditionRow(row: { label: string; value: string }): boolean {
+  const label = stripInternalMarkup(row.label);
+  const value = stripInternalMarkup(row.value);
+  if (!label) return false;
+  if (isBareConditionHeading(label) && (!value || isBareConditionHeading(value))) return false;
+  const combined = `${label} ${value}`;
+  if (isAssistantMetadataLine(label) || isAssistantMetadataLine(value) || isAssistantMetadataLine(combined)) return false;
+  if (isNoticeBoilerplate(label) || isNoticeBoilerplate(value)) return false;
+  return true;
+}
+
+function sanitizeCommercialNoteLines(lines: string[], usedLabelKeys: Set<string>): string[] {
+  const out: string[] = [];
+  for (const raw of lines) {
+    const line = stripInternalMarkup(raw);
+    if (!line) continue;
+    if (isAssistantMetadataLine(line) || isNoticeBoilerplate(line) || isBareConditionHeading(line)) continue;
+    const colon = line.indexOf(':');
+    if (colon > 0 && colon < 48) {
+      const key = officialConditionLabelKey(line.slice(0, colon).trim());
+      if (key && usedLabelKeys.has(key)) continue;
+    }
+    out.push(line);
+  }
+  return out;
 }
 
 function daysBetween(from?: string, to?: string): string {
@@ -203,9 +309,10 @@ export function buildInternalProposalSheet(
     : service
     ? `Proposta de Serviço${monthLabel ? ` - ${monthLabel}` : ''}`
     : `Proposta de Locação${monthLabel ? ` - ${monthLabel}` : ''}`;
-  const monthly = figures.monthly;
-  const hideFreight = proposalHidesFreight(proposal);
-  const freight = hideFreight ? 0 : Number(proposal.shippingCost || 0);
+  const view = resolveProposalCommercialPresentation(proposal);
+  const monthly = oneTime ? view.commercialTotalAmount : view.monthlyAmount;
+  const hideFreight = view.hideFreight;
+  const freight = view.shippingCost;
   const delivery = String(proposal.deliveryLeadTime || proposal.deliveryForecast || '').trim();
   const code = String(proposal.code || '').replace(/^#/, '').trim();
   const city = String(options?.clientCity || '').trim();
@@ -213,24 +320,37 @@ export function buildInternalProposalSheet(
   const readjustment = options?.readjustment || 'não definido';
   const sla = options?.slaText || 'não definido';
   const proposalKind = partsBudget ? 'Spare Parts / Hard Parts' : service ? 'Serviço' : 'Locação';
-  const partsTotal = (proposal.items || []).reduce((sum, item) => sum + Number(item.totalMonthly ?? item.subtotal ?? 0), 0);
-  const shownAmount = partsBudget ? partsTotal : monthly;
+  const itemsSubtotal = view.itemsSubtotal;
+  const shownAmount = partsBudget || oneTime ? view.commercialTotalAmount || itemsSubtotal : monthly;
   const summaryRows: Array<{ label: string; value: string }> = [
     { label: 'Proposta', value: partsBudget ? 'Proposta de Spare Parts / Hard Parts' : `${proposalKind}${monthLabel ? ` - ${monthLabel}` : ''}` },
     { label: partsBudget || oneTime ? (oneTime && !partsBudget ? 'Valor total (pagamento único)' : 'Valor total') : 'Valor mensal', value: money(shownAmount) },
     { label: 'Prazo de entrega estimado', value: delivery || INTERNAL_FIELD_BLANK },
   ];
+  const setup = view.displaySetupAmount;
+  if (view.showSetupInTotals) {
+    const setupValue = oneTime || partsBudget
+      ? `${money(setup)} (pagamento único)`
+      : `${money(setup)} (pagamento único, à parte da mensalidade)`;
+    summaryRows.push({ label: view.setupFeeLabel, value: setupValue });
+  }
   if (freight > 0) summaryRows.push({ label: 'Frete', value: `${money(freight)} (pagamento único)` });
   if (sla && sla !== 'não definido') summaryRows.push({ label: 'SLA', value: sla });
   if (!oneTime && !partsBudget) summaryRows.push({ label: 'Reajuste anual', value: readjustment });
   const seen = new Set(summaryRows.map((row) => `${row.label}|${row.value}`.toLowerCase()));
-  for (const row of rowsFromFreeConditionText(proposal.commercialNotes)) {
+  const usedLabelKeys = new Set(summaryRows.map((row) => officialConditionLabelKey(row.label)).filter(Boolean));
+  for (const raw of rowsFromFreeConditionText(proposal.commercialNotes)) {
+    const row = { label: stripInternalMarkup(raw.label), value: stripInternalMarkup(raw.value) };
+    if (!isUsableFreeConditionRow(row)) continue;
+    const labelKey = officialConditionLabelKey(row.label);
+    if (labelKey && usedLabelKeys.has(labelKey)) continue;
     const key = `${row.label}|${row.value}`.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
+    if (labelKey) usedLabelKeys.add(labelKey);
     summaryRows.push(row);
   }
-  const commercialNoteLines = splitCommercialNoteLines(proposal.commercialNotes);
+  const commercialNoteLines = sanitizeCommercialNoteLines(splitCommercialNoteLines(proposal.commercialNotes), usedLabelKeys);
   const lines = (proposal.items || []).map((item, index) => ({
     index: index + 1,
     sku: String(item.sku || '').trim() || '—',
@@ -260,7 +380,7 @@ export function buildInternalProposalSheet(
     ? [
         {
           due: 'Pagamento único',
-          amount: money(monthly),
+          amount: money(shownAmount),
           method: payment || INTERNAL_FIELD_BLANK,
           methodMissing: !payment,
           note: `Pagamento único do ${subject}`,
@@ -275,7 +395,18 @@ export function buildInternalProposalSheet(
           note: `Mensalidade da ${subject}, reajuste anual pelo ${readjustment}`,
         },
       ];
-  if (freight > 0) {
+  // No avulso/venda o total único já inclui setup e frete (mesma conta da folha pública).
+  // Só parcela setup/frete à parte na locação e no serviço mensal.
+  if (view.showSetupInTotals && !oneTime && !partsBudget) {
+    paymentRows.push({
+      due: 'Pagamento único',
+      amount: money(setup),
+      method: payment || INTERNAL_FIELD_BLANK,
+      methodMissing: !payment,
+      note: `${view.setupFeeLabel}, cobrado uma única vez (não incluso na mensalidade)`,
+    });
+  }
+  if (freight > 0 && !oneTime && !partsBudget) {
     paymentRows.push({
       due: 'Pagamento único',
       amount: money(freight),
@@ -300,7 +431,7 @@ export function buildInternalProposalSheet(
     monthlyLine: partsBudget
       ? `Valor total de ${money(shownAmount)}`
       : oneTime
-        ? `Valor total (pagamento único) de ${money(monthly)}`
+        ? `Valor total (pagamento único) de ${money(shownAmount)}`
         : `Valor Mensal de ${money(monthly)}`,
     deliveryLine: `Prazo de Entrega Estimado: ${delivery || INTERNAL_FIELD_BLANK}`,
     freightLine: freight > 0 ? `Frete: ${money(freight)} (pagamento único)` : '',
@@ -322,15 +453,68 @@ export function buildInternalProposalSheet(
     itemsSection: partsBudget ? 'PEÇAS' : service ? 'SERVIÇOS' : 'PRODUTOS',
     lines,
     qtyTotal,
-    productsMonthly: money(shownAmount),
-    monthlyPlain: amount(shownAmount),
+    productsMonthly: money(oneTime || partsBudget ? (partsBudget ? itemsSubtotal : (service ? view.servicesSubtotal : view.productsSubtotal || itemsSubtotal)) : monthly),
+    monthlyPlain: amount(oneTime || partsBudget ? itemsSubtotal || shownAmount : monthly),
     freightAmount: money(freight),
     showFreight: freight > 0,
+    showSetup: view.showSetupInTotals,
+    showDiscount: view.totalDiscounts > 0,
+    discountAmount: money(view.totalDiscounts),
+    showItemsSubtotal:
+      view.showSetupInTotals
+      || freight > 0
+      || view.totalDiscounts > 0
+      || Math.round((oneTime || partsBudget
+        ? (partsBudget ? itemsSubtotal : (service ? view.servicesSubtotal : view.productsSubtotal || itemsSubtotal))
+        : monthly) * 100) / 100
+        !== Math.round((shownAmount || 0) * 100) / 100,
+    setupLabel: view.setupFeeLabel,
+    setupLineLabel: oneTime || partsBudget
+      ? `${view.setupFeeLabel} (pagamento único)`
+      : `${view.setupFeeLabel} (pagamento único, à parte da mensalidade)`,
+    setupAmount: money(setup),
+    unitPriceColumn: oneTime || partsBudget ? 'Vr. unitário' : 'Vr. unit. mensal',
+    subtotalColumn: oneTime || partsBudget ? 'Subtotal' : 'Subtotal mensal',
+    itemsTotalLabel: oneTime || partsBudget
+      ? `${partsBudget ? 'PEÇAS' : service ? 'SERVIÇOS' : 'PRODUTOS'}:`
+      : `${partsBudget ? 'PEÇAS' : service ? 'SERVIÇOS' : 'PRODUTOS'} (mensal):`,
+    grandTotalLabel: oneTime || partsBudget ? 'TOTAL:' : 'TOTAL MENSAL:',
+    showContractNumber: !oneTime && (kind === 'LOCACAO' || kind === 'SERVICO'),
+    contractHint: !oneTime && kind === 'LOCACAO'
+      ? 'preenchido quando a proposta for convertida em contrato de locação'
+      : !oneTime && kind === 'SERVICO'
+        ? 'preenchido quando a proposta for convertida em contrato'
+        : '',
     totalMonthly: money(shownAmount),
     paymentRows,
     commercialNote: String(proposal.commercialNotes || '').trim(),
     commercialNoteLines,
-    confidentiality: SETA_INTERNAL_CONFIDENTIALITY,
-    clauses: SETA_INTERNAL_CLAUSES,
+    ...resolveSheetTechnicalObservations(proposal),
   };
+}
+
+function resolveSheetTechnicalObservations(proposal: ErpCommercialProposal): {
+  confidentiality: string;
+  clauses: readonly { title: string; body: string }[];
+} {
+  // Mesma regra da proposta pública (displayProposalTechnicalClauses):
+  // suporte técnico usa o texto de suporte; demais tipos só o texto gravado.
+  // Cláusulas de remessa/locação ficam só na folha de locação pura, quando
+  // não há texto próprio — nunca em proposta de serviço ou venda.
+  if (isTechnicalSupportProposal(proposal)) {
+    const stored = cleanProposalTechnicalClauses(proposal.technicalClauses);
+    if (stored && !isDefaultTechnicalSupportClauses(stored)) {
+      return { confidentiality: stored, clauses: [] };
+    }
+    return buildDefaultTechnicalSupportClauseParts(proposal);
+  }
+  const stored = displayProposalTechnicalClauses(proposal);
+  if (stored) {
+    return { confidentiality: stored, clauses: [] };
+  }
+  const headings = resolveProposalDocumentHeadings(proposal);
+  if (headings.effectiveBudgetType === 'LOCACAO') {
+    return { confidentiality: SETA_INTERNAL_CONFIDENTIALITY, clauses: SETA_INTERNAL_CLAUSES };
+  }
+  return { confidentiality: SETA_INTERNAL_CONFIDENTIALITY, clauses: [] };
 }

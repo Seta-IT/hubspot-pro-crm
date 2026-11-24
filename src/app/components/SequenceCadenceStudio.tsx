@@ -24,6 +24,7 @@ import type {
   SequenceStepType,
 } from '../../db/types';
 import { formatDateTimeBR } from './ui-helpers';
+import SequenceLiveSendPanel from './SequenceLiveSendPanel';
 
 // ============================================================================
 // Fase 2 (Modulo C) — Estudio de Cadencias Comerciais Avancadas
@@ -475,6 +476,9 @@ export default function SequenceCadenceStudio({
           ))}
         </div>
       </div>
+
+      {/* FASE 2: ENVIO REAL PELO OUTLOOK (status por passo e aviso de caixa) */}
+      <SequenceLiveSendPanel sequenceId={sequence.id} enrollments={seqEnrollments} />
 
       {/* TABS DO ESTUDIO */}
       <div className="px-6 flex flex-wrap items-center gap-1.5 border-b border-slate-200">

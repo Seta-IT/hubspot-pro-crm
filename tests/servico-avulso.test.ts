@@ -160,7 +160,7 @@ describe('Serviço avulso é pagamento único', () => {
     const page = src('src/app/proposta/[id]/page.tsx');
     const form = src('src/app/components/ErpEditModals.tsx');
     assert.match(form, /Avulso \(pagamento único\)/);
-    assert.match(form, /value="1"/);
+    assert.match(form, /value:\s*'1'/);
     assert.doesNotMatch(form, /Avulso \/ 1 mês/);
     assert.match(page, /Valor total \(pagamento único\)/);
     assert.match(page, /valor total \(pagamento único\) descrito nesta Proposta de Serviços/);
@@ -179,9 +179,11 @@ describe('Serviço avulso é pagamento único', () => {
     const form = src('src/app/components/ErpEditModals.tsx');
     assert.match(form, /Pagamento único/);
     assert.match(form, /isAvulsoServiceProposal\(draft\) \? "Total"/);
-    assert.match(form, /À vista — Pagamento único/);
-    assert.match(form, /Parcelado em \$\{count\}x de \$\{formatBRL\(perInstallment\)\} — Pagamento único/);
+    assert.match(form, /buildProposalInstallments\(draft/);
     assert.match(form, /label: '2x'/);
     assert.doesNotMatch(form, /preset\.n === 1/);
+    const share = src('src/app/lib/proposal-share.ts');
+    assert.match(share, /À vista — Pagamento único/);
+    assert.match(share, /Parcelado em \$\{count\}x de \$\{formatProposalMoney\(per\)\} — Pagamento único/);
   });
 });

@@ -227,7 +227,10 @@ describe('Proposta vencida: aviso no documento publico e no link interno', () =>
     assert.match(page, /data-testid="proposal-expired-sign-blocked"/);
     assert.match(page, /isProposalValidityExpired\(proposal\.validUntil\)/);
     assert.doesNotMatch(page, /inválido ou expirou/);
-    assert.match(page, /Este link de proposta é inválido\. Solicite um novo link/);
+    assert.match(page, /publicLinkInvalid/);
+    assert.match(page, /Link inválido ou sem permissão/);
+    assert.match(page, /Este link de proposta é inválido ou você não tem permissão para abri-lo\. Solicite um novo link ao seu consultor Seta Telecom\./);
+    assert.match(page, /Proposta Comercial #\$\{rawId \|\| "Não identificada"\} não localizada/);
   });
 
   it('o link interno traz o mesmo aviso quando a validade ja passou', () => {

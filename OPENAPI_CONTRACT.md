@@ -51,7 +51,7 @@ A operação do **STI-hub** é coordenada pelo **Supervisor** junto aos líderes
    - Escopo: Dashboard financeiro GestãoClick, 9 contas bancárias da Seta Telecom (`SETA_BANK_BASELINE`), Contas a Pagar/Receber (`ErpFinancialEntry`), baixa de títulos, conciliação PIX/Boleto, Fluxo de Caixa e DRE Gerencial.
    - Arquivos: `src/app/components/GestaoClickDashboard.tsx`, seção `FINANCEIRO` em `src/app/components/ErpGestaoClickTab.tsx`.
 4. **Agente ERP 4 — Fiscal & Tributário Brasileiro (LC 116/03 + Súmula Vinculante 31 STF)**:
-   - Escopo: Motor fiscal para Locação Pura de Bens Móveis (0% ISS por dispensa constitucional — SV 31 STF + Item 3.01 vetado da LC 116/03), NFS-e de Serviços Técnicos TI/Telecom, NF-e de Remessa em Locação (CFOP 5.908/6.908 e 5.949/6.949), NFCom Modelo 62 e espelho DANFE/Fatura para impressão.
+   - Escopo: Motor fiscal para Locação de Bens Móveis (0% ISS por dispensa constitucional — SV 31 STF + Item 3.01 vetado da LC 116/03), NFS-e de Serviços Técnicos TI/Telecom, NF-e de Remessa em Locação (CFOP 5.908/6.908 e 5.949/6.949), NFCom Modelo 62 e espelho DANFE/Fatura para impressão.
    - Arquivos: `src/modules/erp/erp-tax-engine.ts`, seção `FISCAL` em `src/app/components/ErpGestaoClickTab.tsx` e `InvoiceEditModal` em `src/app/components/ErpEditModals.tsx`.
 5. **Agente ERP 5 — Vendas, Ordens de Serviço (O.S.), Estoque, Cadastros & Conector GestãoClick**:
    - Escopo: Árvore de navegação lateral SETA | IT, Catálogo de Produtos/Equipamentos e Serviços, Pedidos de Venda, Ordens de Serviço (O.S.), Movimentações/Compras de Estoque, Cadastros (Clientes, Fornecedores, Funcionários) e sincronização ao vivo com a API GestãoClick (`ERP-GROK`).

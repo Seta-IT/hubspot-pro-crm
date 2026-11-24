@@ -772,15 +772,15 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     assert.equal(demos.length, 5);
     repo.createServiceTicket({ subject: 'ja TEC', key: 'TEC-7' });
     const legacy = repo.getState().serviceTickets;
-    const loaded = await store.loadSetaDeskTickets(legacy);
+    const loaded = await store.loadSetaDeskTickets(legacy, { reconcileLegacy: true });
     assert.ok(loaded);
     assert.equal(loaded!.tickets.some((t) => store.isLegacyDemoServiceTicket(t)), false);
     assert.equal(loaded!.tickets.length, 1);
     assert.equal(loaded!.tickets[0].key, 'TEC-7');
-    const same = await store.loadSetaDeskTickets(legacy);
+    const same = await store.loadSetaDeskTickets(legacy, { reconcileLegacy: true });
     assert.equal(same!.tickets.length, 1, 'nada duplicado ao recarregar, demos continuam de fora');
     const extra = { ...loaded!.tickets[0], id: 'tkt-legado-x1', key: 'X-1', comments: [] as never[] };
-    const again = await store.loadSetaDeskTickets([...legacy, extra]);
+    const again = await store.loadSetaDeskTickets([...legacy, extra], { reconcileLegacy: true });
     assert.equal(again!.tickets.length, 2, 'chamado legado novo (nao demo) e copiado');
     const keys = await store.reserveSetaDeskTicketKeys(2);
     assert.deepEqual(keys, ['TEC-8', 'TEC-9']);
@@ -790,10 +790,10 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     const base = (await store.loadSetaDeskTickets([]))!;
     const t7 = base.tickets.find((t) => t.key === 'TEC-7')!;
     const newer = { ...t7, subject: 'Editado no legado', updatedAt: new Date(Date.parse(t7.updatedAt) + 60000).toISOString() };
-    const r1 = (await store.loadSetaDeskTickets([newer]))!;
+    const r1 = (await store.loadSetaDeskTickets([newer], { reconcileLegacy: true }))!;
     assert.equal(r1.tickets.find((t) => t.id === t7.id)!.subject, 'Editado no legado');
     const older = { ...t7, subject: 'Velho', updatedAt: new Date(Date.parse(t7.updatedAt) - 60000).toISOString() };
-    const r2 = (await store.loadSetaDeskTickets([older]))!;
+    const r2 = (await store.loadSetaDeskTickets([older], { reconcileLegacy: true }))!;
     assert.equal(r2.tickets.find((t) => t.id === t7.id)!.subject, 'Editado no legado');
   });
 
@@ -825,7 +825,7 @@ describe('SetaDesk - Postgres real (descartavel)', { skip: !TEST_DB }, () => {
     assert.equal(back.comments.length, 1);
     assert.ok(!reread.tickets.some((x) => x.id === doomed.id));
     // apagado no SetaDesk nao ressuscita a partir do snapshot legado
-    const reread2 = (await store.loadSetaDeskTickets([doomed]))!;
+    const reread2 = (await store.loadSetaDeskTickets([doomed], { reconcileLegacy: true }))!;
     assert.ok(!reread2.tickets.some((x) => x.id === doomed.id));
     // demos continuam de fora
     const legacy105 = createInMemoryRepository().getServiceTicketById('JSM-105')!;

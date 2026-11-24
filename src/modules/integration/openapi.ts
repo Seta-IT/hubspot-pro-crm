@@ -119,7 +119,7 @@ export function buildOpenApiDocument(): JsonSchema {
       version: API_V1_VERSION,
       description:
         'API REST de integracoes do STI-hub (CRM e Chamados/SetaDesk). Autenticacao: Bearer stihub_int_* (chave de integracao do IAM) ou token OAuth 2.1 (PKCE S256). ' +
-        'Carteira (PROPRIOS/EQUIPE/TODOS) e moduleAccess aplicados no servidor. Sem DELETE, merge, Sequencias, escrita Fiscal/Financeira ou GestaoClick nesta versao. ' +
+        'Carteira (PROPRIOS/EQUIPE/TODOS) e moduleAccess aplicados no servidor. Sem DELETE, merge, Sequencias, escrita Fiscal/Financeira ou integracao com o ERP de origem nesta versao. ' +
         'Erros em application/problem+json (RFC 7807). Mesmos casos de uso disponiveis como tools no servidor MCP (/api/mcp).',
     },
     servers: [{ url: '/' }],

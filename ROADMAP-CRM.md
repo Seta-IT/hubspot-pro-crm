@@ -30,7 +30,7 @@
 - **Quotas, Metas & Comissões MRR (`SalesHubProSuite` — `QUOTAS_COMMISSIONS`)**:
   - Acompanhamento individual de metas de MRR Novo e TCV por executivo da Seta Telecom (`Marcéllo Lopes Mira`, `Michelle da Rocha`, `Evelyn Ternero`), aceleradores de comissão para contratos de 24/36 meses e atingimento de quota em tempo real.
 - **Playbooks de Vendas B2B (`PLAYBOOKS`)**:
-  - Roteiros interativos de descoberta e fechamento telecom/TI (Substituição CAPEX por Locação Pura SV 31 STF, Qualificação PABX IP Cloud/Yealink, Objeções Jurídicas e SLA NOC) com checklist e geração automática de nota estruturada na timeline do negócio.
+  - Roteiros interativos de descoberta e fechamento telecom/TI (Substituição CAPEX por Locação SV 31 STF, Qualificação PABX IP Cloud/Yealink, Objeções Jurídicas e SLA NOC) com checklist e geração automática de nota estruturada na timeline do negócio.
 - **Agendador Executivo de Reuniões (`MEETINGS_SCHEDULER`)**:
   - Links públicos de agendamento (`/reuniao/marcello-mira`, `/reuniao/engenharia-seta`) sincronizados com a agenda comercial e criação automática de evento `MEETING` na timeline.
 - **Cadências Automatizadas (`SequencesSection.tsx` / `/api/sequences`)**:
@@ -41,7 +41,7 @@
 ## 3. Marketing Hub ABM (`MarketingAndSalesHubSuites.tsx` + `FormsBuilderTab.tsx`)
 
 - **Campanhas & Atribuição de ROI Multi-Touch (`CAMPAIGNS_ROI`)**:
-  - Gestão de campanhas B2B (ABM Q4 Locação Pura 0% ISS, Modernização PABX IP & Gateways SIP, Webinar SD-WAN & Segurança) com rastreamento de orçamento, sessões, contatos gerados, MQLs, SQLs, negócios atribuídos e **ROI em R$**.
+  - Gestão de campanhas B2B (ABM Q4 Locação 0% ISS, Modernização PABX IP & Gateways SIP, Webinar SD-WAN & Segurança) com rastreamento de orçamento, sessões, contatos gerados, MQLs, SQLs, negócios atribuídos e **ROI em R$**.
 - **E-mail Marketing ABM (`EMAIL_MARKETING`)**:
   - Disparo segmentado de newsletters técnicas e campanhas ABM com métricas de taxa de entrega, abertura (`Open Rate`), cliques (`CTR`) e respostas.
 - **Listas Ativas & Lead Scoring Preditivo (`SEGMENTS_SCORING`)**:
@@ -181,16 +181,16 @@ A plataforma gerencia integralmente o ciclo comercial B2B da Seta Telecom, indo 
 | **Separação estrita entre sair da cadência vs descadastro global** | Sim | Não (audiência única por lista) | Implementado (`sequenceStatus` ≠ `subscriptionStatus`) | **P0** |
 | **Envio 1:1 via caixa Microsoft 365 / Outlook (Graph OAuth)** | Sim | Não | Implementado (Canal `OUTLOOK_M365`) / OAuth Fase 2 | **P0** |
 | **Disparo massivo via ESP dedicado (SES/SendGrid/Mailgun/Postmark/Resend)** | Sim (infra própria HubSpot) | Sim (infra própria Mailchimp) | Implementado (Resend/SMTP + Canal `MARKETING_ESP`) | **P0** |
-| **Construtor visual de automações (DAG / Customer Journeys)** | Sim (Workflows Pro/Ent) | Sim (Automation Flows) | Implementado (DAG base) + Expansão Fase 4 | **P0** |
+| **Construtor visual de automações (DAG / Customer Journeys)** | Sim (Workflows Pro/Ent) | Sim (Automation Flows) | Fase 4 no ramo `feat/fase4-workflows` (DAG durável, simulação, reentrada) | **P0** |
 | **Segmentação avançada B2B (ICP, Cargo, CNPJ, Funil, Propostas)** | Sim (Active/Static Lists) | Sim (Advanced Segmentation) | Implementado (`/api/marketing/segments`) | **P0** |
 | **Visão de engajamento por Empresa (Account-Based Engagement)** | Parcial (exige ABM/Target Accounts) | Não (centrado em contato) | Implementado (Diferencial Seta Telecom) | **P0** |
 | **Cadências vinculadas a propostas de locação/servidores e etapas do Deal** | Parcial (via Workflows adicionais) | Não | Implementado (Diferencial Seta Telecom) | **P0** |
 | **Atribuição de Receita fim a fim (Campanha → Proposta → Contrato → Fatura)** | Parcial (Multi-touch no Enterprise) | Parcial (foco em e-commerce B2C) | Implementado (Integrado ao ERP GestãoClick `#118887`) | **P0** |
-| **Classificação de sinais (Apple MPP / Bot Click vs Engajamento Humano)** | Parcial (filtro de bot clicks) | Parcial (exclui MPP opcional) | Planejado / Fase 5 | **P1** |
+| **Classificação de sinais (Apple MPP / Bot Click vs Engajamento Humano)** | Parcial (filtro de bot clicks) | Parcial (exclui MPP opcional) | Fase 5 no ramo `feat/fase5-analytics` (motivo gravado por sinal, contadores separados) | **P1** |
 | **Central de Preferências, One-Click Unsubscribe e Consentimento LGPD** | Sim | Sim | Implementado (`/api/marketing/preferences`) | **P0** |
 | **Editor de e-mail drag-and-drop + texto puro comercial + variáveis** | Sim | Sim | Implementado (Templates/Snippets) + Visual Fase 3 | **P1** |
-| **Testes A/B e Multivariados com cálculo de amostra e significância** | Sim (Pro: A/B, Ent: Adaptativo) | Sim (Multivariado no Standard+) | Planejado / Fase 6 | **P1** |
-| **IA Comercial e Marketing Intelligence (com evidência e confiança)** | Sim (Breeze / Content Assistant) | Sim (Intuit Assist) | Implementado (Copiloto IA) + Expansão Fase 6 | **P1** |
+| **Testes A/B e Multivariados com cálculo de amostra e significância** | Sim (Pro: A/B, Ent: Adaptativo) | Sim (Multivariado no Standard+) | Fase 6 no ramo `feat/fase6-enterprise` (amostra, qui-quadrado/z, vencedor manual ou automático por clique humano) | **P1** |
+| **IA Comercial e Marketing Intelligence (com evidência e confiança)** | Sim (Breeze / Content Assistant) | Sim (Intuit Assist) | Copiloto IA + Fase 6 no ramo `feat/fase6-enterprise` (confiança, evidências, aprovação humana, `AI_MARKETING_ENABLED`) | **P1** |
 | **Governança de entregabilidade (SPF, DKIM, DMARC, Rate Limit, Supressão)** | Sim | Sim | Implementado (Validação + Supressão pré-envio) | **P0** |
 
 ---
@@ -249,7 +249,7 @@ A plataforma gerencia integralmente o ciclo comercial B2B da Seta Telecom, indo 
 - **14 Requisitos Técnicos**: Editor drag-and-drop em nós, condições AND/OR, ramificações aninhadas, execução idempotente, histórico por etapa, modo de simulação, logs de erros, reprocessamento seguro, versionamento, publicação controlada, rollback, detecção de loops, limites de execução por contato e cancelamento imediato de ações agendadas quando ocorrer uma saída obrigatória.
 
 #### MÓDULO E — CAMPANHAS DE EMAIL MARKETING
-- **13 Tipos de Campanhas**: Individuais, Em massa, Newsletters, Segmentadas, Recorrentes, Automatizadas, Nutrição, Reengajamento, Relacionamento, Eventos, Baseadas em comportamento, Aniversário/datas relevantes e Campanhas comerciais vinculadas a produtos e serviços (ex.: Locação Pura SV 31 STF, PABX IP, SD-WAN).
+- **13 Tipos de Campanhas**: Individuais, Em massa, Newsletters, Segmentadas, Recorrentes, Automatizadas, Nutrição, Reengajamento, Relacionamento, Eventos, Baseadas em comportamento, Aniversário/datas relevantes e Campanhas comerciais vinculadas a produtos e serviços (ex.: Locação SV 31 STF, PABX IP, SD-WAN).
 - **16 Atributos Obrigatórios por Campanha**: Nome, Objetivo, Público, Critérios de inclusão, Critérios de exclusão, Remetente, Assunto, Preheader, Template, Data de envio, Configuração de rastreamento (UTMs/Clicks), Configuração de descadastro, Status, Resultados (funil completo), Histórico de alterações e Responsável.
 
 #### MÓDULO F — RELATÓRIOS AVANÇADOS E ANALYTICS
@@ -396,14 +396,73 @@ Inclui suporte planejado e auditado para: Formulários de captura, Landing pages
   - Auditoria do repositório, matriz de paridade HubSpot × Mailchimp × STI-hub, arquitetura e modelos de dados, RBAC/MFA, gestão de contatos/empresas, captura web com **rastreamento UTM fim a fim**, **Consentimento LGPD / Preference Center / Supressão independente das cadências**, persistência real de **Campanhas, Segmentos Dinâmicos e Landing Pages** e **Visão de Engajamento por Empresa (ABM)**.
 - **Fase 2 — Cadências Comerciais Avançadas**:
   - Editor visual multi-passos, agendamento persistente considerando dias úteis/fuso horário, integração OAuth Microsoft Graph (Outlook 1:1), todas as 13 regras de saída automática (incluindo vínculo com propostas de locação e etapas do Deal) e histórico/relatórios de conversão.
+  - **Status real (19/11/2026, ramo `feat/fase2-cadencias-graph`, ainda não publicado)**:
+    - Pronto: editor de passos, janela comercial e 13 regras de saída (no ar desde 29/10); conexão OAuth do Outlook (no ar desde 09/11).
+    - Pronto no ramo: **envio real dos passos de e-mail automáticos pela caixa Outlook do dono da inscrição** (Microsoft Graph `/me/sendMail`), com pixel e links rastreados (`/api/email-track`), registro do e-mail na linha do tempo do contato e evento na timeline da cadência.
+    - Antes de cada envio: supressão/descadastro/hard bounce LGPD (`canSendMarketingEmailToContact`), estado da inscrição, negócio ganho/perdido, allowlist de teste, janela de envio (dias úteis, feriados, fuso `America/Sao_Paulo` ou do destinatário) e limite por caixa por hora e por dia.
+    - Idempotência por passo (`<inscrição>:<passo>`): o passo é gravado como "enviando" antes da chamada ao Graph; passo enviado nunca sai de novo; envio interrompido vira erro com tarefa para conferir, sem reenviar.
+    - Caixa desconectada, conexão expirada ou integração desligada: o passo fica pendente com o motivo, o vendedor recebe uma tarefa e o envio é tentado de novo no próximo dia útil. Falha do provedor: até 3 tentativas, depois erro + tarefa e a cadência segue.
+    - Passo de e-mail manual (ou com aprovação manual) vira tarefa do vendedor no modo real.
+    - Respostas: o executor lê a Caixa de Entrada do dono (escopo Mail.Read já concedido) e aplica `PAUSED_ON_REPLY`; resposta pedindo descadastro aplica `STOP_REQUESTED`.
+    - Trava global entre instâncias da Vercel: lease com expiração na tabela `crm_distributed_locks` (compare-and-set atômico no Postgres) para a execução do cron e uma reserva por passo antes de cada envio; o estado é relido do banco depois de obter a trava. Banco da trava indisponível = nenhum envio.
+    - Executor: `GET /api/cron/sequences` (Vercel Cron a cada 15 min em dias úteis, `Authorization: Bearer CRON_SECRET`), no máximo 25 envios por execução.
+    - Interruptores: `SEQUENCES_LIVE_SEND` (desligado por padrão = simulação atual), `SEQUENCES_TEST_RECIPIENTS` (homologação), `SEQUENCES_MAX_PER_MAILBOX_HOUR` (padrão 20) e `SEQUENCES_MAX_PER_MAILBOX_DAY` (padrão 100, limitado ao limite diário da cadência). Inscrições antigas ou simuladas nunca passam a enviar ao ligar a flag.
+    - Interface: painel "Envio pelo Outlook" no estúdio de cadências com o modo, aviso de caixa não conectada e o status real de cada passo (agendado, enviado, pendente, erro, bloqueado) com o motivo.
+    - Falta: sincronizar aberturas e cliques rastreados com os contadores da cadência; relatórios de conversão por passo; `POST /api/marketing/campaigns/dispatch` continua simulado (é da Fase 3).
 - **Fase 3 — Campanhas de Email Marketing & Editor Visual**:
   - Editor drag-and-drop de templates com versionamento/aprovação, adaptadores multi-ESP (SES/SendGrid/Mailgun/Postmark/Resend), validação SPF/DKIM/DMARC e funil completo de entregabilidade.
+  - **Status real (19/11/2026, ramo `feat/fase3-campanhas`, criado a partir de `feat/fase2-cadencias-graph`, ainda não publicado)**:
+    - Pronto no ramo: **envio real de campanhas por ESP** com interface comum de adaptadores. Resend (primeiro, homologável) e SMTP (nodemailer) implementados; SendGrid, Mailgun, Postmark e SES plugáveis com testes de contrato e sem credenciais (SES exige assinador SigV4, ainda não incluído). Um único provedor configurado, sem fallback nem rotação de conta, domínio ou provedor.
+    - `POST /api/marketing/campaigns/dispatch`: com `MARKETING_LIVE_SEND` desligado (padrão) segue a simulação atual; ligado, exige modelo **aprovado**, alçada (admin ou controle total do CRM com 2FA) e configuração completa, e só **enfileira** (`mkt_sends`, uma linha por campanha+contato = idempotência).
+    - Por e-mail: supressão e consentimento LGPD **por finalidade** (`communicationCategories` precisa conter a finalidade do modelo: `NEWSLETTER_TECNICA`, `EVENTOS_ABM` ou `OFERTAS_COMERCIAIS`), allowlist `MARKETING_TEST_RECIPIENTS`, cabeçalhos `List-Unsubscribe` + `List-Unsubscribe-Post: List-Unsubscribe=One-Click` com token HMAC (`/api/marketing/preferences/unsubscribe/<token>`), link visível de descadastro e endereço físico no rodapé, pixel e links rastreados (`/api/email-track`). Consentimento é conferido de novo na hora do envio.
+    - Fila: `GET /api/cron/marketing` (Vercel Cron a cada 5 min, `Bearer CRON_SECRET`) e botão "Processar fila agora"; limite global por minuto (`MARKETING_MAX_PER_MINUTE`, padrão 60) e por execução (`MARKETING_MAX_PER_RUN`, padrão 200); mesma trava global da Fase 2 (`marketing:run`) + reserva `mktsend:<campanha>:<contato>` antes de cada envio; chave de idempotência no ESP. 429/5xx: volta para a fila com espera (até 3 tentativas); 401/403 ou 429 pausam a execução; erro permanente vira falha sem reenvio.
+    - Webhook `POST /api/marketing/webhooks/resend` com assinatura Svix (`RESEND_WEBHOOK_SECRET`, tolerância 5 min): entregue, bounce, reclamação, abertura e clique. Hard bounce e reclamação de spam = supressão permanente (`HARD_BOUNCE` / `SPAM_COMPLAINT`, escopo `GLOBAL_ALL`; recadastro não remove). Reentrega do mesmo evento é idempotente.
+    - Descadastro: GET mostra só a página de confirmação (scanners de link não descadastram); POST one-click remove só a finalidade; opção "nenhum e-mail de marketing" aplica o descadastro total.
+    - Modelos: blocos estruturados (título, parágrafo, botão, imagem, divisor, espaço) com arrastar e soltar para reordenar (HTML5) e botões subir/descer; sem HTML livre (texto escapado, links e imagens só https). Versões imutáveis; fluxo rascunho -> em revisão -> aprovado; quem envia para revisão não aprova; editar um aprovado cria nova versão em rascunho e a versão aprovada continua a única enviável. Envio de teste só para a allowlist, assunto com "[TESTE]".
+    - Domínio: verificação SPF (host `send.<domínio>` no Resend), DKIM (seletores `MARKETING_DKIM_SELECTORS`) e DMARC (com herança do domínio organizacional; aviso em `p=none`) só por consulta DNS TXT, em tela; envio real e teste bloqueados se não passar.
+    - Funil por campanha: enviados, entregues, bounces, reclamações, aberturas, cliques e descadastros (com taxas), na aba "Funil de entregabilidade" do estúdio de campanhas (E-mail Marketing).
+    - Dados fora do `crm_state_v1`: tabelas `mkt_templates`, `mkt_template_versions`, `mkt_sends`, `mkt_events` (criadas sob demanda).
+    - Envio interrompido no meio (instância caiu entre a reserva e a confirmação do ESP): após 1 h vira **"para revisar"** com tarefa na fila "Campanhas de Marketing" e alerta na aba do funil; nunca reenvia sozinho. A pessoa escolhe: "saiu" (marca como enviado), "não saiu" (libera um único reenvio com nova reserva) ou descartar.
+    - SQL validado em Postgres local descartável (PGlite 0.5 / PostgreSQL 18, `scripts/sql-local/validate-marketing-sql.cjs`): tabelas `mkt_*`, trava `crm_distributed_locks` (corrida de 10 => 1 vencedor) e rastreio. A validação achou e corrigiu um erro antigo em `recordOpen` (parâmetros sem tipo: "operator is not unique") que impedia gravar aberturas no Postgres. `next build` completo sem erros.
+    - Falta: assinador SigV4 do SES e webhooks dos demais ESPs (só o do Resend), editor de HTML livre, agendamento de campanha por data/hora, testes A/B, central de preferências completa (hoje: descadastro por finalidade ou total). Fechados na Fase 6: agendamento, testes A/B e central de preferências.
 - **Fase 4 — Automações Visuais (Workflows Duráveis)**:
   - Construtor DAG completo com os 20 gatilhos e 17 ações, ramificações condicionais/percentuais, simulação de fluxo, detecção de loops e execução durável idempotente.
+  - **Status real (19/11/2026, ramo `feat/fase4-workflows`, criado a partir de `feat/fase3-campanhas`, ainda não publicado)**:
+    - Não existiam `WorkflowBuilderTab.tsx` nem `src/app/api/workflows`; o ponto de partida foi `AutomationsSequencesTab.tsx` e as rotas `/api/workflows` do roteador. O motor antigo (linear, síncrono) continua intacto; o novo é um motor DAG separado em `src/modules/workflows/dag/` com tabelas próprias `wf_definitions`, `wf_versions`, `wf_events`, `wf_runs`, `wf_run_steps` (fora do `crm_state_v1`).
+    - Construtor visual (aba "Construtor Visual (Fase 4)" em Automações): 20 gatilhos e 17 ações do Módulo D, cartões de passo com arrastar e soltar, ligações Próximo / Sim-Não / caminhos, atrasos, diagrama SVG em camadas, validar, simular, ativar, pausar e histórico de execução por contato. Sem emojis.
+    - Validação: ciclos (com o caminho), auto-ligação, nós soltos, saídas desconhecidas, percentuais inteiros somando 100%, propriedades protegidas (LGPD, e-mail, ERP/Chamados não são alteráveis), webhook só https, limites de atraso/espera. Ciclo entre fluxos pela ação de reativação é recusado na ativação; encadeamento limitado a 3 níveis em execução.
+    - Ativar exige grafo válido e **simulação da versão atual** com um contato de exemplo (sem efeito; mostra caminho, desvios, esperas com tempo simulado e bloqueios LGPD/flags). Editar cria nova versão; a versão ativa segue até simular e ativar de novo.
+    - Reentrada por fluxo: nunca, depois de concluir ou sempre, com intervalo mínimo; nunca duas execuções ativas do mesmo contato no mesmo fluxo.
+    - Execução durável: `GET /api/cron/workflows` (Vercel Cron a cada 5 min, `Bearer CRON_SECRET`) com a mesma trava global (`workflows:run`), estado relido do banco, eventos idempotentes por id, execução por evento única (`UNIQUE (fluxo, evento)`), reserva de cada passo (`PK (execução, nó)`) antes de agir. Execução que caiu no meio de uma ação vira **"para revisar"** com tarefa (fila "Automações") e botões "seguir"/"encerrar" no histórico; nunca repete sozinha.
+    - Ações de e-mail só pela fila da Fase 3 (modelo aprovado, LGPD por finalidade, `MARKETING_LIVE_SEND`, allowlist, domínio verificado); cadências pela Fase 2. Webhook só para hosts em `WORKFLOWS_WEBHOOK_ALLOWED_HOSTS`, com chave de idempotência e apenas ids no corpo. Nenhuma ação gera fatura/NF nem toca ERP/Chamados.
+    - Gatilhos ligados no CRM: contato criado/atualizado, formulário enviado, mudança de etapa, negócio ganho/perdido, e-mail entregue/aberto/clicado (webhook do ESP), tag alterada (pela própria automação), período sem engajamento e data específica (agendados no cron). Demais (lead importado, propostas, resposta, reunião, webhook recebido, evento personalizado) entram por `POST /api/workflows/v2/events` autenticado.
+    - Interruptores: `WORKFLOWS_LIVE` (desligado por padrão = só simulação, nenhum evento gravado), `WORKFLOWS_TEST_RECIPIENTS` (homologação), `WORKFLOWS_WEBHOOK_ALLOWED_HOSTS`, `WORKFLOWS_MAX_RUNS_PER_TICK` (200), `WORKFLOWS_MAX_STEPS_PER_RUN` (25), `WORKFLOWS_MAX_EVENTS_PER_TICK` (500).
+    - SQL das tabelas `wf_*` validado em Postgres local descartável (PGlite, `scripts/sql-local/validate-workflows-sql.cjs`): 2 execuções simultâneas do cron => 1 execução do fluxo.
+    - Falta: gatilhos nativos de propostas/reunião/resposta/importação (hoje via endpoint de eventos), webhook de entrada público assinado, editor de canvas livre (hoje cartões + diagrama), métricas de conversão por caminho do teste A/B, "Aguardar condição" por eventos (hoje por propriedade, conferida a cada 15 min).
 - **Fase 5 — Analytics, Engajamento Humano vs MPP & Drill-Down Total**:
   - Resposta direta às 20 perguntas de identificação com drill-down para os contatos, diferenciação entre abertura observada (Apple MPP) e engajamento humano confirmado, coortes e exportação CSV/XLSX/PDF.
+  - **Status real (19/11/2026, ramo `feat/fase5-analytics`, criado a partir de `feat/fase4-workflows`, ainda não publicado)**:
+    - Aba "Analytics de Engajamento" em Automações (sem emojis): período (horário de Brasília), filtro de registros simulados, cartões com contadores separados (aberturas observadas x automáticas, cliques humanos x de robô, respostas, reuniões/formulários, contatos com engajamento humano confirmado), motivos de classificação, as 20 perguntas com grupos clicáveis e drill-down paginado até a lista de contatos, conversão por passo de cadência, caminhos A/B das automações e coortes.
+    - Classificação de cada abertura/clique rastreado (`src/modules/analytics/signal-classifier.ts`), com o motivo gravado em `crm_engagement_signals`: rede Apple (MPP), proxies de imagem (Google/Yahoo/Mimecast), user-agent genérico ou ausente, abertura em menos de 60 s => abertura automática; HEAD, user-agent de scanner/robô, redes de proteção (Microsoft EOP), clique em menos de 30 s após o envio ou rajada em 2 s => clique de robô. Abertura nunca conta como engajamento humano. IP gravado só truncado (/24 ou /48). Faixas extras em `ANALYTICS_PROXY_CIDRS`.
+    - Fontes: pixel/links próprios (`/api/email-track`) e cliques do webhook do Resend (user-agent/IP do clique). Clique de robô não dispara mais o gatilho "Link clicado" das automações.
+    - Pendências fechadas: Fase 2 — o cron das cadências sincroniza, dentro da mesma trava global, as aberturas observadas e os cliques humanos com os contadores da inscrição e de cada passo (`stepDeliveries[].engagement`); Fase 4 — relatório de conversão por caminho do teste A/B / divisão percentual (execuções, engajamento humano, oportunidades, valor ganho).
+    - Receita influenciada somente por leitura: oportunidade criada até 90 dias após um envio (perguntas 15 e 18), contratos de locação ligados ao contato/negócio (pergunta 16, só para quem tem acesso ao ERP) e atribuição linear do valor ganho entre campanhas/cadências dos 90 dias anteriores ao fechamento (pergunta 19). Nada é criado no ERP; sem fatura/NF.
+    - RBAC/LGPD: sessão com 2FA, acesso ao CRM e a contatos; escopo Próprios/Equipe vê só os próprios contatos (perguntas, drill-down, relatórios e exportação). Drill-down e exportação sem telefone; contato suprimido sai com e-mail mascarado e o motivo. Exportação CSV (UTF-8, `;`), XLSX e PDF sem dependências novas, com proteção contra fórmulas, limite de 20.000 linhas e registro na auditoria (`ANALYTICS_EXPORT`, sem dados de contato).
+    - Rotas: `GET /api/analytics/overview|drill|sequences|workflows|cohorts|contacts/:id/signals`, `POST /api/analytics/export`. Middleware trata `/api/analytics` como módulo CRM.
+    - Vercel Cron: verificação somente leitura. O plano não aparece na API, mas a produção já publica com o cron `*/10` (o plano Hobby só aceita crons diários e recusaria a publicação), logo o plano é Pro/Enterprise: limite de 100 crons por projeto e frequência por minuto. Os 6 crons atuais (2 diários, `*/10`, `*/15`, 2 x `*/5`) cabem; não houve consolidação, e as travas globais seguem por cron.
+    - SQL validado em Postgres local descartável (PGlite, `scripts/sql-local/validate-analytics-sql.cjs`; o validador aceita vários módulos em `EXTRA`, separados por vírgula).
+    - Falta: classificação de aberturas do ESP (o webhook não traz user-agent da abertura), classificação de respostas por IA (hoje por termos, com motivo), cálculo incremental/pré-agregado para volumes grandes (hoje em memória por requisição), lista de faixas de proxies atualizada automaticamente, atribuição por primeiro/último toque.
 - **Fase 6 — Recursos Avançados & Enterprise**:
   - IA Comercial e Marketing Intelligence com nível de confiança e aprovação humana, testes A/B/multivariados com significância estatística e otimização preditiva de horário de envio.
+  - **Status real (19/11/2026, ramo `feat/fase6-enterprise`, criado a partir de `feat/fase5-analytics`, ainda não publicado)**:
+    - Testes A/B e multivariados em campanhas reais (E-mail Marketing > Recursos avançados): variantes de modelo aprovado e/ou assunto (multivariado = assuntos x modelos, até 6 combinações, mesma finalidade LGPD), grupo de teste por percentual com sorteio determinístico, cálculo de amostra mínima (taxa de base histórica de clique humano ou informada; correção de Bonferroni), qui-quadrado entre todas as variantes + teste z da líder contra a segunda. Métrica padrão: clique humano confirmado da Fase 5 (aberturas automáticas/MPP e cliques de robô aparecem só como contadores). Vencedor automático só com amostra mínima e significância, após o prazo mínimo; manual sem significância exige confirmação explícita; prazo máximo sem significância => "aguardando decisão" + tarefa na fila de revisão. O restante da audiência recebe o vencedor pela fila da Fase 3 (consentimento/supressão/allowlist conferidos de novo). Transições por CAS (`mkt_experiments`): um único vencedor e um único envio ao restante mesmo com crons simultâneos. Avaliação no cron de marketing, dentro da trava.
+    - Otimização de horário de envio (`src/modules/enterprise/send-time.ts`): melhor horário por contato a partir do engajamento humano dos últimos 180 dias (cliques humanos, respostas, formulários; aberturas nunca contam), com fallback segmento -> base -> padrão (10h em dia útil), sempre dentro da janela comercial em America/Sao_Paulo (`SEND_TIME_WINDOW`, `SEND_TIME_WEEKDAYS`, `SEND_TIME_HOLIDAYS`), com nível de confiança. Opcional no disparo da campanha, no teste A/B e na cadência (envio real da Fase 2: adia uma vez por passo, no máximo 24 h).
+    - Agendamento de campanha por data/hora (horário de Brasília, até 180 dias) e cancelamento dos envios agendados ainda não iniciados.
+    - IA comercial e de marketing reaproveitando o provedor do Assistente (OmniRoute, `OMNIROUTE_BASE_URL`/`OMNIROUTE_API_KEY`), atrás de `AI_MARKETING_ENABLED` (desligada por padrão): sugestões de assunto, texto, próximo passo e resumo de engajamento da conta, sempre com confiança (mínimo entre a do modelo e a dos dados), evidências determinísticas e limitações. Só dados agregados vão ao provedor (sem nome, e-mail, telefone, empresa ou textos de resposta; e-mail/telefone/CPF/CNPJ removidos de briefings e da resposta); contato suprimido manda só o fato da supressão; resumo da conta exclui o engajamento de suprimidos. Toda sugestão nasce "aguardando aprovação"; nada é enviado, agendado ou alterado pela IA (aprovada, só libera a cópia manual). Auditoria sem conteúdo (`AI_MARKETING_SUGGEST`/`_APPROVE`/`_REJECT`), limite de 20 sugestões por hora por usuário, escopo do vendedor respeitado.
+    - Central de preferências completa por finalidade no link assinado do e-mail: caixas por finalidade (e-mail mascarado), salvar remove e adiciona; adicionar registra consentimento (`CONSENTIMENTO_OPT_IN`) e evento na linha do tempo; quem pediu descadastro total não volta pelo link. Descadastro em um clique inalterado.
+    - Rotas: `/api/marketing/experiments[/:id[/start|winner|cancel]]`, `/api/marketing/experiments/sample-size`, `/api/marketing/send-time/contact/:id|segment|sequence/:id`, `/api/marketing/campaigns/:id/cancel-scheduled`, `/api/marketing/ai/suggest|suggestions[/:id/approve|reject]`, `/api/marketing/enterprise/status`; disparo real aceita `scheduleAt` e `sendTimeOptimization`. Criar/iniciar/decidir teste, cancelar agendamento e ligar a opção na cadência: admin ou controle total do CRM com 2FA.
+    - Testes com provedor de IA simulado (sob `NODE_ENV=test` o cliente real nunca é criado). SQL validado em PGlite (`scripts/sql-local/validate-enterprise-sql.cjs`).
+    - Falta: teste adaptativo (bandit), testes A/B dentro das cadências, horário por dia da semana com feriados nacionais automáticos, IA para classificação de respostas e geração de modelos completos em blocos, métricas de custo da IA por usuário.
 
 ---
 
@@ -481,6 +540,46 @@ Contexto: na reorganização do menu e das configurações no padrão HubSpot (c
 | Configurações | Privacidade e consentimento, Objetos, Importar e exportar | Backlog |
 
 Já cobertos por telas existentes (não são lacunas): Pontuação de leads (em Segmentos & Lead Scoring), Análise de marketing (em Campanhas), Atividades (em Tarefas).
+
+## 11. Padrão de Interface HubSpot para Registros, Atividades e Configurações (pedido do Marcéllo em 19/11/2026)
+
+Diretrizes do Marcéllo: *"nao tem o botão salvar, veja como funciona no hubspot, usar esse mesmo pardrao para adição de novos itens"* (`[t287u]`), *"ao clicar em notas, tarefas, reunião, mais"* (`[t288u]`), *"veja a tela ao clicar na engrenagem do lado direito superior"* (`[t290u]`) e *"coloque tudo isso no roadmap"* (`[t289u]`).
+
+### 11.1. Painel de associação (Criar novo / Adicionar existente) — em andamento
+- [ ] Painel lateral reutilizável para associar Contatos, Empresas, Negócios e Chamados, no lugar dos modais antigos ("Associar contato" sem botão Salvar).
+- [ ] Aba **Adicionar existente**: busca no servidor (nome, e-mail, telefone, CNPJ, sem acentos), contador total, ordenação (recentemente adicionados), lista com caixas de seleção "Nome (e-mail)", já associados indicados, paginação com itens por página, rodapé **Salvar** (desabilitado até marcar) e **Cancelar**.
+- [ ] Aba **Criar novo**: E-mail, Nome e Sobrenome primeiro; demais campos (telefone, celular, cargo, área, proprietário, site) liberados após nome ou e-mail; botões **Criar**, **Criar e adicionar outro** e **Cancelar**. Se o e-mail buscado não existir, oferecer criar com ele preenchido.
+- [ ] Corrigir a busca que não encontrou `valmir.deus@la.nec.com`.
+
+### 11.2. Botões de atividade da ficha (Observação, E-mail, Chamada, Tarefa, Reunião, Mais) — em andamento
+- [ ] Janela flutuante base (minimizar, expandir, fechar, Esc fecha, uma aberta por vez, rascunho preservado ao minimizar), ancorada sobre a linha do tempo.
+- [ ] **Observação**: "Para" com o registro, editor com formatação, "Associado a N registros", opção "Criar uma tarefa para acompanhar em 2 dias úteis", botão **Criar observação**.
+- [ ] **Tarefa**: título, vencimento (padrão 2 dias úteis, 10:00), lembrete, repetição, tipo, prioridade, fila, atribuído a, observações, associações, botão **Criar tarefa**.
+- [ ] **Reunião (Programação)**: modal em duas colunas — à esquerda host, título, data, início e fim, participantes, local, lembretes por e-mail, descrição, associações e observação interna; à direita a agenda semanal do usuário (Hoje, setas, ocultar fins de semana, fuso de Brasília). Botões **Agendar reunião** e **Cancelar**.
+- [ ] **Mais**: menu com busca e registros manuais — SMS, correio postal, e-mail, chamada, mensagem do LinkedIn, mensagem do WhatsApp e reunião. Avaliar "Reordenar botões de atividade".
+- [ ] **E-mail** e **Chamada** no mesmo estilo de janela flutuante.
+
+### 11.3. Central de Configurações pela engrenagem (canto superior direito) — próxima rodada
+- [ ] Tela de configurações no padrão HubSpot: menu lateral com busca ("Pesquisar configurações") e grupos **Suas preferências** (Geral, Notificações) e **Gerenciamento de conta** (padrões da conta, usuários e equipes, registro de auditoria, integrações, privacidade e consentimento, segurança, IA, entre outros).
+- [ ] **Geral** com abas Perfil, E-mail, Chamadas, Calendário, Tarefas, Segurança e Automação. Perfil: foto, nome, sobrenome, idioma, formato de data/hora/número (Brasil) e telefone, valendo só para o usuário.
+- [ ] Reaproveitar a Central de Administração existente (seção 7) e o RBAC; nada de "Upgrade".
+
+### 11.4. Assistente de IA — próximas funcionalidades (etapa 2)
+- [x] Consultar e editar propostas pelo número (no ar em 19/11/2026, main 1805460), incluindo as importadas do ERP de origem, com alteração só no STI-hub.
+- [ ] Propostas: gerar PDF, enviar, aprovar e converter.
+- [ ] Contratos e vendas: criar, editar e encerrar.
+- [ ] Faturas: lançar, dar baixa e cobrar; nota fiscal e recibo (NF depende da homologação do Fiscal).
+- [ ] CRM: empresas, contatos, negócios e etapas.
+- [ ] Chamados e OS: atualizar, comentar, atribuir e fechar.
+- [ ] Responder clientes (e-mail e WhatsApp) e relatórios avançados.
+- [ ] **Próxima rodada** (Marcéllo, `[t291u]`: *"A IA funcionou, mas precisa aprimorar, pedir detalhes de configurações para adiconar no campo detalhes"*): ao montar proposta ou item, perguntar os detalhes de configuração que faltarem (ex.: processador, memória, discos, RAID, fonte, garantia, sistema operacional) e gravá-los no campo **Detalhes** do item.
+- [ ] **Próxima rodada** (Marcéllo, `[t291u]`: *"manter um historico das conversas assim posso continuar em determinda conversa e ter mais de uma conversa em andamento, isso deve ser separado por USER"*): histórico de conversas salvo no banco, separado por usuário (cada um vê só as suas), lista de conversas com título e data, nova conversa, retomar qualquer uma, várias em andamento; respeitar LGPD (retenção e exclusão pelo próprio usuário).
+
+### 11.5. Ressalvas do CISO (19/11/2026)
+- [ ] PATCH geral de propostas: bloquear edição de campos em Aprovada, Convertida e Recusada (incluir RECUSADA em `PROPOSAL_LOCKED_STATUSES`).
+- [ ] Allowlist do PATCH: não aceitar `code`, `companyCnpj` nem totais vindos do cliente.
+- [ ] Pílulas da busca global respeitarem `moduleAccess`.
+- [ ] Remanescentes da troca de nomes: "GestãoClick" no painel em tempo real do ERP e parêntese faltando em Contatos & Empresas (em andamento); confirmar SKU de fallback `ITEM-n` na proposta pública.
 
 ## Próxima Etapa Planejada (Backlog de Integração ERP -> CRM)
 

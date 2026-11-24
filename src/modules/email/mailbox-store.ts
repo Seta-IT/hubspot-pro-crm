@@ -132,6 +132,10 @@ export interface MailboxStore {
   recordOpen(trackingId: string, now?: number): Promise<void>;
   /** Registra clique e retorna o destino gravado (ou null). */
   recordClick(trackingId: string, linkIndex: number, now?: number): Promise<string | null>;
+  /** Fase 3 (funil de campanhas): aberturas/cliques por id de rastreio (ate 5000 ids). */
+  trackingStats(trackingIds: string[]): Promise<Array<{ trackingId: string; openCount: number; clickCount: number }>>;
+  /** Fase 5 (classificacao de sinais): mensagem pelo id de rastreio, ou null. */
+  getByTrackingId(trackingId: string): Promise<CrmEmailMessage | null>;
 }
 
 export function newMailboxId(prefix: string): string {
@@ -236,6 +240,16 @@ export class MemoryMailboxStore implements MailboxStore {
       .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
       .slice(0, limit)
       .map((m) => ({ ...m }));
+  }
+  async trackingStats(trackingIds: string[]) {
+    const set = new Set(trackingIds.slice(0, 5000));
+    return this.messages
+      .filter((m) => m.trackingId && set.has(m.trackingId))
+      .map((m) => ({ trackingId: m.trackingId as string, openCount: m.openCount, clickCount: m.clickCount }));
+  }
+  async getByTrackingId(trackingId: string) {
+    const m = this.messages.find((x) => x.trackingId === trackingId);
+    return m ? { ...m } : null;
   }
   async recordOpen(trackingId: string, now = Date.now()) {
     const m = this.messages.find((x) => x.trackingId === trackingId);
@@ -526,11 +540,26 @@ export class PostgresMailboxStore implements MailboxStore {
     const r = await (await this.db()).query(`SELECT * FROM crm_email_messages WHERE ${conds.join(' OR ')} ORDER BY occurred_at DESC LIMIT $${vals.length}`, vals);
     return r.rows.map(rowToMessage);
   }
+  async trackingStats(trackingIds: string[]) {
+    const ids = trackingIds.filter((t) => typeof t === 'string' && t.length > 0).slice(0, 5000);
+    if (!ids.length) return [];
+    const r = await (await this.db()).query(
+      `SELECT tracking_id, open_count, click_count FROM crm_email_messages WHERE tracking_id = ANY($1::text[])`,
+      [ids]
+    );
+    return r.rows.map((row: any) => ({ trackingId: String(row.tracking_id), openCount: Number(row.open_count) || 0, clickCount: Number(row.click_count) || 0 }));
+  }
+  async getByTrackingId(trackingId: string) {
+    const r = await (await this.db()).query(`SELECT * FROM crm_email_messages WHERE tracking_id = $1 LIMIT 1`, [trackingId]);
+    return r.rows[0] ? rowToMessage(r.rows[0]) : null;
+  }
   async recordOpen(trackingId: string, now = Date.now()) {
     const db = await this.db();
     const r = await db.query(
-      `UPDATE crm_email_messages SET open_count = open_count + 1, last_opened_at = to_timestamp($2 / 1000.0)
-       WHERE tracking_id = $1 AND occurred_at < to_timestamp(($2 - $3) / 1000.0) RETURNING id`,
+      // 19/11 (validado em Postgres real): sem os casts, "$2 - $3" (dois parametros sem tipo) falha com
+      // "operator is not unique: unknown - unknown" e nenhuma abertura era gravada.
+      `UPDATE crm_email_messages SET open_count = open_count + 1, last_opened_at = to_timestamp($2::double precision / 1000.0)
+       WHERE tracking_id = $1 AND occurred_at < to_timestamp(($2::double precision - $3::double precision) / 1000.0) RETURNING id`,
       [trackingId, now, OPEN_GRACE_MS]
     );
     if (r.rowCount) await db.query(`INSERT INTO crm_email_tracking_events (tracking_id, kind) VALUES ($1, 'OPEN')`, [trackingId]);
@@ -538,8 +567,8 @@ export class PostgresMailboxStore implements MailboxStore {
   async recordClick(trackingId: string, linkIndex: number, now = Date.now()) {
     const db = await this.db();
     const r = await db.query(
-      `UPDATE crm_email_messages SET click_count = click_count + 1, last_clicked_at = to_timestamp($3 / 1000.0)
-       WHERE tracking_id = $1 AND jsonb_array_length(links) > $2 RETURNING links ->> $2::int AS url`,
+      `UPDATE crm_email_messages SET click_count = click_count + 1, last_clicked_at = to_timestamp($3::double precision / 1000.0)
+       WHERE tracking_id = $1 AND jsonb_array_length(links) > $2::int RETURNING links ->> $2::int AS url`,
       [trackingId, linkIndex, now]
     );
     const url = r.rows[0]?.url;

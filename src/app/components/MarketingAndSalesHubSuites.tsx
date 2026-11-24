@@ -19,6 +19,7 @@ import {
 import { formatBRL } from './ui-helpers';
 import { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import MarketingEmailsManager from './MarketingEmailsManager';
+import MarketingCampaignStudio from './MarketingCampaignStudio';
 import type {
   AccountEngagementSummary,
   MarketingCampaign,
@@ -41,7 +42,7 @@ export type MarketingHubSubView =
 const INITIAL_CAMPAIGNS: MarketingCampaign[] = [
   {
     id: 'cmp-1',
-    name: 'Campanha ABM Q4 — Substituição CAPEX por Locação Pura (0% ISS — SV 31 STF)',
+    name: 'Campanha ABM Q4 — Substituição CAPEX por Locação (0% ISS — SV 31 STF)',
     objective: 'Gerar oportunidades de locação recorrente de servidores, switches PoE e FortiGate SD-WAN.',
     status: 'ACTIVE',
     channel: 'LinkedIn Ads + E-mail ABM + Landing Page',
@@ -95,10 +96,10 @@ const INITIAL_CAMPAIGNS: MarketingCampaign[] = [
   },
   {
     id: 'cmp-3',
-    name: 'SD-WAN FortiGate Dual-WAN, Renovação & Spare Parts Base GestãoClick (#118887)',
+    name: 'SD-WAN FortiGate Dual-WAN, Renovação & Spare Parts Base STI HUB ERP',
     objective: 'Expansão de contratos ativos, renovação 24/36m e oferta de redundância BGP/SD-WAN.',
     status: 'IN_PROGRESS',
-    channel: 'E-mail Marketing Base GestãoClick (#118887)',
+    channel: 'E-mail Marketing Base STI HUB ERP',
     sendingProvider: 'MARKETING_ESP',
     utmCampaign: 'sdwan-fortigate-renovacao-gc',
     budgetBrl: 8500,
@@ -158,7 +159,7 @@ const INITIAL_SEGMENTS: MarketingSegment[] = [
   },
   {
     id: 'seg-clientes-locacao-gc',
-    name: 'Carteira Ativa Locação & Contratos GestãoClick (#118887)',
+    name: 'Carteira Ativa Locação & Contratos STI HUB ERP',
     description: 'Base de clientes com contrato de locação/serviços ativo para renovação e spare parts.',
     type: 'STATIC',
     filterExpression: "lifecyclestage = 'CUSTOMER' AND gestaoclick_contract_active = true",
@@ -172,9 +173,9 @@ const INITIAL_SEGMENTS: MarketingSegment[] = [
 const INITIAL_LANDING_PAGES: MarketingLandingPage[] = [
   {
     id: 'lp-locacao-sv31',
-    name: 'LP Executiva — Locação Pura de Servidores, PABX IP & SD-WAN (0% ISS SV 31 STF)',
+    name: 'LP Executiva — Locação de Servidores, PABX IP & SD-WAN (0% ISS SV 31 STF)',
     slug: 'locacao-equipamentos-ti-telecom-sv31',
-    title: 'Substitua CAPEX por Locação Pura com 0% de ISSQN e SLA NOC 24x7',
+    title: 'Substitua CAPEX por Locação com 0% de ISSQN e SLA NOC 24x7',
     subtitle: 'Simule a redução imediata de TCO em servidores, switches PoE, terminais IP Yealink e firewalls FortiGate.',
     formId: 'form-enterprise-demo',
     campaignId: 'cmp-1',
@@ -386,7 +387,7 @@ export function MarketingHubSuiteTop({
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs flex flex-wrap items-center justify-between gap-3">
         <div>
           <span className="text-[10px] font-semibold uppercase text-accent block">
-            STI-hub • Email Marketing, Cadências &amp; Sales Engagement (HubSpot Pro + Mailchimp — Seta Telecom)
+            STI-hub • Email Marketing, Cadências &amp; Sales Engagement (STI HUB CRM + Mailchimp — Seta Telecom)
           </span>
           <h2 className="text-base sm:text-lg font-semibold text-slate-900">
             Marketing Hub &amp; Sales Engagement — Campanhas, Audiências ABM, UTMs, LGPD &amp; Receita
@@ -621,6 +622,9 @@ export function MarketingHubSuiteTop({
         </div>
       )}
 
+      {/* Fase 3 (19/11): campanhas reais (modelos aprovados, domínio, fila e funil) */}
+      {activeView === 'EMAIL_MARKETING' && <MarketingCampaignStudio campaigns={campaigns} />}
+
       {/* VIEW 2: EMAIL MARKETING & MASS ABM DISPATCH */}
       {activeView === 'EMAIL_MARKETING' && (
         <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4 text-xs">
@@ -678,7 +682,7 @@ export function MarketingHubSuiteTop({
               },
               {
                 title: 'Upgrade Tecnológico: Licença Cisco ISR 4400 (SL-44-SEC-K9) & SD-WAN',
-                audience: 'Segmento: Clientes Recorrentes GestãoClick (720 contatos)',
+                audience: 'Segmento: Clientes Recorrentes STI HUB ERP (720 contatos)',
                 provider: 'Provedor Marketing ESP (SPF/DKIM/DMARC Alinhado)',
                 openRate: '51,2% (Sinal Observado)',
                 ctr: '18,6% (Cliques Humanos)',
@@ -941,7 +945,7 @@ export function SalesHubProToolsStrip({
             Sales Hub Pro
           </span>
           <span className="font-semibold text-slate-700">
-            Ferramentas Avançadas de Vendas HubSpot:
+            Ferramentas Avançadas de Vendas STI HUB CRM:
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1016,7 +1020,7 @@ export function SalesHubProToolsStrip({
             </div>
             <p className="text-slate-600 leading-relaxed">
               1. <strong>Diagnóstico GPCT:</strong> Identificar gasto atual com telefonia legada, links e manutenção avulsa.<br />
-              2. <strong>Argumento Tributário (SV 31 STF):</strong> Demonstrar economia imediata de 5% de ISSQN na Fatura de Locação Pura + dedutibilidade OPEX.<br />
+              2. <strong>Argumento Tributário (SV 31 STF):</strong> Demonstrar economia imediata de 5% de ISSQN na Fatura de Locação + dedutibilidade OPEX.<br />
               3. <strong>Fechamento:</strong> Gerar Orçamento (#4695) com Link PDF A4 e enviar para assinatura digital.
             </p>
           </div>
@@ -1024,7 +1028,7 @@ export function SalesHubProToolsStrip({
           <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2.5">
             <div className="font-semibold text-[#1e3a6e] flex items-center gap-1.5">
               <Calendar className="w-4 h-4" />
-              Links de Agendamento Comercial (HubSpot Meetings)
+              Links de Agendamento Comercial (STI HUB CRM Meetings)
             </div>
             {[
               { name: 'Agenda Executiva — Marcelo Lopes Mira (30 min)', url: 'https://sti-hub.vercel.app/reuniao/marcelo-mira' },

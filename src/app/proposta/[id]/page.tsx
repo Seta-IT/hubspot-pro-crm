@@ -19,7 +19,7 @@ import {
   UserCheck,
   Edit3,
   Truck,
-  CreditCard,
+  Landmark,
   History,
   Clock,
   RotateCcw,
@@ -29,7 +29,9 @@ import {
 import { ErpCommercialProposal, ErpProposalDigitalSignature, ErpProposalVersionEntry } from '../../../db/types';
 import { formatBRL as formatBRLWhole } from '../../components/ui-helpers';
 import { isoToBrDate } from '../../lib/br-date';
+import { formatClientProposalViews } from '../../lib/proposal-client-view';
 import { publicDtoToRenderableProposal, type PublicProposalDto } from '../../lib/proposal-public-dto';
+import { displayPaymentConditionText, proposalPaymentMethodLabel } from '../../lib/proposal-payment-method';
 import { buildOpenCrmHref } from '../../lib/home-screen';
 import { SETA_PROPOSAL_HEADER_ADDRESS } from '../../lib/company-issuer-address';
 import {
@@ -60,6 +62,9 @@ import {
   resolveProposalDeliveryLeadTime,
   resolveProposalDocumentHeadings,
   resolveProposalLayoutKind,
+  proposalSetupFeeLabel,
+  resolveProposalAmountDisplay,
+  resolveProposalCommercialPresentation,
 } from '../../lib/proposal-share';
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
@@ -68,6 +73,7 @@ import { lookupServerProposal } from '../../lib/proposal-approval-lookup';
 import { copyInternalProposalLink, openInternalProposalLink } from '../../lib/internal-proposal-summary';
 import { ProposalLinkOverrideContext } from '../../lib/proposal-link-override';
 import { formatProposalDisplayCode, isLegacyProposalCode } from '../../lib/proposal-number';
+import { displayProposalTechnicalClauses } from '../../lib/proposal-technical-clauses';
 import { isProposalValidityExpired, proposalExpiredRevalidationMessage, formatProposalValidUntilPtBr } from '../../lib/proposal-validity';
 
 /**
@@ -105,6 +111,7 @@ function PublicProposalPrintContent() {
   const [linkChecked, setLinkChecked] = useState(false);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [publicLinkInvalid, setPublicLinkInvalid] = useState(false);
+  const [scopeDenied, setScopeDenied] = useState(false);
   const approveIdempotencyKeyRef = useRef<string | null>(null);
   const isPublicLinkMode = Boolean(linkToken);
   const [viewingVersionNum, setViewingVersionNum] = useState<number | null>(() =>
@@ -269,10 +276,17 @@ function PublicProposalPrintContent() {
     }
 
     let active = true;
-    fetch(`/api/erp/proposals/${encodeURIComponent(rawId)}`)
-      .then((r) => r.json())
-      .then((json) => {
+    fetch(`/api/erp/proposals/${encodeURIComponent(rawId)}`, { credentials: "same-origin", cache: "no-store" })
+      .then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }))
+      .then(({ status, json }) => {
         if (!active) return;
+        if (status === 403 && json?.code === "PROPOSAL_SCOPE_FORBIDDEN") {
+          setScopeDenied(true);
+          setProposal(null);
+          setLoading(false);
+          return;
+        }
+        setScopeDenied(false);
         const apiData: ErpCommercialProposal | null =
           json?.data && !Array.isArray(json.data)
             ? (json.data as ErpCommercialProposal)
@@ -835,11 +849,17 @@ function PublicProposalPrintContent() {
         <div className="bg-white rounded-lg border border-slate-200 p-8 shadow-sm text-center max-w-lg w-full space-y-4">
           <FileText className="w-12 h-12 text-[#1e3a6e] mx-auto" />
           <h1 className="text-lg font-semibold text-slate-900">
-            Proposta Comercial #{rawId || 'Não identificada'} não localizada
+            {scopeDenied
+              ? "Sem permissão para ver esta proposta"
+              : publicLinkInvalid
+              ? "Link inválido ou sem permissão"
+              : `Proposta Comercial #${rawId || "Não identificada"} não localizada`}
           </h1>
           <p className="text-xs text-slate-600 leading-relaxed">
-            {publicLinkInvalid
-              ? "Este link de proposta é inválido. Solicite um novo link ao seu consultor Seta Telecom."
+            {scopeDenied
+              ? "Sua sessão não inclui esta proposta. Peça acesso a um administrador da Seta Telecom."
+              : publicLinkInvalid
+              ? "Este link de proposta é inválido ou você não tem permissão para abri-lo. Solicite um novo link ao seu consultor Seta Telecom."
               : <>Não encontramos nenhum orçamento com o identificador <strong>{rawId}</strong>. Volte ao painel da Seta Telecom para abrir ou gerar o link da proposta desejada.</>}
           </p>
           {!linkToken && !isInternalUser && (
@@ -869,38 +889,12 @@ function PublicProposalPrintContent() {
   const expiredBannerText = proposalExpiredRevalidationMessage(proposal.validUntil);
   const expiredSinceLabel = formatProposalValidUntilPtBr(proposal.validUntil) || validUntilStr;
 
-  const recurringItems = proposal.items.filter((i) => i.isRecurring !== false);
-  const setupItems = proposal.items.filter((i) => i.isRecurring === false);
-
-  const productsSubtotal =
-    proposal.productsSubtotal ??
-    proposal.items
-      .filter((i) => inferProposalItemType(i) === 'PRODUCT')
-      .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0);
-
-  const servicesSubtotal =
-    proposal.servicesSubtotal ??
-    proposal.items
-      .filter((i) => inferProposalItemType(i) === 'SERVICE')
-      .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0);
-
-  const itemDiscountsSum = proposal.items.reduce((acc, it) => {
-    const gross = Math.max(1, Number(it.quantity || 1)) * Number(it.unitPrice || 0);
-    const net = Number(it.subtotal ?? it.totalMonthly ?? gross);
-    return acc + Math.max(0, gross - net);
-  }, 0);
-
-  const globalDiscountVal =
-    Number(proposal.discountAmount || 0) +
-    Math.round(
-      (productsSubtotal + servicesSubtotal) *
-        (Number(proposal.discountPercentGlobal || 0) / 100) *
-        100
-    ) /
-      100;
-
-  const totalDiscounts = Math.round((itemDiscountsSum + globalDiscountVal) * 100) / 100;
-  const isolatedSetupTotal = Number(proposal.oneTimeSetupTotal || 0);
+  const commercialView = resolveProposalCommercialPresentation(proposal);
+  const productsSubtotal = commercialView.productsSubtotal;
+  const servicesSubtotal = commercialView.servicesSubtotal;
+  const itemDiscountsSum = commercialView.itemDiscounts;
+  const globalDiscountVal = commercialView.globalDiscount;
+  const totalDiscounts = commercialView.totalDiscounts;
   const contractDurationMonths = Math.max(1, Number(proposal.contractMonths || 24));
   const activeLayout = resolveProposalLayoutKind(proposal.templateStyle);
   const activeTemplate = activeLayout;
@@ -928,22 +922,10 @@ function PublicProposalPrintContent() {
     isServices,
   } = docHeadings;
   const saleLike = isProductsOnly || isSpareParts;
-  const hideServiceFreight = proposalHidesFreight(proposal);
-  const shippingCost = hideServiceFreight ? 0 : Number(proposal.shippingCost || 0);
-  // PRODUTOS (venda): sem Setup na folha/PDF. Itens de pagamento unico de venda NAO sao setup
-  // (o oneTimeSetupTotal deles e a propria soma dos itens; soma-lo dobrava o total). Valores com
-  // centavos. LOCACAO/SERVICOS seguem exatamente como antes.
-  // SERVICOS com todos os itens de cobranca unica (isRecurring=false): sem "/mes", sem vigencia e sem
-  // Setup duplicado; exibe Valor Total = itens + setupFee explicito + frete (totalContractValue).
-  const isOneTimeServices =
-    isServices &&
-    !isRental &&
-    proposal.items.length > 0 &&
-    proposal.items.every((i) => i.isRecurring === false);
-  const oneTimeServicesSetupFee = Math.max(0, Number(proposal.setupFee || 0));
-  const hasSetupSelected = isOneTimeServices
-    ? oneTimeServicesSetupFee > 0
-    : !saleLike && isolatedSetupTotal > 0;
+  const hideServiceFreight = commercialView.hideFreight;
+  const shippingCost = commercialView.shippingCost;
+  const isOneTimeServices = commercialView.isOneTimeServices;
+  const hasSetupSelected = commercialView.showSetupInTotals;
   const formatBRL = (value: number | null | undefined): string =>
     saleLike
       ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value ?? 0))
@@ -965,25 +947,37 @@ function PublicProposalPrintContent() {
     .replace(avulsoService ? /reajuste anual(?:\s+pelo)?\s+IPCA/gi : /$^/, "")
     .replace(avulsoService ? /\s{2,}/g : /$^/, avulsoService ? " " : "")
     .trim();
-  const uniquePayment = isOneTimeServices || avulsoService;
-  const uniquePaymentLabel = avulsoService
-    ? "Valor total (pagamento único)"
-    : "Valor Total (Pagamento Único)";
+  const uniquePayment = commercialView.uniquePayment;
+  const uniquePaymentLabel = commercialView.uniquePaymentLabel;
   const hasContractVigencia =
     !avulsoService && !saleLike && (isRental || proposal.items.some((i) => i.isRecurring !== false));
   const sellerContact = resolveProposalSellerContact(proposal);
   const displayPaymentCondition =
-    (avulsoService
-      ? readablePaymentCondition(proposal.paymentCondition)
-      : cleanProposalPaymentCondition(proposal.paymentCondition)) || "Conforme condições acordadas";
-  const commercialTotalAmount = saleLike
-    ? // Venda: subtotal (itens ja liquidos do desconto do item) - desconto global + frete; sem setup.
-      Math.round((productsSubtotal + servicesSubtotal - globalDiscountVal + shippingCost) * 100) / 100
-    : uniquePayment
-      ? Number(proposal.totalContractValue || commercialFigures.monthly || 0)
-      : proposal.monthlyRecurringTotal || proposal.totalContractValue;
-  const displaySetupAmount = isOneTimeServices ? oneTimeServicesSetupFee : isolatedSetupTotal;
-  const showTotalInsteadOfMonthly = saleLike || uniquePayment;
+    displayPaymentConditionText(
+      avulsoService
+        ? readablePaymentCondition(proposal.paymentCondition)
+        : cleanProposalPaymentCondition(proposal.paymentCondition)
+    ) || "Conforme condições acordadas";
+  const commercialTotalAmount = commercialView.commercialTotalAmount;
+  const displaySetupAmount = commercialView.displaySetupAmount;
+  const setupFeeLabel = commercialView.setupFeeLabel;
+  const setupFeeIsolatedLabel = proposalSetupFeeLabel(proposal, 'isolated');
+  const showTotalInsteadOfMonthly = commercialView.saleLike || commercialView.uniquePayment;
+  const showFreightInTotals = !hideServiceFreight && shippingCost > 0;
+  const showDiscountInTotals = totalDiscounts > 0;
+  const displayedMidTotal = showTotalInsteadOfMonthly ? commercialTotalAmount : (proposal.monthlyRecurringTotal || commercialTotalAmount);
+  const midHasExtras = showDiscountInTotals || hasSetupSelected || showFreightInTotals;
+  const midHasBothCategories = productsSubtotal > 0 && servicesSubtotal > 0;
+  const moneyEq = (a: number, b: number) => Math.round((a || 0) * 100) / 100 === Math.round((b || 0) * 100) / 100;
+  const showProductsSubtotalCard = productsSubtotal > 0 && (midHasExtras || midHasBothCategories || !moneyEq(productsSubtotal, displayedMidTotal));
+  const showServicesSubtotalCard = servicesSubtotal > 0 && (midHasExtras || midHasBothCategories || !moneyEq(servicesSubtotal, displayedMidTotal));
+  const setupFeeTotalsLabel = uniquePayment || saleLike
+    ? setupFeeIsolatedLabel
+    : `${setupFeeIsolatedLabel} (à parte da mensalidade)`;
+  const topSummaryCols = 3 + (hasSetupSelected ? 1 : 0) + (showFreightInTotals ? 1 : 0);
+  const topSummaryGridClass = topSummaryCols >= 5 ? "sm:grid-cols-5 print:grid-cols-5" : topSummaryCols === 4 ? "sm:grid-cols-4 print:grid-cols-4" : "sm:grid-cols-3 print:grid-cols-3";
+  const midSummaryCols = (showProductsSubtotalCard ? 1 : 0) + (showServicesSubtotalCard ? 1 : 0) + (showDiscountInTotals ? 1 : 0) + (hasSetupSelected ? 1 : 0) + (showFreightInTotals ? 1 : 0) + 1;
+  const midSummaryGridClass = midSummaryCols >= 6 ? "sm:grid-cols-6 print:grid-cols-6" : midSummaryCols === 5 ? "sm:grid-cols-5 print:grid-cols-5" : midSummaryCols === 4 ? "sm:grid-cols-4 print:grid-cols-4" : midSummaryCols === 3 ? "sm:grid-cols-3 print:grid-cols-3" : midSummaryCols === 2 ? "sm:grid-cols-2 print:grid-cols-2" : "sm:grid-cols-1 print:grid-cols-1";
 
 
   // Classes de cada modelo vêm do módulo comum (também usado pelo Recibo/Fatura de Locação).
@@ -1049,6 +1043,11 @@ function PublicProposalPrintContent() {
           </button>
         </div>
 
+        {isInternalUser && formatClientProposalViews(proposal) ? (
+          <p data-testid="proposal-client-views" className="print:hidden text-[11px] font-semibold text-slate-600">
+            {formatClientProposalViews(proposal)}
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2">
           {isInternalUser && (
             <>
@@ -1088,23 +1087,23 @@ function PublicProposalPrintContent() {
             <button
               type="button"
               data-testid="open-internal-link"
-              title="Abre o link interno desta proposta em uma nova aba"
+              title="Abre a Versão contrato desta proposta em uma nova aba"
               onClick={() => openInternalProposalLink(proposal.id)}
               className="inline-flex items-center gap-1.5 bg-white px-3 py-1.5 text-xs font-semibold text-[#1e3a6e] transition hover:bg-[#eef2fa] cursor-pointer"
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              Abrir Link interno
+              Abrir Versão contrato
             </button>
             <button
               type="button"
               data-testid="copy-internal-link"
-              title="Copiar link interno"
-              aria-label="Copiar link interno"
+              title="Copiar Versão contrato"
+              aria-label="Copiar Versão contrato"
               onClick={async () => {
                 await copyInternalProposalLink(proposal.id);
                 setInternalCopied(true);
                 setTimeout(() => setInternalCopied(false), 3000);
-                showLinkToast("Link interno copiado.");
+                showLinkToast("Versão contrato copiada.");
               }}
               className="inline-flex items-center border-l border-[#1e3a6e] bg-white px-2 text-[#1e3a6e] transition hover:bg-[#eef2fa] cursor-pointer"
             >
@@ -1393,11 +1392,9 @@ function PublicProposalPrintContent() {
                           const verPdfUrl = buildProposalVersionShortUrl(proposal.id, ver.version, {
                             autoPrint: true,
                           });
-                          const mrrVal =
-                            ver.snapshot?.monthlyRecurringTotal ?? proposal.monthlyRecurringTotal;
+                          const snapProp = { ...proposal, ...(ver.snapshot || {}) };
+                          const amount = resolveProposalAmountDisplay(snapProp);
                           const itemsCount = (ver.snapshot?.items || proposal.items || []).length;
-                          const monthsVal =
-                            ver.snapshot?.contractMonths ?? proposal.contractMonths;
 
                           return (
                             <tr
@@ -1436,9 +1433,9 @@ function PublicProposalPrintContent() {
 
                               <td className="py-3.5 px-4">
                                 <div className="font-semibold text-emerald-700 text-xs">
-                                  {avulsoService
-                                    ? `${formatBRL(proposal.totalContractValue || mrrVal)} (pagamento único) • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"}`
-                                    : `${formatBRL(mrrVal)}/mês • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"} • ${monthsVal} meses`}
+                                  {amount.oneTime
+                                    ? `${formatBRL(amount.amount)} (pagamento único) • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"}`
+                                    : `${formatBRL(amount.amount)}${amount.suffix}${amount.showSetup && !amount.oneTime ? ` • ${proposalSetupFeeLabel(snapProp)}: ${formatBRL(amount.setupAmount)}` : ''} • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"} • ${snapProp.contractMonths ?? proposal.contractMonths} meses`}
                                 </div>
                                 <div className="text-[11px] text-slate-600 mt-0.5">
                                   {ver.changeSummary}
@@ -1994,7 +1991,7 @@ function PublicProposalPrintContent() {
               </div>
             </div>
           ) : (
-            <div className={`print-avoid-break grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-5 print:grid-cols-5" : "sm:grid-cols-4 print:grid-cols-4"} gap-2.5 p-3.5 print:p-2 rounded-lg ${stripBoxClass} text-xs`}>
+            <div className={`print-avoid-break grid grid-cols-2 ${topSummaryGridClass} gap-2.5 p-3.5 print:p-2 rounded-lg ${stripBoxClass} text-xs`}>
               <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
                 <span className="text-[10px] uppercase text-slate-500 font-semibold block">
                   {uniquePayment ? uniquePaymentLabel : "Valor Mensal"}
@@ -2026,14 +2023,14 @@ function PublicProposalPrintContent() {
               {hasSetupSelected && (
                 <div className="sm:border-r print:border-r sm:border-slate-200 print:border-slate-200 sm:pr-2 print:pr-2">
                   <span className="text-[10px] uppercase text-amber-800 font-semibold block">
-                    Setup / Ativação
+                    {setupFeeLabel}
                   </span>
                   <span className="font-semibold text-amber-900">
                     {formatBRL(displaySetupAmount)}
                   </span>
                 </div>
               )}
-              {!hideServiceFreight && (
+              {showFreightInTotals && (
               <div>
                 <span className="text-[10px] uppercase text-slate-500 font-semibold block">
                   FRETE R$:
@@ -2113,7 +2110,8 @@ function PublicProposalPrintContent() {
           </div>
 
           {/* RESUMO DE SUBTOTAIS */}
-          <div className={`print-avoid-break grid grid-cols-2 ${hasSetupSelected ? "sm:grid-cols-6 print:grid-cols-6" : "sm:grid-cols-5 print:grid-cols-5"} gap-2.5 rounded-lg p-3.5 print:p-2 text-xs ${softBoxClass}`}>
+          <div className={`print-avoid-break grid grid-cols-2 ${midSummaryGridClass} gap-2.5 rounded-lg p-3.5 print:p-2 text-xs ${softBoxClass}`}>
+            {showProductsSubtotalCard && (
             <div>
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Subtotal Produtos
@@ -2122,6 +2120,8 @@ function PublicProposalPrintContent() {
                 {formatBRL(productsSubtotal)}
               </strong>
             </div>
+            )}
+            {showServicesSubtotalCard && (
             <div>
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Subtotal Serviços
@@ -2130,26 +2130,29 @@ function PublicProposalPrintContent() {
                 {formatBRL(servicesSubtotal)}
               </strong>
             </div>
+            )}
+            {showDiscountInTotals && (
             <div>
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Descontos
               </span>
               <strong className="text-sm font-semibold text-slate-900">
-                {totalDiscounts > 0 ? `- ${formatBRL(totalDiscounts)}` : "R$ 0,00"}
+                {`- ${formatBRL(totalDiscounts)}`}
               </strong>
             </div>
+            )}
             {hasSetupSelected && (
               <div>
                 <span className="text-[10px] uppercase font-semibold text-amber-800 block">
-                  Setup / Ativação
+                  {setupFeeLabel}
                 </span>
                 <strong className="text-sm font-semibold text-amber-900">
                   {formatBRL(displaySetupAmount)}
                 </strong>
-                <span className="block text-[10px] text-slate-500">Taxa única</span>
+                <span className="block text-[10px] text-slate-500">{uniquePayment || saleLike ? "Taxa única" : "Taxa única, à parte da mensalidade"}</span>
               </div>
             )}
-            {!hideServiceFreight && (
+            {showFreightInTotals && (
             <div>
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                 Frete
@@ -2208,11 +2211,11 @@ function PublicProposalPrintContent() {
                 <div className="pt-1.5 border-t border-slate-200 space-y-0.5 text-[11px] text-slate-600">
                   {hasSetupSelected && (
                     <div className="flex items-center justify-between">
-                      <span>Taxa de Setup (Isolada):</span>
+                      <span>{setupFeeTotalsLabel}</span>
                       <strong className="text-slate-900">{formatBRL(displaySetupAmount)}</strong>
                     </div>
                   )}
-                  {!hideServiceFreight && (
+                  {showFreightInTotals && (
                   <div className="flex items-center justify-between">
                     <span>FRETE R$:</span>
                     <strong className="text-slate-900">{shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}</strong>
@@ -2228,7 +2231,7 @@ function PublicProposalPrintContent() {
             <div className={`print-avoid-break border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
               <div className={`${tableHeaderBgClass} px-4 py-2 flex items-center justify-between text-xs font-semibold`}>
                 <span className="inline-flex items-center gap-1.5">
-                  <CreditCard className="w-4 h-4 text-[#1e3a6e]" />
+                  <Landmark className="w-4 h-4 text-[#1e3a6e]" />
                   CONDIÇÕES DE PAGAMENTO E CRONOGRAMA DE PARCELAS ({proposal.installments.length}x)
                 </span>
                 <span className="text-[11px] text-slate-600">{displayPaymentCondition}</span>
@@ -2252,11 +2255,11 @@ function PublicProposalPrintContent() {
                       <td className="py-2 px-3 font-semibold text-slate-800">
                         {isoToBrDate(inst.dueDate) || inst.dueDate}
                       </td>
-                      <td className="py-2 px-3 text-slate-700">{inst.paymentMethod}</td>
+                      <td className="py-2 px-3 text-slate-700">{proposalPaymentMethodLabel(inst.paymentMethod)}</td>
                       <td className="py-2 px-3 text-right font-semibold text-slate-900">
                         {formatBRL(inst.amount)}
                       </td>
-                      <td className="py-2 px-3 text-slate-600">{inst.notes || "—"}</td>
+                      <td className="py-2 px-3 text-slate-600">{inst.notes ? displayPaymentConditionText(inst.notes) : "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2284,7 +2287,7 @@ function PublicProposalPrintContent() {
             </div>
           )}
 
-          {cleanProposalTechnicalClauses(proposal.technicalClauses) && (
+          {displayProposalTechnicalClauses(proposal) && (
             <div className={`print-avoid-break p-4 print:p-3 rounded-lg ${softBoxClass} space-y-1.5 text-xs`}>
               <div className="font-semibold text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-[#1e3a6e]" />
@@ -2295,7 +2298,7 @@ function PublicProposalPrintContent() {
                     : "Condições Técnicas, Remessa CFOP 5.908 & Acordo de Nível de Serviço (SLA)"}
               </div>
               <p className="text-slate-600 leading-relaxed">
-                {cleanProposalTechnicalClauses(proposal.technicalClauses)}
+                {displayProposalTechnicalClauses(proposal)}
               </p>
             </div>
           )}

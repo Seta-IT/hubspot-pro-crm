@@ -270,7 +270,7 @@ export function HubSpotCardEmailComposer({
         }
         setNewTplName('');
         setShowNewTemplateForm(false);
-        setFeedback(`Template "${j.data?.name}" salvo na biblioteca HubSpot!`);
+        setFeedback(`Template "${j.data?.name}" salvo na biblioteca STI HUB CRM!`);
       }
     } finally {
       setSavingTpl(false);
@@ -476,7 +476,7 @@ export function HubSpotCardEmailComposer({
           <div className="flex items-center justify-between">
             <label className="text-[10px] font-semibold uppercase text-[#516f90] flex items-center gap-1">
               <FileText className="w-3 h-3 text-accent" />
-              Templates de E-mail HubSpot ({templates.length})
+              Templates de E-mail STI HUB CRM ({templates.length})
             </label>
             {canManageEmailTemplates && (
             <button
@@ -536,7 +536,7 @@ export function HubSpotCardEmailComposer({
       {canManageEmailTemplates && showNewTemplateForm && (
         <div className="p-3 rounded-xl bg-orange-50/70 border border-orange-200 space-y-2 text-xs">
           <div className="font-semibold text-slate-800">
-            Salvar Assunto e Corpo atuais como Novo Template HubSpot
+            Salvar Assunto e Corpo atuais como Novo Template STI HUB CRM
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <input
@@ -768,7 +768,7 @@ export function HubSpotCardEmailComposer({
                 </select>
               </div>
               <div>
-                <span className="text-slate-500 block mb-0.5">Fila HubSpot (Queue)</span>
+                <span className="text-slate-500 block mb-0.5">Fila STI HUB CRM (Queue)</span>
                 <select
                   value={followUpQueue}
                   onChange={(e) => setFollowUpQueue(e.target.value)}
@@ -971,7 +971,7 @@ export function HubSpotRecordTasksSection({
         <div className="flex items-center gap-2">
           <CheckSquare className="w-4 h-4 text-[#0091ae]" />
           <h4 className="text-xs font-semibold uppercase tracking-wider text-[#33475b]">
-            Tarefas &amp; Follow-ups HubSpot ({openTasks.length} abertas • {completedTasks.length} concluídas)
+            Tarefas &amp; Follow-ups STI HUB CRM ({openTasks.length} abertas • {completedTasks.length} concluídas)
           </h4>
         </div>
         <button
@@ -1076,7 +1076,7 @@ export function HubSpotRecordTasksSection({
             </div>
             <div>
               <label className="block text-[10px] font-semibold uppercase text-[#516f90] mb-1">
-                Lembrete HubSpot
+                Lembrete STI HUB CRM
               </label>
               <select
                 value={reminderMinutesBefore}

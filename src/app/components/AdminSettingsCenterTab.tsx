@@ -374,7 +374,7 @@ export default function AdminSettingsCenterTab({
           to: testRecipient,
           cc: smtpUser,
           subject: `[STI-hub Diagnóstico] Validação Oficial de Disparo de E-mail — Seta Telecom`,
-          body: `Teste de validação de envio de e-mail executado na Central de Administração do STI-hub.\n\n• Remetente: ${senderName} <${smtpUser}>\n• Servidor SMTP / Relay: ${smtpHost}:${smtpPort} (TLS Ativo)\n• Módulos Habilitados: Propostas PDF, Chamados NOC, Boletos Inter/Itaú, Recibos de Locação (SV 31 STF) e Notas Fiscais.`,
+          body: `Teste de validação de envio de e-mail executado na Central de Administração do STI-hub.\n\n• Remetente: ${senderName} <${smtpUser}>\n• Servidor SMTP / Relay: ${smtpHost}:${smtpPort} (TLS Ativo)\n• Módulos Habilitados: Propostas PDF, STI HUB Desk Service, Boletos Inter/Itaú, Recibos de Locação (SV 31 STF) e Notas Fiscais.`,
         }),
       });
       if (!res.ok) {
@@ -484,14 +484,14 @@ export default function AdminSettingsCenterTab({
               STI-hub • Governança &amp; Configuração Global
             </span>
             <span className="px-2.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold">
-              ● HubSpot #4369067 + GestãoClick #118887
+              ● STI HUB CRM + STI HUB ERP
             </span>
           </div>
           <h1 className="text-lg sm:text-xl font-semibold text-slate-900 mt-1">
             Central de Administração, Campos Customizáveis, Modelos de E-mail &amp; Permissões RBAC
           </h1>
           <p className="text-xs text-slate-500">
-            Configure o disparo de e-mails (SMTP/Resend), gerencie todas as propriedades customizadas do HubSpot e do ERP, edite templates e defina permissões granulares por usuário.
+            Configure o disparo de e-mails (SMTP/Resend), gerencie todas as propriedades customizadas do STI HUB CRM e do ERP, edite templates e defina permissões granulares por usuário.
           </p>
         </div>
 
@@ -781,7 +781,7 @@ export default function AdminSettingsCenterTab({
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-slate-900">
-                Propriedades Mapeadas do HubSpot Portal #4369067 &amp; GestãoClick #118887 ({filteredFields.length})
+                Propriedades Mapeadas do STI HUB CRM &amp; STI HUB ERP ({filteredFields.length})
               </h3>
               <div className="flex flex-wrap gap-1.5">
                 {(['ALL', 'CONTACT', 'COMPANY', 'DEAL', 'TICKET', 'PROPOSAL', 'CONTRACT'] as const).map(
@@ -808,7 +808,7 @@ export default function AdminSettingsCenterTab({
                 <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
                   <tr>
                     <th className="py-2.5 px-3">Rótulo (Label)</th>
-                    <th className="py-2.5 px-3">Nome Interno HubSpot/API</th>
+                    <th className="py-2.5 px-3">Nome Interno (API)</th>
                     <th className="py-2.5 px-3">Objeto</th>
                     <th className="py-2.5 px-3">Tipo</th>
                     <th className="py-2.5 px-3">Grupo</th>
@@ -836,12 +836,12 @@ export default function AdminSettingsCenterTab({
                       <td className="py-2.5 px-3 space-x-1">
                         {f.hubspotSynced && (
                           <span className="px-2 py-0.5 rounded bg-orange-50 text-[#1e3a6e] border border-orange-200 text-[10px] font-semibold">
-                            HubSpot #4369067
+                            STI HUB CRM
                           </span>
                         )}
                         {f.gestaoClickSynced && (
                           <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1e3a6e] border border-blue-200 text-[10px] font-semibold">
-                            GestãoClick ERP
+                            STI HUB ERP
                           </span>
                         )}
                       </td>
@@ -946,7 +946,7 @@ export default function AdminSettingsCenterTab({
                     <option value="ERP_FINANCE_FISCAL">ERP • Boleto / Recibo Locação / NF</option>
                     <option value="CRM_SALES">CRM • Sales Hub / Prospecção</option>
                     <option value="CRM_MARKETING">CRM • Marketing Hub / ABM</option>
-                    <option value="CRM_SERVICE">CRM • Service Desk / NOC</option>
+                    <option value="CRM_SERVICE">STI HUB Desk Service / NOC</option>
                   </select>
                 </div>
               </div>
@@ -1262,7 +1262,7 @@ export default function AdminSettingsCenterTab({
                 {/* 2. Tipos de Conta por Sistema */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
                   <div>
-                    <label className="block font-semibold text-[#0d2b4e] mb-1">Tipo de Conta no CRM &amp; Chamados:</label>
+                    <label className="block font-semibold text-[#0d2b4e] mb-1">Tipo de Conta no CRM &amp; STI HUB Desk Service:</label>
                     <select
                       value={effCrm}
                       onChange={(e) => {
@@ -1304,7 +1304,7 @@ export default function AdminSettingsCenterTab({
                 {/* 3. Permissões Visualizar | Editar | Deletar para Todos os Sistemas */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <div className="border border-slate-200 rounded-xl overflow-hidden">
-                    <div className="bg-[#0d2b4e] text-white px-3 py-2 font-semibold">Permissões no Sistema CRM &amp; Chamados ({CRM_MODULE_ITEMS_CATALOG.length} itens)</div>
+                    <div className="bg-[#0d2b4e] text-white px-3 py-2 font-semibold">Permissões no Sistema CRM &amp; STI HUB Desk Service ({CRM_MODULE_ITEMS_CATALOG.length} itens)</div>
                     <div className="max-h-64 overflow-y-auto">
                       <table className="w-full text-left text-[11px]">
                         <thead className="bg-slate-100 text-slate-600 uppercase text-[9px]">
@@ -1424,7 +1424,7 @@ export default function AdminSettingsCenterTab({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
                       <div>
                         <label className="block font-semibold text-[#0d2b4e] mb-1">
-                          1. Tipo de Conta no CRM (Sales / Marketing / Chamados):
+                          1. Tipo de Conta no CRM (Sales / Marketing / STI HUB Desk Service):
                         </label>
                         <select
                           value={newUserCrmRole}

@@ -18,7 +18,11 @@ import {
 } from 'lucide-react';
 import { Company, Contact, ServiceTicket } from '../../db/types';
 import { ErpOverviewPayload } from './ErpGestaoClickTab';
-import { detectProtectedBranchCompanies, DuplicateCandidatePair } from '../../modules/data-health/deduplication';
+import {
+  detectProtectedBranchCompanies,
+  DuplicateCandidatePair,
+  haveConflictingCnpjs,
+} from '../../modules/data-health/deduplication';
 import { AutoCleanResult, DataHealthSummaryReport } from '../../modules/data-health/health-service';
 import { formatBRL } from './ui-helpers';
 
@@ -125,6 +129,11 @@ export default function DataHealthTab({
     primaryId: string,
     duplicateId: string
   ) => {
+    if (entityType === 'COMPANY') {
+      const a = companies.find((c) => c.id === primaryId);
+      const b = companies.find((c) => c.id === duplicateId);
+      if (a && b && haveConflictingCnpjs(a.cnpj, b.cnpj)) return; // Bloqueio Fiscal: CNPJs distintos
+    }
     const key = `${entityType}-${primaryId}-${duplicateId}`;
     setMergingKey(key);
     try {
@@ -166,6 +175,12 @@ export default function DataHealthTab({
   const incompleteCompanies = companies.filter((c) => c.completenessScore < 65);
   const invalidContacts = contacts.filter((c) => !c.isValidEmail || (c.phone && !c.isValidPhone));
   const protectedBranches = detectProtectedBranchCompanies(companies);
+  // REGRA FISCAL (defesa no cliente): par com CNPJs distintos nunca recebe botão de merge,
+  // mesmo que o payload de duplicidades esteja desatualizado em relação aos CNPJs atuais.
+  const currentCompanyCnpj = (c: Company) => companies.find((x) => x.id === c.id)?.cnpj ?? c.cnpj;
+  const mergeableCompanyDuplicates = (duplicates?.companyDuplicates || []).filter(
+    (p) => !haveConflictingCnpjs(currentCompanyCnpj(p.primary), currentCompanyCnpj(p.duplicate))
+  );
 
   const statusBadgeColor =
     summary?.statusLabel === 'EXCELLENT'
@@ -194,7 +209,7 @@ export default function DataHealthTab({
             {resolvedScope === 'ERP'
               ? 'ERP'
               : resolvedScope === 'CHAMADOS'
-                ? 'GOVERNANÇA DE DADOS EXCLUSIVA • MÓDULO CHAMADOS / NOC'
+                ? 'GOVERNANÇA DE DADOS EXCLUSIVA • MÓDULO STI HUB DESK SERVICE / NOC'
                 : 'GOVERNANÇA DE DADOS EXCLUSIVA • MÓDULO CRM (SALES & MARKETING HUB)'}
           </span>
           <h3 className="text-sm sm:text-base font-semibold text-slate-900">
@@ -225,7 +240,7 @@ export default function DataHealthTab({
                 </div>
                 <div className="space-y-1.5">
                   <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-emerald-300 text-[10px] font-semibold uppercase">
-                    AUDITORIA EXCLUSIVA DA BASE DE CHAMADOS (SERVICE DESK &amp; NOC)
+                    AUDITORIA EXCLUSIVA DA BASE DE CHAMADOS (STI HUB DESK SERVICE &amp; NOC)
                   </span>
                   <h2 className="text-lg sm:text-xl font-semibold">
                     Diagnóstico de Qualidade de Protocolos, Vínculo de Clientes, S/N e Filas NOC
@@ -720,7 +735,7 @@ export default function DataHealthTab({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#1e3a6e]/15 text-[#1e3a6e] border border-[#1e3a6e]/30">
-              AUDITORIA PORTAL HUBSPOT 4369067 • SETA TELECOM
+              AUDITORIA STI HUB CRM • SETA TELECOM
             </span>
             <span className="text-xs font-semibold text-slate-500">
               44 proprietários mapeados (3 ativos hoje vs. 41 ex-vendedores inativos)
@@ -1017,14 +1032,14 @@ export default function DataHealthTab({
               </div>
 
               {/* Company Duplicates */}
-              {duplicates.companyDuplicates.length > 0 && (
+              {mergeableCompanyDuplicates.length > 0 && (
                 <div className="space-y-4">
                   <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                     <Building2 className="w-4 h-4 text-[#1e3a6e]" />
-                    Duplicidades de Empresas Detectadas ({duplicates.companyDuplicates.length})
+                    Duplicidades de Empresas Detectadas ({mergeableCompanyDuplicates.length})
                   </h3>
 
-                  {duplicates.companyDuplicates.map((pair) => {
+                  {mergeableCompanyDuplicates.map((pair) => {
                     const key = `COMPANY-${pair.primary.id}-${pair.duplicate.id}`;
                     const isMerging = mergingKey === key;
 

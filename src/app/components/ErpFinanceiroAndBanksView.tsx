@@ -68,7 +68,7 @@ const BANK_FILTERS = ['TODAS', 'Banco Inter', 'Banco Itaú', 'Conta Integrada'];
 const CORPORATE_ACCOUNTS = [
   { name: 'Banco Inter', code: '#237906', kind: 'Conta Corrente PJ (sincronizada)' },
   { name: 'Banco Itaú', code: '#142155', kind: 'Conta Corrente PJ (sincronizada)' },
-  { name: 'Conta Integrada', code: '#710407', kind: 'Conta Integrada GestãoClick (sincronizada)' },
+  { name: 'Conta Integrada', code: '#710407', kind: 'Conta Integrada STI HUB ERP (sincronizada)' },
   { name: 'Caixinha', code: 'CX-01', kind: 'Caixa interno / fundo fixo' },
   { name: 'Seta Imp', code: 'SI-02', kind: 'Conta de importação' },
   { name: 'Inter Aplicações', code: 'IA-03', kind: 'Aplicação financeira' },
@@ -632,15 +632,18 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
           <div className="flex flex-wrap justify-between gap-2 text-xs text-slate-600">
             <span className="font-semibold text-slate-900">Recebimentos x pagamentos por mês</span>
             <span>Saldo do período: <b className="text-slate-900">{money(periodBalance)}</b></span>
-            <span>Melhor mês: <b className="text-emerald-700">{dashboardSummary?.cashFlowBestMonth || '-'}</b></span>
-            <span>Pior mês: <b className="text-rose-700">{dashboardSummary?.cashFlowWorstMonth || '-'}</b></span>
+            <span>Melhor mês: <b className="text-[#1e3a6e]">{dashboardSummary?.cashFlowBestMonth || '-'}</b></span>
+            <span>Pior mês: <b className="text-slate-900">{dashboardSummary?.cashFlowWorstMonth || '-'}</b></span>
           </div>
           <div className="grid grid-cols-6 gap-2 items-end h-40">
+            {monthly.length === 0 && (
+              <div className="col-span-6 self-center text-center text-xs text-slate-400">Sem dados no período</div>
+            )}
             {monthly.map((m) => (
               <div key={m.month} className="flex flex-col items-center justify-end h-full gap-1">
                 <div className="flex items-end gap-1 h-28">
-                  <div className="w-3 bg-emerald-500 rounded-t" style={{ height: `${(m.recebimentos / maxBar) * 100}%` }} title={`Recebimentos ${formatBRL(m.recebimentos)}`} />
-                  <div className="w-3 bg-rose-500 rounded-t" style={{ height: `${(m.pagamentos / maxBar) * 100}%` }} title={`Pagamentos ${formatBRL(m.pagamentos)}`} />
+                  <div className="w-3 bg-[#1e3a6e] rounded-t" style={{ height: `${(m.recebimentos / maxBar) * 100}%` }} title={`Recebimentos ${formatBRL(m.recebimentos)}`} />
+                  <div className="w-3 bg-[#1e3a6e]/35 rounded-t" style={{ height: `${(m.pagamentos / maxBar) * 100}%` }} title={`Pagamentos ${formatBRL(m.pagamentos)}`} />
                 </div>
                 <div className="text-[11px] text-slate-600">{m.month}</div>
                 <div className={`text-[11px] font-semibold ${m.saldo < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{money(m.saldo)}</div>

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { createInMemoryRepository } from '../src/db/repository';
 import { CrmApiRouter } from '../src/api/router';
 import { resolveStiHubSigningSecret, signStiHubSessionToken } from '../src/app/lib/auth';
-import { ASSISTENTE_TOOLS, buscaCombina, catalogoAcoes, getTool, resolverEmpresa, toolDefinitionsFor, type ApiCaller, type ApiCallRequest, type AssistenteUser } from '../src/modules/assistente/tools';
+import { ASSISTENTE_TOOLS, buscaCombina, catalogoAcoes, getTool, parseNumeroBR, pareceIdProposta, refProposta, resolverEmpresa, toolDefinitionsFor, type ApiCaller, type ApiCallRequest, type AssistenteUser } from '../src/modules/assistente/tools';
 import { handleChat, handleExecute, redactSecrets, type AssistenteAuditEntry, type AssistenteDeps } from '../src/modules/assistente/service';
 import { sessionBinding, signActionToken, signAuditReceipt, verifyActionToken } from '../src/modules/assistente/confirmation';
 import { createSessionApiCaller, isAllowedAssistenteRoute } from '../src/modules/assistente/api-caller';
@@ -178,17 +178,31 @@ describe('assistente — ferramentas', () => {
 
 // ---------------------------------------------------------------------------
 describe('assistente — fluxo de confirmação', () => {
-  it('chat só propõe: nenhuma rota é chamada antes do Confirmar', async () => {
+  it('leitura sai direto (sem cartão, sem token), só com GET e auditada (Marcéllo: "Sem confirmação")', async () => {
     const { api, calls } = fakeApi({});
     const llm = fakeLlm({ toolCalls: [{ name: 'consultar', args: { entidade: 'contratos', status: 'ATIVO', busca: null } as any }] });
     const d = deps({ api, llm });
     const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'contratos ativos?' }] }, d);
     assert.equal(r.status, 200);
+    assert.equal(r.body.tipo, 'resultado');
+    assert.equal(r.body.proposta, undefined, 'sem cartão Confirmar');
+    assert.equal((r.body.acao as any).acao, 'leitura');
+    assert.ok((r.body.resultado as any).mensagem);
+    assert.doesNotMatch(JSON.stringify(r.body), /"token"/);
+    assert.ok(calls.length >= 1 && calls.every((c) => c.method === 'GET'));
+    assert.equal(d.audits.length, 1);
+    assert.equal(d.audits[0].tipo, 'leitura');
+  });
+
+  it('gravação continua só propondo: nenhuma rota de escrita antes do Confirmar', async () => {
+    const { api, calls } = fakeApi({});
+    const llm = fakeLlm({ toolCalls: [{ name: 'abrir_chamado', args: { assunto: 'Impressora parada' } }] });
+    const d = deps({ api, llm });
+    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'abra um chamado da impressora' }] }, d);
     assert.equal(r.body.tipo, 'proposta');
-    const p = r.body.proposta as any;
-    assert.equal(p.acao, 'leitura');
-    assert.ok(p.token);
-    assert.equal(calls.length, 0);
+    assert.equal((r.body.proposta as any).acao, 'gravacao');
+    assert.ok((r.body.proposta as any).token);
+    assert.ok(calls.every((c) => c.method === 'GET'), 'nada gravado antes do Confirmar');
     assert.equal(d.audits.length, 0);
   });
 
@@ -377,6 +391,34 @@ describe('assistente — permissões', () => {
     assert.equal((await api({ method: 'POST', path: '/api/assistente/auditoria', body: { recibo: velho } })).status, 400);
   });
 
+  it('com o roteador real: editar_proposta acrescenta a despesa na proposta exata e recalcula o total', async () => {
+    const { repo, tokErp, tokCrm, callerFor } = setupRouter();
+    const criada = repo.createProposal({
+      title: 'Locação teste assistente',
+      companyName: 'Cliente Teste',
+      status: 'RASCUNHO',
+      contractMonths: 12,
+      items: [{ id: 'it-1', sku: '', description: 'Servidor', itemType: 'PRODUCT', fiscalNature: 'LOCACAO_BENS_MOVEIS', ncmOrServiceCode: '', quantity: 1, unitPrice: 1000, discountPercent: 0, isRecurring: true, totalMonthly: 1000 }],
+    } as never);
+    const numero = String(criada.code);
+    const tool = getTool('editar_proposta')!;
+    const api = callerFor(tokErp);
+    const prep = await tool.preparar!(tool.schema.parse({ proposta: numero, adicionar_itens: [{ descricao: 'Despesas de locomoção e hospedagem', valor_unitario: 2800 }] }), api);
+    assert.equal(prep.ok, true, prep.ok ? '' : prep.texto);
+    if (!prep.ok) return;
+    assert.equal(prep.args.alvo?.id, criada.id);
+    const antes = repo.listProposals().find((x) => x.id === criada.id)!;
+    const r = await tool.executar(prep.args, api);
+    assert.equal(r.ok, true, r.ok ? '' : r.mensagem);
+    const depois = repo.listProposals().find((x) => x.id === criada.id)!;
+    assert.equal(depois.items.length, antes.items.length + 1);
+    assert.equal(depois.items[depois.items.length - 1].unitPrice, 2800);
+    assert.equal(Math.round((depois.totalContractValue - antes.totalContractValue) * 100) / 100, 2800);
+    // Sem ERP, nem a localização passa (mesmo portão da tela).
+    const negado = await tool.preparar!(tool.schema.parse({ proposta: numero, adicionar_itens: [{ descricao: 'x', valor_unitario: 1 }] }), callerFor(tokCrm));
+    assert.equal(negado.ok, false);
+  });
+
   it('sessionBinding não expõe o token da sessão', () => {
     const b = sessionBinding('token-de-sessao-secreto');
     assert.equal(b.length, 32);
@@ -443,6 +485,20 @@ describe('assistente — cliente OmniRoute', () => {
       (globalThis as any).setTimeout = realSetTimeout;
     }
     assert.deepEqual(timeouts, [{ model: 'm1', ms: 25_000 }, { model: 'm2', ms: 55_000 }]);
+  });
+
+  it('resposta cortada só com raciocínio (finish_reason=length, sem conteúdo) cai para o reserva', async () => {
+    const models: string[] = [];
+    const client = createOmniRouteClient(cfg, async (_u, init) => {
+      const body = JSON.parse(String(init.body));
+      models.push(body.model);
+      assert.equal(body.max_tokens, 2048);
+      if (body.model === 'm1') return new Response(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: null } }] }), { status: 200 });
+      return new Response(JSON.stringify({ model: 'm2', choices: [{ finish_reason: 'tool_calls', message: { content: '', tool_calls: [{ function: { name: 'consultar_propostas', arguments: '{"busca":"4709"}' } }] } }] }), { status: 200 });
+    });
+    const r = await client.complete([{ role: 'user', content: 'oi' }], []);
+    assert.deepEqual(models, ['m1', 'm2']);
+    assert.equal(r.toolCalls[0].name, 'consultar_propostas');
   });
 
   it('401 não tenta o reserva (credencial recusada)', async () => {
@@ -582,5 +638,216 @@ describe('assistente — fluxo da proposta (A3C cloud, 36 meses)', () => {
     assert.deepEqual((def.function.parameters as any).required, ['cliente', 'itens']);
     assert.deepEqual((def.function.parameters as any).properties.itens.items.required, ['descricao', 'quantidade']);
     assert.equal(ASSISTENTE_TOOLS.every((t) => typeof t.disponivel === 'function'), true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('assistente — propostas: localizar 4709 e acrescentar despesa', () => {
+  const PROP = {
+    id: 'prop-stihub-1',
+    code: '4709',
+    title: 'Locação de servidores',
+    companyName: 'A3CLOUD.IT LTDA',
+    companyCnpj: '10.455.355/0001-29',
+    status: 'RASCUNHO',
+    contractMonths: 12,
+    updatedAt: '2026-11-19T10:00:00.000Z',
+    items: [{ id: 'i1', sku: '', description: 'Servidor Dell R640', itemType: 'PRODUCT', fiscalNature: 'LOCACAO_BENS_MOVEIS', ncmOrServiceCode: '', quantity: 1, unitPrice: 1000, discountPercent: 0, isRecurring: true, totalMonthly: 1000 }],
+    monthlyRecurringTotal: 1000,
+    oneTimeSetupTotal: 0,
+    shippingCost: 0,
+    totalContractValue: 12000,
+  };
+  const OUTRA = { ...PROP, id: 'prop-stihub-2', code: '14709', companyName: 'Beta SA', updatedAt: '2026-11-01T00:00:00.000Z' };
+  function propApi(p: any = PROP) {
+    let current = { ...p };
+    return fakeApi({
+      // Rota em memória ignora ?q= (devolve tudo); o assistente casa o número exato.
+      'GET /api/erp/proposals': () => ({ status: 200, body: { data: [OUTRA, current], total: 2 } }),
+      [`GET /api/erp/proposals/${p.id}`]: () => ({ status: 200, body: { data: current } }),
+      [`PATCH /api/erp/proposals/${p.id}`]: (r) => {
+        current = { ...current, ...r.body, updatedAt: '2026-11-19T11:00:00.000Z', totalContractValue: 14800 };
+        return { status: 200, body: { data: current } };
+      },
+    });
+  }
+  const EDIT_CALL = { name: 'editar_proposta', args: { proposta: '4709', adicionar_itens: [{ descricao: 'Despesas de locomoção e hospedagem', valor_unitario: '2.800,00' }] } };
+
+  it('valores em formato brasileiro e referência da proposta', () => {
+    assert.equal(parseNumeroBR('2.800,00'), 2800);
+    assert.equal(parseNumeroBR('2800,00'), 2800);
+    assert.equal(parseNumeroBR('R$ 2.800'), 2800);
+    assert.equal(parseNumeroBR('2800.50'), 2800.5);
+    assert.equal(parseNumeroBR('abc'), 'abc');
+    assert.equal(refProposta('proposta 4709'), '4709');
+    assert.equal(refProposta('#4709'), '4709');
+    assert.equal(pareceIdProposta('prop-1795473263142-d5b63b'), true);
+    assert.equal(pareceIdProposta('proposta prop-1795473263142-d5b63b'), true);
+    assert.equal(pareceIdProposta('4709'), false);
+  });
+
+  it('consultar_propostas pelo id prop-... chama GET /:id direto mesmo se a lista vier vazia', async () => {
+    const alvo = {
+      ...PROP,
+      id: 'prop-1795473263142-d5b63b',
+      code: '4725',
+      companyName: 'Condomínio do Parangaba',
+      status: 'ENVIADA',
+      contractMonths: 36,
+      monthlyRecurringTotal: 2350,
+      totalContractValue: 84600,
+    };
+    const { api, calls } = fakeApi({
+      'GET /api/erp/proposals': () => ({ status: 200, body: { data: [], total: 0 } }),
+      'GET /api/erp/proposals/prop-1795473263142-d5b63b': () => ({ status: 200, body: { data: alvo } }),
+    });
+    const r = await getTool('consultar_propostas')!.executar({ busca: 'prop-1795473263142-d5b63b' }, api);
+    assert.equal(r.ok, true);
+    if (!r.ok) return;
+    assert.match(r.mensagem, /Proposta 4725 de Condomínio do Parangaba/);
+    assert.ok(calls.some((c) => c.method === 'GET' && c.path === '/api/erp/proposals/prop-1795473263142-d5b63b'));
+    assert.ok(calls.every((c) => !c.path.startsWith('/api/erp/proposals?')), 'não depende da lista quando a busca é um id prop-...');
+  });
+
+  it('consultar_propostas pelo número traz número, cliente, total, situação e itens (não confunde 14709)', async () => {
+    const { api, calls } = propApi();
+    const r = await getTool('consultar_propostas')!.executar({ busca: '4709' }, api);
+    assert.equal(r.ok, true);
+    if (!r.ok) return;
+    assert.match(r.mensagem, /Proposta 4709 de A3CLOUD\.IT LTDA/);
+    assert.match(r.resumoParaModelo, /cliente A3CLOUD\.IT LTDA; situação Rascunho; total R\$\s?12\.000,00/);
+    assert.match(r.resumoParaModelo, /1\) Servidor Dell R640 x1/);
+    assert.equal(r.tabela?.linhas.length, 1);
+    assert.ok(calls.some((c) => c.path === '/api/erp/proposals/prop-stihub-1'));
+    assert.ok(calls.every((c) => !c.path.startsWith('/api/deals')), 'nunca consulta negócios');
+  });
+
+  it('chat: o cartão mostra número, cliente, a despesa e o total antes e depois; executar grava só na proposta do cartão', async () => {
+    const { api, calls } = propApi();
+    const llm = fakeLlm({ toolCalls: [EDIT_CALL] });
+    const d = deps({ api, llm });
+    const chat = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'localize a proposta 4709 e adicione o valor de 2800,00 para despesas de locomoção e hospedagem' }] }, d);
+    assert.equal(chat.body.tipo, 'proposta');
+    const prop = chat.body.proposta as any;
+    assert.equal(prop.ferramenta, 'editar_proposta');
+    assert.equal(prop.titulo, 'Editar a proposta 4709');
+    const linhas = prop.linhas.join('\n');
+    assert.match(linhas, /Proposta: 4709/);
+    assert.match(linhas, /Cliente: A3CLOUD\.IT LTDA — CNPJ 10\.455\.355\/0001-29/);
+    assert.match(linhas, /Adicionar: Despesas de locomoção e hospedagem x1 a R\$\s?2\.800,00 \(cobrança única\)/);
+    assert.match(linhas, /Antes: .*contrato R\$\s?12\.000,00/);
+    assert.match(linhas, /Depois: .*contrato R\$\s?14\.800,00/);
+    assert.equal(calls.filter((c) => c.method === 'PATCH').length, 0, 'o chat não grava');
+    const ok = await handleExecute({ token: prop.token, confirmar: true }, d);
+    assert.equal(ok.body.ok, true);
+    const patch = calls.filter((c) => c.method === 'PATCH');
+    assert.equal(patch.length, 1);
+    assert.equal(patch[0].path, '/api/erp/proposals/prop-stihub-1');
+    assert.equal(patch[0].body?.expectedUpdatedAt, PROP.updatedAt);
+    const itens = patch[0].body?.items as any[];
+    assert.equal(itens.length, 2);
+    assert.equal(itens[1].unitPrice, 2800);
+    assert.equal(itens[1].isRecurring, false);
+    assert.equal(d.audits[0].tool, 'editar_proposta');
+    assert.equal(d.audits[0].modulo, 'ERP');
+    const again = await handleExecute({ token: prop.token, confirmar: true }, d);
+    assert.equal(again.status, 409, 'nonce de uso único');
+  });
+
+  it('a proposta mudou depois do cartão: não grava', async () => {
+    const { api, calls } = propApi();
+    const d = deps({ api, llm: fakeLlm({ toolCalls: [EDIT_CALL] }) });
+    const chat = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'adicione 2800 de despesas na 4709' }] }, d);
+    const token = (chat.body.proposta as any).token;
+    const changed = fakeApi({
+      'GET /api/erp/proposals/prop-stihub-1': () => ({ status: 200, body: { data: { ...PROP, updatedAt: '2026-11-19T10:30:00.000Z' } } }),
+    });
+    const r = await handleExecute({ token, confirmar: true }, { ...d, api: changed.api });
+    assert.equal(r.body.ok, false);
+    assert.match(String(r.body.mensagem), /alterada depois que o cartão/);
+    assert.equal(changed.calls.filter((c) => c.method === 'PATCH').length + calls.filter((c) => c.method === 'PATCH').length, 0);
+  });
+
+  it('proposta do GestãoClick: o cartão avisa que a alteração fica só no STI-hub e a execução grava só no STI-hub', async () => {
+    const { api, calls } = propApi({ ...PROP, id: 'prop-gc-98765' });
+    const d = deps({ api, llm: fakeLlm({ toolCalls: [EDIT_CALL] }) });
+    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'adicione 2800 na 4709' }] }, d);
+    assert.equal(r.body.tipo, 'proposta');
+    const linhas = (r.body.proposta as any).linhas as string[];
+    assert.equal(linhas.filter((l) => l === 'Atenção: proposta importada do ERP de origem. A alteração fica só no STI HUB ERP e não vai para o sistema de origem.').length, 1);
+    assert.equal(calls.filter((c) => c.method === 'PATCH').length, 0);
+    const ok = await handleExecute({ token: (r.body.proposta as any).token, confirmar: true }, d);
+    assert.equal(ok.body.ok, true);
+    assert.match(String(ok.body.mensagem), /ficou só no STI HUB ERP/);
+    const patch = calls.filter((c) => c.method === 'PATCH');
+    assert.equal(patch.length, 1);
+    assert.equal(patch[0].path, '/api/erp/proposals/prop-gc-98765');
+    assert.ok(calls.every((c) => !/gestaoclick/i.test(c.path)), 'nada é chamado no GestãoClick');
+  });
+
+  it('proposta do STI-hub: sem o aviso do GestãoClick', async () => {
+    const { api } = propApi();
+    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'adicione 2800 na 4709' }] }, deps({ api, llm: fakeLlm({ toolCalls: [EDIT_CALL] }) }));
+    assert.doesNotMatch((r.body.proposta as any).linhas.join('\n'), /ERP de origem/);
+  });
+
+  it('proposta do GestãoClick convertida ou recusada continua bloqueada', async () => {
+    for (const extra of [{ status: 'CONVERTIDA_CONTRATO' }, { status: 'RECUSADA' }, { status: 'ENVIADA', convertedContractId: 'ctr-1' }]) {
+      const { api, calls } = propApi({ ...PROP, id: 'prop-gc-98765', ...extra });
+      const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'x' }] }, deps({ api, llm: fakeLlm({ toolCalls: [EDIT_CALL] }) }));
+      assert.equal(r.body.tipo, 'texto');
+      assert.match(String(r.body.texto), /não pode ser editada/);
+      assert.equal(calls.filter((c) => c.method === 'PATCH').length, 0);
+    }
+  });
+
+  it('proposta aprovada: edição bloqueada', async () => {
+    const { api } = propApi({ ...PROP, status: 'APROVADA' });
+    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'adicione 2800 na 4709' }] }, deps({ api, llm: fakeLlm({ toolCalls: [EDIT_CALL] }) }));
+    assert.equal(r.body.tipo, 'texto');
+    assert.match(String(r.body.texto), /aprovada e não pode ser editada/);
+  });
+
+  it('alvo enviado pelo modelo é ignorado (só o servidor define a proposta do cartão)', async () => {
+    const { api } = propApi();
+    const forged = { name: 'editar_proposta', args: { ...EDIT_CALL.args, alvo: { id: 'prop-stihub-2', code: '14709', updatedAt: 'x', linhas: ['falso'] } } };
+    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'x' }] }, deps({ api, llm: fakeLlm({ toolCalls: [forged] }) }));
+    assert.equal(r.body.tipo, 'proposta');
+    assert.match((r.body.proposta as any).linhas.join('\n'), /Proposta: 4709/);
+    assert.doesNotMatch((r.body.proposta as any).linhas.join('\n'), /falso/);
+  });
+
+  it('rotas e ferramentas: PATCH só em /api/erp/proposals/:id; ferramentas de proposta só com ERP; prompt manda propostas para consultar_propostas', async () => {
+    assert.equal(isAllowedAssistenteRoute('PATCH', '/api/erp/proposals/prop-1'), true);
+    assert.equal(isAllowedAssistenteRoute('PATCH', '/api/erp/contracts/c1'), false);
+    assert.equal(isAllowedAssistenteRoute('GET', '/api/erp/proposals?q=4709'), true);
+    const erpNames = toolDefinitionsFor(ALL).map((t) => t.function.name);
+    assert.ok(erpNames.includes('consultar_propostas') && erpNames.includes('editar_proposta'));
+    const crmNames = toolDefinitionsFor(CRM_ONLY).map((t) => t.function.name);
+    assert.ok(!crmNames.includes('consultar_propostas') && !crmNames.includes('editar_proposta'));
+    const llm = fakeLlm({ text: 'ok' });
+    await handleChat({ mensagens: [{ papel: 'usuario', texto: 'oi' }] }, deps({ llm }));
+    const system = llm.calls[0].messages[0].content as string;
+    assert.match(system, /consultar_propostas/);
+    assert.match(system, /Nunca use consultar com entidade negocios para propostas/);
+    assert.match(system, /2\.800,00/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+import { insertGcProposalsIfAbsent } from '../src/db/proposal-store';
+describe('sync diário do GestãoClick não sobrescreve proposta editada no STI-hub', () => {
+  it('orçamento GC já existente (mesmo id ou id GC) não é inserido nem atualizado', async () => {
+    const sqls: string[] = [];
+    const db = {
+      async query(sql: string) {
+        sqls.push(sql);
+        return { rows: [{ id: 'prop-gc-98765', gc_id: '98765' }] };
+      },
+    };
+    const n = await insertGcProposalsIfAbsent(db as never, [{ id: 'prop-gc-98765', code: '4709', title: 'GC', items: [] } as never]);
+    assert.equal(n, 0);
+    assert.equal(sqls.length, 1);
+    assert.match(sqls[0], /^\s*SELECT/);
   });
 });

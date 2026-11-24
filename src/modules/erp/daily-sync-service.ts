@@ -132,7 +132,7 @@ export const INITIAL_SYNC_LOGS: ErpSyncRunLog[] = [
     cursorTimestamp: '2026-10-26T10:00:00.000Z',
     status: 'SUCCESS',
     summary:
-      'Limpeza total de dados fictícios concluída (48 mocks removidos). Carga inicial 100% real do GestãoClick Loja Matriz #118887 concluída: 1.184 clientes, 101 fornecedores, 14 funcionários, 786 produtos, 39 serviços, 2.077 orçamentos (#4695 Mundivox), 295 vendas, 344 contratos de locação (0% ISS SV 31 STF), 196 lançamentos financeiros e 1.378 O.S. mapeados para CRM, ERP e Chamados.',
+      'Limpeza total de dados fictícios concluída (48 mocks removidos). Carga inicial 100% real do ERP de origem concluída: 1.184 clientes, 101 fornecedores, 14 funcionários, 786 produtos, 39 serviços, 2.077 orçamentos (#4695 Mundivox), 295 vendas, 344 contratos de locação (0% ISS SV 31 STF), 196 lançamentos financeiros e 1.378 O.S. mapeados para CRM, ERP e Chamados.',
   },
   {
     runId: 'SYNC-GC-20261026-INC-002',
@@ -224,7 +224,7 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
       'Wesley Brito (#1026185 — Engenharia & Almoxarifado)',
       'Dauana Magnavita de Alencar (#1063375 — Administrativo & Fiscal)',
     ],
-    requiredFieldsVerified: ['ID GestãoClick', 'Nome Completo', 'Cargo / Departamento', 'E-mail Corporativo', 'Perfil RBAC'],
+    requiredFieldsVerified: ['ID no ERP de origem', 'Nome Completo', 'Cargo / Departamento', 'E-mail Corporativo', 'Perfil RBAC'],
     cnpjFiscalLockCheck: 'N/A (Pessoas Físicas / Colaboradores internos)',
     relationalIntegrityCheck: 'Vinculados como Vendedores em Orçamentos/Vendas e Técnicos Responsáveis nas 1.378 O.S.',
     validationStatus: 'PASSOU',
@@ -261,7 +261,7 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
       'GC-TL-00301 — Link Dedicado Fibra Óptica Full-Duplex + Tronco SIP (SCM)',
     ],
     requiredFieldsVerified: ['Código Serviço', 'Item LC 116/03 (01.07 / 14.01)', 'Alíquota ISS (2,90%)', 'Retenções IRRF/CSRF'],
-    cnpjFiscalLockCheck: 'Segregação automática entre Serviço Técnico (tributado ISS) e Locação Pura (0% ISS).',
+    cnpjFiscalLockCheck: 'Segregação automática entre Serviço Técnico (tributado ISS) e Locação (0% ISS).',
     relationalIntegrityCheck: 'Vinculados às propostas híbridas, NFS-e e Ordens de Serviço.',
     validationStatus: 'PASSOU',
     auditorNotes: 'Todos os 39 serviços técnicos conferidos.',
@@ -280,7 +280,7 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
     cnpjFiscalLockCheck: 'CNPJ do destinatário validado e impresso no PDF A4 timbrado.',
     relationalIntegrityCheck: 'Conversão em 1 clique para Contrato de Locação + Fatura e espelhamento no Kanban CRM.',
     validationStatus: 'PASSOU',
-    auditorNotes: 'Layout 9 blocos idêntico ao GestãoClick #4695 + link público PDF A4 validado.',
+    auditorNotes: 'Layout 9 blocos idêntico ao orçamento de referência #4695 + link público PDF A4 validado.',
     verifiedAt: '26/10/2026',
   },
   {
@@ -360,7 +360,7 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
     moduleKey: 'ORDENS_SERVICO_CHAMADOS',
     moduleName: '11. Ordens de Serviço (O.S.) & Chamados NOC',
     totalCount: 1378,
-    targetDestination: 'ERP > 8. OS e Suporte & Item de Topo 3: Chamados (Service Hub)',
+    targetDestination: 'ERP > 8. OS e Suporte & Item de Topo 3: STI HUB Desk Service',
     sampleRecords: [
       'OS #1518 — BEMISA PARTICIPACOES S.A. (Técnico: Michelle da Rocha • R$ 5.429,40)',
       'OS #1517 — CASA FORTIS INVESTIMENTOS E PARTICIPACOES S.A. (R$ 2.890,00)',
@@ -371,7 +371,7 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
     cnpjFiscalLockCheck: 'Vinculadas ao cliente e contrato de locação ativo.',
     relationalIntegrityCheck: 'Sincronizadas entre a fila de Chamados (NOC N1/N2/N3 SLA) e Ordens de Serviço de campo.',
     validationStatus: 'PASSOU',
-    auditorNotes: '1.378 O.S. reais sincronizadas e integradas ao módulo de Chamados.',
+    auditorNotes: '1.378 O.S. reais sincronizadas e integradas ao STI HUB Desk Service.',
     verifiedAt: '26/10/2026',
   },
 ];

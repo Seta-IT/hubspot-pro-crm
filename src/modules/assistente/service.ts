@@ -13,6 +13,7 @@ import { ASSISTENTE_LIMITS } from './config';
 import { LlmError, type LlmClient, type LlmMessage } from './omniroute-client';
 import {
   getTool,
+  parseNumeroBR,
   toolDefinitionsFor,
   userCanUseTool,
   type ApiCaller,
@@ -20,6 +21,9 @@ import {
   type ToolResult,
 } from './tools';
 import { signActionToken, verifyActionToken } from './confirmation';
+import { rotearPergunta, hojeIso } from './roteador';
+import { resumoConhecimentoParaPrompt } from './conhecimento';
+import { PERGUNTA_QUAL_REGISTRO, marcaContexto, registroEmContexto, rotaDoContexto, termoGenerico, type RegistroContexto } from './contexto';
 
 export interface AssistenteAuditEntry {
   tool: string;
@@ -76,23 +80,31 @@ const chatSchema = z.object({ mensagens: z.array(mensagemSchema).min(1).max(60) 
 const execSchema = z.object({ token: z.string().min(10).max(16_000), confirmar: z.boolean() });
 
 function systemPrompt(user: AssistenteUser, now: number): string {
-  const d = new Date(now);
-  const hoje = d.toISOString().slice(0, 10);
-  const mods = [user.moduleAccess.crm && 'CRM', user.moduleAccess.erp && 'ERP', user.moduleAccess.chamados && 'Chamados'].filter(Boolean).join(', ') || 'nenhum';
+  const hoje = hojeIso(now);
+  const mods = [user.moduleAccess.crm && 'CRM', user.moduleAccess.erp && 'ERP', user.moduleAccess.chamados && 'STI HUB Desk Service'].filter(Boolean).join(', ') || 'nenhum';
   return [
-    'Você é o Assistente do STI-hub, sistema de CRM, ERP e Chamados da Seta Telecom.',
-    'Responda sempre em português do Brasil, de forma curta e direta, sem emojis.',
-    `Hoje é ${hoje}. Módulos liberados para este usuário: ${mods}.`,
+    'Você é o Assistente do STI-hub, sistema da Seta Telecom com STI HUB CRM, STI HUB ERP e STI HUB Desk Service.',
+    'Responda sempre em português do Brasil, de forma curta e direta, sem emojis. Quando houver registro, cite o número dele.',
+    `Hoje é ${hoje} (horário de Brasília). Módulos liberados para este usuário: ${mods}.`,
+    'Entenda pedidos informais, com erros de digitação e sinônimos: orçamento = proposta; OS = O.S. = ordem de serviço; NF/NF-e/NFS-e/NFCom = nota fiscal; boleto/cobrança = fatura; cliente = empresa; chamado = ticket. Converta datas relativas (hoje, ontem, mês passado, semana passada, últimos 30 dias, outubro) para AAAA-MM-DD.',
     'Faça a ação que o usuário pediu. Para consulta, relatório, proposta, chamado ou OS, chame UMA ferramenta por resposta.',
-    'Proposta ou orçamento: chame criar_rascunho_proposta direto, sem consultar empresas antes. Passe o cliente como o usuário escreveu (o sistema identifica a empresa e pergunta se houver mais de uma), o prazo em meses e cada item com descrição e quantidade. Se o valor unitário não foi dito, omita: o item fica a definir. Não peça valores antes de montar o rascunho.',
+    'Para achar qualquer registro por número, código prop-..., link colado (/proposta/..., /interno/proposta/..., /p/...), contrato, fatura, nota ou chave de 44 dígitos, OS, chave de chamado (ex.: SETA-123), CNPJ/CPF, e-mail, telefone ou nome parcial, use buscar. Se perguntarem por que algo "não abre" ou "não foi localizado", use buscar com contexto nao_abre. Nunca diga que não encontrou algo sem chamar uma ferramenta: você não vê os dados.',
+    'Listas e relatórios: consultar/relatorio com a entidade certa (contratos, vendas, ordens_servico, empresas, fornecedores, contatos, faturas, notas_fiscais, contas_receber, contas_pagar, produtos, estoque, chamados, negocios) e situação quando dita (vencido, aberto, pago, ATIVO, ENCERRADO, sem estoque). Painel do mês (feitas x aprovadas, faturado): painel.',
+    'Proposta ou orçamento existente (tem número, ex.: 4709): para ver, use consultar_propostas; para mudar (acrescentar item ou despesa, alterar quantidade, valor ou campos), use editar_proposta direto com o número, sem consultar antes. Nunca use consultar com entidade negocios para propostas ou orçamentos.',
+    'Valores em reais chegam no formato brasileiro (2800,00 ou 2.800,00 = dois mil e oitocentos): envie como número 2800.00.',
+    'Ex.: "localize a proposta 4709 e adicione 2800,00 de despesas de locomoção e hospedagem" => editar_proposta {proposta:"4709", adicionar_itens:[{descricao:"Despesas de locomoção e hospedagem", valor_unitario:2800, tipo:"despesa", cobranca:"unica"}]}.',
+    'Proposta ou orçamento novo: chame criar_rascunho_proposta direto, sem consultar empresas antes. Passe o cliente como o usuário escreveu (o sistema identifica a empresa e pergunta se houver mais de uma), o prazo em meses e cada item com descrição e quantidade. Se o valor unitário não foi dito, omita: o item fica a definir. Não peça valores antes de montar o rascunho.',
     'Ex.: "proposta de locação de 36 meses para X de 3 servidores Dell R640 com 256 GB e 3 SSDs de 2 TB" => criar_rascunho_proposta {cliente:"X", prazo_meses:36, itens:[{descricao:"Servidor Dell R640, 256 GB RAM, 3 SSD 2 TB", quantidade:3, tipo:"locacao"}]}.',
     'Use o histórico: se o usuário já pediu uma proposta e agora escolheu ou confirmou a empresa (por nome, CNPJ ou número da lista), chame criar_rascunho_proposta com essa empresa e os itens do pedido original.',
+    'Link, PDF, Versão contrato ou dados completos "da proposta/dela/desse orçamento" sem número: use o "Registro em contexto" do histórico (consultar_propostas com esse número). Nunca use "link", "pdf", "proposta" ou "contrato" como termo de busca; sem registro no histórico, pergunte qual é o número. Os botões de link do cliente, Versão contrato e PDF aparecem junto do resultado.',
     'Não repita uma consulta que já está no histórico. Resultados chegam como "Resultado: ..." com o mínimo (quantidade e, para empresas, nome e CNPJ); o resto é mostrado direto ao usuário. Nunca invente números, nomes ou registros.',
     'Se houver mais de uma empresa possível, pergunte qual, listando as opções. Se faltar algo que impeça a ação (ex.: nenhum item), pergunte só isso.',
-    'Antes de qualquer ação o usuário confirma num cartão; não diga que algo foi feito, diga que preparou a ação para confirmação.',
+    'Consultas, buscas, relatórios e painel executam na hora e o resultado aparece direto para o usuário. Ações que gravam ou alteram dados (rascunho, edição de proposta, chamado, OS) passam por um cartão de confirmação: para essas, não diga que algo foi feito, diga que preparou a ação para confirmação.',
     'Datas sempre no formato AAAA-MM-DD nos argumentos.',
-    'Fora do seu escopo nesta etapa: emitir nota fiscal, emitir recibo, enviar e-mail, WhatsApp ou qualquer mensagem a clientes, excluir registros e alterar usuários ou permissões. Se pedirem, explique que ainda não está disponível e indique a tela do sistema.',
+    'Fora do seu escopo: emitir nota fiscal, emitir recibo, dar baixa em pagamento, aprovar ou converter proposta, enviar e-mail, WhatsApp ou qualquer mensagem a clientes, excluir registros e alterar usuários ou permissões. Se pedirem, explique que ainda não está disponível e indique a tela do sistema.',
     'Nunca peça nem repita senhas, tokens ou chaves.',
+    'Base de conhecimento do STI-hub (use para dúvidas de "como faço", regras e erros; responda em texto, sem ferramenta):',
+    resumoConhecimentoParaPrompt(),
   ].join('\n');
 }
 
@@ -129,7 +141,7 @@ export function cleanArgs(v: unknown): unknown {
 
 function coerceNumbers(tool: string, args: any): any {
   // Modelos as vezes mandam "1500" em vez de 1500 nos itens; converte so campos numericos conhecidos.
-  const num = (x: unknown) => (typeof x === 'string' && /^\d+(?:[.,]\d+)?$/.test(x.trim()) ? Number(x.replace(',', '.')) : x);
+  const num = parseNumeroBR; // "2.800,00", "2800,00", "R$ 2.800" => 2800
   if (tool === 'criar_rascunho_proposta' && Array.isArray(args?.itens)) {
     args.itens = args.itens.map((i: any) => (i && typeof i === 'object' ? { ...i, quantidade: num(i.quantidade), valor_unitario: num(i.valor_unitario) } : i));
   }
@@ -138,7 +150,7 @@ function coerceNumbers(tool: string, args: any): any {
   return args;
 }
 
-const MODULO_ROTULO: Record<string, string> = { crm: 'CRM', erp: 'ERP', chamados: 'Chamados' };
+const MODULO_ROTULO: Record<string, string> = { crm: 'CRM', erp: 'ERP', chamados: 'STI HUB Desk Service' };
 
 // ---------------------------------------------------------------------------
 // Chat
@@ -162,6 +174,36 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
   const history = buildHistory(parsed.data.mensagens);
   if (!history) return err(400, 'ENTRADA_INVALIDA', 'Envie uma mensagem.');
 
+  // Roteador deterministico: duvidas do sistema e buscas/listas claras sem depender do modelo.
+  // A ferramenta continua so PROPOSTA (cartao de confirmacao), igual a do modelo.
+  let rota: ReturnType<typeof rotearPergunta> = null;
+  let contexto: RegistroContexto | null = null;
+  try {
+    contexto = registroEmContexto(parsed.data.mensagens);
+  } catch {
+    contexto = null;
+  }
+  try {
+    const msgs = parsed.data.mensagens;
+    const anterior = msgs.length >= 2 ? msgs[msgs.length - 2] : null;
+    const respondendoPergunta = !!anterior && anterior.papel === 'assistente' && /\?\s*$/.test(anterior.texto.trim());
+    // Resposta a "Qual proposta ou registro você quer?": número puro = número do orçamento.
+    const respostaQual = !!anterior && anterior.papel === 'assistente' && anterior.texto.trim() === PERGUNTA_QUAL_REGISTRO && /^\s*(?:n[ºo°]?\s*)?#?\d{1,7}\s*$/i.test(last.texto);
+    const textoRota = respostaQual ? `orçamento ${last.texto.replace(/\D+/g, '')}` : last.texto;
+    rota = rotearPergunta(textoRota, { agora: deps.now(), respondendoPergunta, contexto });
+  } catch {
+    rota = null;
+  }
+  if (rota?.tipo === 'texto') return { status: 200, body: { tipo: 'texto', texto: rota.texto } };
+  if (rota?.tipo === 'ferramenta') {
+    const t = getTool(rota.ferramenta);
+    if (t && t.disponivel(deps.user) && userCanUseTool(t, rota.args, deps.user)) {
+      const viaRota = await proporAcao(t.name, rota.args, '', deps);
+      if (viaRota.status === 200 && (viaRota.body.tipo === 'proposta' || viaRota.body.tipo === 'resultado')) return viaRota;
+      if (viaRota.status === 429) return viaRota;
+    }
+  }
+
   let result;
   try {
     result = await deps.llm.complete([{ role: 'system', content: systemPrompt(deps.user, deps.now()) }, ...history], toolDefinitionsFor(deps.user));
@@ -177,9 +219,34 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
     const texto = (result.text || '').slice(0, 4000) || 'Não entendi. Pode reformular?';
     return { status: 200, body: { tipo: 'texto', texto } };
   }
-  const tool = getTool(call.name);
+  // O modelo as vezes manda "link"/"pdf"/"proposta" como termo de busca: usa o registro em contexto.
+  const ajuste = ajustarPorContexto(call.name, call.args || {}, contexto);
+  if ('texto' in ajuste) return { status: 200, body: { tipo: 'texto', texto: ajuste.texto } };
+  return proporAcao(ajuste.nome, ajuste.args, result.text || '', deps);
+}
+
+/** Busca so com palavra generica => registro em contexto (ou pergunta qual). */
+export function ajustarPorContexto(
+  nome: string,
+  args: any,
+  contexto: RegistroContexto | null,
+): { nome: string; args: any } | { texto: string } {
+  const generico =
+    (nome === 'consultar_propostas' && args && typeof args.busca === 'string' && termoGenerico(args.busca) && !args.status && !args.de && !args.ate) ||
+    (nome === 'buscar' && args && termoGenerico(args.termo));
+  if (!generico) return { nome, args };
+  if (!contexto) return { texto: PERGUNTA_QUAL_REGISTRO };
+  const r = rotaDoContexto(contexto);
+  return { nome: r.ferramenta, args: r.args };
+}
+
+/** Valida, confere modulos, prepara (so leitura) e assina a proposta de acao para o cartao. */
+async function proporAcao(nome: string, rawArgs: unknown, textoModelo: string, deps: AssistenteDeps): Promise<ServiceResponse> {
+  const uid = deps.user.uid;
+  const tool = getTool(nome);
   if (!tool) return { status: 200, body: { tipo: 'texto', texto: 'Essa ação não está disponível nesta etapa do assistente.' } };
-  const args = coerceNumbers(tool.name, cleanArgs(call.args || {}));
+  const cleaned = coerceNumbers(tool.name, cleanArgs(rawArgs || {}));
+  const args = tool.coagir ? tool.coagir(cleaned) : cleaned;
   const valid = tool.schema.safeParse(args);
   if (!valid.success) {
     const campos = valid.error.issues.map((i) => i.path.join('.') || '(dados)').slice(0, 6).join(', ');
@@ -204,6 +271,24 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
     finalArgs = again.data;
   }
   const resumo = tool.resumo(finalArgs);
+  // Leitura (consultas, buscas, fichas, painel): executa direto, sem cartao (aprovado pelo
+  // Marcéllo em 24/11/2026: "Sem confirmação"). Mesma sessao/RBAC das telas e auditoria.
+  // So o que grava ou altera dados continua com o cartao Confirmar.
+  if (tool.tipo === 'leitura') {
+    if (!(await deps.rateLimit(`exec:m:${uid}`, ASSISTENTE_LIMITS.executePerUserPerMinute, 60_000))) {
+      return err(429, 'LIMITE_EXECUCOES', 'Muitas consultas em pouco tempo. Aguarde um minuto.');
+    }
+    const body = await executarFerramenta(tool, finalArgs, deps);
+    return {
+      status: 200,
+      body: {
+        tipo: 'resultado',
+        texto: textoModelo ? textoModelo.slice(0, 1000) : '',
+        acao: { ferramenta: tool.name, acao: tool.tipo, titulo: resumo.titulo, linhas: resumo.linhas },
+        resultado: body,
+      },
+    };
+  }
   const { token } = signActionToken(deps.secret, {
     uid,
     sid: deps.sid,
@@ -215,14 +300,14 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
     status: 200,
     body: {
       tipo: 'proposta',
-      texto: result.text ? result.text.slice(0, 1000) : '',
+      texto: textoModelo ? textoModelo.slice(0, 1000) : '',
       proposta: { token, ferramenta: tool.name, acao: tool.tipo, titulo: resumo.titulo, linhas: resumo.linhas },
     },
   };
 }
 
 // ---------------------------------------------------------------------------
-// Executar (somente apos Confirmar)
+// Executar (gravacao: somente apos Confirmar; leitura ja sai direto do chat)
 // ---------------------------------------------------------------------------
 function moduloAuditoria(mods: string[], tool: string): 'CRM' | 'ERP' | 'CHAMADOS' {
   if (mods.includes('chamados') || tool === 'abrir_chamado') return 'CHAMADOS';
@@ -251,6 +336,12 @@ export async function handleExecute(rawBody: unknown, deps: AssistenteDeps): Pro
   if (!(await deps.consumeNonce(p.n, ASSISTENTE_LIMITS.proposalTtlMs + 60_000))) {
     return err(409, 'JA_EXECUTADA', 'Essa ação já foi confirmada antes.');
   }
+  return { status: 200, body: await executarFerramenta(tool, valid.data, deps) };
+}
+
+/** Executa a ferramenta com a sessao do usuario, audita e monta a resposta (sem token). */
+async function executarFerramenta(tool: NonNullable<ReturnType<typeof getTool>>, args: any, deps: AssistenteDeps): Promise<Record<string, unknown>> {
+  const valid = { data: args };
   const resumo = tool.resumo(valid.data);
   let result: ToolResult;
   try {
@@ -269,9 +360,11 @@ export async function handleExecute(rawBody: unknown, deps: AssistenteDeps): Pro
     registro: result.ok && result.registro ? `${result.registro.tipo}:${result.registro.codigo || result.registro.id}` : undefined,
   });
   if (!result.ok) {
-    return { status: 200, body: { ok: false, mensagem: result.mensagem, resumoParaModelo: result.resumoParaModelo } };
+    return { ok: false, mensagem: result.mensagem, resumoParaModelo: result.resumoParaModelo };
   }
   const { ok: _ok, ...rest } = result;
   void _ok;
-  return { status: 200, body: { ok: true, ...rest } };
+  // Marca o registro para o proximo pedido ("traga o link da proposta") agir sobre ele.
+  const resumoParaModelo = `${rest.resumoParaModelo || ''}${marcaContexto(rest.registro)}`.trim();
+  return { ok: true, ...rest, resumoParaModelo };
 }

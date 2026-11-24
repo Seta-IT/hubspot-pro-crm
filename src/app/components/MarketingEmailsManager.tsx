@@ -46,10 +46,10 @@ const EMAIL_TEMPLATES: Array<{
     id: 'tpl-locacao',
     name: 'Modelo — Locação de Infraestrutura TI & Telecom',
     subject: 'Substitua CAPEX por locação: servidores, switches e PABX IP para {{companyName}}',
-    preheader: 'Locação pura com SLA NOC 24x7 e 0% de ISSQN (SV 31 STF).',
+    preheader: 'Locação com SLA NOC 24x7 e 0% de ISSQN (SV 31 STF).',
     emailType: 'REGULAR',
     bodyPreview:
-      'Olá {{firstName}}, a Seta Telecom apoia a {{companyName}} na renovação do parque tecnológico com locação pura e contrato de Spare Parts.',
+      'Olá {{firstName}}, a Seta Telecom apoia a {{companyName}} na renovação do parque tecnológico com locação e contrato de Spare Parts.',
   },
   {
     id: 'tpl-spare-parts',

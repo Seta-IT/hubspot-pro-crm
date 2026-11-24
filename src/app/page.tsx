@@ -66,12 +66,14 @@ import GlobalHeaderSearch, { SearchResultEntry } from './components/GlobalHeader
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../db/types';
 import { Settings, Menu, User, LogOut } from 'lucide-react';
 import { formatBRL } from './components/ui-helpers';
-import { canDeleteDealsFromPermissions, canEditDealsFromPermissions } from './lib/deal-sidebar-edit';
+import { canDeleteDealsFromPermissions, canEditCrmItemFromPermissions, canEditDealsFromPermissions } from './lib/deal-sidebar-edit';
 import { canSendCrmEmailFromPermissions } from './lib/email-composer';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './components/ClientEmailComposerModal';
 import AssistenteIaPanel from './components/AssistenteIaPanel';
+import { ALVO_SECAO_ERP } from './lib/assistente-chat-texto';
 import {
   loadDurableJournal,
+  acknowledgeDurableJournal,
   stripEmojisDeep,
   mergeCompaniesWithJournal,
   mergeContactsWithJournal,
@@ -253,6 +255,8 @@ export default function HubSpotProCrmApp() {
 
       if (res.ok) {
         const json = await res.json();
+        // Lote 1-b (c): servidor confirmou que gravou o journal => limpa o que foi enviado.
+        if (json?.reconciliation?.journalAck === true) acknowledgeDurableJournal(reconcileJournal);
         const d = stripEmojisDeep(json.data);
         if (d) {
           if (d.aiReport) setAiReport(d.aiReport);
@@ -945,7 +949,7 @@ export default function HubSpotProCrmApp() {
       if (ticket) recordUpsertedTicket(ticket);
       showToast(
         ticket
-          ? `Formulário convertido! Chamado [${ticket.key}] aberto automaticamente no Service Desk!`
+          ? `Formulário convertido! Chamado [${ticket.key}] aberto automaticamente no STI HUB Desk Service!`
           : deal
             ? `Formulário convertido! Lead enriquecido e negócio "${deal.title}" aberto!`
             : `Formulário convertido! Lead ${contact?.firstName || ''} criado e enriquecido!`
@@ -996,7 +1000,7 @@ export default function HubSpotProCrmApp() {
     if (res.ok) {
       const json = await res.json();
       showToast(
-        `Migração HubSpot concluída! +${json.data?.companiesImported} empresas, +${json.data?.contactsImported} contatos e +${json.data?.dealsImported} deals!`
+        `Migração do CRM de origem concluída! +${json.data?.companiesImported} empresas, +${json.data?.contactsImported} contatos e +${json.data?.dealsImported} deals!`
       );
       await fetchAllCrmData();
       return json.data as HubSpotMigrationReport;
@@ -1025,7 +1029,7 @@ export default function HubSpotProCrmApp() {
     if (res.ok) {
       const json = await res.json();
       if (json.data) recordUpsertedTicket(json.data);
-      showToast(`Chamado [${json.data?.key}] aberto no Service Desk com SLA ativo!`);
+      showToast(`Chamado [${json.data?.key}] aberto no STI HUB Desk Service com SLA ativo!`);
       await fetchAllCrmData();
     }
   };
@@ -1061,7 +1065,7 @@ export default function HubSpotProCrmApp() {
     });
     if (res.ok) {
       recordDeletedTicket(ticketIdOrKey);
-      showToast(`Chamado removido do Service Desk.`);
+      showToast(`Chamado removido do STI HUB Desk Service.`);
       await fetchAllCrmData();
     }
   };
@@ -1079,7 +1083,7 @@ export default function HubSpotProCrmApp() {
       const json = await res.json();
       if (json.data?.ticket) recordUpsertedTicket(json.data.ticket);
       const osCode = json.data?.serviceOrder?.code || 'ERP';
-      showToast(`O.S. Técnica #${osCode} gerada no GestãoClick ERP e vinculada ao chamado!`);
+      showToast(`O.S. Técnica #${osCode} gerada no STI HUB ERP e vinculada ao chamado!`);
       await fetchAllCrmData();
     }
   };
@@ -1155,6 +1159,8 @@ export default function HubSpotProCrmApp() {
   );
   const canViewChamadosDealDrawer = Boolean(userModuleAccess.chamados);
   const canEditDealDrawer = canEditDealsFromPermissions(activeRbacUser);
+  const canCreateContactInPanel = canEditCrmItemFromPermissions(activeRbacUser, 'crm.contacts');
+  const canCreateCompanyInPanel = canEditCrmItemFromPermissions(activeRbacUser, 'crm.companies');
   const canDeleteDealDrawer = canDeleteDealsFromPermissions(activeRbacUser);
   const canSendDealEmail = canSendCrmEmailFromPermissions(activeRbacUser, 'deal');
   const canSendContactEmail = canSendCrmEmailFromPermissions(activeRbacUser, 'contact');
@@ -1448,7 +1454,7 @@ export default function HubSpotProCrmApp() {
     setHomeScreenPreference(screenId);
     setShowHomeScreenModal(false);
     const label = screenId
-      ? `${getHomeScreen(screenId).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(screenId).system} - ${getHomeScreen(screenId).label}`
+      ? `${getHomeScreen(screenId).system === 'CHAMADOS' ? 'STI HUB Desk Service' : getHomeScreen(screenId).system} - ${getHomeScreen(screenId).label}`
       : 'Visão Geral do primeiro sistema permitido';
     try {
       const res = await fetch('/api/me/preferences', {
@@ -1513,8 +1519,8 @@ export default function HubSpotProCrmApp() {
       ? [
           {
             id: 'SERVICE_DESK',
-            label: 'Chamados',
-            shortLabel: 'Chamados',
+            label: 'STI HUB Desk Service',
+            shortLabel: 'STI HUB Desk Service',
             icon: Ticket,
             isActive: activeModule === 'SERVICE_DESK',
             onClick: () => {
@@ -1531,7 +1537,7 @@ export default function HubSpotProCrmApp() {
       : isCrmActive
         ? 'CRM'
         : activeModule === 'SERVICE_DESK'
-          ? 'Chamados'
+          ? 'STI HUB Desk Service'
           : activeModule === 'SETTINGS_HUB'
             ? 'Configurações'
             : 'Visão Geral';
@@ -1583,10 +1589,6 @@ export default function HubSpotProCrmApp() {
     return { inUse: recordUsageTotal(counts) > 0, usageText: formatRecordUsageText(counts) };
   };
 
-  const gcStoreLabel = erpData?.gestaoClickConfig?.storeName
-    ? `${erpData.gestaoClickConfig.storeName} #${erpData.gestaoClickConfig.storeId || "118887"}`
-    : "Matriz #118887";
-
   return (
     <div data-system={headerSystem} data-testid="sti-shell" className="min-h-screen flex flex-col bg-[#f5f8fa] text-[#33475b] overflow-x-hidden">
       {/* ====================================================================
@@ -1624,8 +1626,8 @@ export default function HubSpotProCrmApp() {
 
             <div className="hidden lg:flex items-center gap-1.5 pl-3 border-l border-white/15 text-[11px] text-white/85">
               <span className="w-2 h-2 rounded-full bg-[#5fd4c3]" />
-              <span className="font-semibold text-white">GestãoClick ERP-GROK</span>
-              <span className="text-white/70">({gcStoreLabel} • MCP Online)</span>
+              <span className="font-semibold text-white">STI HUB ERP</span>
+              <span className="text-white/70">(Online)</span>
             </div>
           </div>
 
@@ -1640,6 +1642,8 @@ export default function HubSpotProCrmApp() {
             rentalContracts={erpData?.rentalContracts || []}
             invoices={erpData?.invoices || []}
             serviceOrders={erpData?.serviceOrders || []}
+            salesOrders={erpData?.salesOrders || []}
+            proposalsServerSearch={erpData?.proposalsStorage === 'table'}
             tickets={tickets}
             onSelectResult={(entry: SearchResultEntry) => {
               if (entry.category === 'CONTACTS') {
@@ -1696,6 +1700,11 @@ export default function HubSpotProCrmApp() {
                 setErpTargetEntity({ type: 'SERVICE_ORDER', id: entry.entityId, query: entry.title });
                 setErpNavigationTrigger((n) => n + 1);
                 setActiveModule('ERP_GESTAOCLICK');
+              } else if (entry.category === 'SALES_ORDERS') {
+                setErpInitialSection('VENDAS');
+                setErpTargetEntity({ type: 'SALE_ORDER', id: entry.entityId, query: entry.title });
+                setErpNavigationTrigger((n) => n + 1);
+                setActiveModule('ERP_GESTAOCLICK');
               } else if (entry.category === 'TICKETS') {
                 setInitialTicketIdForDrawer(entry.entityId);
                 setActiveModule('SERVICE_DESK');
@@ -1735,6 +1744,10 @@ export default function HubSpotProCrmApp() {
                 setErpInitialSection('ORDENS_SERVICOS');
                 setErpNavigationTrigger((n) => n + 1);
                 setActiveModule('ERP_GESTAOCLICK');
+              } else if (cat === 'SALES_ORDERS') {
+                setErpInitialSection('VENDAS');
+                setErpNavigationTrigger((n) => n + 1);
+                setActiveModule('ERP_GESTAOCLICK');
               } else if (cat === 'TICKETS') {
                 setActiveModule('SERVICE_DESK');
               }
@@ -1743,7 +1756,23 @@ export default function HubSpotProCrmApp() {
 
           {/* Right Status & Profile Controls */}
           <div className="flex items-center gap-2 shrink-0">
-            <AssistenteIaPanel system={headerSystem} userName={activeRbacUser?.name} />
+            <AssistenteIaPanel
+              system={headerSystem}
+              userName={activeRbacUser?.name}
+              onAbrirRegistro={(alvo) => {
+                if (alvo.type === 'TICKET') {
+                  setInitialTicketIdForDrawer(alvo.id);
+                  setActiveModule('SERVICE_DESK');
+                  return;
+                }
+                const secao = ALVO_SECAO_ERP[alvo.type];
+                if (!secao) return;
+                setErpInitialSection(secao as GestaoClickMenuSection);
+                setErpTargetEntity({ type: alvo.type, id: alvo.id, query: alvo.query });
+                setErpNavigationTrigger((n) => n + 1);
+                setActiveModule('ERP_GESTAOCLICK');
+              }}
+            />
             {isCrmActive && (
               <>
                 <button
@@ -1842,7 +1871,7 @@ export default function HubSpotProCrmApp() {
             <button
               type="button"
               onClick={() => fetchAllCrmData()}
-              title="Sincronizar dados com o Servidor & GestãoClick"
+              title="Sincronizar dados com o Servidor & STI HUB ERP"
               className="p-1.5 rounded-[4px] bg-white/10 hover:bg-white/15 border border-white/20 text-white transition cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loadingAll ? "animate-spin text-[#c9dafa]" : ""}`} />
@@ -2286,7 +2315,7 @@ export default function HubSpotProCrmApp() {
               initialItemId={settingsItemId}
               homeScreenLabel={
                 homeScreenPreference && systemHasAccess(getHomeScreen(homeScreenPreference).system, userModuleAccess)
-                  ? `${getHomeScreen(homeScreenPreference).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(homeScreenPreference).system} - ${getHomeScreen(homeScreenPreference).label}`
+                  ? `${getHomeScreen(homeScreenPreference).system === 'CHAMADOS' ? 'STI HUB Desk Service' : getHomeScreen(homeScreenPreference).system} - ${getHomeScreen(homeScreenPreference).label}`
                   : canChooseHomeScreen
                     ? 'Não definida (Visão Geral do primeiro sistema)'
                     : 'Apenas um sistema disponível'
@@ -2670,6 +2699,8 @@ export default function HubSpotProCrmApp() {
                       await fetchAllCrmData();
                     }}
                     currentOwnerName={activeRbacUser?.name || null}
+                    canCreateContact={canCreateContactInPanel}
+                    canCreateCompany={canCreateCompanyInPanel}
                   />
                 )}
 
@@ -2798,7 +2829,7 @@ export default function HubSpotProCrmApp() {
           onOpenAdminIam={canOpenAdminCentralUi ? () => setActiveModule("ADMIN_RBAC") : undefined}
           homeScreenLabel={
             homeScreenPreference && systemHasAccess(getHomeScreen(homeScreenPreference).system, userModuleAccess)
-              ? `${getHomeScreen(homeScreenPreference).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(homeScreenPreference).system} - ${getHomeScreen(homeScreenPreference).label}`
+              ? `${getHomeScreen(homeScreenPreference).system === 'CHAMADOS' ? 'STI HUB Desk Service' : getHomeScreen(homeScreenPreference).system} - ${getHomeScreen(homeScreenPreference).label}`
               : canChooseHomeScreen
                 ? 'Não definida (Visão Geral do primeiro sistema)'
                 : 'Apenas um sistema disponível'

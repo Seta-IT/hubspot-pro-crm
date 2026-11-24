@@ -46,7 +46,7 @@ export default function HomeScreenPreferenceModal({
   const [selectedScreen, setSelectedScreen] = useState<HomeScreenId | null>(initialScreen);
 
   const screens = selectedSystem ? getScreensForSystem(selectedSystem) : [];
-  const currentLabel = effective ? `${getHomeScreen(effective).system === 'CHAMADOS' ? 'Chamados' : getHomeScreen(effective).system} - ${getHomeScreen(effective).label}` : 'Nenhuma';
+  const currentLabel = effective ? `${getHomeScreen(effective).system === 'CHAMADOS' ? 'STI HUB Desk Service' : getHomeScreen(effective).system} - ${getHomeScreen(effective).label}` : 'Nenhuma';
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">

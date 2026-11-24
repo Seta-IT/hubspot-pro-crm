@@ -472,7 +472,7 @@ function GestaoClickCompanyModalForm({
             <Building2 className="w-5 h-5 text-emerald-300" />
             <div>
               <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300 block">
-                Padrão Oficial GestãoClick (#118887) &amp; Receita Federal do Brasil
+                Padrão Oficial STI HUB ERP &amp; Receita Federal do Brasil
               </span>
               <h2 className="text-sm sm:text-base font-semibold">
                 {isNew

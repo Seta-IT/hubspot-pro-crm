@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveTrustedClientIp } from '../../api/client-ip';
 import { isSensitiveProposalPath, SENSITIVE_PROPOSAL_HEADERS } from '../lib/sensitive-paths';
-import { BRIDGE_RESERVED_KEYS, CrmApiRouter } from '../../api/router';
+import { BRIDGE_RESERVED_KEYS, CrmApiRouter, TRUSTED_INTERNAL_CONTEXT, type ApiResponse } from '../../api/router';
 import { STIHUB_TOTP_ENROLLED_COOKIE, verifyStiHubSessionToken } from '../lib/auth';
 import {
   BODY_TOO_LARGE_RESPONSE_BODY,
@@ -109,10 +109,14 @@ export async function forwardToCrmRouter(
   }
   // IP real do cliente (usado na trilha de auditoria do aceite publico de propostas).
   query._clientIp = resolveTrustedClientIp(req.headers); // Pacote G (5c): IP confiavel da Vercel
+  query._userAgent = String(req.headers.get('user-agent') || '').slice(0, 300);
   query._fromHttpBridge = '1';
   query._origin = url.origin;
 
-  // Vercel Cron: GET exactos /api/erp/daily-sync, /api/crm/proposal-followup e /api/tickets/email-intake/poll
+  // Vercel Cron: GET exactos /api/erp/daily-sync, /api/crm/proposal-followup, /api/tickets/email-intake/poll
+  // e /api/cron/sequences (Fase 2, executor das cadencias; sem SEQUENCES_LIVE_SEND nao envia nada)
+  // e /api/cron/marketing (Fase 3, fila das campanhas; sem MARKETING_LIVE_SEND nao envia nada)
+  // e /api/cron/workflows (Fase 4, automacoes; sem WORKFLOWS_LIVE nao executa nada)
   // com Authorization: Bearer <CRON_SECRET>.
   // CISO 15/11: SHA-256 + timingSafeEqual; fail-closed sem CRON_SECRET (nunca roda sem auth).
   const cronPath = path.replace(/\/+$/, '');
@@ -120,7 +124,10 @@ export async function forwardToCrmRouter(
     req.method === 'GET' &&
     (cronPath === '/api/erp/daily-sync' ||
       cronPath === '/api/crm/proposal-followup' ||
-      cronPath === '/api/tickets/email-intake/poll') &&
+      cronPath === '/api/tickets/email-intake/poll' ||
+      cronPath === '/api/cron/sequences' ||
+      cronPath === '/api/cron/marketing' ||
+      cronPath === '/api/cron/workflows') &&
     isValidCronBearer(req.headers.get('authorization'), resolveCronSecret())
   ) {
     query._cronAuthorized = '1';
@@ -193,4 +200,13 @@ export async function forwardToCrmRouter(
     status: res.status,
     headers: responseHeaders,
   });
+}
+
+/**
+ * Fase 3: despacho interno confiavel (sem HTTP) para as rotas publicas dedicadas que ja
+ * verificaram a credencial propria (token de descadastro / assinatura do webhook). Usa o mesmo
+ * router singleton (carrega e grava o estado no Postgres como qualquer mutacao).
+ */
+export async function dispatchTrustedMarketing(path: '/api/marketing/esp-events' | '/api/marketing/unsubscribe-apply' | '/api/marketing/preferences-state' | '/api/marketing/preferences-apply', body: Record<string, unknown>): Promise<ApiResponse> {
+  return router.dispatch({ method: 'POST', path, query: {}, body, context: TRUSTED_INTERNAL_CONTEXT });
 }

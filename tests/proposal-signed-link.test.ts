@@ -658,13 +658,14 @@ describe('Parecer CISO 30/10 (A1, M1, M2, B1, B2, B3, B5)', () => {
     const { repo, router } = fresh();
     const onlyTickets = sessionFor(repo, 'usr-seta-02', { enabledModules: ['CHAMADOS'], moduleAccess: { crm: false, erp: false, chamados: true } });
     const g = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-fixture-001', query: { ...HTTP, _sessionToken: onlyTickets } });
-    assert.equal(g.status, 404);
-    assert.deepEqual(g.body, (await getPublic(router, 'prop-nao-existe')).body);
+    assert.equal(g.status, 403);
+    assert.equal((g.body as { code: string }).code, 'PROPOSAL_SCOPE_FORBIDDEN');
     const iss = await router.dispatch({ method: 'POST', path: '/api/erp/proposals/prop-fixture-001/public-link', query: { ...HTTP, _sessionToken: onlyTickets }, body: {} });
     assert.equal(iss.status, 403);
     const noProposals = sessionFor(repo, 'usr-seta-05');
     const g2 = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-fixture-001', query: { ...HTTP, _sessionToken: noProposals } });
-    assert.equal(g2.status, 404);
+    assert.equal(g2.status, 403);
+    assert.equal((g2.body as { code: string }).code, 'PROPOSAL_SCOPE_FORBIDDEN');
     // Com o token do link, o mesmo usuario ve apenas o DTO publico.
     const ver = repo.listProposals().find((x) => x.id === 'prop-fixture-001')!.version || 1;
     const g3 = await router.dispatch({ method: 'GET', path: '/api/erp/proposals/prop-fixture-001', query: { ...HTTP, _clientIp: nextIp(), _sessionToken: onlyTickets, proposalLinkToken: linkFor('prop-fixture-001', ver) } });
@@ -681,7 +682,7 @@ describe('Parecer CISO 30/10 (A1, M1, M2, B1, B2, B3, B5)', () => {
     const colleague = repo.createProposal({ title: 'Da Evelyn', companyName: 'C2', sellerName: evelyn.name, sellerEmail: evelyn.email, items: [] } as never);
     const tok = sessionFor(repo, 'usr-seta-03');
     assert.equal((await router.dispatch({ method: 'GET', path: `/api/erp/proposals/${mine.id}`, query: { ...HTTP, _sessionToken: tok } })).status, 200);
-    assert.equal((await router.dispatch({ method: 'GET', path: `/api/erp/proposals/${colleague.id}`, query: { ...HTTP, _sessionToken: tok } })).status, 404);
+    assert.equal((await router.dispatch({ method: 'GET', path: `/api/erp/proposals/${colleague.id}`, query: { ...HTTP, _sessionToken: tok } })).status, 403);
     assert.equal((await router.dispatch({ method: 'GET', path: `/api/erp/proposals/${colleague.id}`, query: { ...HTTP, _sessionToken: sessionFor(repo, 'usr-seta-01') } })).status, 200);
   });
 
@@ -712,7 +713,7 @@ describe('Parecer CISO 30/10 (A1, M1, M2, B1, B2, B3, B5)', () => {
     assert.equal(repo.findRbacUserRecord(maria.id, '')!.scope, 'EQUIPE');
     const equipe = sessionFor(repo, 'usr-seta-03', { scope: 'EQUIPE' });
     assert.equal((await issue(colleague.id, equipe)).status, 403);
-    assert.equal((await router.dispatch({ method: 'GET', path: `/api/erp/proposals/${colleague.id}`, query: { ...HTTP, _sessionToken: equipe } })).status, 404);
+    assert.equal((await router.dispatch({ method: 'GET', path: `/api/erp/proposals/${colleague.id}`, query: { ...HTTP, _sessionToken: equipe } })).status, 403);
     const mineByEmail = repo.createProposal({ title: 'Da Maria', companyName: 'C4', sellerEmail: maria.email, items: [] } as never);
     assert.equal((await issue(mineByEmail.id, equipe)).status, 200);
   });
@@ -914,10 +915,15 @@ describe('Escopo de propostas nas rotas autenticadas (CISO 30/10: PATCH e lista)
     await call(router, 'PATCH', `/api/erp/proposals/${ofB.id}`, admin, { title: 'B v2' });
     await call(router, 'PATCH', `/api/erp/proposals/${ofA.id}`, a, { title: 'A v2' });
     const nf = await call(router, 'GET', '/api/erp/proposals/prop-nao-existe/versions', a);
+    const versionsB = await call(router, 'GET', `/api/erp/proposals/${ofB.id}/versions`, a);
+    assert.equal(versionsB.status, 404);
+    assert.deepEqual(versionsB.body, nf.body);
+    const statusB = await call(router, 'GET', `/api/erp/proposals/${ofB.id}/acceptance-status`, a);
+    assert.equal(statusB.status, 403);
+    assert.equal((statusB.body as { code: string }).code, 'PROPOSAL_SCOPE_FORBIDDEN');
+    const missingStatus = await call(router, 'GET', '/api/erp/proposals/prop-nao-existe/acceptance-status', a);
+    assert.equal(missingStatus.status, 404);
     for (const sub of ['versions', 'acceptance-status']) {
-      const rb = await call(router, 'GET', `/api/erp/proposals/${ofB.id}/${sub}`, a);
-      assert.equal(rb.status, 404, sub);
-      assert.deepEqual(rb.body, nf.body);
       assert.equal((await call(router, 'GET', `/api/erp/proposals/${ofA.id}/${sub}`, a)).status, 200, sub);
       assert.equal((await call(router, 'GET', `/api/erp/proposals/${ofB.id}/${sub}`, admin)).status, 200, sub);
     }

@@ -12,6 +12,7 @@ import {
   Receipt,
   Wrench,
   Headphones,
+  ShoppingCart,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
@@ -23,12 +24,14 @@ import {
   ErpCommercialProposal,
   ErpFiscalInvoice,
   ErpRentalContract,
+  ErpSaleOrder,
   ErpServiceOrder,
   ErpSupplierRecord,
   ServiceTicket,
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
 import { buildTicketSearchHaystack, displayTicketSubject } from '../lib/setadesk-ticket-search';
+import { formatProposalDisplayCode } from '../lib/proposal-number';
 
 export type SearchSystemFilter = 'ALL' | 'CRM' | 'ERP' | 'CHAMADOS';
 
@@ -41,10 +44,13 @@ export type SearchCategoryKey =
   | 'CONTRACTS'
   | 'INVOICES'
   | 'SERVICE_ORDERS'
+  | 'SALES_ORDERS'
   | 'TICKETS';
 
 export interface SearchResultEntry {
   id: string;
+  /** Codigos/numeros do registro (ex.: "4709", "GC-ORC-4709"): igual => resultado no topo. */
+  matchKeys?: string[];
   entityId: string;
   category: SearchCategoryKey;
   system: 'CRM' | 'ERP' | 'CHAMADOS';
@@ -65,7 +71,13 @@ interface GlobalHeaderSearchProps {
   rentalContracts: ErpRentalContract[];
   invoices: ErpFiscalInvoice[];
   serviceOrders: ErpServiceOrder[];
+  salesOrders?: ErpSaleOrder[];
   tickets: ServiceTicket[];
+  /**
+   * Orcamentos em tabela (erp_proposals): o bootstrap nao traz a lista (proposals = []), entao a
+   * busca consulta a MESMA rota da tela de Orcamentos (GET /api/erp/proposals?q=).
+   */
+  proposalsServerSearch?: boolean;
   onSelectResult: (result: SearchResultEntry) => void;
   onNavigateToCategory?: (category: SearchCategoryKey, query: string) => void;
 }
@@ -152,6 +164,15 @@ export const SEARCH_CATEGORY_PILLS: Array<{
     icon: Wrench,
   },
   {
+    key: 'SALES_ORDERS',
+    label: 'Vendas',
+    system: 'ERP',
+    allowedSystems: ['ALL', 'ERP'],
+    avatarBg: 'bg-lime-700',
+    pillActiveCls: 'bg-lime-50 text-lime-900 border-lime-600 ring-1 ring-lime-600/30',
+    icon: ShoppingCart,
+  },
+  {
     key: 'TICKETS',
     label: 'Chamados / Tickets',
     system: 'CHAMADOS',
@@ -188,6 +209,45 @@ export function entryBelongsToSystem(
 
 function entrySearchBlob(entry: SearchResultEntry): string {
   return `${entry.title} ${entry.subtitle} ${entry.searchHaystack || ''}`;
+}
+
+const keyOf = (v: unknown) => normalizeSearchText(v).replace(/[^a-z0-9]+/g, '');
+
+/** 0 = codigo/numero igual; 1 = codigo comeca com a busca; 2 = titulo comeca; 3 = resto. */
+export function globalSearchRank(entry: SearchResultEntry, query: string): number {
+  const q = keyOf(query);
+  if (!q) return 3;
+  const keys = (entry.matchKeys || []).map(keyOf).filter(Boolean);
+  if (keys.some((k) => k === q)) return 0;
+  if (keys.some((k) => k.startsWith(q))) return 1;
+  if (keyOf(entry.title).startsWith(q)) return 2;
+  return 3;
+}
+
+/** Ordena (estavel) pelos codigos exatos primeiro, sem mudar o filtro. */
+export function rankGlobalSearchEntries(entries: SearchResultEntry[], query: string): SearchResultEntry[] {
+  if (!query.trim()) return entries;
+  return entries
+    .map((e, i) => ({ e, i, r: globalSearchRank(e, query) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((x) => x.e);
+}
+
+/** Entrada da busca para um orcamento (lista local ou resultado de /api/erp/proposals). */
+export function buildProposalSearchEntry(p: ErpCommercialProposal): SearchResultEntry {
+  const display = formatProposalDisplayCode(p.code);
+  const gcId = String(p.id || '').match(/^prop-gc-(\d+)$/)?.[1] || '';
+  return {
+    id: `PROPOSALS:${p.id}`,
+    entityId: p.id,
+    category: 'PROPOSALS',
+    system: 'ERP',
+    title: `${display || p.code} - ${p.companyName || p.title}`,
+    subtitle: `Orçamento • ERP • ${p.title || 'Proposta Comercial'} • ${formatBRL(p.totalContractValue || p.monthlyRecurringTotal)}${p.status ? ` • ${String(p.status).replace(/_/g, ' ')}` : ''}`,
+    matchKeys: [p.code, display].filter(Boolean),
+    searchHaystack: [p.code, display, gcId, p.title, p.companyName, p.companyCnpj, p.sellerName, p.contactName].filter(Boolean).join(' '),
+    rawRecord: p,
+  };
 }
 
 export function filterGlobalSearchEntries(params: {
@@ -243,7 +303,9 @@ export default function GlobalHeaderSearch({
   rentalContracts,
   invoices,
   serviceOrders,
+  salesOrders = [],
   tickets,
+  proposalsServerSearch = false,
   onSelectResult,
   onNavigateToCategory,
 }: GlobalHeaderSearchProps) {
@@ -255,7 +317,33 @@ export default function GlobalHeaderSearch({
   const [activeIndex, setActiveIndex] = useState(0);
   const [recentIds, setRecentIds] = useState<string[]>([]);
 
+  const [remoteProposals, setRemoteProposals] = useState<ErpCommercialProposal[]>([]);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Orcamentos em tabela: mesma fonte da tela (GET /api/erp/proposals?q=), com debounce.
+  useEffect(() => {
+    const q = query.trim();
+    if (!proposalsServerSearch || q.length < 2) {
+      setRemoteProposals([]);
+      return;
+    }
+    let alive = true;
+    const t = setTimeout(() => {
+      const qs = new URLSearchParams({ q, limit: '30', offset: '0', status: 'TODOS', type: 'TODOS' });
+      fetch(`/api/erp/proposals?${qs.toString()}`, { credentials: 'same-origin' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (alive) setRemoteProposals(j && Array.isArray(j.data) ? (j.data as ErpCommercialProposal[]) : []);
+        })
+        .catch(() => {
+          if (alive) setRemoteProposals([]);
+        });
+    }, 250);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [query, proposalsServerSearch]);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -396,17 +484,12 @@ export default function GlobalHeaderSearch({
       });
     }
 
-    // 4. Orçamentos / Propostas (ERP)
-    for (const p of proposals) {
-      entries.push({
-        id: `PROPOSALS:${p.id}`,
-        entityId: p.id,
-        category: 'PROPOSALS',
-        system: 'ERP',
-        title: `${p.code} - ${p.companyName || p.title}`,
-        subtitle: `Orçamento • ERP • ${p.title || 'Proposta Comercial'} • ${formatBRL(p.totalContractValue || p.monthlyRecurringTotal)}`,
-        rawRecord: p,
-      });
+    // 4. Orçamentos / Propostas (ERP): lista local + resultado da rota da tela (modo tabela)
+    const seenProposals = new Set<string>();
+    for (const p of [...proposals, ...remoteProposals]) {
+      if (!p || !p.id || seenProposals.has(p.id)) continue;
+      seenProposals.add(p.id);
+      entries.push(buildProposalSearchEntry(p));
     }
 
     // 5. Produtos / Itens (ERP)
@@ -431,6 +514,8 @@ export default function GlobalHeaderSearch({
         system: 'ERP',
         title: `${ctr.contractNumber} - ${ctr.companyName}`,
         subtitle: `Contrato • ERP • ${ctr.title} • ${formatBRL(ctr.monthlyValue)}/mês`,
+        matchKeys: [ctr.contractNumber, (ctr as { gestaoClickCode?: string }).gestaoClickCode].filter(Boolean) as string[],
+        searchHaystack: [(ctr as { gestaoClickCode?: string }).gestaoClickCode, ctr.companyCnpj].filter(Boolean).join(' '),
         rawRecord: ctr,
       });
     }
@@ -444,6 +529,8 @@ export default function GlobalHeaderSearch({
         system: 'ERP',
         title: `${inv.documentNumber} - ${inv.companyName}`,
         subtitle: `Nota Fiscal • ERP • ${inv.documentType} • ${formatBRL(inv.grossAmount)} • ${inv.status}`,
+        matchKeys: [inv.documentNumber].filter(Boolean),
+        searchHaystack: [inv.companyCnpj, inv.verificationCodeOrKey].filter(Boolean).join(' '),
         rawRecord: inv,
       });
     }
@@ -457,7 +544,24 @@ export default function GlobalHeaderSearch({
         system: 'ERP',
         title: `O.S. #${os.code} - ${os.companyName}`,
         subtitle: `Ordem de Serviço • ERP • Técnico: ${os.technicianName || 'NOC'} • ${os.status}`,
+        matchKeys: [os.code].filter(Boolean),
+        searchHaystack: [os.serialNumber, (os as { equipmentName?: string }).equipmentName].filter(Boolean).join(' '),
         rawRecord: os,
+      });
+    }
+
+    // 8b. Vendas (ERP)
+    for (const so of salesOrders) {
+      entries.push({
+        id: `SALES_ORDERS:${so.id}`,
+        entityId: so.id,
+        category: 'SALES_ORDERS',
+        system: 'ERP',
+        title: `Venda #${so.code} - ${so.companyName}`,
+        subtitle: `Venda • ERP • ${so.sellerName || '—'} • ${formatBRL(so.totalAmount)} • ${so.status}`,
+        matchKeys: [so.code].filter(Boolean),
+        searchHaystack: so.itemsSummary || '',
+        rawRecord: so,
       });
     }
 
@@ -470,7 +574,8 @@ export default function GlobalHeaderSearch({
         category: 'TICKETS',
         system: 'CHAMADOS',
         title: `${tk.key} - ${displayTicketSubject(tk.subject)}`,
-        subtitle: `Chamado • CHAMADOS${compName ? ` • ${compName}` : ''} • Fila: ${tk.assignee} • ${tk.status}`,
+        matchKeys: [tk.key].filter(Boolean),
+        subtitle: `Chamado • STI HUB Desk Service${compName ? ` • ${compName}` : ''} • Fila: ${tk.assignee} • ${tk.status}`,
         searchHaystack: buildTicketSearchHaystack({
           key: tk.key,
           subject: tk.subject,
@@ -490,10 +595,12 @@ export default function GlobalHeaderSearch({
     contacts,
     deals,
     proposals,
+    remoteProposals,
     catalog,
     rentalContracts,
     invoices,
     serviceOrders,
+    salesOrders,
     tickets,
   ]);
 
@@ -512,6 +619,7 @@ export default function GlobalHeaderSearch({
       CONTRACTS: 0,
       INVOICES: 0,
       SERVICE_ORDERS: 0,
+      SALES_ORDERS: 0,
       TICKETS: 0,
     };
     const q = normalizeSearchText(query);
@@ -562,6 +670,7 @@ export default function GlobalHeaderSearch({
         'CONTRACTS',
         'INVOICES',
         'SERVICE_ORDERS',
+        'SALES_ORDERS',
         'TICKETS',
       ] as SearchCategoryKey[]) {
         const found = matchingPool.filter((e) => e.category === cat && !seenIds.has(e.id)).slice(0, 2);
@@ -573,7 +682,7 @@ export default function GlobalHeaderSearch({
       return [...recentMatched, ...diversePicks].slice(0, 14);
     }
 
-    return matchingPool.slice(0, 24);
+    return rankGlobalSearchEntries(matchingPool, query).slice(0, 24);
   }, [matchingPool, query, systemFilter, selectedCategories, recentIds]);
 
   const handleChooseEntry = (entry: SearchResultEntry) => {
@@ -668,7 +777,7 @@ export default function GlobalHeaderSearch({
                     { id: 'ALL', label: 'Todos os Sistemas' },
                     { id: 'CRM', label: 'CRM' },
                     { id: 'ERP', label: 'ERP' },
-                    { id: 'CHAMADOS', label: 'Chamados' },
+                    { id: 'CHAMADOS', label: 'STI HUB Desk Service' },
                   ] as Array<{ id: SearchSystemFilter; label: string }>
                 ).map((sys) => {
                   const isAct = systemFilter === sys.id;

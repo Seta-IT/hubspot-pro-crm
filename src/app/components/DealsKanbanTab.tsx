@@ -43,7 +43,8 @@ import { buildInternalProposalUrl } from '../lib/proposal-share';
 import { recordUpsertedProposal } from '../lib/durable-storage';
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import { buildDealProposalEmailPayload, buildProposalCrmEmailPayload } from '../lib/proposal-crm-email-payload';
-import { resolveDealLinkedProposal } from '../../modules/deals/proposal-deal-link';
+import { dealIsOneTimeCharge, resolveDealLinkedProposal } from '../../modules/deals/proposal-deal-link';
+import { isOneTimeChargeProposal } from '../lib/proposal-share';
 import DealRecordDrawer from './DealRecordDrawer';
 import { copySignedProposalLink } from '../lib/proposal-link-client';
 import { copyInternalProposalLink } from '../lib/internal-proposal-summary';
@@ -152,6 +153,9 @@ interface DealsKanbanTabProps {
   onRefreshAll?: () => Promise<void>;
   /** Nome do usuário autenticado, para a aba salva “Meus negócios”. */
   currentOwnerName?: string | null;
+  /** RBAC do item (crm.contacts / crm.companies edit): "Criar novo" do painel de associação. */
+  canCreateContact?: boolean;
+  canCreateCompany?: boolean;
 }
 
 function getInitials(name: string | undefined | null): string {
@@ -172,6 +176,12 @@ function getDealTypeLabel(dealType: DealBusinessType | undefined) {
   if (dealType === 'LOCACAO_RECORRENTE') return { label: 'Locação Recorrente (0% ISS)', cls: 'bg-emerald-50 text-emerald-800 border-emerald-200' };
   if (dealType === 'UPSELL_RENOVACAO') return { label: 'Upsell / Renovação', cls: 'bg-indigo-50 text-indigo-800 border-indigo-200' };
   return { label: 'Novo Negócio B2B', cls: 'bg-sky-50 text-sky-800 border-sky-200' };
+}
+
+function dealShowsMonthlyAmount(deal: Deal, proposalList: ErpCommercialProposal[]): boolean {
+  const linked = resolveDealLinkedProposal(deal, proposalList);
+  if (linked) return !isOneTimeChargeProposal(linked);
+  return !dealIsOneTimeCharge(deal);
 }
 
 export default function DealsKanbanTab({
@@ -206,6 +216,8 @@ export default function DealsKanbanTab({
   onShowToast,
   onRefreshAll,
   currentOwnerName = null,
+  canCreateContact = false,
+  canCreateCompany = false,
 }: DealsKanbanTabProps) {
   const [localPipelineId, setLocalPipelineId] = useState<string>(
     selectedPipelineId || pipelines[0]?.id || 'pipe-enterprise-b2b'
@@ -515,7 +527,7 @@ export default function DealsKanbanTab({
   const pipeWonValue = pipeWonDeals.reduce((s, d) => s + d.value, 0);
   const pipeRottingCount = pipeOpenDeals.filter((d) => d.isRotting).length;
   const pipeTotalMrr = pipelineDeals
-    .filter((d) => d.status !== 'LOST')
+    .filter((d) => d.status !== 'LOST' && dealShowsMonthlyAmount(d, proposals))
     .reduce((s, d) => s + (d.mrr || Math.round(d.value / (d.contractMonths || 24))), 0);
 
   const availableOwners = Array.from(
@@ -642,16 +654,6 @@ export default function DealsKanbanTab({
 
   return (
         <div className="space-y-5">
-      {emailModalPayload && (
-        <ClientEmailComposerModal
-          payload={emailModalPayload}
-          onClose={() => setEmailModalPayload(null)}
-          onSentSuccess={(msg) => {
-            onShowToast?.(msg);
-            if (onRefreshAll) void onRefreshAll();
-          }}
-        />
-      )}
       {createdProposalBanner && (
         <div className="bg-emerald-950 text-white rounded-[6px] p-4 border border-emerald-600 shadow-lg flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="space-y-1">
@@ -697,12 +699,12 @@ export default function DealsKanbanTab({
               data-testid="kanban-copy-internal-link"
               onClick={async () => {
                 const url = await copyInternalProposalLink(createdProposalBanner.proposal.id);
-                onShowToast?.(url ? "Link interno da proposta copiado." : "Não foi possível copiar o link interno.");
+                onShowToast?.(url ? "Versão contrato da proposta copiada." : "Não foi possível copiar a Versão contrato.");
               }}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[4px] border border-white/40 text-white hover:bg-white/10 text-xs font-semibold cursor-pointer"
             >
               <Copy className="w-3.5 h-3.5" />
-              Copiar link interno
+              Copiar Versão contrato
             </button>
             <a
               href={createdProposalBanner.publicUrl}
@@ -1232,7 +1234,8 @@ export default function DealsKanbanTab({
               <tbody className="divide-y divide-slate-200">
                 {filteredDeals.map((deal) => {
                   const contractMonths = deal.contractMonths || 24;
-                  const mrr = deal.mrr || Math.round(deal.value / contractMonths);
+                  const showsMonthly = dealShowsMonthlyAmount(deal, proposals);
+                  const mrr = showsMonthly ? (deal.mrr || Math.round(deal.value / contractMonths)) : 0;
                   const priorityMeta = getPriorityMeta(deal.priority, deal.value);
                   const closeDateStr = formatDealPropertyDate(deal.expectedCloseDate);
                   return (
@@ -1282,7 +1285,7 @@ export default function DealsKanbanTab({
                         {formatBRL(deal.value)}
                       </td>
                       <td className="py-2.5 px-3 text-right font-semibold text-emerald-700">
-                        {formatBRL(mrr)}/mês
+                        {showsMonthly ? `${formatBRL(mrr)}/mês` : formatBRL(deal.value)}
                       </td>
                       <td className="py-2.5 px-3 text-center">
                         <span className="px-2 py-0.5 rounded bg-slate-100 font-semibold text-slate-800">
@@ -1325,7 +1328,8 @@ export default function DealsKanbanTab({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {filteredDeals.map((deal) => {
             const contractMonths = deal.contractMonths || 24;
-            const mrr = deal.mrr || Math.round(deal.value / contractMonths);
+            const showsMonthly = dealShowsMonthlyAmount(deal, proposals);
+            const mrr = showsMonthly ? (deal.mrr || Math.round(deal.value / contractMonths)) : 0;
             const priorityMeta = getPriorityMeta(deal.priority, deal.value);
             const stObj = stages.find((s) => s.id === deal.stageId);
             return (
@@ -1359,8 +1363,8 @@ export default function DealsKanbanTab({
                       <strong className="text-slate-900">{formatBRL(deal.value)}</strong>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-400 block">Valor mensal</span>
-                      <strong className="text-emerald-700">{formatBRL(mrr)}</strong>
+                      <span className="text-[10px] text-slate-400 block">{showsMonthly ? 'Valor mensal' : 'Pagamento único'}</span>
+                      <strong className="text-emerald-700">{showsMonthly ? formatBRL(mrr) : formatBRL(deal.value)}</strong>
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-400 block">Prob.</span>
@@ -2008,6 +2012,29 @@ export default function DealsKanbanTab({
             setNoteTitle('');
             setNoteBody('');
           }}
+          onCreateActivity={async (payload) => {
+            const res = await fetch('/api/timeline', {
+              method: 'POST',
+              cache: 'no-store',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...payload, dealId: selectedDeal.id }),
+            });
+            const json = (await res.json().catch(() => ({}))) as { error?: string };
+            if (!res.ok) {
+              const msg = json.error || 'Não foi possível registrar a atividade.';
+              onShowToast?.(msg);
+              throw new Error(msg);
+            }
+            onShowToast?.('Atividade registrada na timeline do negócio!');
+            const det = await fetch(`/api/deals/${selectedDeal.id}`);
+            if (det.ok) {
+              const dj = await det.json();
+              setDealTimeline(dj.data?.timeline || []);
+            }
+          }}
+          currentUserName={currentOwnerName}
+          canCreateContact={canCreateContact}
+          canCreateCompany={canCreateCompany}
           onShowToast={onShowToast}
           onNavigateToErp={
             onNavigateToErp
@@ -2017,6 +2044,29 @@ export default function DealsKanbanTab({
                 }
               : undefined
           }
+          pipelines={pipelines}
+          onSelectPipeline={handleSelectPipe}
+          onCreateRelatedDeal={async (payload) => {
+            await onCreateDeal({
+              title: payload.title,
+              value: 0,
+              stageId: payload.stageId,
+              pipelineId: payload.pipelineId,
+              contactId: payload.contactId,
+              companyId: payload.companyId,
+            });
+          }}
+          onRefreshAll={onRefreshAll}
+        />
+      )}
+      {emailModalPayload && (
+        <ClientEmailComposerModal
+          payload={emailModalPayload}
+          onClose={() => setEmailModalPayload(null)}
+          onSentSuccess={(msg) => {
+            onShowToast?.(msg);
+            if (onRefreshAll) void onRefreshAll();
+          }}
         />
       )}
     </div>

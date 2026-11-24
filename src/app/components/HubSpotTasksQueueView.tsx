@@ -41,6 +41,32 @@ interface HubSpotTasksQueueViewProps {
   companies: Company[];
   onOpenContactDrawer: (contactId: string) => void;
   onOpenCompanyDrawer: (companyId: string) => void;
+  /** Notifica o shell (ex.: contador atrasadas/hoje da navegação) quando a lista muda. */
+  onTasksChanged?: (tasks: CrmTask[]) => void;
+}
+
+/** Estado do Queue Player/filtros persistido na sessão para retomar a fila após abrir a ficha 360° em outro módulo. */
+const QUEUE_SESSION_KEY = 'stihub_tasks_queue_player_v1';
+type QueueSessionState = {
+  playingQueue?: boolean;
+  currentQueueIndex?: number;
+  queueFilter?: string;
+  dueFilter?: 'ALL' | 'OVERDUE' | 'TODAY' | 'UPCOMING' | 'COMPLETED';
+  typeFilter?: string;
+  priorityFilter?: string;
+  ownerFilter?: string;
+};
+function loadQueueSession(): QueueSessionState {
+  if (typeof window === 'undefined') return {};
+  try {
+    return JSON.parse(window.sessionStorage.getItem(QUEUE_SESSION_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+function localTodayYmd(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
 export default function HubSpotTasksQueueView({
@@ -48,20 +74,42 @@ export default function HubSpotTasksQueueView({
   companies,
   onOpenContactDrawer,
   onOpenCompanyDrawer,
+  onTasksChanged,
 }: HubSpotTasksQueueViewProps) {
+  const [savedSession] = useState<QueueSessionState>(() => loadQueueSession());
   const [tasks, setTasks] = useState<EnrichedCrmTask[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
-  const [queueFilter, setQueueFilter] = useState<string>('ALL');
-  const [dueFilter, setDueFilter] = useState<'ALL' | 'OVERDUE' | 'TODAY' | 'UPCOMING' | 'COMPLETED'>('ALL');
-  const [typeFilter, setTypeFilter] = useState<string>('ALL');
-  const [priorityFilter, setPriorityFilter] = useState<string>('ALL');
-  const [ownerFilter, setOwnerFilter] = useState<string>('ALL');
+  const [queueFilter, setQueueFilter] = useState<string>(savedSession.queueFilter || 'ALL');
+  const [dueFilter, setDueFilter] = useState<'ALL' | 'OVERDUE' | 'TODAY' | 'UPCOMING' | 'COMPLETED'>(
+    savedSession.dueFilter || 'ALL'
+  );
+  const [typeFilter, setTypeFilter] = useState<string>(savedSession.typeFilter || 'ALL');
+  const [priorityFilter, setPriorityFilter] = useState<string>(savedSession.priorityFilter || 'ALL');
+  const [ownerFilter, setOwnerFilter] = useState<string>(savedSession.ownerFilter || 'ALL');
 
   // Queue Player (HubSpot Play Queue Mode)
-  const [playingQueue, setPlayingQueue] = useState<boolean>(false);
-  const [currentQueueIndex, setCurrentQueueIndex] = useState<number>(0);
+  const [playingQueue, setPlayingQueue] = useState<boolean>(!!savedSession.playingQueue);
+  const [currentQueueIndex, setCurrentQueueIndex] = useState<number>(savedSession.currentQueueIndex || 0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const state: QueueSessionState = {
+        playingQueue,
+        currentQueueIndex,
+        queueFilter,
+        dueFilter,
+        typeFilter,
+        priorityFilter,
+        ownerFilter,
+      };
+      window.sessionStorage.setItem(QUEUE_SESSION_KEY, JSON.stringify(state));
+    } catch {
+      // ignore
+    }
+  }, [playingQueue, currentQueueIndex, queueFilter, dueFilter, typeFilter, priorityFilter, ownerFilter]);
 
   // Create Modal
   const [showNewTaskModal, setShowNewTaskModal] = useState(false);
@@ -97,7 +145,12 @@ export default function HubSpotTasksQueueView({
     fetchTasks();
   }, []);
 
-  const todayYmd = new Date().toISOString().slice(0, 10);
+  useEffect(() => {
+    if (!loading) onTasksChanged?.(tasks);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, loading]);
+
+  const todayYmd = localTodayYmd();
 
   const filteredTasks = tasks.filter((t) => {
     if (queueFilter !== 'ALL' && t.queueName !== queueFilter) return false;
@@ -256,7 +309,7 @@ export default function HubSpotTasksQueueView({
           >
             <Play className="w-3.5 h-3.5" />
             {playingQueue
-              ? 'Encerrar Fila HubSpot'
+              ? 'Encerrar Fila STI HUB CRM'
               : `Iniciar Fila (${playableTasks.length} Tarefas)`}
           </button>
 
@@ -277,7 +330,7 @@ export default function HubSpotTasksQueueView({
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 pb-3">
             <div className="flex items-center gap-2">
               <span className="px-2.5 py-0.5 rounded-full bg-[#0091ae] text-white text-[10px] font-semibold uppercase">
-                HubSpot Queue Player Ativo • Tarefa {currentQueueIndex + 1} de {playableTasks.length}
+                STI HUB CRM Queue Player Ativo • Tarefa {currentQueueIndex + 1} de {playableTasks.length}
               </span>
               <span className="text-xs font-semibold text-slate-300">
                 Fila: {activeQueueTask.queueName} • Vencimento: {activeQueueTask.dueDate} às {activeQueueTask.dueTime}
@@ -355,7 +408,7 @@ export default function HubSpotTasksQueueView({
           onChange={(e) => setQueueFilter(e.target.value)}
           className="px-2.5 py-1.5 rounded border border-[#cbd6e2] bg-white text-[#33475b]"
         >
-          <option value="ALL">Fila HubSpot: Todas as Filas</option>
+          <option value="ALL">Fila STI HUB CRM: Todas as Filas</option>
           {HUBSPOT_TASK_QUEUES.map((q) => (
             <option key={q} value={q}>
               Fila: {q}
@@ -403,7 +456,7 @@ export default function HubSpotTasksQueueView({
             <thead>
               <tr className="border-b border-[#cbd6e2] bg-[#f5f8fa] text-[11px] font-semibold uppercase tracking-wider text-[#516f90]">
                 <th className="py-3 px-4">Status &amp; Tarefa de Follow-up</th>
-                <th className="py-3 px-4">Tipo &amp; Fila HubSpot</th>
+                <th className="py-3 px-4">Tipo &amp; Fila STI HUB CRM</th>
                 <th className="py-3 px-4">Contato / Empresa Associada</th>
                 <th className="py-3 px-4">Prioridade &amp; Prazo</th>
                 <th className="py-3 px-4">Proprietário</th>
@@ -583,7 +636,7 @@ export default function HubSpotTasksQueueView({
             <div className="px-6 py-4 bg-[#1e293b] text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <CheckSquare className="w-5 h-5 text-accent" />
-                <h3 className="text-base font-semibold">Nova Tarefa de Follow-up (Padrão HubSpot)</h3>
+                <h3 className="text-base font-semibold">Nova Tarefa de Follow-up (Padrão STI HUB CRM)</h3>
               </div>
               <button
                 type="button"
@@ -638,7 +691,7 @@ export default function HubSpotTasksQueueView({
                 </div>
                 <div>
                   <label className="block font-semibold uppercase text-slate-600 mb-1">
-                    Fila HubSpot
+                    Fila STI HUB CRM
                   </label>
                   <select
                     value={queueName}

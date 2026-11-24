@@ -322,7 +322,7 @@ export default function GestaoClickSidebar({
             className="text-left min-w-0 cursor-pointer group"
           >
             <span className="text-[10px] font-semibold uppercase tracking-wider text-[#1e3a6e] group-hover:text-[#162d57] transition block truncate">
-              MÓDULO ERP • GESTÃOCLICK
+              MÓDULO • STI HUB ERP
             </span>
             <span className="text-[10px] text-slate-500 font-semibold block truncate">
               Backoffice, Locação &amp; Fiscal

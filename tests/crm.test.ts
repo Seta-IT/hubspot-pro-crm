@@ -46,11 +46,14 @@ import {
 import {
   detectDuplicateContacts,
   detectDuplicateCompanies,
+  detectProtectedBranchCompanies,
+  haveConflictingCnpjs,
   jaroWinklerSimilarity,
   levenshteinSimilarity,
 } from '../src/modules/data-health/deduplication';
 import { createInMemoryRepository } from './helpers/legacy-proposal-fixtures';
 import { CrmApiRouter } from '../src/api/router';
+import { DataHealthService } from '../src/modules/data-health/health-service';
 
 describe('1. Validação & Padronização (validators.ts)', () => {
   it('valida sintaxe de e-mail, domínios descartáveis e corporativos vs gratuitos', () => {
@@ -193,7 +196,7 @@ describe('3. Detecção de Duplicados Exata & Fuzzy + Merge Inteligente', () => 
     assert.equal(totvsPair!.confidenceScore, 100);
   });
 
-  it('bloqueia detecção de duplicidade e rejeita merge (400) entre empresas com CNPJs diferentes mesmo com mesmo domínio (Matriz e Filial)', async () => {
+  it('bloqueia detecção de duplicidade e rejeita merge (422) entre empresas com CNPJs diferentes mesmo com mesmo domínio (Matriz e Filial)', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
 
@@ -225,7 +228,7 @@ describe('3. Detecção de Duplicados Exata & Fuzzy + Merge Inteligente', () => 
       'Empresas com CNPJs diferentes jamais devem ser listadas como duplicadas'
     );
 
-    // 2. Verifica que tentativa forçada de merge via API retorna 400 Bad Request (Bloqueio Fiscal)
+    // 2. Verifica que tentativa forçada de merge via API retorna 422 (Bloqueio Fiscal)
     const mergeAttempt = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
       method: 'POST',
       path: '/api/data-health/merge',
@@ -235,7 +238,7 @@ describe('3. Detecção de Duplicados Exata & Fuzzy + Merge Inteligente', () => 
         duplicateId: filial.id,
       },
     });
-    assert.equal(mergeAttempt.status, 400);
+    assert.equal(mergeAttempt.status, 422);
     const errBody = mergeAttempt.body as { error: string };
     assert.ok(errBody.error.includes('Bloqueio Fiscal'));
   });
@@ -682,7 +685,7 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
 
     const locInvoice = ov.invoices.find((i) => i.documentType === 'FATURA_LOCACAO');
     assert.ok(locInvoice);
-    assert.equal(locInvoice!.taxBreakdown.issAmount, 0, 'Locação pura de bens móveis não incide ISS (SV 31 STF)');
+    assert.equal(locInvoice!.taxBreakdown.issAmount, 0, 'Locação de bens móveis não incide ISS (SV 31 STF)');
 
     // 2. Aprovar Proposta PROP-2026-002 -> Gera Contrato de Locação + Fatura de Locação automaticamente
     const appRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
@@ -2512,6 +2515,14 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
         title: `O.S. #${os.code} - ${os.companyName}`,
         subtitle: `Ordem de Serviço • ERP • ${os.status}`,
       })),
+      ...(erp.salesOrders || []).map((so) => ({
+        id: `SALES_ORDERS:${so.id}`,
+        entityId: so.id,
+        category: 'SALES_ORDERS' as SearchCategoryKey,
+        system: 'ERP' as const,
+        title: `Venda #${so.code} - ${so.companyName}`,
+        subtitle: `Venda • ERP • ${so.status}`,
+      })),
       ...tickets.map((tk) => ({
         id: `TICKETS:${tk.id}`,
         entityId: tk.id,
@@ -2522,7 +2533,7 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
       })),
     ];
 
-    // 1. Testar cada uma das 9 pílulas de categoria isoladamente (sem texto digitado)
+    // 1. Testar cada uma das pílulas de categoria isoladamente (sem texto digitado)
     for (const pill of SEARCH_CATEGORY_PILLS) {
       const res = filterGlobalSearchEntries({
         allEntries: entries,
@@ -3226,9 +3237,15 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
       "À vista • Vencimento 16/11/2026"
     );
 
-    // 6. Setup / Ativação só aparece quando selecionado (hasSetupSelected)
+    // 6. Setup / Ativação só aparece quando selecionado (hasSetupSelected).
+    // Em propostas de serviço (SERVICOS) o rótulo exibido é "Serviço"; locação e demais tipos mantêm o texto antigo.
     assert.ok(pageSrc.includes("hasSetupSelected && ("));
-    assert.ok(modalsSrc.includes("Incluir setup (R$)") || modalsSrc.includes("Incluir Setup / Ativação (R$)"));
+    assert.ok(pageSrc.includes("proposalSetupFeeLabel"));
+    assert.ok(modalsSrc.includes("proposalSetupFeeLabel"));
+    assert.equal(shareMod.proposalSetupFeeLabel({ budgetType: "SERVICOS" }), "Serviço");
+    assert.equal(shareMod.proposalSetupFeeLabel({ budgetType: "LOCACAO" }), "Setup / Ativação");
+    assert.equal(shareMod.proposalSetupFeeLabel({ budgetType: "CONJUNTO" }, "unique"), "Setup único");
+    assert.equal(shareMod.proposalSetupFeeLabel({ budgetType: "SERVICOS" }, "unique"), "Serviço");
 
     // 7. Alterado de Investimento Mensal (MRR) para Valor Mensal
     assert.equal(pageSrc.includes("Investimento Mensal (MRR)"), false);
@@ -3512,8 +3529,9 @@ describe("Proposta: Prazo de Entrega editável e 3 opções leves de template (c
       "                Descontos\n",
       '"Valor Total" : "Valor Mensal"',
       "Valor Total dos Produtos",
-      '"Valor Total (Pagamento Único)"',
-    ]) assert.ok(pageSrc.includes(novo), novo);
+      '{uniquePaymentLabel}',
+    ]) assert.ok(pageSrc.includes(novo) || shareSrc.includes(novo), novo);
+    assert.ok(shareSrc.includes('Valor Total (Pagamento Único)'));
     for (const antigo of [
       "Estoque Próprio de Spare Parts (+500 SKUs) • Atendimento Brasil",
       "PROPOSTA COMERCIAL / ORÇAMENTO",
@@ -3757,7 +3775,7 @@ describe("Padronização da Arquitetura de Navegação nos 3 Sistemas (CRM, ERP 
     assert.ok(pageSrc.includes("Saúde Chamados:"));
 
     // 2. Sidebars corporativas em blocos nos 3 sistemas (ERP, CRM e Chamados)
-    assert.ok(gcSidebarSrc.includes("MÓDULO ERP • GESTÃOCLICK"));
+    assert.ok(gcSidebarSrc.includes("MÓDULO • STI HUB ERP"));
     assert.ok(gcSidebarSrc.includes("COMERCIAL & LOCAÇÃO"));
     assert.ok(gcSidebarSrc.includes("OPERAÇÃO & TÉCNICO"));
     assert.ok(gcSidebarSrc.includes("FINANCEIRO, FISCAL & GOVERNANÇA"));
@@ -3767,7 +3785,7 @@ describe("Padronização da Arquitetura de Navegação nos 3 Sistemas (CRM, ERP 
     assert.ok(crmSidebarSrc.includes("MARKETING &amp; AUTOMAÇÃO"));
     assert.ok(crmSidebarSrc.includes("GOVERNANÇA CRM"));
 
-    assert.ok(sdSrc.includes("MÓDULO CHAMADOS • SERVICE HUB"));
+    assert.ok(sdSrc.includes("MÓDULO • STI HUB DESK SERVICE"));
     assert.ok(sdSrc.includes("ATENDIMENTO &amp; FILAS NOC"));
     assert.ok(sdSrc.includes("QUALIDADE &amp; AUDITORIA"));
     assert.ok(sdSrc.includes("Fila de Chamados (5 Visões)"));
@@ -4469,5 +4487,187 @@ describe('16. Evoluções de Contratos, Faturamento, Recorrência, Regras Custom
     assert.equal(draftInv.grossAmount, finalInv.grossAmount);
     assert.equal(draftInv.customerPurchaseOrderNumber, finalInv.customerPurchaseOrderNumber);
     assert.equal(draftInv.documentNumber.replace('RASCUNHO-', ''), finalInv.documentNumber);
+  });
+});
+
+// ---------------------------------------------------------------------------
+import { buildProposalSearchEntry, rankGlobalSearchEntries } from '../src/app/components/GlobalHeaderSearch';
+describe('Busca global: orçamentos pelo número (fonte da tela) e ranking por código', () => {
+  const mk = (id: string, code: string, companyName: string) =>
+    buildProposalSearchEntry({ id, code, companyName, title: 'Proposta', totalContractValue: 100, monthlyRecurringTotal: 10, status: 'ENVIADA' } as any);
+  it('"4709" acha o orçamento 4709 (e GC-ORC-4709) e coloca o código exato no topo', () => {
+    const entries: SearchResultEntry[] = [
+      mk('p-a', '14709', 'Beta SA'),
+      { id: 'COMPANIES:c1', entityId: 'c1', category: 'COMPANIES', system: 'CRM', title: 'Empresa 4709', subtitle: 'x' },
+      mk('prop-gc-55', 'GC-ORC-4709', 'A3CLOUD.IT LTDA'),
+    ];
+    const res = filterGlobalSearchEntries({ allEntries: entries, query: '4709', systemFilter: 'ALL', selectedCategories: ['PROPOSALS'] });
+    assert.equal(res.length, 2);
+    const ranked = rankGlobalSearchEntries(res, '4709');
+    assert.equal(ranked[0].entityId, 'prop-gc-55');
+    assert.match(ranked[0].title, /^4709 - A3CLOUD/);
+    const porCliente = filterGlobalSearchEntries({ allEntries: entries, query: 'a3cloud', systemFilter: 'ALL', selectedCategories: ['PROPOSALS'] });
+    assert.equal(porCliente.length, 1);
+  });
+  it('a busca usa a rota da tela de Orçamentos quando a lista fica na tabela', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'src/app/components/GlobalHeaderSearch.tsx'), 'utf8');
+    assert.match(src, /\/api\/erp\/proposals\?\$\{qs\.toString\(\)\}/);
+    const page = fs.readFileSync(path.join(process.cwd(), 'src/app/page.tsx'), 'utf8');
+    assert.match(page, /proposalsServerSearch=\{erpData\?\.proposalsStorage === 'table'\}/);
+    assert.match(page, /salesOrders=\{erpData\?\.salesOrders \|\| \[\]\}/);
+  });
+});
+
+describe('Textos visíveis: só STI HUB ERP / STI HUB CRM / STI HUB Desk Service', () => {
+  it('a busca global ainda aceita "GC-ORC-4709" (código gravado não muda)', () => {
+    const e = buildProposalSearchEntry({ id: 'prop-gc-55', code: 'GC-ORC-4709', companyName: 'A3CLOUD.IT LTDA', title: 'Proposta', totalContractValue: 1, monthlyRecurringTotal: 1, status: 'ENVIADA' } as any);
+    const res = filterGlobalSearchEntries({ allEntries: [e], query: 'GC-ORC-4709', systemFilter: 'ALL', selectedCategories: ['PROPOSALS'] });
+    assert.equal(res.length, 1);
+    assert.equal(rankGlobalSearchEntries(res, 'GC-ORC-4709')[0].entityId, 'prop-gc-55');
+  });
+  it('cabeçalho, título da página e textos do assistente sem GestãoClick/HubSpot', () => {
+    const fsx = require('node:fs') as typeof import('node:fs');
+    const page = fsx.readFileSync('src/app/page.tsx', 'utf8');
+    assert.ok(page.includes('<span className="font-semibold text-white">STI HUB ERP</span>'));
+    assert.ok(!page.includes('GestãoClick ERP-GROK'));
+    assert.ok(!page.includes('MCP Online'));
+    const layout = fsx.readFileSync('src/app/layout.tsx', 'utf8');
+    assert.doesNotMatch(layout, /Gest[ãa]o ?Click|HubSpot/i);
+    const tools = fsx.readFileSync('src/modules/assistente/tools.ts', 'utf8');
+    const literais = tools.match(/'[^'\n]*'|`[^`]*`/g) || [];
+    assert.deepEqual(literais.map((s) => s.replace(/\$\{[^}]*\}/g, '')).filter((s) => /Gest[ãa]o ?Click|HubSpot/.test(s)), []);
+  });
+});
+
+describe('Rótulo do módulo de chamados: STI HUB Desk Service', () => {
+  it('menu, seletor "BUSCAR EM", tela inicial e IAM usam STI HUB Desk Service; ids e chaves não mudam', () => {
+    const fsx = require('node:fs') as typeof import('node:fs');
+    const page = fsx.readFileSync('src/app/page.tsx', 'utf8');
+    assert.ok(page.includes("id: 'SERVICE_DESK',\n            label: 'STI HUB Desk Service',"));
+    const search = fsx.readFileSync('src/app/components/GlobalHeaderSearch.tsx', 'utf8');
+    assert.ok(search.includes("{ id: 'CHAMADOS', label: 'STI HUB Desk Service' }"));
+    assert.ok(search.includes("label: 'Chamados / Tickets'"), 'pill do registro continua "Chamados / Tickets"');
+    const home = fsx.readFileSync('src/app/lib/home-screen.ts', 'utf8');
+    assert.ok(home.includes("{ id: 'CHAMADOS', label: 'STI HUB Desk Service',"));
+    const iam = fsx.readFileSync('src/app/components/StiHubAdminRbacPanel.tsx', 'utf8');
+    assert.ok(iam.includes("'Módulo 3: STI HUB Desk Service'"));
+    assert.ok(!iam.includes("'Módulo 3: Sistema de Chamados'"));
+  });
+});
+
+// ============================================================================
+// 17. Regra fiscal: CNPJs diferentes JAMAIS são unificados 
+// ============================================================================
+describe('17. Regra Fiscal de CNPJ (sem merge entre CNPJs distintos) ', () => {
+  const createPair = async (router: CrmApiRouter) => {
+    const a = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'POST',
+      path: '/api/companies',
+      body: { name: 'Grupo Alfa Telecom Ltda', domain: 'grupoalfa.com.br', cnpj: '11.222.333/0001-81' },
+    });
+    const b = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'POST',
+      path: '/api/companies',
+      body: { name: 'Grupo Alfa Telecom Ltda', domain: 'grupoalfa.com.br', cnpj: '04.252.011/0001-10' },
+    });
+    assert.equal(a.status, 201);
+    assert.equal(b.status, 201);
+    return {
+      a: (a.body as { data: { id: string; cnpj: string } }).data,
+      b: (b.body as { data: { id: string; cnpj: string } }).data,
+    };
+  };
+
+  it('haveConflictingCnpjs normaliza para dígitos e só conflita quando ambos estão preenchidos', () => {
+    assert.equal(haveConflictingCnpjs('11.222.333/0001-81', '11222333000181'), false);
+    assert.equal(haveConflictingCnpjs('11.222.333/0001-81', '04.252.011/0001-10'), true);
+    assert.equal(haveConflictingCnpjs('11.222.333/0001-81', ''), false);
+    assert.equal(haveConflictingCnpjs(null, '04.252.011/0001-10'), false);
+  });
+
+  it('mesmo nome + mesmo domínio com CNPJs diferentes não vira par duplicado; aparece só como "mesmo grupo econômico" informativo', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const { a, b } = await createPair(router);
+
+    const dups = detectDuplicateCompanies(repo.listCompanies(), repo.listContacts(), repo.listDeals(), repo.listTimelineEvents());
+    assert.equal(
+      dups.some((p) => [p.primary.id, p.duplicate.id].sort().join('|') === [a.id, b.id].sort().join('|')),
+      false
+    );
+
+    const protectedPairs = detectProtectedBranchCompanies(repo.listCompanies());
+    const info = protectedPairs.find((p) => [p.companyA.id, p.companyB.id].sort().join('|') === [a.id, b.id].sort().join('|'));
+    assert.ok(info, 'par deve ser sinalizado como informativo');
+    assert.match(info!.sharedDomainOrGroup, /grupo econômico/i);
+
+    // Matriz/filial (mesma raiz de CNPJ, sem domínio) também é apenas informativo
+    const branchPairs = detectProtectedBranchCompanies([
+      { ...repo.getCompanyById(a.id)!, id: 'mx', name: 'Beta Matriz', domain: null, cnpj: '53.113.791/0001-22' },
+      { ...repo.getCompanyById(a.id)!, id: 'fx', name: 'Zeta Unidade Norte', domain: null, cnpj: '53.113.791/0002-03' },
+    ]);
+    assert.equal(branchPairs.length, 1);
+    assert.match(branchPairs[0].sharedDomainOrGroup, /matriz\/filial/);
+
+    // Health summary não lista DUPLICATE_COMPANY para o par
+    const dupsPayload = await router.dispatch({ method: 'GET', path: '/api/data-health/duplicates' });
+    if (dupsPayload.status === 200) {
+      const body = dupsPayload.body as { data: { companyDuplicates: Array<{ primary: { id: string }; duplicate: { id: string } }> } };
+      assert.equal(
+        (body.data.companyDuplicates || []).some((p) => [p.primary.id, p.duplicate.id].includes(a.id) && [p.primary.id, p.duplicate.id].includes(b.id)),
+        false
+      );
+    }
+  });
+
+  it('POST /api/data-health/merge e /api/companies/merge retornam 422 com mensagem em português e não alteram os registros', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const { a, b } = await createPair(router);
+
+    for (const p of ['/api/data-health/merge', '/api/companies/merge']) {
+      const res = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+        method: 'POST',
+        path: p,
+        body: { entityType: 'COMPANY', primaryId: a.id, duplicateId: b.id },
+      });
+      assert.equal(res.status, 422, `${p} deve retornar 422`);
+      const err = (res.body as { error: string; code?: string });
+      assert.match(err.error, /CNPJs diferentes/);
+      assert.match(err.error, /não podem ser unificadas/);
+      assert.equal(err.code, 'CONFLICTING_CNPJ_MERGE_BLOCKED');
+    }
+    assert.ok(repo.getCompanyById(a.id));
+    assert.ok(repo.getCompanyById(b.id));
+  });
+
+  it('mergeRecords lança Bloqueio Fiscal e autoCleanDatabase não unifica CNPJs distintos (inclusive transitivamente)', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const { a, b } = await createPair(router);
+    // Terceira empresa sem CNPJ (ponte entre A e B por nome/domínio)
+    const c = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
+      method: 'POST',
+      path: '/api/companies',
+      body: { name: 'Grupo Alfa Telecom Ltda', domain: 'grupoalfa.com.br' },
+    });
+    assert.equal(c.status, 201);
+
+    const svc = new DataHealthService();
+    assert.throws(
+      () => svc.mergeRecords(repo, { entityType: 'COMPANY', primaryId: a.id, duplicateId: b.id }),
+      /Bloqueio Fiscal/
+    );
+
+    svc.autoCleanDatabase(repo, { minConfidence: 75, autoEnrich: false });
+    const ca = repo.getCompanyById(a.id);
+    const cb = repo.getCompanyById(b.id);
+    assert.ok(ca && cb, 'autoClean nunca pode remover uma das empresas com CNPJ distinto');
+    assert.notEqual(
+      String(ca!.cnpj).replace(/\D/g, ''),
+      String(cb!.cnpj).replace(/\D/g, '')
+    );
+    // Seed TOTVS (mesmo CNPJ) continua sendo unificada normalmente
+    assert.ok(!repo.getCompanyById('comp-totvs-dup'));
   });
 });

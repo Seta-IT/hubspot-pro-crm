@@ -39,7 +39,7 @@ export interface HomeModuleAccess {
 export const HOME_SYSTEMS: HomeSystemDefinition[] = [
   { id: 'CRM', label: 'CRM', description: 'Negócios, contatos, empresas e marketing' },
   { id: 'ERP', label: 'ERP', description: 'Orçamentos, propostas, contratos e financeiro' },
-  { id: 'CHAMADOS', label: 'Chamados', description: 'Fila de tickets, SLA e atendimento NOC' },
+  { id: 'CHAMADOS', label: 'STI HUB Desk Service', description: 'Fila de tickets, SLA e atendimento NOC' },
 ];
 
 export const HOME_SCREENS: HomeScreenDefinition[] = [
@@ -284,7 +284,7 @@ export function validateHomeScreenPatch(body: unknown, targetAccess: HomeModuleA
     return {
       ok: false,
       code: 'HOME_SCREEN_MODULE_FORBIDDEN',
-      error: `O usuário não tem acesso ao sistema ${def.system === 'CHAMADOS' ? 'Chamados' : def.system}, portanto essa tela não pode ser a inicial.`,
+      error: `O usuário não tem acesso ao sistema ${def.system === 'CHAMADOS' ? 'STI HUB Desk Service' : def.system}, portanto essa tela não pode ser a inicial.`,
     };
   }
   return { ok: true, screenId: def.id };

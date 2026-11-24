@@ -2,18 +2,27 @@
 // STI-hub — Assistente de IA: chamada as rotas /api COMO o usuario logado.
 // Mesmo portao do middleware (evaluateStiHubRouteProtection: sessao MFA + modulo) e depois
 // o roteador com a sessao do usuario (sem contexto interno confiavel). Lista fixa de rotas:
-// o assistente nao alcanca nenhuma rota fora das ferramentas da etapa 1.
+// o assistente nao alcanca nenhuma rota fora das ferramentas do catalogo.
 // ============================================================================
 import { evaluateStiHubRouteProtection } from '../../middleware';
 import type { ApiCallRequest, ApiCallResponse, ApiCaller } from './tools';
 
-const ALLOWED: Array<{ method: 'GET' | 'POST'; path: RegExp }> = [
+const ALLOWED: Array<{ method: 'GET' | 'POST' | 'PATCH'; path: RegExp }> = [
+  { method: 'GET', path: /^\/api\/erp\/proposals$/ },
+  { method: 'GET', path: /^\/api\/erp\/proposals\/[A-Za-z0-9._~-]+$/ },
+  { method: 'PATCH', path: /^\/api\/erp\/proposals\/[A-Za-z0-9._~-]+$/ },
   { method: 'GET', path: /^\/api\/erp\/contracts$/ },
   { method: 'GET', path: /^\/api\/erp\/overview$/ },
   { method: 'GET', path: /^\/api\/erp\/invoices$/ },
   { method: 'GET', path: /^\/api\/companies$/ },
   { method: 'GET', path: /^\/api\/contacts$/ },
   { method: 'GET', path: /^\/api\/deals$/ },
+  // Leituras da busca universal e das consultas (mesmo RBAC da tela; nenhuma escrita nova).
+  { method: 'GET', path: /^\/api\/erp\/dashboard$/ },
+  { method: 'GET', path: /^\/api\/erp\/catalog$/ },
+  { method: 'GET', path: /^\/api\/erp\/financial$/ },
+  { method: 'GET', path: /^\/api\/erp\/fiscal-documents$/ },
+  { method: 'GET', path: /^\/api\/tickets$/ },
   { method: 'POST', path: /^\/api\/erp\/proposals$/ },
   { method: 'POST', path: /^\/api\/tickets$/ },
   { method: 'POST', path: /^\/api\/erp\/service-orders$/ },

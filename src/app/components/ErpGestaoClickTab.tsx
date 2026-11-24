@@ -107,9 +107,11 @@ import {
   recordUpsertedDeal,
 } from '../lib/durable-storage';
 import { buildProposalDisplayCodeMap, formatProposalDisplayCode, nextGcProposalNumber } from '../lib/proposal-number';
-import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot } from '../lib/proposal-share';
+import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot, proposalSetupFeeLabel, resolveProposalAmountDisplay } from '../lib/proposal-share';
+import { buildDefaultTechnicalSupportClauses, displayProposalTechnicalClauses, isTechnicalSupportProposal } from '../lib/proposal-technical-clauses';
 import { isoToBrDate } from '../lib/br-date';
 import GestaoClickDashboard from './GestaoClickDashboard';
+import type { ErpLiveDashboard } from '../../modules/erp/dashboard-metrics';
 import { ProposalTemplateSelect } from './ProposalTemplateSelect';
 import {
   CONTRACT_DOCUMENT_TEMPLATES,
@@ -327,7 +329,7 @@ function getModalityBadgeMeta(modality: ErpContractModality) {
       };
     default:
       return {
-        label: "Locação Pura (0% ISS — SV 31 STF)",
+        label: "Locação (0% ISS — SV 31 STF)",
         cls: "bg-emerald-50 text-emerald-800 border border-emerald-200",
       };
   }
@@ -532,6 +534,44 @@ export default function ErpGestaoClickTab({
     };
     // erpData muda a cada onRefresh() => recarrega a pagina depois de salvar/excluir.
   }, [proposalsTableMode, proposalsOffset, proposalsSearch, proposalsStatusFilter, proposalsTypeParam, erpData]);
+  // Painel em tempo real (19/11/2026): Início e fluxo de caixa calculados pelo servidor com os
+  // dados do STI-hub (GET /api/erp/dashboard). Nunca usa o dashboardSummary congelado do seed.
+  const [liveDashboard, setLiveDashboard] = useState<ErpLiveDashboard | null>(null);
+  const [liveDashboardLoading, setLiveDashboardLoading] = useState(false);
+  const [liveDashboardError, setLiveDashboardError] = useState<string | null>(null);
+  const [liveDashboardNonce, setLiveDashboardNonce] = useState(0);
+  const needsLiveDashboard = activeSection === 'INICIO' || activeSection === 'FINANCEIRO';
+  React.useEffect(() => {
+    if (!needsLiveDashboard) return;
+    let alive = true;
+    setLiveDashboardLoading(true);
+    fetch('/api/erp/dashboard', { cache: 'no-store' })
+      .then(async (r) => {
+        if (!alive) return;
+        if (!r.ok) {
+          setLiveDashboardError(r.status === 401 || r.status === 403 ? 'Sem permissão para ver o painel.' : 'Não foi possível calcular o painel agora.');
+          return;
+        }
+        const j = await r.json().catch(() => null);
+        if (!alive) return;
+        if (j && j.data) {
+          setLiveDashboard(j.data as ErpLiveDashboard);
+          setLiveDashboardError(null);
+        } else {
+          setLiveDashboardError('Não foi possível calcular o painel agora.');
+        }
+      })
+      .catch(() => {
+        if (alive) setLiveDashboardError('Não foi possível calcular o painel agora.');
+      })
+      .finally(() => {
+        if (alive) setLiveDashboardLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+    // erpData muda a cada onRefresh() => recalcula depois de gerar/faturar/baixar.
+  }, [needsLiveDashboard, erpData, liveDashboardNonce]);
   const [defaultProposalTemplateStyle, setDefaultProposalTemplateStyle] = useState<NonNullable<ErpCommercialProposal["templateStyle"]>>("CLEAN_CORPORATE_LIGHT");
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [openProposalMenuId, setOpenProposalMenuId] = useState<string | null>(null);
@@ -886,6 +926,10 @@ export default function ErpGestaoClickTab({
       } else if (query) {
         setOsSearch(query);
       }
+    } else if (type === 'SALE_ORDER') {
+      setActiveSection('VENDAS');
+      const found = (erpData.salesOrders || []).find((so) => so.id === id || so.code === id);
+      setVendasSearch(found ? found.code : query || '');
     } else if (type === 'CUSTOMER') {
       setActiveSection('CADASTROS');
       setCadastrosSubTab('CLIENTES');
@@ -941,7 +985,7 @@ export default function ErpGestaoClickTab({
   if (!erpData) {
     return (
       <div className="bg-white rounded-[6px] border border-[#cbd6e2] p-8 text-center text-sm text-[#516f90]">
-        Carregando módulo ERP Brasil, Propostas, Locação &amp; GestãoClick...
+        Carregando STI HUB ERP: Propostas, Locação &amp; Contratos...
       </div>
     );
   }
@@ -955,7 +999,6 @@ export default function ErpGestaoClickTab({
     financialEntries,
     gestaoClickConfig,
     bankAccounts = [],
-    dashboardSummary,
     salesOrders = [],
     serviceOrders: serviceOrdersFromServer = [],
     suppliers = [],
@@ -1016,13 +1059,13 @@ export default function ErpGestaoClickTab({
     try {
       const res = await fetch('/api/erp/gestaoclick/sync', { method: 'POST' });
       if (res.ok) {
-        onShowToast('Sincronização bidirecional GestãoClick + Seta Telecom concluída!');
+        onShowToast('Sincronização do STI HUB ERP concluída!');
         await onRefresh();
       } else {
-        onShowToast(gestaoClickDeniedMessage(res.status, 'sync') || 'Não foi possível sincronizar o GestãoClick agora.');
+        onShowToast(gestaoClickDeniedMessage(res.status, 'sync') || 'Não foi possível sincronizar o STI HUB ERP agora.');
       }
     } catch {
-      onShowToast('Não foi possível sincronizar o GestãoClick agora.');
+      onShowToast('Não foi possível sincronizar o STI HUB ERP agora.');
     } finally {
       setSyncingGc(false);
     }
@@ -1816,14 +1859,14 @@ export default function ErpGestaoClickTab({
           estimatedHeight={460}
           className="max-h-[70vh]"
           testId="proposal-gestao-click-menu"
-          title="Mais opções do orçamento (GestãoClick)"
+          title="Mais opções do orçamento (STI HUB ERP)"
           renderTrigger={({ ref, open, toggle }) => (
             <button
               ref={ref}
               type="button"
               onClick={toggle}
-              title="Mais opções do orçamento (GestãoClick)"
-              aria-label="Mais opções do orçamento (GestãoClick)"
+              title="Mais opções do orçamento (STI HUB ERP)"
+              aria-label="Mais opções do orçamento (STI HUB ERP)"
               aria-expanded={open}
               aria-haspopup="menu"
               className={`w-8 h-8 rounded border inline-flex items-center justify-center transition cursor-pointer shadow-2xs ${
@@ -1870,7 +1913,7 @@ export default function ErpGestaoClickTab({
               <button
                 type="button"
                 data-testid="menu-open-internal-link"
-                title="Abre o link interno desta proposta em uma nova aba"
+                title="Abre a Versão contrato desta proposta em uma nova aba"
                 onClick={() => {
                   setOpenProposalMenuId(null);
                   openInternalProposalLink(prop.id);
@@ -1878,17 +1921,17 @@ export default function ErpGestaoClickTab({
                 className="min-w-0 flex-1 px-3.5 py-2 hover:bg-slate-50 flex items-center gap-2.5 text-[#1e3a6e] font-semibold cursor-pointer text-left text-xs"
               >
                 <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                <span>Abrir Link interno</span>
+                <span>Abrir Versão contrato</span>
               </button>
               <button
                 type="button"
                 data-testid="menu-copy-internal-link"
-                title="Copiar link interno"
-                aria-label="Copiar link interno"
+                title="Copiar Versão contrato"
+                aria-label="Copiar Versão contrato"
                 onClick={async () => {
                   setOpenProposalMenuId(null);
                   const url = await copyInternalProposalLink(prop.id);
-                  onShowToast(`Link interno copiado: ${url}`);
+                  onShowToast(`Versão contrato copiada: ${url}`);
                 }}
                 className="p-1.5 rounded hover:bg-slate-100 text-[#1e3a6e] cursor-pointer"
               >
@@ -2549,6 +2592,9 @@ export default function ErpGestaoClickTab({
       updatedAt: new Date().toISOString(),
       ...templateOverrides,
     };
+    if (!String(draftNew.technicalClauses || '').trim() && isTechnicalSupportProposal(draftNew)) {
+      draftNew.technicalClauses = buildDefaultTechnicalSupportClauses(draftNew);
+    }
 
     setIsCreatingProposalModal(true);
     setEditingProposal(draftNew);
@@ -3052,7 +3098,6 @@ export default function ErpGestaoClickTab({
                     const publicUrl = buildInternalProposalUrl(prop);
                     const printUrl = buildInternalProposalUrl(prop, { autoPrint: true });
                     const stBadge = getStatusBadge(prop);
-                    const isProdProp = prop.budgetType === "PRODUTOS";
                     return (
                       <tr
                         key={prop.id}
@@ -3153,15 +3198,21 @@ export default function ErpGestaoClickTab({
                           </button>
                         </td>
                         <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                          {isProdProp ? (
-                            <span className="font-semibold text-slate-900">
-                              {formatBRL(prop.totalContractValue || prop.monthlyRecurringTotal)}
-                            </span>
-                          ) : (
-                            <span className="font-semibold text-slate-800">
-                              {formatBRL(prop.monthlyRecurringTotal || prop.totalContractValue)}/mês
-                            </span>
-                          )}
+                          {(() => {
+                            const amount = resolveProposalAmountDisplay(prop);
+                            return (
+                              <div>
+                                <span className="font-semibold text-slate-900">
+                                  {formatBRL(amount.amount)}{amount.suffix}
+                                </span>
+                                {amount.showSetup && !amount.oneTime && (
+                                  <div className="text-[10px] font-medium text-slate-500">
+                                    {proposalSetupFeeLabel(prop)}: {formatBRL(amount.setupAmount)}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           {renderProposalGestaoClickActions(prop, publicUrl, printUrl)}
@@ -3219,7 +3270,11 @@ export default function ErpGestaoClickTab({
                       </span>
                       <span className="text-xs text-slate-500">
                         Vendedor: <strong>{prop.sellerName}</strong> • Prazo:{' '}
-                        <strong>{prop.contractMonths} meses</strong>
+                        <strong>
+                          {resolveProposalAmountDisplay(prop).oneTime
+                            ? 'Pagamento único'
+                            : `${prop.contractMonths} meses`}
+                        </strong>
                       </span>
                     </div>
                     <h3 className="text-base font-semibold text-slate-900 mt-1.5">{prop.title}</h3>
@@ -3237,15 +3292,29 @@ export default function ErpGestaoClickTab({
 
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="text-right bg-slate-50 px-3.5 py-2 rounded border border-slate-200">
-                      <span className="text-[10px] uppercase font-semibold text-slate-400 block">
-                        Valor mensal
-                      </span>
-                      <span className="text-base font-semibold text-slate-800">
-                        {formatBRL(prop.monthlyRecurringTotal)}/mês
-                      </span>
-                      <span className="text-[11px] text-slate-500 block">
-                        TCV ({prop.contractMonths}m): {formatBRL(prop.totalContractValue)}
-                      </span>
+                      {(() => {
+                        const amount = resolveProposalAmountDisplay(prop);
+                        return (
+                          <>
+                            <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                              {amount.label}
+                            </span>
+                            <span className="text-base font-semibold text-slate-800">
+                              {formatBRL(amount.amount)}{amount.suffix}
+                            </span>
+                            {amount.showSetup && !amount.oneTime && (
+                              <span className="text-[11px] text-slate-500 block">
+                                {proposalSetupFeeLabel(prop)}: {formatBRL(amount.setupAmount)}
+                              </span>
+                            )}
+                            <span className="text-[11px] text-slate-500 block">
+                              {amount.oneTime
+                                ? amount.label
+                                : `${amount.termLabel}: ${formatBRL(amount.totalAmount)}`}
+                            </span>
+                          </>
+                        );
+                      })()}
                     </div>
 
                     {renderProposalGestaoClickActions(prop, publicUrl, printUrl)}
@@ -4753,7 +4822,7 @@ export default function ErpGestaoClickTab({
               ))}
               <span
                 className="ml-auto inline-flex items-center text-slate-400"
-                title="Locação pura de bens móveis: sem ISSQN (veto ao item 3.01 da LC 116/2003 e Súmula Vinculante 31 do STF). NFS-e de serviços técnicos (LC 116, item 01.07): retenção de IRRF 1,5% e CSRF 4,65% (PIS 0,65% + COFINS 3% + CSLL 1%). Detalhes em Opções auxiliares."
+                title="Locação de bens móveis: sem ISSQN (veto ao item 3.01 da LC 116/2003 e Súmula Vinculante 31 do STF). NFS-e de serviços técnicos (LC 116, item 01.07): retenção de IRRF 1,5% e CSRF 4,65% (PIS 0,65% + COFINS 3% + CSLL 1%). Detalhes em Opções auxiliares."
               >
                 <HelpCircle className="w-4 h-4" aria-label="Regras fiscais das notas de serviços" />
               </span>
@@ -4862,7 +4931,7 @@ export default function ErpGestaoClickTab({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
               <div className="p-4 rounded border border-slate-200 bg-white space-y-1">
                 <div className="font-semibold text-slate-900 text-xs">
-                  1. Locação Pura de Bens Móveis (0% ISS)
+                  1. Locação de Bens Móveis (0% ISS)
                 </div>
                 <p className="text-slate-700">
                   <strong>Base Legal:</strong> Veto Presidencial ao item 3.01 da LC 116/2003 + Súmula Vinculante nº 31 do STF + Lei 8.846/1994 art. 1º.
@@ -4929,7 +4998,7 @@ export default function ErpGestaoClickTab({
                   <tr>
                     <td className="py-2 px-3 font-mono font-semibold text-slate-800">N/A (SV 31 STF)</td>
                     <td className="py-2 px-3 font-semibold">Fatura Locação</td>
-                    <td className="py-2 px-3">Locação pura de bens móveis (Dispensa NFS-e — LC 116/03)</td>
+                    <td className="py-2 px-3">Locação de bens móveis (Dispensa NFS-e — LC 116/03)</td>
                     <td className="py-2 px-3">0% ISSQN (SV 31 STF)</td>
                     <td className="py-2 px-3">CST 01 (0,65% / 3,00%)</td>
                     <td className="py-2 px-3 text-slate-700">Gera contas a receber (valor líquido)</td>
@@ -5386,11 +5455,11 @@ export default function ErpGestaoClickTab({
                   data-testid="banner-copy-internal-link"
                   onClick={async () => {
                     const url = await copyInternalProposalLink(createdProposalBanner.proposal.id);
-                    onShowToast(`Link interno copiado: ${url}`);
+                    onShowToast(`Versão contrato copiada: ${url}`);
                   }}
                   className="inline-flex items-center gap-1 text-[#1e3a6e] font-semibold hover:underline cursor-pointer"
                 >
-                  <Copy className="w-3.5 h-3.5" /> Copiar link interno
+                  <Copy className="w-3.5 h-3.5" /> Copiar Versão contrato
                 </button>
                 <a href={createdProposalBanner.publicUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#1e3a6e] hover:underline">
                   <ExternalLink className="w-3.5 h-3.5" /> Abrir
@@ -5425,7 +5494,10 @@ export default function ErpGestaoClickTab({
           {activeSection === 'INICIO' && (
             <GestaoClickDashboard
               userName={activeUser?.name}
-              summary={dashboardSummary}
+              live={liveDashboard}
+              liveLoading={liveDashboardLoading}
+              liveError={liveDashboardError}
+              onReloadLive={() => setLiveDashboardNonce((n) => n + 1)}
               bankAccounts={bankAccounts}
               hideBalances={hideBalances}
               onToggleHide={() => setHideBalances((v) => !v)}
@@ -6001,7 +6073,7 @@ export default function ErpGestaoClickTab({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
                   <div className="p-4 rounded border border-slate-200 bg-slate-50 space-y-1.5">
                     <div className="font-semibold text-[#1e3a6e] text-[11px]">Grupos de Clientes B2B</div>
-                    <div>• Contas Enterprise Locação Pura</div>
+                    <div>• Contas Enterprise Locação</div>
                     <div>• Indústria, Logística &amp; Varejo</div>
                     <div>• Call Centers &amp; Operações Voz IP</div>
                   </div>
@@ -7007,7 +7079,7 @@ export default function ErpGestaoClickTab({
               bankAccounts={bankAccounts}
               financialEntries={financialEntries}
               invoices={invoices}
-              dashboardSummary={dashboardSummary}
+              dashboardSummary={liveDashboard?.summary}
               companies={companies.map((c) => ({ id: c.id, name: c.name, cnpj: (c as unknown as { cnpj?: string | null }).cnpj ?? undefined }))}
               hideBalances={hideBalances}
               onRefresh={onRefresh}
@@ -7055,7 +7127,7 @@ export default function ErpGestaoClickTab({
             <div className="bg-white rounded-md border border-slate-200 p-5 space-y-4">
               {activeSubId === 'CFG_LOGS' && (
                 <p data-testid="status-integracao-gestaoclick" className="text-xs font-semibold text-slate-600">
-                  Integração GestãoClick: loja {gestaoClickConfig.storeName || 'Matriz'} • {gestaoClickConfig.mcpStatus === 'OFFLINE' ? 'desconectada' : gestaoClickConfig.mcpStatus === 'NOT_CONFIGURED' ? 'não configurada' : 'conectada'}
+                  Integração STI HUB ERP: loja {gestaoClickConfig.storeName || 'Matriz'} • {gestaoClickConfig.mcpStatus === 'OFFLINE' ? 'desconectada' : gestaoClickConfig.mcpStatus === 'NOT_CONFIGURED' ? 'não configurada' : 'conectada'}
                 </p>
               )}
               {rbacState && (
@@ -7928,12 +8000,12 @@ export default function ErpGestaoClickTab({
                   data-testid="status-modal-copy-internal-link"
                   onClick={async () => {
                     const url = await copyInternalProposalLink(statusModalProposal.id);
-                    onShowToast(`Link interno copiado: ${url}`);
+                    onShowToast(`Versão contrato copiada: ${url}`);
                   }}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#1e3a6e] bg-white text-[#1e3a6e] text-xs font-semibold cursor-pointer"
                 >
                   <Copy className="w-3.5 h-3.5" />
-                  Copiar link interno
+                  Copiar Versão contrato
                 </button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -8165,7 +8237,7 @@ export default function ErpGestaoClickTab({
                             <tr>
                               <th className="py-2 px-3 w-32">Versão</th>
                               <th className="py-2 px-3 w-40">Data e responsável</th>
-                              <th className="py-2 px-3">Valor mensal</th>
+                              <th className="py-2 px-3">Valor</th>
                               <th className="py-2 px-3 text-right">Ações</th>
                             </tr>
                           </thead>
@@ -8176,16 +8248,16 @@ export default function ErpGestaoClickTab({
                               const pdfUrl = buildProposalVersionShortUrl(statusModalProposal.id, ver.version, {
                                 autoPrint: true,
                               });
-                              const mrrVal =
-                                ver.snapshot?.monthlyRecurringTotal ??
-                                statusModalProposal.monthlyRecurringTotal;
+                              const snapProp = {
+                                ...statusModalProposal,
+                                ...(ver.snapshot || {}),
+                              };
+                              const amount = resolveProposalAmountDisplay(snapProp);
                               const itemsCount = (
                                 ver.snapshot?.items ||
                                 statusModalProposal.items ||
                                 []
                               ).length;
-                              const monthsVal =
-                                ver.snapshot?.contractMonths ?? statusModalProposal.contractMonths;
 
                               return (
                                 <tr
@@ -8222,8 +8294,12 @@ export default function ErpGestaoClickTab({
                                   </td>
                                   <td className="py-2.5 px-3">
                                     <div className="font-semibold text-slate-800">
-                                      {formatBRL(mrrVal)}/mês • {itemsCount}{" "}
-                                      {itemsCount === 1 ? "item" : "itens"} • {monthsVal}m
+                                      {formatBRL(amount.amount)}{amount.suffix}
+                                      {amount.showSetup && !amount.oneTime
+                                        ? ` • ${proposalSetupFeeLabel(snapProp)}: ${formatBRL(amount.setupAmount)}`
+                                        : ''}{" "}
+                                      • {itemsCount} {itemsCount === 1 ? "item" : "itens"}
+                                      {amount.oneTime ? "" : ` • ${snapProp.contractMonths ?? statusModalProposal.contractMonths}m`}
                                     </div>
                                     <div className="text-[11px] text-slate-600">
                                       {ver.changeSummary}
@@ -8381,17 +8457,27 @@ export default function ErpGestaoClickTab({
               <p className="text-[#516f90]">{selectedProposalForPrint.commercialNotes}</p>
               <p className="text-[#516f90]">
                 <strong>Cláusulas técnicas e SLA:</strong>{' '}
-                {selectedProposalForPrint.technicalClauses}
+                {displayProposalTechnicalClauses(selectedProposalForPrint)}
               </p>
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-[4px] flex justify-between items-center">
-                <span className="font-semibold text-slate-800">
-                  Valor mensal:{' '}
-                  {formatBRL(selectedProposalForPrint.monthlyRecurringTotal)}/mês
-                </span>
-                <span className="font-semibold text-slate-800 text-sm">
-                  Valor total ({selectedProposalForPrint.contractMonths} meses):{' '}
-                  {formatBRL(selectedProposalForPrint.totalContractValue)}
-                </span>
+                {(() => {
+                  const amount = resolveProposalAmountDisplay(selectedProposalForPrint);
+                  return (
+                    <>
+                      <span className="font-semibold text-slate-800">
+                        {amount.label}: {formatBRL(amount.amount)}{amount.suffix}
+                        {amount.showSetup && !amount.oneTime
+                          ? ` • ${proposalSetupFeeLabel(selectedProposalForPrint)}: ${formatBRL(amount.setupAmount)}`
+                          : ''}
+                      </span>
+                      <span className="font-semibold text-slate-800 text-sm">
+                        {amount.oneTime
+                          ? `Total: ${formatBRL(amount.totalAmount)}`
+                          : `Valor total (${selectedProposalForPrint.contractMonths} meses): ${formatBRL(amount.totalAmount)}`}
+                      </span>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>

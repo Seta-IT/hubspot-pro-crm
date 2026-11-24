@@ -99,7 +99,7 @@ describe('Configurações Fiscais — ambiente padrão HOMOLOGAÇÃO', () => {
     assert.equal(v.certificate.uploadEnabled, false);
     assert.equal(v.emitter.readOnly, true);
     assert.equal(v.emitter.taxRegimeNote, 'aguardando confirmação');
-    assert.match(v.productionWarning, /GestaoClick deve PARAR de emitir na mesma série/);
+    assert.match(v.productionWarning, /ERP de origem deve PARAR de emitir na mesma série/);
   });
 
   it('a NF-e de importação sai em homologação (tpAmb=2) e não consome a numeração de produção', async () => {
@@ -147,7 +147,7 @@ describe('Configurações Fiscais — troca para PRODUÇÃO', () => {
     const b = r.body as { code: string; warning: string; documents: string[] };
     assert.equal(b.code, 'FISCAL_PRODUCTION_CONFIRMATION_REQUIRED');
     assert.deepEqual(b.documents, ['nfse']);
-    assert.match(b.warning, /GestaoClick/);
+    assert.match(b.warning, /ERP de origem/);
     assert.equal((await getView(router)).nfse.environment, 'HOMOLOGACAO');
   });
 

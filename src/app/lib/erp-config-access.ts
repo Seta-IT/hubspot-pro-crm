@@ -58,7 +58,7 @@ export const NO_ERP_CONFIG_ACCESS: ErpConfigAccess = {
 export function gestaoClickDeniedMessage(status: number, action: 'sync' | 'config'): string | null {
   if (status !== 401 && status !== 403) return null;
   return action === 'sync'
-    ? 'Sem permissão para sincronizar o GestãoClick. Esta ação exige 2FA e perfil administrador ou controle total do ERP.'
+    ? 'Sem permissão para sincronizar o STI HUB ERP. Esta ação exige 2FA e perfil administrador ou controle total do ERP.'
     : 'Sem permissão para alterar a configuração fiscal. Esta ação exige 2FA e perfil administrador ou controle total do ERP.';
 }
 

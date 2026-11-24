@@ -13,8 +13,46 @@ import {
   SequenceExitRuleConfig,
   SequenceExitRuleTrigger,
   SequenceStep,
+  SequenceStepDelivery,
 } from '../../db/types';
 import { SEQUENCE_REPLY_ADVANCE_STAGE } from '../deals/sales-pipeline-stages';
+import { isAutoEmailStep, isManualEmailStep, isSequenceLiveSendEnabled, stepIdempotencyKey } from './sequence-live-config';
+
+/**
+ * Dono da inscricao (caixa Outlook remetente): rodizio => vendedor atribuido; senao quem inscreveu;
+ * senao o dono do negocio/contato. Retorna null quando nenhum usuario do STI-hub com e-mail for achado.
+ */
+export function resolveEnrollmentOwnerEmail(
+  repo: CrmRepository,
+  params: { assignedSeller?: string | null; enrolledByEmail?: string | null; contactId?: string | null; dealId?: string | null; preferAssignedSeller?: boolean }
+): string | null {
+  const users = (repo.getRbacState?.().users || []) as Array<{ id?: string; email?: string; name?: string }>;
+  const byName = (name?: string | null) => {
+    const key = String(name || '').trim().toLowerCase();
+    if (!key) return null;
+    const u = users.find((x) => String(x.name || '').trim().toLowerCase() === key && String(x.email || '').trim());
+    return u?.email ? String(u.email).trim().toLowerCase() : null;
+  };
+  if (params.preferAssignedSeller) {
+    const seller = byName(params.assignedSeller);
+    if (seller) return seller;
+  }
+  const by = String(params.enrolledByEmail || '').trim().toLowerCase();
+  if (by && /^[^@\s]+@[^@\s]+$/.test(by)) return by;
+  if (params.dealId) {
+    const deal = repo.getDealById(params.dealId);
+    const owner = deal ? repo.resolveDealOwnerUser?.(deal) : null;
+    if (owner?.email) return owner.email.trim().toLowerCase();
+  }
+  if (params.contactId) {
+    const c = repo.getContactById(params.contactId);
+    const owner = c ? repo.resolveDealOwnerUser?.({ ownerId: c.ownerId, ownerName: c.ownerName }) : null;
+    if (owner?.email) return owner.email.trim().toLowerCase();
+    const n = byName(c?.ownerName);
+    if (n) return n;
+  }
+  return byName(params.assignedSeller);
+}
 
 export const OFFICIAL_10_CADENCE_STATES_CATALOG: Array<{
   state: CanonicalSequenceEnrollmentState;
@@ -267,9 +305,9 @@ export function buildSeta21DayTemplateSteps(): SequenceStep[] {
       delayDays: 0,
       delayHours: 0,
       waitForEvent: 'NONE',
-      subject: 'Locação Pura de Servidores, Switches & Spare Parts (0% ISS — SV 31 STF) para {{companyName}}',
+      subject: 'Locação de Servidores, Switches & Spare Parts (0% ISS — SV 31 STF) para {{companyName}}',
       bodyTemplate:
-        'Olá {{firstName}}, tudo bem? Na Seta Telecom apoiamos empresas do porte da {{companyName}} na substituição de CAPEX por Locação Pura de Servidores Dell/Cisco, PABX IP e Contratos de Spare Parts com SLA NOC 24x7 e 0% de ISSQN.',
+        'Olá {{firstName}}, tudo bem? Na Seta Telecom apoiamos empresas do porte da {{companyName}} na substituição de CAPEX por Locação de Servidores Dell/Cisco, PABX IP e Contratos de Spare Parts com SLA NOC 24x7 e 0% de ISSQN.',
       stepType: 'AUTO_EMAIL',
       condition: 'ALWAYS',
       sentCount: 0,
@@ -436,6 +474,22 @@ export class SequenceService {
 
   private renderTemplate(template: string, vars: Record<string, string>): string {
     return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] || key);
+  }
+
+  /** Assunto e corpo do passo com as variaveis do contato (usado pelo executor real). */
+  renderStepForContact(repo: CrmRepository, contactId: string, step: SequenceStep): { subject: string; body: string } {
+    const contact = repo.getContactById(contactId);
+    const company = contact?.companyId ? repo.getCompanyById(contact.companyId) : null;
+    const vars = {
+      firstName: contact?.firstName || 'Cliente',
+      lastName: contact?.lastName || '',
+      companyName: company?.name || 'sua empresa',
+    };
+    return { subject: this.renderTemplate(step.subject, vars), body: this.renderTemplate(step.bodyTemplate, vars) };
+  }
+
+  isEnrollmentActive(status: SequenceEnrollmentStatus): boolean {
+    return this.isEnrollmentCurrentlyActive(status);
   }
 
   private isEnrollmentCurrentlyActive(status: SequenceEnrollmentStatus): boolean {
@@ -634,6 +688,8 @@ export class SequenceService {
       forceMoveFromConflicting?: boolean;
       allowReentryOverride?: boolean;
       recipientTimezone?: string;
+      /** E-mail do usuario da sessao que fez a inscricao (dono da caixa remetente). */
+      enrolledByEmail?: string | null;
     }
   ): { enrollment: SequenceEnrollment; sequence: EmailSequence } {
     const seq = repo.getSequenceById(params.sequenceId);
@@ -738,6 +794,30 @@ export class SequenceService {
         })
       : null;
 
+    const senderOwnerEmail = resolveEnrollmentOwnerEmail(repo, {
+      assignedSeller,
+      enrolledByEmail: params.enrolledByEmail,
+      contactId: contact.id,
+      dealId: params.dealId ?? null,
+      preferAssignedSeller: seq.leadRoutingMode === 'ROUND_ROBIN',
+    });
+
+    // Fase 2 (envio real): com SEQUENCES_LIVE_SEND ligado, o passo 1 de e-mail NAO e simulado aqui;
+    // fica agendado para a proxima janela comercial e sai pelo executor (/api/cron/sequences).
+    if (isSequenceLiveSendEnabled() && firstStep && (isAutoEmailStep(firstStep) || isManualEmailStep(firstStep))) {
+      return this.enrollContactScheduled(repo, {
+        seq,
+        contact,
+        firstStep,
+        renderedSubject,
+        assignedSeller,
+        senderOwnerEmail,
+        dealId: params.dealId ?? null,
+        recipientTimezone: params.recipientTimezone || 'America/Sao_Paulo',
+        now,
+      });
+    }
+
     const nextDue = scheduleCalc ? scheduleCalc.scheduledAtIso : null;
 
     const step1Log = {
@@ -775,6 +855,7 @@ export class SequenceService {
       exitedAt: null,
       exitedByScope: null,
       transferredToNurtureCampaignId: null,
+      senderOwnerEmail,
       enrolledAt: nowIso,
       updatedAt: nowIso,
       history: [step1Log],
@@ -824,6 +905,101 @@ export class SequenceService {
       actor: assignedSeller,
     });
 
+    return { enrollment, sequence: seq };
+  }
+
+  /** Inscricao no modo real: nada e enviado agora; o passo 1 fica agendado (estado SCHEDULED). */
+  private enrollContactScheduled(
+    repo: CrmRepository,
+    p: {
+      seq: EmailSequence;
+      contact: { id: string; email: string; companyId: string | null };
+      firstStep: SequenceStep;
+      renderedSubject: string;
+      assignedSeller: string;
+      senderOwnerEmail: string | null;
+      dealId: string | null;
+      recipientTimezone: string;
+      now: Date;
+    }
+  ): { enrollment: SequenceEnrollment; sequence: EmailSequence } {
+    const { seq, contact, firstStep, now } = p;
+    const nowIso = now.toISOString();
+    const calc = this.calculateNextBusinessExecutionWindow({
+      baseDate: now,
+      delayDays: 0,
+      delayHours: firstStep.delayHours || 0,
+      sendingWindow: seq.sendingWindow,
+      recipientTimezone: p.recipientTimezone,
+    });
+    const id = `enr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const delivery: SequenceStepDelivery = {
+      stepOrder: firstStep.stepOrder,
+      idempotencyKey: stepIdempotencyKey(id, firstStep.stepOrder),
+      status: 'SCHEDULED',
+      reasonCode: null,
+      reason: `Agendado para ${calc.scheduledLocalDisplay} (${calc.timezoneUsed}).`,
+      attempts: 0,
+      senderOwnerEmail: p.senderOwnerEmail,
+      recipient: contact.email,
+      subject: p.renderedSubject,
+      updatedAt: nowIso,
+    };
+    const log = {
+      stepOrder: firstStep.stepOrder,
+      stepType: firstStep.stepType,
+      dayOffset: firstStep.dayOffset,
+      subject: p.renderedSubject,
+      action: 'SCHEDULED' as const,
+      timestamp: nowIso,
+      details: `Passo ${firstStep.stepOrder} agendado para ${calc.scheduledLocalDisplay} (${calc.timezoneUsed}); envio real pela caixa Outlook de ${p.senderOwnerEmail || 'dono não identificado'}.`,
+    };
+    const enrollment: SequenceEnrollment = {
+      id,
+      sequenceId: seq.id,
+      contactId: contact.id,
+      dealId: p.dealId,
+      status: 'ACTIVE',
+      canonicalEnrollmentState: 'IN_SEQUENCE',
+      enrolledVersion: seq.version || 1,
+      assignedSeller: p.assignedSeller,
+      recipientTimezone: p.recipientTimezone,
+      currentStepOrder: firstStep.stepOrder - 1,
+      stepsCompleted: 0,
+      sentCount: 0,
+      openCount: 0,
+      clickCount: 0,
+      repliedAt: null,
+      replySnippet: null,
+      nextStepDueAt: calc.scheduledAtIso,
+      nextScheduledExecutionAt: calc.scheduledAtIso,
+      exitReasonTrigger: null,
+      exitReasonDetail: null,
+      exitedAt: null,
+      exitedByScope: null,
+      transferredToNurtureCampaignId: null,
+      senderOwnerEmail: p.senderOwnerEmail,
+      stepDeliveries: [delivery],
+      enrolledAt: nowIso,
+      updatedAt: nowIso,
+      history: [log],
+      stepHistory: [log],
+    };
+    repo.saveSequenceEnrollment(enrollment);
+    seq.enrolledCount += 1;
+    seq.activeCount += 1;
+    this.recalculateSequenceRates(seq);
+    repo.updateSequence(seq.id, seq, { bumpVersion: false });
+    repo.createTimelineEvent({
+      type: 'NOTE',
+      title: `[Cadência: ${seq.name}] Inscrição: passo ${firstStep.stepOrder} agendado`,
+      body: log.details,
+      contactId: contact.id,
+      companyId: contact.companyId,
+      dealId: p.dealId,
+      metadata: { sequenceId: seq.id, enrollmentId: id, stepOrder: firstStep.stepOrder, enrolledVersion: enrollment.enrolledVersion, assignedSeller: p.assignedSeller },
+      actor: p.assignedSeller,
+    });
     return { enrollment, sequence: seq };
   }
 
@@ -962,8 +1138,19 @@ export class SequenceService {
 
   advanceStep(
     repo: CrmRepository,
-    enrollmentId: string
+    enrollmentId: string,
+    options?: {
+      /** Fase 2: resultado do executor real (o e-mail ja saiu, nao saiu, ou virou tarefa). */
+      liveOutcome?:
+        | { kind: 'SENT'; delivery: SequenceStepDelivery }
+        | { kind: 'NOT_SENT'; reason: string }
+        | { kind: 'MANUAL_TASK'; reason: string };
+      /** O executor real ja aplicou os limites por caixa (hora/dia). */
+      skipMailboxLimit?: boolean;
+      now?: Date;
+    }
   ): { enrollment: SequenceEnrollment; sequence: EmailSequence; deferredByMailboxLimit?: boolean } {
+    const live = options?.liveOutcome;
     const enrollment = repo.getSequenceEnrollmentById(enrollmentId);
     if (!enrollment) {
       throw new Error(`Inscrição de cadência (${enrollmentId}) não encontrada.`);
@@ -982,7 +1169,7 @@ export class SequenceService {
 
     const nextStepOrder = enrollment.currentStepOrder + 1;
     const step = seq.steps.find((s) => s.stepOrder === nextStepOrder);
-    const now = new Date();
+    const now = options?.now || new Date();
     const nowIso = now.toISOString();
 
     if (!step) {
@@ -1000,6 +1187,26 @@ export class SequenceService {
       return { enrollment, sequence: seq };
     }
 
+    // Fase 2 (envio real): inscricao do modo real com passo de e-mail => o avanco manual NAO simula o
+    // envio; so antecipa o passo para o proximo ciclo do executor (/api/cron/sequences).
+    if (!live && Array.isArray(enrollment.stepDeliveries) && isSequenceLiveSendEnabled() && (isAutoEmailStep(step) || isManualEmailStep(step))) {
+      enrollment.nextStepDueAt = nowIso;
+      enrollment.nextScheduledExecutionAt = nowIso;
+      enrollment.updatedAt = nowIso;
+      enrollment.history.push({
+        stepOrder: nextStepOrder,
+        stepType: step.stepType,
+        dayOffset: step.dayOffset,
+        subject: step.subject,
+        action: 'SCHEDULED',
+        timestamp: nowIso,
+        details: `Passo ${nextStepOrder} antecipado: sai pela caixa Outlook do dono no próximo ciclo do executor, se estiver dentro da janela de envio.`,
+      });
+      enrollment.stepHistory = enrollment.history;
+      repo.saveSequenceEnrollment(enrollment);
+      return { enrollment, sequence: seq };
+    }
+
     // Limite diário por caixa postal: passos de e-mail que excederem o limite são adiados
     // para a próxima janela comercial (sem perder o passo nem alterar o estado da inscrição).
     const isMailboxEmailStep =
@@ -1008,7 +1215,7 @@ export class SequenceService {
       step.stepType === 'EMAIL' ||
       step.stepType === 'FOLLOW_UP' ||
       step.stepType === 'BREAKUP';
-    if (isMailboxEmailStep && seq.sendingWindow) {
+    if (isMailboxEmailStep && seq.sendingWindow && !options?.skipMailboxLimit) {
       const mailboxState = this.ensureMailboxDailyCounter(seq, now);
       if (mailboxState.reached) {
         const deferred = this.calculateNextBusinessExecutionWindow({
@@ -1056,7 +1263,9 @@ export class SequenceService {
       step.stepType === 'FOLLOW_UP' ||
       step.stepType === 'BREAKUP';
 
-    if (isEmailStep) {
+    if (live && live.kind !== 'SENT') {
+      // Modo real: passo nao enviado (erro definitivo) ou convertido em tarefa; nenhum contador de envio.
+    } else if (isEmailStep) {
       enrollment.sentCount += 1;
       step.sentCount += 1;
       seq.sentCount += 1;
@@ -1114,8 +1323,11 @@ export class SequenceService {
       stepType: step.stepType,
       dayOffset: step.dayOffset,
       subject: renderedSubject,
-      action:
-        step.stepType === 'TRANSFER_TO_NURTURE'
+      action: live?.kind === 'NOT_SENT'
+        ? ('LIVE_SEND_ERROR' as const)
+        : live?.kind === 'MANUAL_TASK'
+          ? ('TASK_CREATED' as const)
+          : step.stepType === 'TRANSFER_TO_NURTURE'
           ? ('TRANSFERRED_TO_NURTURE' as const)
           : step.stepType === 'BRANCH_CONDITION'
             ? ('BRANCH_EVALUATED' as const)
@@ -1123,8 +1335,12 @@ export class SequenceService {
               ? ('TASK_CREATED' as const)
               : ('SENT' as const),
       timestamp: nowIso,
-      details:
-        step.stepType === 'TRANSFER_TO_NURTURE'
+      ...(live?.kind === 'SENT' ? { executedByMailbox: live.delivery.mailboxAddress || undefined } : {}),
+      details: live?.kind === 'SENT'
+        ? `Passo ${nextStepOrder} enviado de verdade pela caixa Outlook ${live.delivery.mailboxAddress || ''} (Microsoft Graph) para ${live.delivery.recipient || 'o contato'}.`
+        : live
+          ? live.reason
+          : step.stepType === 'TRANSFER_TO_NURTURE'
           ? `Dia ${step.dayOffset}: Contato elegível transferido automaticamente para o fluxo de nutrição (${enrollment.transferredToNurtureCampaignId || 'cmp-1'}).`
           : `Passo ${nextStepOrder} (Dia ${step.dayOffset} • ${step.stepType}) executado.`,
     };
@@ -1158,8 +1374,12 @@ export class SequenceService {
 
     if (contact) {
       repo.createTimelineEvent({
-        type: 'EMAIL',
-        title: `[Cadência: ${seq.name}] Passo ${nextStepOrder} enviado: ${renderedSubject}`,
+        type: live && live.kind !== 'SENT' ? 'NOTE' : 'EMAIL',
+        title: live?.kind === 'NOT_SENT'
+          ? `[Cadência: ${seq.name}] Passo ${nextStepOrder} NÃO enviado: ${renderedSubject}`
+          : live?.kind === 'MANUAL_TASK'
+            ? `[Cadência: ${seq.name}] Passo ${nextStepOrder} virou tarefa: ${renderedSubject}`
+            : `[Cadência: ${seq.name}] Passo ${nextStepOrder} enviado: ${renderedSubject}`,
         body: this.renderTemplate(step.bodyTemplate, {
           firstName: contact.firstName,
           lastName: contact.lastName,
@@ -1173,6 +1393,9 @@ export class SequenceService {
           enrollmentId: enrollment.id,
           stepOrder: nextStepOrder,
           stepType: step.stepType,
+          ...(live?.kind === 'SENT'
+            ? { liveSend: true, mailboxAddress: live.delivery.mailboxAddress || null, idempotencyKey: live.delivery.idempotencyKey }
+            : {}),
         },
         actor: 'Motor de Cadências',
       });

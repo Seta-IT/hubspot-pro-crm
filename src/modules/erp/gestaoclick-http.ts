@@ -11,7 +11,7 @@ export class GestaoClickReadOnlyError extends Error {
   constructor(method: string) {
     const normalized = String(method || '').trim().toUpperCase() || 'UNKNOWN';
     super(
-      `GestaoClick e somente leitura no STI-hub (direcao GC > STI-hub). O metodo ${normalized} foi recusado e nenhuma chamada de rede foi feita.`
+      `O ERP de origem e somente leitura no STI HUB ERP (direcao origem > STI HUB ERP). O metodo ${normalized} foi recusado e nenhuma chamada de rede foi feita.`
     );
     this.name = 'GestaoClickReadOnlyError';
     this.method = normalized;

@@ -212,7 +212,7 @@ export function calculateBrazilianTaxBreakdown(params: {
     };
   }
 
-  // 4. FATURA_LOCACAO (Locação Pura de Bens Móveis — Súmula Vinculante 31 STF & Veto 3.01 LC 116/03)
+  // 4. FATURA_LOCACAO (Locação de Bens Móveis — Súmula Vinculante 31 STF & Veto 3.01 LC 116/03)
   if (params.documentType === 'FATURA_LOCACAO') {
     const pisRate =
       taxRegime === 'LUCRO_REAL' ? 1.65 : taxRegime === 'SIMPLES_NACIONAL' ? 0.35 : 0.65;
@@ -252,7 +252,7 @@ export function calculateBrazilianTaxBreakdown(params: {
       totalWithheld: 0,
       netReceivableAmount: round2(base),
       legalExemptionNotice:
-        'Locação pura de bens móveis sem fornecimento de mão de obra. ISSQN não incide: o item 3.01 da lista anexa à Lei Complementar nº 116/2003 (locação de bens móveis) foi vetado e a Súmula Vinculante nº 31 do STF declara inconstitucional a incidência do ISS sobre a locação de bens móveis dissociada da prestação de serviços. Por isso não há NFS-e municipal; esta Fatura/Recibo de Locação documenta a cobrança. Sem retenção de CSRF (PIS/COFINS/CSLL 4,65%), pois a locação de bens móveis não está entre os serviços listados no art. 30 da Lei nº 10.833/2003.',
+        'Locação de bens móveis sem fornecimento de mão de obra. ISSQN não incide: o item 3.01 da lista anexa à Lei Complementar nº 116/2003 (locação de bens móveis) foi vetado e a Súmula Vinculante nº 31 do STF declara inconstitucional a incidência do ISS sobre a locação de bens móveis dissociada da prestação de serviços. Por isso não há NFS-e municipal; esta Fatura/Recibo de Locação documenta a cobrança. Sem retenção de CSRF (PIS/COFINS/CSLL 4,65%), pois a locação de bens móveis não está entre os serviços listados no art. 30 da Lei nº 10.833/2003.',
     };
   }
 

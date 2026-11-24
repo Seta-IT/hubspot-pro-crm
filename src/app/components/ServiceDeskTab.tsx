@@ -47,6 +47,9 @@ import {
 } from '../../db/types';
 import { formatDateTimeBR, formatRelativeDays } from './ui-helpers';
 import { displayTicketCommentBody, displayTicketCompanyCnpj, displayTicketDescription, displayTicketSubject, looksLikeCnpjOrAccountQuery, normalizeTicketSearchText, ticketMatchesSearch } from '../lib/setadesk-ticket-search';
+
+/** E1: tamanho da pagina das listas de chamados na tela. */
+const TICKET_LIST_PAGE_SIZE = 50;
 import ClientEmailComposerModal, { ClientEmailInitialPayload } from './ClientEmailComposerModal';
 import DataHealthTab from './DataHealthTab';
 import { ShieldCheck } from 'lucide-react';
@@ -478,6 +481,30 @@ export default function ServiceDeskTab({
     return true;
   });
 
+  // E1: a lista e a grade mostram os chamados em paginas (50 por vez), com "Carregar mais".
+  const [listPageLimit, setListPageLimit] = useState(TICKET_LIST_PAGE_SIZE);
+  useEffect(() => {
+    setListPageLimit(TICKET_LIST_PAGE_SIZE);
+  }, [searchQuery, priorityFilter, slaFilter, queueFilter, categoryFilter, pipelineFilter, linkedOsOnlyFilter, viewMode]);
+  const pagedTickets = filteredTickets.slice(0, listPageLimit);
+  const ticketsPageFooter =
+    filteredTickets.length > TICKET_LIST_PAGE_SIZE ? (
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-3 border-t border-slate-200 bg-slate-50 text-xs">
+        <span className="font-semibold text-slate-600">
+          Mostrando {pagedTickets.length} de {filteredTickets.length} chamados
+        </span>
+        {pagedTickets.length < filteredTickets.length && (
+          <button
+            type="button"
+            onClick={() => setListPageLimit((n) => n + TICKET_LIST_PAGE_SIZE)}
+            className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 font-semibold cursor-pointer"
+          >
+            Carregar mais
+          </button>
+        )}
+      </div>
+    ) : null;
+
   const listedTicket =
     tickets.find((t) => t.id === selectedTicketId || t.key === selectedTicketId) || null;
   const activeTicket =
@@ -696,7 +723,7 @@ export default function ServiceDeskTab({
               className="text-left min-w-0 cursor-pointer group"
             >
               <span className="text-[10px] font-semibold uppercase tracking-wider text-accent group-hover:text-accent transition block truncate">
-                MÓDULO CHAMADOS • SERVICE HUB
+                MÓDULO • STI HUB DESK SERVICE
               </span>
               <span className="text-[10px] text-slate-500 font-semibold block truncate">
                 NOC 24x7, Filas &amp; RMA Locação
@@ -706,7 +733,7 @@ export default function ServiceDeskTab({
               <button
                 type="button"
                 onClick={closeMobile}
-                aria-label="Fechar Menu Chamados"
+                aria-label="Fechar Menu STI HUB Desk Service"
                 className="p-1.5 rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
@@ -715,8 +742,8 @@ export default function ServiceDeskTab({
               <button
                 type="button"
                 onClick={() => setSidebarCollapsed((v) => !v)}
-                title="Recolher menu lateral de Chamados"
-                aria-label="Recolher menu lateral de Chamados"
+                title="Recolher menu lateral do STI HUB Desk Service"
+                aria-label="Recolher menu lateral do STI HUB Desk Service"
                 className="p-1.5 rounded-md text-slate-500 hover:text-accent hover:bg-slate-100 transition cursor-pointer shrink-0"
               >
                 <PanelLeftClose className="w-4 h-4" />
@@ -967,7 +994,7 @@ export default function ServiceDeskTab({
         </div>
 
         <div className="p-2.5 border-t border-slate-200 bg-white text-[10px] text-slate-500 space-y-0.5">
-          <div className="font-semibold text-accent">CHAMADOS • NOC 24x7</div>
+          <div className="font-semibold text-accent">STI HUB DESK SERVICE • NOC 24x7</div>
           <div>SLA no Prazo: {kpis.slaComplianceRate}%</div>
           <div>5 Filas Operacionais Telecom</div>
         </div>
@@ -986,13 +1013,13 @@ export default function ServiceDeskTab({
             className="md:hidden inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-accent text-white text-xs font-semibold shadow-xs cursor-pointer"
           >
             <Menu className="w-4 h-4" />
-            <span>Menu Chamados</span>
+            <span>Menu STI HUB Desk Service</span>
           </button>
           <button
             type="button"
             onClick={() => setSidebarCollapsed((v) => !v)}
             className="hidden md:inline-flex p-1.5 rounded border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 cursor-pointer"
-            title="Recolher/Expandir menu lateral de Chamados"
+            title="Recolher/Expandir menu lateral do STI HUB Desk Service"
           >
             <Menu className="w-4 h-4" />
           </button>
@@ -1005,7 +1032,7 @@ export default function ServiceDeskTab({
               }}
               className="font-semibold text-accent hover:underline cursor-pointer"
             >
-              Chamados (NOC 24x7)
+              STI HUB Desk Service (NOC 24x7)
             </button>
             <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
             <span className="font-semibold text-slate-700">
@@ -1120,7 +1147,7 @@ export default function ServiceDeskTab({
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
               <div>
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 block">
-                  DASHBOARD EXCLUSIVO • SISTEMA 3: CHAMADOS (NOC &amp; SERVICE DESK)
+                  DASHBOARD EXCLUSIVO • SISTEMA 3: STI HUB DESK SERVICE (NOC)
                 </span>
                 <h3 className="text-base font-semibold text-slate-900">
                   Indicadores de Atendimento, Cumprimento de SLA (FRT/MTTR) e Carga por Fila NOC
@@ -1524,7 +1551,7 @@ export default function ServiceDeskTab({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs">
-                    {filteredTickets.map((t) => (
+                    {pagedTickets.map((t) => (
                       <tr
                         key={t.id}
                         onClick={() => setSelectedTicketId(t.id)}
@@ -1582,13 +1609,14 @@ export default function ServiceDeskTab({
                   </tbody>
                 </table>
               </div>
+              {ticketsPageFooter}
             </div>
           )}
 
           {/* MODO 3: GRADE COMPACTA (CARDS OTIMIZADOS PARA CELULAR & FIELD SERVICE) */}
           {viewMode === 'COMPACT_GRID' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {filteredTickets.map((t) => (
+              {pagedTickets.map((t) => (
                 <div
                   key={t.id}
                   onClick={() => setSelectedTicketId(t.id)}
@@ -1628,6 +1656,9 @@ export default function ServiceDeskTab({
                 </div>
               ))}
             </div>
+          )}
+          {viewMode === 'COMPACT_GRID' && ticketsPageFooter && (
+            <div className="mt-3 bg-white rounded-xl border border-slate-200 overflow-hidden">{ticketsPageFooter}</div>
           )}
 
           {/* MODO 4: LINHA DO TEMPO SLA (AGRUPADO POR URGÊNCIA E VENCIMENTO DO SLA) */}
@@ -2019,7 +2050,7 @@ export default function ServiceDeskTab({
                   <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs font-semibold">
                     <Wrench className="w-3.5 h-3.5 text-indigo-600" />
                     <span>
-                      O.S. GestãoClick Vinculada: <strong>#{linkedServiceOrder.code}</strong> ({linkedServiceOrder.status})
+                      O.S. STI HUB ERP Vinculada: <strong>#{linkedServiceOrder.code}</strong> ({linkedServiceOrder.status})
                     </span>
                   </div>
                 ) : (
@@ -2030,7 +2061,7 @@ export default function ServiceDeskTab({
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-50"
                   >
                     <Wrench className="w-3.5 h-3.5 text-accent" />
-                    {creatingOs ? 'Gerando O.S. no ERP...' : 'Gerar O.S. Técnica (ERP GestãoClick)'}
+                    {creatingOs ? 'Gerando O.S. no ERP...' : 'Gerar O.S. Técnica (STI HUB ERP)'}
                   </button>
                 )}
 
@@ -2204,7 +2235,7 @@ export default function ServiceDeskTab({
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
                 <Ticket className="w-4 h-4 text-accent" />
-                Abrir Novo Chamado no Service Desk (NOC Seta Telecom)
+                Abrir Novo Chamado no STI HUB Desk Service (NOC Seta Telecom)
               </h3>
               <button
                 type="button"

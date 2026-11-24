@@ -340,7 +340,7 @@ export function resolveProposalDocumentHeadings(prop: Partial<ErpCommercialPropo
   isRental: boolean;
   isServices: boolean;
 } {
-  const bt = prop.budgetType || "LOCACAO";
+  const bt = resolveEffectiveProposalBudgetType(prop);
   const serviceTypeLabel = resolveProposalServiceType({ ...prop, budgetType: bt });
 
   if (bt === "PRODUTOS") {
@@ -678,14 +678,107 @@ function monthsMentionedInText(texts: Array<string | null | undefined>): number 
  * Serviço avulso: a opção do formulário continua gravada como contractMonths === 1.
  * Locação e produtos com 1 mês não entram aqui.
  */
-export function isAvulsoServiceProposal(proposal: {
+export type ProposalBudgetHints = {
   budgetType?: string | null;
+  modality?: string | null;
+  serviceType?: string | null;
+  items?: Array<{ fiscalNature?: string | null; itemType?: string | null }>;
+};
+
+/** Tipo efetivo do orçamento: o gravado, ou inferido da modalidade/itens quando falta. */
+export function resolveEffectiveProposalBudgetType(
+  proposal: ProposalBudgetHints
+): 'PRODUTOS' | 'LOCACAO' | 'SERVICOS' | 'CONJUNTO' | 'SPARE_PARTS' {
+  const raw = String(proposal.budgetType || '').toUpperCase();
+  if (raw === 'PRODUTOS' || raw === 'SPARE_PARTS' || raw === 'SERVICOS' || raw === 'CONJUNTO' || raw === 'LOCACAO') {
+    return raw;
+  }
+  const modality = String(proposal.modality || '').toUpperCase();
+  if (modality === 'SERVICE') return 'SERVICOS';
+  if (modality === 'RENTAL') return 'LOCACAO';
+  if (modality === 'HYBRID') return 'CONJUNTO';
+  const items = proposal.items || [];
+  const hasLoc = items.some((i) => i.fiscalNature === 'LOCACAO_BENS_MOVEIS');
+  const hasSale = items.some((i) => i.fiscalNature === 'VENDA_EQUIPAMENTO');
+  const hasSvc = items.some(
+    (i) =>
+      i.fiscalNature === 'SERVICO_TECNICO_TI_TELECOM' ||
+      i.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA' ||
+      String(i.itemType || '').toUpperCase() === 'SERVICE'
+  );
+  if (hasLoc && hasSvc) return 'CONJUNTO';
+  if (hasLoc) return 'LOCACAO';
+  if (hasSale && hasSvc) return 'CONJUNTO';
+  if (hasSale) return 'PRODUTOS';
+  if (hasSvc) return 'SERVICOS';
+  return 'LOCACAO';
+}
+
+export function isServicosBudgetProposal(proposal: ProposalBudgetHints): boolean {
+  return resolveEffectiveProposalBudgetType(proposal) === 'SERVICOS';
+}
+
+export function isAvulsoServiceProposal(proposal: ProposalBudgetHints & {
   contractMonths?: number | null;
 }): boolean {
   return (
-    String(proposal.budgetType || '').toUpperCase() === 'SERVICOS' &&
+    isServicosBudgetProposal(proposal) &&
     Number(proposal.contractMonths) === 1
   );
+}
+
+/**
+ * Rótulo exibido da taxa única de setup/ativação.
+ * Só em propostas de serviço (budgetType SERVICOS) o texto vira "Serviço".
+ * Locação, conjunto e demais tipos mantêm Setup / Ativação e as variantes.
+ * Não altera chaves internas nem dados gravados.
+ */
+export type ProposalSetupFeeLabelVariant =
+  | 'default'
+  | 'unique'
+  | 'isolated'
+  | 'internal'
+  | 'include'
+  | 'empty'
+  | 'placeholder'
+  | 'footer';
+
+export function proposalSetupFeeLabel(
+  proposal: { budgetType?: string | null },
+  variant: ProposalSetupFeeLabelVariant = 'default'
+): string {
+  if (isServicosBudgetProposal(proposal)) {
+    switch (variant) {
+      case 'include':
+        return 'Incluir serviço (R$)';
+      case 'empty':
+        return 'Sem serviço';
+      case 'placeholder':
+        return 'Valor do serviço';
+      case 'isolated':
+        return 'Serviço:';
+      default:
+        return 'Serviço';
+    }
+  }
+  switch (variant) {
+    case 'unique':
+      return 'Setup único';
+    case 'isolated':
+      return 'Taxa de Setup (Isolada):';
+    case 'internal':
+      return 'Instalação / setup';
+    case 'include':
+      return 'Incluir setup (R$)';
+    case 'empty':
+      return 'Sem setup';
+    case 'placeholder':
+      return 'Valor do setup';
+    case 'footer':
+      return 'Setup';
+    default:
+      return 'Setup / Ativação';
+  }
 }
 
 /**
@@ -723,6 +816,12 @@ export function resolveProposalCommercialFigures(proposal: {
   const recurring = items.filter((it) => it.isRecurring !== false);
   const recurringSum = recurring.reduce((sum, it) => sum + lineNetAmount(it), 0);
   const allSum = items.reduce((sum, it) => sum + lineNetAmount(it), 0);
+  // Em locação, linha de bem móvel entra na mensalidade mesmo se isRecurring veio
+  // false (dado antigo/incompleto). Setup/ativação (isRecurring=false e sem
+  // natureza de locação) continua de fora.
+  const rentalLinesSum = items
+    .filter((it) => it.isRecurring !== false || it.fiscalNature === 'LOCACAO_BENS_MOVEIS')
+    .reduce((sum, it) => sum + lineNetAmount(it), 0);
   const storedMonthly = Number(proposal.monthlyRecurringTotal || 0);
   if (isAvulsoServiceProposal(proposal)) {
     const total = storedMonthly > 0 ? storedMonthly : allSum;
@@ -732,7 +831,8 @@ export function resolveProposalCommercialFigures(proposal: {
       oneTime: true,
     };
   }
-  const monthly = storedMonthly > 0 ? storedMonthly : rental ? allSum : recurringSum;
+  const monthlyFallback = rental ? rentalLinesSum || recurringSum : recurringSum;
+  const monthly = storedMonthly > 0 ? storedMonthly : monthlyFallback;
   const storedMonths = Number(proposal.contractMonths || 0);
   const fromText = monthsMentionedInText([
     proposal.commercialNotes,
@@ -890,6 +990,457 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
     oneTimeSetupTotal,
     totalContractValue,
   };
+}
+
+
+export function isOneTimeChargeProposal(proposal: {
+  budgetType?: string | null;
+  contractMonths?: number | null;
+}): boolean {
+  const type = String(proposal.budgetType || '').toUpperCase();
+  if (type === 'PRODUTOS' || type === 'SPARE_PARTS') return true;
+  return isAvulsoServiceProposal(proposal);
+}
+
+export function proposalSetupAmount(proposal: {
+  oneTimeSetupTotal?: number | null;
+  setupFee?: number | null;
+}): number {
+  const setup = Number(proposal.oneTimeSetupTotal ?? proposal.setupFee ?? 0);
+  return Number.isFinite(setup) && setup > 0 ? Math.round(setup * 100) / 100 : 0;
+}
+
+export function proposalMonthlyAmount(proposal: {
+  monthlyRecurringTotal?: number | null;
+}): number {
+  const monthly = Number(proposal.monthlyRecurringTotal || 0);
+  return Number.isFinite(monthly) && monthly > 0 ? Math.round(monthly * 100) / 100 : 0;
+}
+
+export function proposalPrimaryAmount(proposal: {
+  budgetType?: string | null;
+  contractMonths?: number | null;
+  monthlyRecurringTotal?: number | null;
+  oneTimeSetupTotal?: number | null;
+  setupFee?: number | null;
+  shippingCost?: number | null;
+  totalContractValue?: number | null;
+}): number {
+  if (isOneTimeChargeProposal(proposal)) {
+    const total = Number(proposal.totalContractValue || 0);
+    if (total > 0) return Math.round(total * 100) / 100;
+    return Math.round(
+      (proposalMonthlyAmount(proposal) +
+        proposalSetupAmount(proposal) +
+        Math.max(0, Number(proposal.shippingCost || 0))) *
+        100
+    ) / 100;
+  }
+  return proposalMonthlyAmount(proposal) || Number(proposal.totalContractValue || 0);
+}
+
+
+/**
+ * Contas da folha pública (itens, subtotais, setup/serviço, total e pagamento único).
+ * A folha interna, a lista e o PDF devem usar esta função para não divergir:
+ * o total único é o TCV (ou a soma dos itens); o setup/serviço exibido como
+ * taxa única não é somado de novo quando já está nas linhas ou no TCV.
+ */
+export interface ProposalCommercialPresentationInput {
+  items?: Array<{
+    quantity?: number;
+    unitPrice?: number;
+    subtotal?: number;
+    totalMonthly?: number;
+    isRecurring?: boolean;
+    itemType?: string | null;
+    fiscalNature?: string | null;
+    discountPercent?: number;
+    discountAmount?: number;
+  }>;
+  budgetType?: string | null;
+  modality?: string | null;
+  serviceType?: string | null;
+  contractMonths?: number | null;
+  monthlyRecurringTotal?: number | null;
+  oneTimeSetupTotal?: number | null;
+  setupFee?: number | null;
+  shippingCost?: number | null;
+  totalContractValue?: number | null;
+  discountAmount?: number | null;
+  discountPercentGlobal?: number | null;
+  productsSubtotal?: number | null;
+  servicesSubtotal?: number | null;
+  commercialNotes?: string | null;
+  introductionText?: string | null;
+  title?: string | null;
+  paymentCondition?: string | null;
+}
+
+export interface ProposalCommercialPresentation {
+  oneTime: boolean;
+  uniquePayment: boolean;
+  uniquePaymentLabel: string;
+  saleLike: boolean;
+  isOneTimeServices: boolean;
+  months: number;
+  productsSubtotal: number;
+  servicesSubtotal: number;
+  itemsSubtotal: number;
+  globalDiscount: number;
+  itemDiscounts: number;
+  totalDiscounts: number;
+  hideFreight: boolean;
+  shippingCost: number;
+  displaySetupAmount: number;
+  hasSetupSelected: boolean;
+  /** True quando o setup já entra nos itens ou no total (não deve aparecer como parcela da soma). */
+  setupIncludedInItems: boolean;
+  /** Mostrar a linha de setup nos totais/cards. Em locação, sempre que houver setup. */
+  showSetupInTotals: boolean;
+  setupFeeLabel: string;
+  /** Mensalidade recorrente, sem setup (0 no pagamento único). */
+  monthlyAmount: number;
+  /** Número principal: total único (avulso/venda) ou mensalidade (locação/serviço mensal). */
+  commercialTotalAmount: number;
+  uniqueTotalAmount: number;
+}
+
+function money2(value: number): number {
+  return Math.round((Number.isFinite(value) ? value : 0) * 100) / 100;
+}
+
+function isSetupIncludedInItemTotals(args: {
+  setupAmount: number;
+  items: Array<{ subtotal?: number | null; totalMonthly?: number | null }>;
+  itemsNet: number;
+  shippingCost: number;
+  uniquePayment: boolean;
+  uniqueTotalAmount: number;
+  monthlyAmount: number;
+}): boolean {
+  const setup = money2(args.setupAmount);
+  if (setup <= 0) return false;
+  const itemHasSetup = (args.items || []).some(
+    (item) => money2(Number(item.subtotal ?? item.totalMonthly ?? 0)) === setup
+  );
+  if (args.uniquePayment) {
+    const explainedWithoutSetup = money2(args.itemsNet + args.shippingCost);
+    if (explainedWithoutSetup === money2(args.uniqueTotalAmount)) return true;
+    if (itemHasSetup && money2(explainedWithoutSetup + setup) !== money2(args.uniqueTotalAmount)) return true;
+    return false;
+  }
+  const monthly = money2(args.monthlyAmount);
+  const itemsNet = money2(args.itemsNet);
+  return itemHasSetup && (itemsNet === monthly || itemsNet === money2(monthly + setup));
+}
+
+export function resolveProposalCommercialPresentation(
+  proposal: ProposalCommercialPresentationInput
+): ProposalCommercialPresentation {
+  const items = proposal.items || [];
+  const input = proposal as never;
+  const headings = resolveProposalDocumentHeadings(input);
+  const figures = resolveProposalCommercialFigures(input);
+  const saleLike = headings.isProductsOnly || headings.isSpareParts;
+  const hideFreight = proposalHidesFreight(input);
+  const shippingCost = hideFreight ? 0 : Math.max(0, Number(proposal.shippingCost || 0));
+
+  const productsSubtotal =
+    proposal.productsSubtotal != null && Number.isFinite(Number(proposal.productsSubtotal))
+      ? money2(Number(proposal.productsSubtotal))
+      : money2(
+          items
+            .filter((i) => inferProposalItemType(i as never) === 'PRODUCT')
+            .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0)
+        );
+
+  const servicesSubtotal =
+    proposal.servicesSubtotal != null && Number.isFinite(Number(proposal.servicesSubtotal))
+      ? money2(Number(proposal.servicesSubtotal))
+      : money2(
+          items
+            .filter((i) => inferProposalItemType(i as never) === 'SERVICE')
+            .reduce((s, i) => s + Number(i.subtotal ?? i.totalMonthly ?? 0), 0)
+        );
+
+  const itemDiscounts = money2(
+    items.reduce((acc, it) => {
+      const gross = Math.max(1, Number(it.quantity || 1)) * Number(it.unitPrice || 0);
+      const net = Number(it.subtotal ?? it.totalMonthly ?? gross);
+      return acc + Math.max(0, gross - net);
+    }, 0)
+  );
+  const globalDiscount =
+    Math.max(0, Number(proposal.discountAmount || 0)) +
+    money2((productsSubtotal + servicesSubtotal) * (Number(proposal.discountPercentGlobal || 0) / 100));
+  const totalDiscounts = money2(itemDiscounts + globalDiscount);
+  const itemsNet = money2(productsSubtotal + servicesSubtotal - globalDiscount);
+
+  const isOneTimeServices =
+    headings.isServices &&
+    !headings.isRental &&
+    items.length > 0 &&
+    items.every((i) => i.isRecurring === false);
+
+  const explicitSetupFee = Math.max(0, Number(proposal.setupFee || 0));
+  const isolatedSetupTotal = Math.max(0, Number(proposal.oneTimeSetupTotal || 0));
+  const displaySetupAmount = isOneTimeServices ? explicitSetupFee : saleLike ? 0 : isolatedSetupTotal;
+  const uniquePayment = isOneTimeServices || figures.oneTime || saleLike;
+  const computedUniqueTotal = money2(itemsNet + (isOneTimeServices ? explicitSetupFee : 0) + shippingCost);
+  const storedTotal = Number(proposal.totalContractValue || 0);
+  const uniqueTotalAmount = storedTotal > 0 ? money2(storedTotal) : computedUniqueTotal;
+  const recurringMonthly = money2(
+    Number(proposal.monthlyRecurringTotal || 0) > 0 ? Number(proposal.monthlyRecurringTotal) : figures.oneTime ? 0 : figures.monthly
+  );
+  const commercialTotalAmount = saleLike
+    ? money2(itemsNet + shippingCost)
+    : uniquePayment
+      ? uniqueTotalAmount || computedUniqueTotal
+      : recurringMonthly || (storedTotal > 0 ? money2(storedTotal) : 0);
+
+  const avulso = isAvulsoServiceProposal(proposal);
+  const setupIncludedInItems = isSetupIncludedInItemTotals({
+    setupAmount: displaySetupAmount,
+    items,
+    itemsNet,
+    shippingCost,
+    uniquePayment,
+    uniqueTotalAmount,
+    monthlyAmount: uniquePayment ? 0 : recurringMonthly,
+  });
+  const showSetupInTotals = displaySetupAmount > 0 && (headings.isRental || !setupIncludedInItems);
+  return {
+    oneTime: figures.oneTime || saleLike || isOneTimeServices,
+    uniquePayment,
+    uniquePaymentLabel: avulso
+      ? 'Valor total (pagamento único)'
+      : uniquePayment
+        ? 'Valor Total (Pagamento Único)'
+        : 'Valor Mensal',
+    saleLike,
+    isOneTimeServices,
+    months: figures.months,
+    productsSubtotal,
+    servicesSubtotal,
+    itemsSubtotal: money2(productsSubtotal + servicesSubtotal),
+    globalDiscount,
+    itemDiscounts,
+    totalDiscounts,
+    hideFreight,
+    shippingCost,
+    displaySetupAmount,
+    hasSetupSelected: displaySetupAmount > 0,
+    setupIncludedInItems,
+    showSetupInTotals,
+    setupFeeLabel: proposalSetupFeeLabel(proposal),
+    monthlyAmount: uniquePayment ? 0 : recurringMonthly,
+    commercialTotalAmount,
+    uniqueTotalAmount: uniquePayment || saleLike
+      ? commercialTotalAmount
+      : money2(recurringMonthly * Math.max(1, Number(proposal.contractMonths || figures.months || 1)) + displaySetupAmount + shippingCost),
+  };
+}
+
+export interface ProposalAmountDisplay {
+  oneTime: boolean;
+  /** Valor principal da lista/resumo: total no avulso/venda, mensalidade (sem setup) no recorrente. */
+  amount: number;
+  suffix: '' | '/mês';
+  label: string;
+  monthlyAmount: number;
+  setupAmount: number;
+  showSetup: boolean;
+  shippingAmount: number;
+  totalAmount: number;
+  termLabel: string;
+}
+
+export function resolveProposalAmountDisplay(
+  proposal: ProposalCommercialPresentationInput
+): ProposalAmountDisplay {
+  const view = resolveProposalCommercialPresentation(proposal);
+  const oneTime = view.oneTime;
+  const months = Math.max(1, Number(proposal.contractMonths || view.months || 1));
+  return {
+    oneTime,
+    amount: oneTime ? view.commercialTotalAmount : view.monthlyAmount,
+    suffix: oneTime ? '' : '/mês',
+    label: oneTime ? (isAvulsoServiceProposal(proposal) ? 'Pagamento único' : 'Valor total') : 'Valor mensal',
+    monthlyAmount: oneTime ? view.commercialTotalAmount : view.monthlyAmount,
+    setupAmount: view.displaySetupAmount,
+    showSetup: view.showSetupInTotals,
+    shippingAmount: view.shippingCost,
+    totalAmount: oneTime ? view.commercialTotalAmount : view.uniqueTotalAmount,
+    termLabel: oneTime ? 'Pagamento único' : `TCV (${months}m)`,
+  };
+}
+
+function addMonthsToIsoDate(isoDate: string, monthsToAdd: number): string {
+  const base = isoDate && /^\d{4}-\d{2}-\d{2}/.test(isoDate) ? isoDate.slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const [y, m, d] = base.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1 + monthsToAdd, d));
+  return dt.toISOString().slice(0, 10);
+}
+
+function formatProposalMoney(value: number): string {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
+}
+
+export interface BuildProposalInstallmentsInput {
+  count: number;
+  method: string;
+  firstDueDate: string;
+  methodLabel?: string;
+}
+
+export interface BuildProposalInstallmentsResult {
+  installments: ErpProposalInstallment[];
+  paymentCondition: string;
+}
+
+/**
+ * Parcelas de locação/serviço mensal: mensalidade recorrente e setup/frete ficam em
+ * linhas separadas. O setup nunca é rateado nas mensalidades.
+ * Avulso, produtos e spare parts: o total (pagamento único) pode ser dividido em N vezes.
+ */
+export function buildProposalInstallments(
+  proposal: {
+    budgetType?: string | null;
+    contractMonths?: number | null;
+    monthlyRecurringTotal?: number | null;
+    oneTimeSetupTotal?: number | null;
+    setupFee?: number | null;
+    shippingCost?: number | null;
+    totalContractValue?: number | null;
+  },
+  input: BuildProposalInstallmentsInput
+): BuildProposalInstallmentsResult {
+  const count = Math.max(1, Number(input.count || 1));
+  const method = input.method || 'BOLETO';
+  const methodLabel = input.methodLabel || method;
+  const firstDue = input.firstDueDate && /^\d{4}-\d{2}-\d{2}/.test(input.firstDueDate)
+    ? input.firstDueDate.slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
+  const display = resolveProposalAmountDisplay(proposal);
+  const avulso = isAvulsoServiceProposal(proposal);
+  const oneTime = display.oneTime;
+  const installments: ErpProposalInstallment[] = [];
+
+  const push = (partial: { dueDate: string; amount: number; notes?: string; paymentMethod?: string }) => {
+    installments.push({
+      number: installments.length + 1,
+      dueDate: partial.dueDate,
+      amount: Math.round(Number(partial.amount || 0) * 100) / 100,
+      paymentMethod: partial.paymentMethod || method,
+      notes: partial.notes,
+    });
+  };
+
+  if (oneTime) {
+    const baseTotal = display.totalAmount;
+    const per = Math.floor((baseTotal / count) * 100) / 100;
+    const remainder = Math.round((baseTotal - per * count) * 100) / 100;
+    for (let i = 0; i < count; i += 1) {
+      const due = addMonthsToIsoDate(firstDue, i);
+      const amt = i === 0 ? Math.round((per + remainder) * 100) / 100 : per;
+      push({
+        dueDate: due,
+        amount: amt,
+        notes: avulso
+          ? count === 1
+            ? 'Pagamento único'
+            : `Parcela ${i + 1}/${count} do pagamento único`
+          : count === 1
+            ? 'Pagamento à vista'
+            : `Parcela ${i + 1}/${count} (${methodLabel})`,
+      });
+    }
+    const paymentCondition = avulso
+      ? count === 1
+        ? 'À vista — Pagamento único'
+        : `Parcelado em ${count}x de ${formatProposalMoney(per)} — Pagamento único — 1º venc. ${firstDue}`
+      : count === 1
+        ? `À Vista (${methodLabel}) — Vencimento ${firstDue}`
+        : `Parcelado em ${count}x de ${formatProposalMoney(per)} (${methodLabel}) — 1º Venc: ${firstDue}`;
+    return { installments, paymentCondition };
+  }
+
+  if (display.showSetup) {
+    push({
+      dueDate: firstDue,
+      amount: display.setupAmount,
+      notes: `${proposalSetupFeeLabel(proposal, 'default')} (pagamento único)`,
+    });
+  }
+  if (display.shippingAmount > 0) {
+    push({
+      dueDate: firstDue,
+      amount: display.shippingAmount,
+      notes: 'Frete (pagamento único)',
+    });
+  }
+  const monthly = display.monthlyAmount;
+  for (let i = 0; i < count; i += 1) {
+    push({
+      dueDate: addMonthsToIsoDate(firstDue, i),
+      amount: monthly,
+      notes:
+        count === 1
+          ? 'Mensalidade da locação / serviço'
+          : `Mensalidade ${i + 1}/${count} (${methodLabel})`,
+    });
+  }
+
+  const parts: string[] = [];
+  if (monthly > 0) {
+    parts.push(
+      count === 1
+        ? `Mensalidade de ${formatProposalMoney(monthly)}`
+        : `${count} mensalidades de ${formatProposalMoney(monthly)} (${methodLabel})`
+    );
+  }
+  if (display.showSetup) {
+    parts.push(`${proposalSetupFeeLabel(proposal, 'default')} de ${formatProposalMoney(display.setupAmount)} (pagamento único)`);
+  }
+  if (display.shippingAmount > 0) {
+    parts.push(`Frete de ${formatProposalMoney(display.shippingAmount)} (pagamento único)`);
+  }
+  parts.push(`1º venc. ${firstDue}`);
+  return { installments, paymentCondition: parts.join(' + ') };
+}
+
+/** Detecta se o valor mensal gravado parece incluir o setup (só para listar; não altera dados). */
+export function storedMonthlyAppearsToIncludeSetup(proposal: {
+  budgetType?: string | null;
+  monthlyRecurringTotal?: number | null;
+  oneTimeSetupTotal?: number | null;
+  setupFee?: number | null;
+  items?: Array<{
+    isRecurring?: boolean;
+    subtotal?: number;
+    totalMonthly?: number;
+    quantity?: number;
+    unitPrice?: number;
+    discountPercent?: number;
+    discountAmount?: number;
+  }>;
+}): boolean {
+  const type = String(proposal.budgetType || '').toUpperCase();
+  if (type !== 'LOCACAO' && type !== 'CONJUNTO') return false;
+  const setup = proposalSetupAmount(proposal);
+  const stored = proposalMonthlyAmount(proposal);
+  if (setup <= 0 || stored <= 0) return false;
+  const items = proposal.items || [];
+  const recurringSum = items
+    .filter((it) => it.isRecurring !== false)
+    .reduce((sum, it) => sum + lineNetAmount(it), 0);
+  const allSum = items.reduce((sum, it) => sum + lineNetAmount(it), 0);
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.02;
+  if (recurringSum > 0 && near(stored, recurringSum + setup)) return true;
+  if (allSum > 0 && setup > 0 && near(stored, allSum) && allSum - recurringSum >= setup - 0.02) return true;
+  if (recurringSum > 0 && near(stored, recurringSum)) return false;
+  return false;
 }
 
 export interface CompactProposalPayload {
@@ -1084,7 +1635,7 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
           const tm = Number(it.tm ?? it.sb ?? fallbackTotal);
           return {
             id: `item-${idx + 1}`,
-            sku: it.k || `GC-${idx + 1}`,
+            sku: it.k || `ITEM-${idx + 1}`,
             description: it.d || 'Item da Proposta',
             itemType,
             unit: normalizeProposalItemUnit(it.un, itemType),
