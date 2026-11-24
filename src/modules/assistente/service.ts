@@ -23,6 +23,7 @@ import {
 import { signActionToken, verifyActionToken } from './confirmation';
 import { rotearPergunta, hojeIso } from './roteador';
 import { resumoConhecimentoParaPrompt } from './conhecimento';
+import { PERGUNTA_QUAL_REGISTRO, marcaContexto, registroEmContexto, rotaDoContexto, termoGenerico, type RegistroContexto } from './contexto';
 
 export interface AssistenteAuditEntry {
   tool: string;
@@ -95,6 +96,7 @@ function systemPrompt(user: AssistenteUser, now: number): string {
     'Proposta ou orçamento novo: chame criar_rascunho_proposta direto, sem consultar empresas antes. Passe o cliente como o usuário escreveu (o sistema identifica a empresa e pergunta se houver mais de uma), o prazo em meses e cada item com descrição e quantidade. Se o valor unitário não foi dito, omita: o item fica a definir. Não peça valores antes de montar o rascunho.',
     'Ex.: "proposta de locação de 36 meses para X de 3 servidores Dell R640 com 256 GB e 3 SSDs de 2 TB" => criar_rascunho_proposta {cliente:"X", prazo_meses:36, itens:[{descricao:"Servidor Dell R640, 256 GB RAM, 3 SSD 2 TB", quantidade:3, tipo:"locacao"}]}.',
     'Use o histórico: se o usuário já pediu uma proposta e agora escolheu ou confirmou a empresa (por nome, CNPJ ou número da lista), chame criar_rascunho_proposta com essa empresa e os itens do pedido original.',
+    'Link, PDF, Versão contrato ou dados completos "da proposta/dela/desse orçamento" sem número: use o "Registro em contexto" do histórico (consultar_propostas com esse número). Nunca use "link", "pdf", "proposta" ou "contrato" como termo de busca; sem registro no histórico, pergunte qual é o número. Os botões de link do cliente, Versão contrato e PDF aparecem junto do resultado.',
     'Não repita uma consulta que já está no histórico. Resultados chegam como "Resultado: ..." com o mínimo (quantidade e, para empresas, nome e CNPJ); o resto é mostrado direto ao usuário. Nunca invente números, nomes ou registros.',
     'Se houver mais de uma empresa possível, pergunte qual, listando as opções. Se faltar algo que impeça a ação (ex.: nenhum item), pergunte só isso.',
     'Antes de qualquer ação o usuário confirma num cartão; não diga que algo foi feito, diga que preparou a ação para confirmação.',
@@ -175,11 +177,20 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
   // Roteador deterministico: duvidas do sistema e buscas/listas claras sem depender do modelo.
   // A ferramenta continua so PROPOSTA (cartao de confirmacao), igual a do modelo.
   let rota: ReturnType<typeof rotearPergunta> = null;
+  let contexto: RegistroContexto | null = null;
+  try {
+    contexto = registroEmContexto(parsed.data.mensagens);
+  } catch {
+    contexto = null;
+  }
   try {
     const msgs = parsed.data.mensagens;
     const anterior = msgs.length >= 2 ? msgs[msgs.length - 2] : null;
     const respondendoPergunta = !!anterior && anterior.papel === 'assistente' && /\?\s*$/.test(anterior.texto.trim());
-    rota = rotearPergunta(last.texto, { agora: deps.now(), respondendoPergunta });
+    // Resposta a "Qual proposta ou registro você quer?": número puro = número do orçamento.
+    const respostaQual = !!anterior && anterior.papel === 'assistente' && anterior.texto.trim() === PERGUNTA_QUAL_REGISTRO && /^\s*(?:n[ºo°]?\s*)?#?\d{1,7}\s*$/i.test(last.texto);
+    const textoRota = respostaQual ? `orçamento ${last.texto.replace(/\D+/g, '')}` : last.texto;
+    rota = rotearPergunta(textoRota, { agora: deps.now(), respondendoPergunta, contexto });
   } catch {
     rota = null;
   }
@@ -207,7 +218,25 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
     const texto = (result.text || '').slice(0, 4000) || 'Não entendi. Pode reformular?';
     return { status: 200, body: { tipo: 'texto', texto } };
   }
-  return proporAcao(call.name, call.args || {}, result.text || '', deps);
+  // O modelo as vezes manda "link"/"pdf"/"proposta" como termo de busca: usa o registro em contexto.
+  const ajuste = ajustarPorContexto(call.name, call.args || {}, contexto);
+  if ('texto' in ajuste) return { status: 200, body: { tipo: 'texto', texto: ajuste.texto } };
+  return proporAcao(ajuste.nome, ajuste.args, result.text || '', deps);
+}
+
+/** Busca so com palavra generica => registro em contexto (ou pergunta qual). */
+export function ajustarPorContexto(
+  nome: string,
+  args: any,
+  contexto: RegistroContexto | null,
+): { nome: string; args: any } | { texto: string } {
+  const generico =
+    (nome === 'consultar_propostas' && args && typeof args.busca === 'string' && termoGenerico(args.busca) && !args.status && !args.de && !args.ate) ||
+    (nome === 'buscar' && args && termoGenerico(args.termo));
+  if (!generico) return { nome, args };
+  if (!contexto) return { texto: PERGUNTA_QUAL_REGISTRO };
+  const r = rotaDoContexto(contexto);
+  return { nome: r.ferramenta, args: r.args };
 }
 
 /** Valida, confere modulos, prepara (so leitura) e assina a proposta de acao para o cartao. */
@@ -310,5 +339,7 @@ export async function handleExecute(rawBody: unknown, deps: AssistenteDeps): Pro
   }
   const { ok: _ok, ...rest } = result;
   void _ok;
-  return { status: 200, body: { ok: true, ...rest } };
+  // Marca o registro para o proximo pedido ("traga o link da proposta") agir sobre ele.
+  const resumoParaModelo = `${rest.resumoParaModelo || ''}${marcaContexto(rest.registro)}`.trim();
+  return { status: 200, body: { ok: true, ...rest, resumoParaModelo } };
 }

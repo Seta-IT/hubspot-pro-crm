@@ -12,6 +12,7 @@
 // ============================================================================
 import { extrairIdentificadores, foldTexto, normalizarPergunta, type Identificador } from './identificadores';
 import { buscarConhecimento, pareceDuvida } from './conhecimento';
+import { PERGUNTA_QUAL_REGISTRO, pedidoSobreRegistro, rotaDoContexto, type RegistroContexto } from './contexto';
 
 export type RotaAssistente =
   | { tipo: 'ferramenta'; ferramenta: string; args: Record<string, unknown>; motivo: string }
@@ -166,7 +167,8 @@ const RELATORIO_RE = /\b(relatorio|total|totais|soma|somar|somatorio|quanto|quan
 
 const STOP = new Set(
   (
-    'quais qual quanto quantos quantas me mostre mostrar mostra liste listar lista ver veja traga exiba consulte consultar todos todas tudo os as o a ' +
+    'quais qual quanto quantos quantas me mostre mostrar mostra liste listar lista ver veja traga traz trazer exiba consulte consultar todos todas tudo os as o a ' +
+    'link links url pdf pdfs passe passa copie copia copiar ' +
     'de do da dos das no na nos nas em para pra pro com por que e ou um uma uns umas meu minha meus minhas nosso nossa nossos nossas tem temos ha existe existem ' +
     'relatorio total totais soma somar resumo valor valores cliente clientes empresa empresas sobre busque buscar procure procurar pesquise pesquisar ' +
     'encontre encontrar localize localizar ache achar ultimos ultimas ultimo ultima mes meses ano semana hoje ontem passado passada este esse esta essa ' +
@@ -303,7 +305,7 @@ const ENTIDADE_CONSULTAR: Partial<Record<EntidadeRota, string>> = {
  * Decide a rota sem o modelo, ou null para seguir ao modelo.
  * Nunca grava nada: ferramentas sao propostas e passam pelo cartao de confirmacao.
  */
-export function rotearPergunta(texto: string, opts: { agora: number; respondendoPergunta?: boolean }): RotaAssistente | null {
+export function rotearPergunta(texto: string, opts: { agora: number; respondendoPergunta?: boolean; contexto?: RegistroContexto | null }): RotaAssistente | null {
   const raw = String(texto || '').trim();
   if (!raw || raw.length > 2000) return null;
   // O assistente fez uma pergunta (ex.: "qual das empresas?"): a resposta depende do historico => modelo.
@@ -317,6 +319,16 @@ export function rotearPergunta(texto: string, opts: { agora: number; respondendo
     if (kb) return { tipo: 'texto', texto: kb.entrada.resposta, motivo: `conhecimento:${kb.entrada.id}` };
     // "Como faço X?" sem assunto da base: e duvida, nao pedido de lista => modelo.
     if (/^(como|onde|o que|oque|pra que|para que|qual a diferenca)\b/.test(t)) return null;
+  }
+  // "traga o link da proposta", "manda o PDF", "versão contrato dela": age sobre o ultimo registro
+  // citado; sem registro na conversa, pergunta qual (nunca busca pela palavra "link").
+  const pedido = pedidoSobreRegistro(raw);
+  if (pedido) {
+    if (opts.contexto) {
+      const r = rotaDoContexto(opts.contexto);
+      return { tipo: 'ferramenta', ferramenta: r.ferramenta, args: r.args, motivo: `registro em contexto (${pedido})` };
+    }
+    return { tipo: 'texto', texto: PERGUNTA_QUAL_REGISTRO, motivo: `sem registro em contexto (${pedido})` };
   }
   // Pedido de gravacao: o modelo monta a acao (rascunho, edicao, OS, chamado) com cartao.
   if (GRAVACAO_RE.test(t) && !/\brelatorio\b/.test(t)) return null;

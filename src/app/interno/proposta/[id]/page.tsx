@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { InternalProposalSummaryView } from '../../../components/InternalProposalSummaryView';
 import type { InternalProposalSummaryModel } from '../../../lib/internal-proposal-summary';
+import { downloadInternalProposalPdf } from '../../../lib/internal-proposal-pdf';
 
 /**
  * Visão interna resumida. O middleware exige sessão antes desta página;
@@ -23,7 +24,7 @@ export default function InternalProposalPage() {
       return;
     }
     let cancelled = false;
-    const next = `/interno/proposta/${encodeURIComponent(rawId)}`;
+    const next = `/interno/proposta/${encodeURIComponent(rawId)}${typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('pdf') === '1' ? '?pdf=1' : ''}`;
     fetch(`/api/interno/proposta/${encodeURIComponent(rawId)}`, {
       credentials: 'same-origin',
       cache: 'no-store',
@@ -59,6 +60,16 @@ export default function InternalProposalPage() {
       cancelled = true;
     };
   }, [rawId]);
+
+  // "Copiar link do PDF" do assistente: /interno/proposta/<id>?pdf=1 baixa o PDF ao abrir
+  // (gerado no navegador, sob demanda; nada é gravado). Uma vez por carregamento.
+  const pdfBaixado = React.useRef(false);
+  useEffect(() => {
+    if (!model || pdfBaixado.current || typeof window === 'undefined') return;
+    if (new URLSearchParams(window.location.search).get('pdf') !== '1') return;
+    pdfBaixado.current = true;
+    downloadInternalProposalPdf(model);
+  }, [model]);
 
   if (loading) {
     return (
