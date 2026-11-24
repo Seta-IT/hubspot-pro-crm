@@ -16,6 +16,7 @@ import {
   isProposalsTableState,
   PROPOSAL_ROW_COLUMNS,
   proposalRowValues,
+  listProposalsPage,
   ProposalWriteConflictError,
   PROPOSALS_TABLE_DDL,
   KV_PROPOSALS_GUARD_TRIGGER_DDL,
@@ -72,11 +73,38 @@ describe('erp_proposals: colunas derivadas', () => {
     assert.equal(col(v, 'is_products'), true);
     assert.equal(col(v, 'is_rental'), false);
     assert.match(String(col(v, 'search_text')), /construcao agil/);
+    assert.match(String(col(v, 'search_text')), /prop-gc-408248511/);
     assert.match(String(col(v, 'search_digits')), /12345678000190/);
     assert.equal(col(v, 'total'), 105);
     const loc = proposalRowValues(baseProp({ budgetType: undefined, items: [{ fiscalNature: 'LOCACAO_BENS_MOVEIS' }], convertedContractId: 'ctr-1' }));
     assert.equal(col(loc, 'is_rental'), true);
     assert.equal(col(loc, 'is_converted'), true);
+  });
+
+  it('lista: q casa id e code exatos (linhas antigas sem o id no search_text)', async () => {
+    const db = new FakeDb((text) => {
+      if (/count\(\*\)/i.test(text)) {
+        return { rows: [{ todos: 0, produtos: 0, locacao: 0, servicos: 0, abertas: 0 }] };
+      }
+      return { rows: [] };
+    });
+    const q = 'prop-1795473263142-d5b63b';
+    await listProposalsPage(db, { q, status: 'TODOS', type: 'TODOS', limit: 20, offset: 0 });
+    const listCall = db.calls.find((c) => /FROM erp_proposals/i.test(c.text) && /LIMIT/i.test(c.text));
+    assert.ok(listCall, 'deveria consultar a lista em erp_proposals');
+    assert.match(listCall!.text, /lower\(id\) = \$\d+/);
+    assert.match(listCall!.text, /lower\(code\) = \$\d+/);
+    assert.ok((listCall!.params || []).includes(q));
+    const byCode = new FakeDb((text) => {
+      if (/count\(\*\)/i.test(text)) {
+        return { rows: [{ todos: 0, produtos: 0, locacao: 0, servicos: 0, abertas: 0 }] };
+      }
+      return { rows: [] };
+    });
+    await listProposalsPage(byCode, { q: '4725', status: 'TODOS', type: 'TODOS', limit: 20, offset: 0 });
+    const codeCall = byCode.calls.find((c) => /FROM erp_proposals/i.test(c.text) && /LIMIT/i.test(c.text));
+    assert.ok((codeCall!.params || []).includes('4725'));
+    assert.match(codeCall!.text, /lower\(id\) = \$\d+/);
   });
 });
 
