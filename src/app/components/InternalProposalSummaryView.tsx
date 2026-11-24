@@ -23,7 +23,14 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
       <style>{`@media print { @page { size: A4; margin: 8mm 9mm; } .no-print { display: none !important; } }`}</style>
       <div className="no-print border-b border-[#dbe2ee] bg-white">
         <div className="mx-auto flex max-w-[794px] items-center justify-between px-4 py-3" data-testid="internal-proposal-toolbar">
-          <b className="text-[13px] tracking-[0.06em] text-[#1e3a6e]">Versão contrato</b>
+          <span>
+            <b className="text-[13px] tracking-[0.06em] text-[#1e3a6e]">Versão contrato</b>
+            {model.clientViewLine ? (
+              <span data-testid="proposal-client-views" className="mt-1 block text-[11px] font-semibold text-slate-600">
+                {model.clientViewLine}
+              </span>
+            ) : null}
+          </span>
           <span>
             <button
               type="button"

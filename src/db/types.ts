@@ -1113,6 +1113,12 @@ export interface ErpCommercialProposal {
   approvedAt?: string;
   /** M2 (CISO 30/10): id do usuario vendedor dono, gravado SOMENTE pelo servidor na criacao; imutavel. */
   sellerUserId?: string;
+  /** Gravado só pelo servidor quando a conta de serviço cria a proposta. */
+  createdByServiceAccount?: boolean;
+  /** Aberturas do link público pelo cliente (não conta sessão interna nem pré-visualização). */
+  firstViewedAt?: string | null;
+  lastViewedAt?: string | null;
+  viewCount?: number;
   version?: number;
   versionHistory?: ErpProposalVersionEntry[];
   statusHistory?: ErpProposalStatusHistoryEntry[];

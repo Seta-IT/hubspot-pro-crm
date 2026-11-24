@@ -109,6 +109,7 @@ export async function forwardToCrmRouter(
   }
   // IP real do cliente (usado na trilha de auditoria do aceite publico de propostas).
   query._clientIp = resolveTrustedClientIp(req.headers); // Pacote G (5c): IP confiavel da Vercel
+  query._userAgent = String(req.headers.get('user-agent') || '').slice(0, 300);
   query._fromHttpBridge = '1';
   query._origin = url.origin;
 

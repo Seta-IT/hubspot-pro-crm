@@ -341,7 +341,7 @@ function buildWhere(f: ProposalListFilters, params: unknown[], opts: { skipStatu
     const pe = params.length;
     // Mesma regra de isProposalOwnedBy: sellerUserId manda; sem ele, sellerEmail.
     where.push(
-      `((coalesce(seller_user_id,'') <> '' AND lower(trim(seller_user_id)) = $${pi} AND $${pi} <> '') OR (coalesce(seller_user_id,'') = '' AND coalesce(seller_email,'') <> '' AND lower(trim(seller_email)) = $${pe} AND $${pe} <> ''))`
+      `((coalesce(seller_user_id,'') <> '' AND lower(trim(seller_user_id)) = $${pi} AND $${pi} <> '') OR (coalesce(seller_user_id,'') = '' AND coalesce(seller_email,'') <> '' AND lower(trim(seller_email)) = $${pe} AND $${pe} <> '') OR coalesce(data->>'createdByServiceAccount','') = 'true' OR position('criada por assistente de vendas' in lower(coalesce(data->>'commercialNotes',''))) > 0)`
     );
   }
   return where.length ? `WHERE ${where.join(' AND ')}` : '';

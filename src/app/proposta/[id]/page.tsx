@@ -29,6 +29,7 @@ import {
 import { ErpCommercialProposal, ErpProposalDigitalSignature, ErpProposalVersionEntry } from '../../../db/types';
 import { formatBRL as formatBRLWhole } from '../../components/ui-helpers';
 import { isoToBrDate } from '../../lib/br-date';
+import { formatClientProposalViews } from '../../lib/proposal-client-view';
 import { publicDtoToRenderableProposal, type PublicProposalDto } from '../../lib/proposal-public-dto';
 import { displayPaymentConditionText, proposalPaymentMethodLabel } from '../../lib/proposal-payment-method';
 import { buildOpenCrmHref } from '../../lib/home-screen';
@@ -110,6 +111,7 @@ function PublicProposalPrintContent() {
   const [linkChecked, setLinkChecked] = useState(false);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [publicLinkInvalid, setPublicLinkInvalid] = useState(false);
+  const [scopeDenied, setScopeDenied] = useState(false);
   const approveIdempotencyKeyRef = useRef<string | null>(null);
   const isPublicLinkMode = Boolean(linkToken);
   const [viewingVersionNum, setViewingVersionNum] = useState<number | null>(() =>
@@ -274,10 +276,17 @@ function PublicProposalPrintContent() {
     }
 
     let active = true;
-    fetch(`/api/erp/proposals/${encodeURIComponent(rawId)}`)
-      .then((r) => r.json())
-      .then((json) => {
+    fetch(`/api/erp/proposals/${encodeURIComponent(rawId)}`, { credentials: "same-origin", cache: "no-store" })
+      .then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }))
+      .then(({ status, json }) => {
         if (!active) return;
+        if (status === 403 && json?.code === "PROPOSAL_SCOPE_FORBIDDEN") {
+          setScopeDenied(true);
+          setProposal(null);
+          setLoading(false);
+          return;
+        }
+        setScopeDenied(false);
         const apiData: ErpCommercialProposal | null =
           json?.data && !Array.isArray(json.data)
             ? (json.data as ErpCommercialProposal)
@@ -840,10 +849,14 @@ function PublicProposalPrintContent() {
         <div className="bg-white rounded-lg border border-slate-200 p-8 shadow-sm text-center max-w-lg w-full space-y-4">
           <FileText className="w-12 h-12 text-[#1e3a6e] mx-auto" />
           <h1 className="text-lg font-semibold text-slate-900">
-            Proposta Comercial #{rawId || 'Não identificada'} não localizada
+            {scopeDenied
+              ? "Sem permissão para ver esta proposta"
+              : `Proposta Comercial #${rawId || "Não identificada"} não localizada`}
           </h1>
           <p className="text-xs text-slate-600 leading-relaxed">
-            {publicLinkInvalid
+            {scopeDenied
+              ? "Sua sessão não inclui esta proposta. Peça acesso a um administrador da Seta Telecom."
+              : publicLinkInvalid
               ? "Este link de proposta é inválido. Solicite um novo link ao seu consultor Seta Telecom."
               : <>Não encontramos nenhum orçamento com o identificador <strong>{rawId}</strong>. Volte ao painel da Seta Telecom para abrir ou gerar o link da proposta desejada.</>}
           </p>
@@ -1028,6 +1041,11 @@ function PublicProposalPrintContent() {
           </button>
         </div>
 
+        {isInternalUser && formatClientProposalViews(proposal) ? (
+          <p data-testid="proposal-client-views" className="print:hidden text-[11px] font-semibold text-slate-600">
+            {formatClientProposalViews(proposal)}
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2">
           {isInternalUser && (
             <>
