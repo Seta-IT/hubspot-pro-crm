@@ -10,6 +10,7 @@ import { middleware } from '../src/middleware';
 import { forwardToCrmRouter } from '../src/app/api/_bridge';
 import { CrmApiRouter, isAuthorizedDailySyncCron, shouldPersistAfterDispatch } from '../src/api/router';
 import { isValidCronBearer, resolveCronSecret } from '../src/app/lib/cron-auth';
+import { setErpSyncRunLogQueryForTests, type ErpSyncLogQuery } from '../src/modules/erp/erp-sync-run-log';
 import { signStiHubSessionToken } from '../src/app/lib/auth';
 import { createInMemoryRepository } from './helpers/legacy-proposal-fixtures';
 
@@ -106,8 +107,15 @@ describe('CISO 15/11: GET /api/erp/daily-sync do Vercel Cron', () => {
     assert.equal(res.status, 200, JSON.stringify(res.body).slice(0, 200));
     assert.equal(spy.calls, 1, 'cron grava no banco');
     const data = (res.body as { data: Record<string, unknown> }).data;
-    assert.deepEqual(Object.keys(data).sort(), ['counts', 'liveConnected', 'syncedAt']);
+    assert.deepEqual(Object.keys(data).sort(), [
+      'counts', 'countsDelta', 'liveConnected', 'logPendingMigration', 'logPersisted', 'logStatus', 'previousRunAt', 'syncedAt',
+    ]);
     for (const v of Object.values(data.counts as Record<string, unknown>)) assert.equal(typeof v, 'number');
+    assert.equal(data.logPersisted, false, 'sem banco nos testes o log nao grava (no_db)');
+    assert.equal(data.logPendingMigration, false);
+    assert.ok(data.logStatus === 'SUCCESS' || data.logStatus === 'PARTIAL');
+    assert.equal(data.previousRunAt, null);
+    assert.equal(data.countsDelta, null);
     assert.ok(repo.listSecurityAuditLogs(10000).logs.some((l) => l.action === 'ERP_DAILY_SYNC_CRON' && l.actorEmail === 'vercel-cron@sti-hub.local'));
   });
 
@@ -134,7 +142,7 @@ describe('CISO 15/11: GET /api/erp/daily-sync do Vercel Cron', () => {
       const req = new NextRequest(URL_CRON, { headers: { cookie: `stihub_session=${adminToken()}` } });
       const res = await forwardToCrmRouter(req);
       const body = (await res.json()) as { data?: Record<string, unknown> };
-      assert.ok(!body.data || 'scheduleCron' in body.data || !('counts' in body.data && Object.keys(body.data).length === 3), 'resposta nao e a do cron');
+      assert.ok(!body.data || 'scheduleCron' in body.data, 'resposta nao e a do cron');
     });
   });
 
@@ -147,5 +155,50 @@ describe('CISO 15/11: GET /api/erp/daily-sync do Vercel Cron', () => {
     assert.equal(shouldPersistAfterDispatch('GET', '/api/erp/daily-sync', { ...HTTP, _cronAuthorized: '1' }, 401), false);
     assert.equal(shouldPersistAfterDispatch('POST', '/api/erp/daily-sync', {}, 200), true);
     assert.equal(shouldPersistAfterDispatch('POST', '/api/erp/daily-sync', {}, 403), false);
+  });
+
+  it('com query injetado, o cron grava o log e na segunda execucao devolve o delta', async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    const query: ErpSyncLogQuery = async (text, params = []) => {
+      if (text.trim().startsWith('SELECT')) {
+        const last = rows.length ? rows[rows.length - 1] : undefined;
+        return { rows: last ? [last] : [] };
+      }
+      const row = {
+        id: `cron-${rows.length + 1}`,
+        run_at: new Date(`2026-11-2${4 + rows.length}T12:00:00.000Z`),
+        trigger: params[0],
+        status: params[1],
+        error: params[2],
+        duration_ms: params[3],
+        live_connected: params[4],
+        counts: JSON.parse(String(params[5] || '{}')),
+        previous_run_at: params[6] ? new Date(String(params[6])) : null,
+        counts_delta: params[7] ? JSON.parse(String(params[7])) : null,
+        source: params[8],
+      };
+      rows.push(row);
+      return { rows: [row] };
+    };
+    setErpSyncRunLogQueryForTests(query);
+    try {
+      const first = await new CrmApiRouter(createInMemoryRepository()).dispatch({
+        method: 'GET', path: '/api/erp/daily-sync', query: { ...HTTP, _cronAuthorized: '1' },
+      });
+      assert.equal(first.status, 200);
+      const d1 = (first.body as { data: Record<string, unknown> }).data;
+      assert.equal(d1.logPersisted, true);
+      assert.equal(d1.previousRunAt, null);
+      const second = await new CrmApiRouter(createInMemoryRepository()).dispatch({
+        method: 'GET', path: '/api/erp/daily-sync', query: { ...HTTP, _cronAuthorized: '1' },
+      });
+      const d2 = (second.body as { data: Record<string, unknown> }).data;
+      assert.equal(d2.logPersisted, true);
+      assert.equal(d2.previousRunAt, '2026-11-24T12:00:00.000Z');
+      assert.equal(typeof d2.countsDelta, 'object');
+      assert.ok(d2.countsDelta && typeof (d2.countsDelta as Record<string, number>).companies === 'number');
+    } finally {
+      setErpSyncRunLogQueryForTests(null);
+    }
   });
 });

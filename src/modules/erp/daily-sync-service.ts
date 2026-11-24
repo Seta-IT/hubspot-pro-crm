@@ -426,5 +426,5 @@ export const DEFAULT_GENERAL_PARAMETERS: StiHubGeneralSystemParameters = {
   defaultContractReadjustmentIndex: 'IPCA',
   enforceStrictCnpjMergeLock: true,
   enforceMfaOnAllRoutes: true,
-  dailyIncrementalSyncCron: '0 10 * * * (Diariamente às 07:00 BRT / 06:00 EDT)',
+  dailyIncrementalSyncCron: '0 12 * * * (Diariamente às 07:00 America/New_York / 12:00 UTC no horário de inverno)',
 };

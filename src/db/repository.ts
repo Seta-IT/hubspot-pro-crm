@@ -11118,7 +11118,7 @@ export class CrmRepository {
     const nowIso = new Date().toISOString();
     return {
       syncedAt: nowIso,
-      scheduleCron: "0 6 * * * (Diário às 06:00 BRT • Incremental Loja Matriz #118887)",
+      scheduleCron: "0 12 * * * (Diário às 07:00 America/New_York • Incremental Loja Matriz #118887)",
       storeId: cfg.storeId || "118887",
       storeName: cfg.storeName || "Matriz",
       companyLegalName: cfg.companyLegalName || "SETA TELECOM LTDA",

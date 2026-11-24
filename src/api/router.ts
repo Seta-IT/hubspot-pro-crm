@@ -375,6 +375,7 @@ import {
   INITIAL_SYNC_LOGS,
   MigrationChecklistModuleItem,
 } from '../modules/erp/daily-sync-service';
+import { persistErpSyncRunLog } from '../modules/erp/erp-sync-run-log';
 import { StiHubRoleId, StiHubUserRecord } from '../db/types';
 import {
   LifecycleStage,
@@ -9820,9 +9821,54 @@ export class CrmApiRouter {
         // completa como o botao Sincronizar (POST, forceRefresh) e o dispatch GRAVA o estado no
         // Postgres (shouldPersistAfterDispatch). GET com cookie de sessao segue sem gravar.
         const cronRun = isAuthorizedDailySyncCron(method, cleanPath, query);
-        const syncReport = await this.repo.runIncrementalDailySync({
-          forceRefresh: method === 'POST' ? body.forceRefresh !== false : cronRun,
-        });
+        const trigger = cronRun ? 'vercel_cron' : ctx.trustedInternal ? 'service_key' : 'admin';
+        const startedMs = Date.now();
+        let syncReport: Awaited<ReturnType<CrmRepository['runIncrementalDailySync']>>;
+        try {
+          syncReport = await this.repo.runIncrementalDailySync({
+            forceRefresh: method === 'POST' ? body.forceRefresh !== false : cronRun,
+          });
+        } catch (err) {
+          try {
+            await persistErpSyncRunLog({
+              trigger,
+              status: 'ERROR',
+              error: 'A sincronizacao do ERP nao foi concluida.',
+              durationMs: Math.max(0, Date.now() - startedMs),
+              liveConnected: null,
+              counts: {},
+              source: null,
+            });
+          } catch {
+            // log nunca derruba a resposta
+          }
+          throw err;
+        }
+        const durationMs = Math.max(0, Date.now() - startedMs);
+        const logStatus = syncReport.liveConnected ? 'SUCCESS' : 'PARTIAL';
+        let previousRunAt: string | null = null;
+        let countsDelta: Record<string, number> | null = null;
+        let logPersisted = false;
+        let logPendingMigration = false;
+        try {
+          const saved = await persistErpSyncRunLog({
+            trigger,
+            status: logStatus,
+            error: syncReport.liveConnected ? null : 'ERP de origem indisponivel ou sem credenciais no servidor.',
+            durationMs,
+            liveConnected: syncReport.liveConnected,
+            counts: syncReport.counts,
+            source: syncReport.liveConnected ? 'gestaoclick_live' : 'local',
+          });
+          logPersisted = saved.ok;
+          logPendingMigration = !saved.ok && saved.reason === 'table_missing';
+          if (saved.ok) {
+            previousRunAt = saved.record.previousRunAt;
+            countsDelta = saved.record.countsDelta;
+          }
+        } catch {
+          // log nunca derruba a resposta
+        }
         if (cronRun) {
           try {
             this.repo.appendSecurityAuditLog({
@@ -9839,7 +9885,7 @@ export class CrmApiRouter {
           } catch {
             // auditoria nunca derruba a resposta
           }
-          // Resposta do cron: so horario, status da conexao e contagens (sem dados de negocio).
+          // Resposta do cron: horario, conexao, contagens e comparacao com a execucao anterior (sem dados de negocio).
           return {
             status: 200,
             body: {
@@ -9847,6 +9893,11 @@ export class CrmApiRouter {
                 syncedAt: syncReport.syncedAt,
                 liveConnected: syncReport.liveConnected,
                 counts: syncReport.counts,
+                previousRunAt,
+                countsDelta,
+                logStatus,
+                logPersisted,
+                logPendingMigration,
               },
             },
           };

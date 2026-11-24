@@ -6,7 +6,7 @@
   "crons": [
     {
       "path": "/api/erp/daily-sync",
-      "schedule": "0 10 * * *"
+      "schedule": "0 12 * * *"
     },
     {
       "path": "/api/crm/proposal-followup",
