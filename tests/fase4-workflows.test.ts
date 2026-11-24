@@ -483,7 +483,8 @@ describe('Fase 4: webhook, isolamento e cron', () => {
     const anon = await router.dispatch({ method: 'GET', path: '/api/cron/workflows', query: { ...HTTP } });
     assert.ok([401, 403].includes(anon.status));
     assert.ok(isAuthorizedWorkflowsCron('GET', '/api/cron/workflows', CRON()));
-    assert.ok(shouldPersistAfterDispatch('GET', '/api/cron/workflows', CRON(), 200));
+    assert.equal(shouldPersistAfterDispatch('GET', '/api/cron/workflows', CRON(), 200), false, 'flag desligada: nao persiste');
+    assert.ok(shouldPersistAfterDispatch('GET', '/api/cron/workflows', CRON(), 200, { WORKFLOWS_LIVE: 'true' }));
     const root = path.join(__dirname, '..', '..');
     const cfg = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8')) as { crons: Array<{ path: string; schedule: string }> };
     assert.equal(cfg.crons.find((c) => c.path === '/api/cron/workflows')!.schedule, '*/5 * * * *');
