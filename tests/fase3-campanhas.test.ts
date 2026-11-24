@@ -648,7 +648,9 @@ describe('Fase 3: envio real ponta a ponta (ESP, DNS e trava mockados)', () => {
   it('cron: autenticado, persiste o estado, entra no vercel.json, bridge e middleware', () => {
     assert.ok(isAuthorizedMarketingCron('GET', '/api/cron/marketing', { _fromHttpBridge: '1', _cronAuthorized: '1' }));
     assert.ok(!isAuthorizedMarketingCron('GET', '/api/cron/marketing', { _fromHttpBridge: '1' }));
-    assert.ok(shouldPersistAfterDispatch('GET', '/api/cron/marketing', { _fromHttpBridge: '1', _cronAuthorized: '1' }, 200));
+    const cronQ = { _fromHttpBridge: '1', _cronAuthorized: '1' };
+    assert.equal(shouldPersistAfterDispatch('GET', '/api/cron/marketing', cronQ, 200), false, 'flag desligada: nao persiste');
+    assert.ok(shouldPersistAfterDispatch('GET', '/api/cron/marketing', cronQ, 200, { MARKETING_LIVE_SEND: 'true' }));
     const root = path.join(__dirname, '..', '..');
     const cfg = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8')) as { crons: Array<{ path: string; schedule: string }> };
     assert.equal(cfg.crons.find((c) => c.path === '/api/cron/marketing')!.schedule, '*/5 * * * *');

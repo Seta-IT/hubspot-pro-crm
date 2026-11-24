@@ -1037,13 +1037,33 @@ export function isBootstrapLiveGestaoClickEnabled(env: NodeJS.ProcessEnv = proce
   return v === '1' || v === 'true';
 }
 
+/**
+ * Perf 24/11: crons autenticados com a flag LIVE (ou a de entrada de e-mail) desligada
+ * nao leem nem regravam o crm_state_v1 — mesmo padrao do poll de e-mail (CISO 17/11).
+ * A autenticacao do cron (Bearer CRON_SECRET via bridge) permanece obrigatória.
+ */
+export function shouldSkipCrmStateLoad(
+  method: string,
+  cleanPath: string,
+  query: Record<string, string | undefined>,
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  if (isAuthorizedSetaDeskEmailPollCron(method, cleanPath, query) && !isSetaDeskEmailIntakeEnabled(env)) return true;
+  if (isAuthorizedMarketingCron(method, cleanPath, query) && !isMarketingLiveSendEnabled(env)) return true;
+  if (isAuthorizedWorkflowsCron(method, cleanPath, query) && !isWorkflowsLiveEnabled(env)) return true;
+  if (isAuthorizedSequencesCron(method, cleanPath, query) && !isSequenceLiveSendEnabled(env)) return true;
+  return false;
+}
+
 export function shouldPersistAfterDispatch(
   method: string,
   cleanPath: string,
   query: Record<string, string | undefined>,
-  status: number
+  status: number,
+  env: NodeJS.ProcessEnv = process.env
 ): boolean {
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return status >= 200 && status < 400;
+  if (shouldSkipCrmStateLoad(method, cleanPath, query, env)) return false;
   if (isAuthorizedSequencesCron(method, cleanPath, query)) return status >= 200 && status < 300;
   if (isAuthorizedMarketingCron(method, cleanPath, query)) return status >= 200 && status < 300;
   if (isAuthorizedWorkflowsCron(method, cleanPath, query)) return status >= 200 && status < 300;
@@ -2045,9 +2065,15 @@ export class CrmApiRouter {
 
     this.proposalTableCtx = null;
     this.repo.setProposalNumberingHint(null);
-    // CISO 17/11: cron da entrada de e-mail com a flag desligada nao le o crm_state_v1 (~7 MB por
-    // execucao no Neon); a rota responde 200 { enabled: false } sem tocar em nada.
-    const skipStateLoad = isAuthorizedSetaDeskEmailPollCron(method, cleanPath, query) && !isSetaDeskEmailIntakeEnabled();
+    // CISO 17/11 + perf 24/11: crons autenticados com a flag LIVE (ou a de entrada de e-mail)
+    // desligada nao leem o crm_state_v1 (~4,5 MB por execucao no Neon).
+    const cronFlagEnv =
+      cleanPath === MARKETING_CRON_PATH
+        ? this.marketingOptions.env || process.env
+        : cleanPath === WORKFLOW_CRON_PATH
+          ? this.workflowOptions.env || process.env
+          : process.env;
+    const skipStateLoad = shouldSkipCrmStateLoad(method, cleanPath, query, cronFlagEnv);
     if (this.isSingletonRepo && this.stateStoreEnabled()) {
       let stateLoadOk = false;
       if (!skipStateLoad) {
@@ -2203,7 +2229,7 @@ export class CrmApiRouter {
     if (
       this.canPersistToPostgres() &&
       !isSetaDeskEmailDirectRoute(method, cleanPath) &&
-      (shouldPersistAfterDispatch(method, cleanPath, query, response.status) || journalReconciled)
+      (shouldPersistAfterDispatch(method, cleanPath, query, response.status, cronFlagEnv) || journalReconciled)
     ) {
       const outcome = { ok: false };
       const failed = await this.persistStateToPostgres(outcome);
