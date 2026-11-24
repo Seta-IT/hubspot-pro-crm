@@ -8,6 +8,7 @@
 import { constantTimeEqual, sha256Hex } from './auth';
 
 export const SALES_AGENT_SERVICE_ID = 'svc-assistente-vendas';
+export const SALES_AGENT_CREATED_NOTE = 'Criada por Assistente de Vendas (serviço).';
 export const SALES_AGENT_ACTOR_NAME = 'Assistente de Vendas (serviço)';
 export const SALES_AGENT_ACTOR_EMAIL = 'svc-assistente-vendas@servico.sti-hub';
 export const SALES_AGENT_TOKEN_ENV = 'STI_HUB_SALES_AGENT_TOKEN_SHA256';

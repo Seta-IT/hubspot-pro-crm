@@ -226,12 +226,14 @@ import { handleAuxListsRoute, isAuxListsRoute } from './aux-lists-routes';
 import { LoginIpFailureGuard } from './login-ip-guard';
 import { rateLimitIpKey } from './client-ip';
 import { sanitizeApiResponseBody } from '../db/iam-security';
+import { isProposalLinkPreviewAgent, isServiceCreatedProposal, nextClientProposalView } from '../app/lib/proposal-client-view';
 import {
   classifySalesAgentRoute,
   getConfiguredSalesAgentTokenHashes,
   isAcceptedServiceTokenHash,
   SALES_AGENT_ACTOR_EMAIL,
   SALES_AGENT_ACTOR_NAME,
+  SALES_AGENT_CREATED_NOTE,
   SALES_AGENT_SERVICE_ID,
   SERVICE_CREATES_PER_DAY,
   SERVICE_LIST_DEFAULT_LIMIT,
@@ -525,7 +527,7 @@ export function sanitizeSalesAgentCreateBody(
     if (k.startsWith('_') || k.startsWith('iam') || SVC_PROPOSAL_FORBIDDEN_FIELDS.includes(k)) continue;
     out[k] = v;
   }
-  out.commercialNotes = [typeof out.commercialNotes === 'string' ? out.commercialNotes : '', `Criada por ${SALES_AGENT_ACTOR_NAME}.`]
+  out.commercialNotes = [typeof out.commercialNotes === 'string' ? out.commercialNotes : '', SALES_AGENT_CREATED_NOTE]
     .filter(Boolean)
     .join(' ');
   return out;
@@ -3939,6 +3941,9 @@ export class CrmApiRouter {
    */
   private static isProposalOwnedBy(p: ErpCommercialProposal, user: { id: string; email: string }): boolean {
     const norm = (v: unknown) => String(v || '').trim().toLowerCase();
+    // Conta de serviço grava sellerUserId do vendedor citado (ex.: usr-seta-01). Qualquer
+    // sessão Seta que já passou no MFA trata essa proposta como sua para ver e editar.
+    if (isServiceCreatedProposal(p)) return true;
     if (p.sellerUserId) return norm(p.sellerUserId) !== '' && norm(p.sellerUserId) === norm(user.id);
     return norm(p.sellerEmail) !== '' && norm(p.sellerEmail) === norm(user.email);
   }
@@ -4068,6 +4073,10 @@ export class CrmApiRouter {
     'convertedInvoiceIds',
     'approvalIdempotencyKeySha256',
     'sellerUserId',
+    'createdByServiceAccount',
+    'firstViewedAt',
+    'lastViewedAt',
+    'viewCount',
     'approvalMode',
     'approvalJustification',
     'approvedBy',
@@ -4597,6 +4606,7 @@ export class CrmApiRouter {
       v.claims.jti
     );
     try { stopFollowupForProposal(this.repo, found!, 'PROPOSAL_VIEW'); } catch { /* parada nunca altera o 200 do link */ }
+    void this.notePublicProposalView(found!, query);
     return {
       status: 200,
       body: { kind: 'proposal', data: toPublicProposalDto(found!), proposalId: found!.id, token, issuerAddress: formatIssuerAddress(this.companyEmitter) },
@@ -4808,6 +4818,24 @@ export class CrmApiRouter {
    * anterior a atual: a resposta e sempre o DTO atual. Token adulterado/ausente,
    * proposta inexistente ou RASCUNHO => 404 generico.
    */
+  /** Uma escrita da proposta já carregada. Sessão interna e pré-visualização de link não contam. */
+  private async notePublicProposalView(
+    proposal: ErpCommercialProposal,
+    query: Record<string, string | undefined>
+  ): Promise<void> {
+    if (this.resolveProposalSessionAccess(query)) return;
+    if (isProposalLinkPreviewAgent(query._userAgent)) return;
+    const next = nextClientProposalView(proposal, new Date().toISOString());
+    proposal.firstViewedAt = next.firstViewedAt;
+    proposal.lastViewedAt = next.lastViewedAt;
+    proposal.viewCount = next.viewCount;
+    try {
+      await this.persistStateToPostgres();
+    } catch {
+      // a contagem não derruba a página do cliente
+    }
+  }
+
   private viewProposalViaLink(pathId: string, query: Record<string, string | undefined>): ApiResponse {
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
     if (!this.proposalLinkLimiters.viewIp.hit(`ip:${ip}`)) {
@@ -4827,6 +4855,7 @@ export class CrmApiRouter {
       v.claims.jti
     );
     try { stopFollowupForProposal(this.repo, found!, 'PROPOSAL_VIEW'); } catch { /* parada nunca altera o 200 do link */ }
+    void this.notePublicProposalView(found!, query);
     return {
       status: 200,
       body: { data: toPublicProposalDto(found!), issuerAddress: formatIssuerAddress(this.companyEmitter) },
@@ -8395,6 +8424,7 @@ export class CrmApiRouter {
           const created = this.repo.createProposal({
             ...this.stripServerOnlyProposalFields(createInput, query, ctx, 'create'),
             ...createStatus.serverFields,
+            ...(ctx.serviceAccount ? { status: 'RASCUNHO', createdByServiceAccount: true } : {}),
           } as { title: string; [k: string]: unknown });
           if (createStatus.audit) {
             const sc = this.proposalScope(query, ctx);
@@ -8545,7 +8575,13 @@ export class CrmApiRouter {
           .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());
         // (d) Fora do escopo => mesmo 404 de inexistente.
         const found = found0 && CrmApiRouter.proposalVisibleIn(this.proposalScope(query, ctx), found0) ? found0 : undefined;
-        if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        if (!found0) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        if (!found) {
+          const sessionOk = Boolean(query._sessionToken && verifyStiHubSessionToken(query._sessionToken).valid);
+          return sessionOk
+            ? this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN')
+            : { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+        }
         const accepted = found.status === 'APROVADA' || found.status === 'CONVERTIDA_CONTRATO';
         return {
           status: 200,
@@ -8560,6 +8596,9 @@ export class CrmApiRouter {
                 signatureModality: accepted ? found.digitalSignature?.modality || null : null,
                 convertedContractId: found.convertedContractId || null,
               },
+              firstViewedAt: found.firstViewedAt || null,
+              lastViewedAt: found.lastViewedAt || null,
+              viewCount: Math.max(0, Number(found.viewCount || 0)),
               updatedAt: found.updatedAt,
             },
           },
@@ -8574,6 +8613,13 @@ export class CrmApiRouter {
           // completa (comportamento anterior). Qualquer outro chamador: so com link assinado.
           // M1: sessao sem ERP / sem acesso a propostas / fora do escopo PROPRIOS-EQUIPE => link.
           if (!this.hasFullProposalAccess(query, ctx)) {
+            const exists = this.repo
+              .listProposals()
+              .some((p) => p.id === propId.trim() || String(p.code || '').toLowerCase() === propId.trim().toLowerCase());
+            if (!exists) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+            if (!query.proposalLinkToken && query._sessionToken && verifyStiHubSessionToken(query._sessionToken).valid) {
+              return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+            }
             return this.viewProposalViaLink(propId.trim(), query);
           }
           const found = this.repo
@@ -8581,6 +8627,9 @@ export class CrmApiRouter {
             .find((p) => p.id === propId || p.code.toLowerCase() === propId.toLowerCase());
           if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
           if (!this.hasFullProposalAccess(query, ctx, found)) {
+            if (this.resolveProposalSessionAccess(query)) {
+              return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+            }
             return this.viewProposalViaLink(propId.trim(), query);
           }
           return { status: 200, body: { data: found, issuerAddress: formatIssuerAddress(this.companyEmitter) } };

@@ -13,6 +13,7 @@ import type { ErpCommercialProposal, ErpProposalItem } from '../../db/types';
 import { formatProposalDisplayCode } from './proposal-number';
 import { isAvulsoServiceProposal, proposalHidesFreight, proposalSetupFeeLabel, resolveEffectiveProposalBudgetType, resolveProposalSlaOption } from './proposal-share';
 import { buildInternalProposalSheet, type InternalProposalIssuerInput, type InternalProposalSheet } from './internal-proposal-sheet';
+import { formatClientProposalViews } from './proposal-client-view';
 
 export const INTERNAL_PROPOSAL_PATH_PREFIX = '/interno/proposta';
 export const INTERNAL_FIELD_MISSING = 'não definido';
@@ -70,6 +71,7 @@ export interface InternalProposalSummaryModel {
   internalNotes: string;
   stablePath: string;
   stableUrl: string;
+  clientViewLine: string | null;
   sheet: InternalProposalSheet;
 }
 
@@ -413,6 +415,7 @@ export function toInternalProposalSummary(
     internalNotes: String(proposal.internalNotes || '').trim(),
     stablePath: buildStableInternalProposalPath(proposal.id),
     stableUrl: buildStableInternalProposalUrl(proposal.id, options?.origin),
+    clientViewLine: formatClientProposalViews(proposal),
     sheet: buildInternalProposalSheet(proposal, kind, {
       issuer: options?.issuer,
       contractNumber: options?.contractNumber,
