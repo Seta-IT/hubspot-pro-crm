@@ -13,6 +13,7 @@ import crypto from 'node:crypto';
 import { getPostgresPool, isPostgresEnabled } from '../../db/postgres';
 import { DEFAULT_NEVER_LOG_PATTERNS } from './never-log';
 import { OPEN_GRACE_MS } from './mail-tracking';
+import { runGuardedDdl } from '../../db/schema-guard';
 
 export type MailboxStatus = 'ATIVADO' | 'RECONECTAR';
 
@@ -408,7 +409,7 @@ export class PostgresMailboxStore implements MailboxStore {
     if (!this.q) throw new Error('MAILBOX_STORE_UNAVAILABLE');
     if (!this.ready) {
       this.ready = (async () => {
-        await this.q!.query(MAILBOX_TABLES_DDL);
+        await runGuardedDdl(this.q!, MAILBOX_TABLES_DDL);
         for (const p of DEFAULT_NEVER_LOG_PATTERNS) {
           await this.q!.query(
             `INSERT INTO crm_email_never_log (pattern, created_by) VALUES ($1, 'Padrão Seta Telecom') ON CONFLICT (pattern) DO NOTHING`,

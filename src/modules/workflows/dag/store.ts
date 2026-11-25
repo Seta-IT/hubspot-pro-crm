@@ -10,6 +10,7 @@
 import { getPostgresPool, isPostgresEnabled, type PgQueryable } from '../../../db/postgres';
 import type { WfTriggerType } from './catalog';
 import type { WfGraph } from './graph';
+import { runGuardedDdl } from '../../../db/schema-guard';
 
 export type WfStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED';
 
@@ -261,7 +262,7 @@ export class PostgresWorkflowStore implements WorkflowStore {
   constructor(private readonly pool: PgQueryable) {}
   private async db(): Promise<PgQueryable> {
     if (!this.ready) {
-      this.ready = this.pool.query(WORKFLOW_TABLES_DDL).then(() => undefined);
+      this.ready = runGuardedDdl(this.pool, WORKFLOW_TABLES_DDL).then(() => undefined);
       this.ready.catch(() => {
         this.ready = null;
       });

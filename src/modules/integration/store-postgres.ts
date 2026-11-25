@@ -16,6 +16,7 @@ import type {
 } from './store';
 import { normalizeModuleAccess, sanitizeRuntimeScopes, isPortfolioScope } from './scopes';
 import { IntegrationStoreUnavailableError, isPostgresConnectivityError } from './store-errors';
+import { runGuardedDdl } from '../../db/schema-guard';
 
 export interface IntegrationPgQueryable {
   query: (text: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
@@ -136,7 +137,8 @@ CREATE INDEX IF NOT EXISTS idx_oauth_tokens_grant ON oauth_tokens(client_id, use
 `.trim();
 
 export async function ensureIntegrationSchema(executor: IntegrationPgQueryable): Promise<void> {
-  await executor.query(INTEGRATION_SCHEMA_SQL);
+  // Perf 25/11: so executa o que falta no catalogo, com lock_timeout (nunca entra na fila de lock).
+  await runGuardedDdl(executor, INTEGRATION_SCHEMA_SQL);
 }
 
 const iso = (v: unknown): string | null => (v === null || v === undefined ? null : new Date(v as string).toISOString());

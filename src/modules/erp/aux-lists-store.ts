@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { ensurePostgresSchema, getPostgresPool, isPostgresEnabled, type PgQueryable } from '../../db/postgres';
 import { DEFAULT_CONTRACT_AUX_OPTIONS } from '../../app/lib/contract-billing-utils';
 import { normalizeAuxLabel } from './aux-option-usage';
+import { runGuardedDdl } from '../../db/schema-guard';
 
 export const AUX_LIST_KINDS = ['costCenters', 'chartOfAccountsList'] as const;
 export type AuxListKind = (typeof AUX_LIST_KINDS)[number];
@@ -142,7 +143,7 @@ export const ERP_AUX_LISTS_SCHEMA_SQL = `
 `;
 
 export async function ensureErpAuxListsSchema(executor: PgQueryable): Promise<void> {
-  await executor.query(ERP_AUX_LISTS_SCHEMA_SQL);
+  await runGuardedDdl(executor, ERP_AUX_LISTS_SCHEMA_SQL);
   const count = await executor.query(`SELECT COUNT(*)::text AS n FROM erp_aux_list_items`) as { rows: Array<{ n: string }> };
   if (Number(count.rows[0]?.n || 0) > 0) return;
   const seed = seedAuxListItems();

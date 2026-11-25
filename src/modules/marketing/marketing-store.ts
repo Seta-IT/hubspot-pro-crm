@@ -9,6 +9,7 @@
 import { getPostgresPool, isPostgresEnabled, type PgQueryable } from '../../db/postgres';
 import type { MarketingPurpose } from './marketing-config';
 import type { TemplateBlock } from './template-blocks';
+import { runGuardedDdl } from '../../db/schema-guard';
 
 export type MarketingTemplateStatus = 'DRAFT' | 'IN_REVIEW' | 'APPROVED';
 
@@ -239,7 +240,7 @@ export class PostgresMarketingStore implements MarketingStore {
   constructor(private readonly pool: PgQueryable) {}
   private async db(): Promise<PgQueryable> {
     if (!this.ready) {
-      this.ready = this.pool.query(MARKETING_TABLES_DDL).then(() => undefined);
+      this.ready = runGuardedDdl(this.pool, MARKETING_TABLES_DDL).then(() => undefined);
       this.ready.catch(() => {
         this.ready = null;
       });

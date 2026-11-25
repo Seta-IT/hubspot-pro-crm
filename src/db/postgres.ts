@@ -7,8 +7,7 @@ import { Pool, PoolClient } from 'pg';
 import { CrmDatabaseState, ErpCommercialProposal } from './types';
 import { createInitialSeedState } from './seed';
 import { assertStateWriteAllowed, CrmStateMissingError } from './state-request-context';
-import { ensureIntegrationSchema } from '../modules/integration/store-postgres';
-import { applyProposalDiff, ensureKvProposalsGuardTrigger, ensureProposalsTable, insertGcProposalsIfAbsent, isEmptyDiff, PROPOSALS_STORAGE_MARKER, type ProposalDiff } from './proposal-store';
+import { applyProposalDiff, KV_PROPOSALS_GUARD_TRIGGER_DDL, PROPOSALS_TABLE_DDL, insertGcProposalsIfAbsent, isEmptyDiff, PROPOSALS_STORAGE_MARKER, type ProposalDiff } from './proposal-store';
 import {
   applyErpTableDiff,
   getErpStorageMode,
@@ -20,6 +19,8 @@ import {
   type ErpTableSpec,
 } from './erp-table-store';
 import { ERP_TABLE_SPECS } from './erp-tables-registry';
+import { runGuardedDdl } from './schema-guard';
+import { INTEGRATION_SCHEMA_SQL } from '../modules/integration/store-postgres';
 
 let pgPool: Pool | null = null;
 let schemaEnsured = false;
@@ -105,11 +106,24 @@ export async function ensurePostgresSchema(poolOrClient?: Pool | PoolClient | Pg
     if (isGlobal && schemaEnsured) return;
     if (!isGlobal && ensuredExecutors.has(executor as object)) return;
     if (isGlobal && schemaEnsuring) return schemaEnsuring;
+    // Perf 25/11: falhou ha pouco (ex.: lock_timeout) => nao tenta de novo em toda requisicao.
+    if (Date.now() < (schemaRetryAfter.get(executor as object) ?? 0)) return;
   }
-  const run = runPostgresSchemaDdl(executor as PgQueryable).then(() => {
-    if (isGlobal) schemaEnsured = true;
-    ensuredExecutors.add(executor as object);
-  });
+  const run = runPostgresSchemaDdl(executor as PgQueryable, { force: Boolean(opts?.force) }).then(
+    () => {
+      if (isGlobal) schemaEnsured = true;
+      ensuredExecutors.add(executor as object);
+      schemaRetryAfter.delete(executor as object);
+    },
+    (err) => {
+      // CLI de migracao (force): o erro sobe. Caminho da requisicao: so loga e segue — nunca
+      // segura login/sessao/bootstrap esperando DDL (incidente 25/11 17:40 BRT).
+      if (opts?.force) throw err;
+      schemaRetryAfter.set(executor as object, Date.now() + SCHEMA_RETRY_BACKOFF_MS);
+      const code = (err as { code?: string })?.code || 'sem-codigo';
+      console.error(`[schema] DDL idempotente adiado (${code}); a requisicao segue sem ele. Proxima tentativa em ${SCHEMA_RETRY_BACKOFF_MS / 1000}s.`);
+    }
+  );
   if (isGlobal) {
     schemaEnsuring = run.finally(() => {
       schemaEnsuring = null;
@@ -119,15 +133,27 @@ export async function ensurePostgresSchema(poolOrClient?: Pool | PoolClient | Pg
   return run;
 }
 
+/** Espera minima entre tentativas do DDL depois de uma falha (por executor). */
+export const SCHEMA_RETRY_BACKOFF_MS = 60_000;
+let schemaRetryAfter = new WeakMap<object, number>();
+
+/** Somente testes: esquece o backoff do DDL. */
+export function resetPostgresSchemaBackoff(): void {
+  schemaRetryAfter = new WeakMap<object, number>();
+}
+
 let postgresSchemaDdlRuns = 0;
 /** Quantas vezes o DDL base rodou neste processo (diagnostico/testes). */
 export function getPostgresSchemaDdlRuns(): number {
   return postgresSchemaDdlRuns;
 }
 
-async function runPostgresSchemaDdl(executor: PgQueryable): Promise<void> {
-  postgresSchemaDdlRuns++;
-  await executor.query(`
+/**
+ * DDL base. Perf 25/11: nada de CREATE INDEX / ALTER TABLE as cegas na 1a requisicao — o
+ * runGuardedDdl confere o catalogo (so leitura, sem lock de tabela) e executa so o que falta,
+ * com lock_timeout de 2 s (CLI: 15 s). Ver src/db/schema-guard.ts.
+ */
+export const BASE_SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS crm_kv_store (
       key TEXT PRIMARY KEY,
       payload JSONB NOT NULL,
@@ -264,20 +290,26 @@ async function runPostgresSchemaDdl(executor: PgQueryable): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_crm_tickets_key ON crm_service_tickets(key);
     CREATE INDEX IF NOT EXISTS idx_crm_tickets_status ON crm_service_tickets(status);
     CREATE INDEX IF NOT EXISTS idx_crm_tickets_priority ON crm_service_tickets(priority);
-  `);
+`;
 
-  // Tabela propria de orcamentos (idempotente; vazia ate a importacao).
-  await ensureProposalsTable(executor as unknown as { query: (t: string, p?: unknown[]) => Promise<{ rows: any[] }> });
-  // Trava no banco: crm_state_v1 em modo tabela nunca recebe propostas (nem de deploy antigo).
-  await ensureKvProposalsGuardTrigger(executor as unknown as { query: (t: string, p?: unknown[]) => Promise<{ rows: any[] }> });
+/** Texto completo do DDL idempotente (base + orcamentos + trava do KV + API v1/MCP + row_hash do espelho). */
+export function fullSchemaDdl(): string {
+  return [
+    BASE_SCHEMA_DDL,
+    // Tabela propria de orcamentos (idempotente; vazia ate a importacao).
+    PROPOSALS_TABLE_DDL,
+    // Trava no banco: crm_state_v1 em modo tabela nunca recebe propostas (nem de deploy antigo).
+    KV_PROPOSALS_GUARD_TRIGGER_DDL,
+    // API v1 + MCP (Fase 1): chaves de integracao, idempotencia, auditoria, rate-limit e OAuth 2.1/DCR.
+    INTEGRATION_SCHEMA_SQL,
+    // Coluna aditiva usada pela gravação incremental do espelho (idempotente).
+    MIRROR_TABLES.map((t) => `ALTER TABLE ${t.table} ADD COLUMN IF NOT EXISTS row_hash TEXT;`).join('\n'),
+  ].join(';\n');
+}
 
-  // API v1 + MCP (Fase 1): chaves de integracao, idempotencia, auditoria, rate-limit e OAuth 2.1/DCR.
-  await ensureIntegrationSchema(executor as unknown as { query: (t: string, p?: unknown[]) => Promise<{ rows: any[] }> });
-
-  // Coluna aditiva usada pela gravação incremental do espelho (idempotente).
-  await executor.query(
-    MIRROR_TABLES.map((t) => `ALTER TABLE ${t.table} ADD COLUMN IF NOT EXISTS row_hash TEXT;`).join('\n')
-  );
+async function runPostgresSchemaDdl(executor: PgQueryable, opts: { force: boolean }): Promise<void> {
+  postgresSchemaDdlRuns++;
+  await runGuardedDdl(executor, fullSchemaDdl(), { lockTimeoutMs: opts.force ? 15_000 : 2_000 });
 }
 
 // ---------------------------------------------------------------------------
