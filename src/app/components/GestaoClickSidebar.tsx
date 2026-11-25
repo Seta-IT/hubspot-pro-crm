@@ -240,6 +240,7 @@ export const GESTAO_CLICK_MENU_TREE: GestaoClickNavGroup[] = [
     subItems: [
       { id: 'CFG_USUARIOS', label: 'Usuários' },
       { id: 'CFG_GERAIS', label: 'Gerais' },
+      { id: 'CFG_ORCAMENTO_OBS', label: 'Observações da proposta' },
       { id: 'CFG_PLANO', label: 'Meu plano' },
       { id: 'CFG_EMPRESA', label: 'Dados da empresa' },
       { id: 'CFG_MARCA', label: 'Marca da empresa' },

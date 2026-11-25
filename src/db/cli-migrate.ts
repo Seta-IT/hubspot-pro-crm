@@ -15,6 +15,7 @@ import { getRepository } from './repository';
 import { applySetaDeskMigrations } from './setadesk-schema';
 import { applyAssistenteMigrations } from '../modules/assistente/conversas-store';
 import { ensureErpAuxListsSchema } from '../modules/erp/aux-lists-store';
+import { ensureProposalNoteDefaultsSchema } from '../modules/erp/proposal-note-defaults-store';
 import { ensureErpTablesSchema } from './erp-tables-registry';
 
 async function main() {
@@ -62,6 +63,8 @@ async function main() {
   console.log(`      SetaDesk: ${setaDeskApplied.length ? setaDeskApplied.join(', ') : 'esquema ja atualizado'}`);
   await ensureErpAuxListsSchema(pool);
   console.log('      Listas auxiliares (centro de custo e plano de contas): tabela e seed prontos');
+  await ensureProposalNoteDefaultsSchema(pool);
+  console.log('      Observações padrão da proposta: tabela e seed prontos');
   await ensureCrmDealProposalUniqueIndex(pool);
   console.log('      Índice único de negócio por proposta (ux_crm_deals_proposal_id): pronto');
   const assistenteApplied = await applyAssistenteMigrations(pool as unknown as Parameters<typeof applyAssistenteMigrations>[0]);

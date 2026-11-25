@@ -104,7 +104,8 @@ describe('Droplist do orçamento e da fatura no padrão visual do sistema', () =
     assert.equal(proposal.includes('<select'), false, 'ProposalEditModal ainda tem <select nativo');
     assert.equal(invoice.includes('<select'), false, 'InvoiceEditModal ainda tem <select nativo');
     assert.ok(proposal.includes('ariaLabel="Tipo de orçamento"'));
-    assert.ok(proposal.includes('Locação & Conectividade'));
+    assert.ok(proposal.includes("{ value: 'LOCACAO', label: 'Locação' }"));
+    assert.equal(proposal.includes('Locação & Conectividade'), false);
     assert.ok(invoice.includes('ariaLabel="Tipo Fiscal"'));
     assert.ok(invoice.includes('InvoiceExtraFieldsPanel'));
 

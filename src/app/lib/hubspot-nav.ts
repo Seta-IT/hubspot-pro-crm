@@ -1096,6 +1096,16 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     keywords: ['gerais', 'parâmetros', 'numeração', 'plano'],
   },
   {
+    id: 'account-proposal-notes',
+    label: 'Observações da proposta',
+    group: 'CONTA',
+    groupLabel: 'Gerenciamento de conta',
+    erpConfigSubId: 'CFG_ORCAMENTO_OBS',
+    requiresAdmin: true,
+    screenKey: 'settings:PROPOSAL_NOTE_DEFAULTS',
+    keywords: ['observações', 'comerciais', 'fiscais', 'orçamento', 'proposta', 'padrão'],
+  },
+  {
     id: 'account-audit',
     label: 'Registro de auditoria',
     group: 'CONTA',
@@ -1207,6 +1217,7 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
 const CFG_SCREEN_KEYS: Record<string, string> = {
   CFG_USUARIOS: 'settings:USERS_RBAC',
   CFG_GERAIS: 'settings:ERP_GENERAL_SETTINGS',
+  CFG_ORCAMENTO_OBS: 'settings:PROPOSAL_NOTE_DEFAULTS',
   CFG_PLANO: 'settings:CERTIFICATE_SERIES',
   CFG_EMPRESA: 'settings:COMPANY_EMITTER',
   CFG_MARCA: 'settings:COMPANY_EMITTER',

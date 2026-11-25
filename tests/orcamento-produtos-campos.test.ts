@@ -76,12 +76,12 @@ describe('Orçamento de produtos: SLA, nome, setup e prazo de contrato', () => {
         code: '4726',
         companyName: 'FOXCONN BRASIL',
       }),
-      '',
-      'locação sem nome não recebe o padrão de produtos'
+      'Orçamento de Locação nº 4726 — FOXCONN BRASIL',
+      'locação sem nome também recebe o padrão automático do tipo'
     );
   });
 
-  it('computeProposalTotals preenche o título vazio só em produtos e mantém o gravado', () => {
+  it('computeProposalTotals preenche o título vazio em qualquer tipo e mantém o gravado', () => {
     const filled = computeProposalTotals(base({ title: '' }));
     assert.equal(filled.title, 'Orçamento de Produtos nº 4726 — FOXCONN BRASIL');
     assert.equal(filled.slaTier, 'SEM_SLA_ESPECIFICO');
@@ -90,7 +90,7 @@ describe('Orçamento de produtos: SLA, nome, setup e prazo de contrato', () => {
     assert.equal(kept.title, 'Venda Cisco 3850');
 
     const locacao = computeProposalTotals(base({ budgetType: 'LOCACAO', title: '', contractMonths: 24 }));
-    assert.equal(locacao.title, '');
+    assert.equal(locacao.title, 'Orçamento de Locação nº 4726 — FOXCONN BRASIL');
   });
 
   it('versão contrato e folha interna não exibem SLA em orçamento de produtos', () => {
@@ -117,12 +117,13 @@ describe('Orçamento de produtos: SLA, nome, setup e prazo de contrato', () => {
     assert.equal(modal.includes('placeholder="Ex.: 10 dias úteis após o aceite"'), false);
 
     assert.ok(modal.includes('{draft.budgetType !== "PRODUTOS" && (') && modal.includes('SLA (Nível de Serviço)'));
-    assert.ok(modal.includes('Nome da proposta') && modal.includes('{draft.budgetType !== "PRODUTOS" && ('));
+    assert.equal(modal.includes('Nome da proposta'), false);
     assert.ok(modal.includes('Prazo do contrato (meses)') && modal.includes('{draft.budgetType !== "PRODUTOS" && ('));
     assert.ok(modal.includes('draft.budgetType !== "PRODUTOS" && draft.budgetType !== "SPARE_PARTS"'));
     assert.ok(modal.includes('proposalSetupFeeLabel'));
 
-    assert.ok(router.includes("!body.title && body.budgetType !== 'PRODUTOS'"));
+    assert.equal(router.includes("!body.title && body.budgetType !== 'PRODUTOS'"), false);
+    assert.ok(router.includes('Nome da proposta não é obrigatório'));
     assert.ok(page.includes('displayProposalTitle(proposal)'));
     assert.ok(tab.includes('displayProposalTitle(prop)'));
   });

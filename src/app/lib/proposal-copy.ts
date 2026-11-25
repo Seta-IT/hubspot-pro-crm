@@ -1,7 +1,7 @@
 import type { ErpCommercialProposal } from '../../db/types';
 import { formatProposalDisplayCode } from './proposal-number';
 import { computeProposalTotals } from './proposal-share';
-import { defaultProductsProposalTitle, displayProposalTitle } from './proposal-title';
+import { defaultProposalTitle } from './proposal-title';
 
 /** Campos de ciclo de vida, aceite, envio e vínculo que uma cópia não deve herdar. */
 export const PROPOSAL_COPY_OMIT_KEYS = [
@@ -59,14 +59,9 @@ export function proposalCopyCreatedToast(sourceCode: unknown): string {
 
 function copyTitleFor(source: ErpCommercialProposal): string {
   const stored = String(source.title || '').trim();
-  if (source.budgetType === 'PRODUTOS') {
-    const auto = defaultProductsProposalTitle(source);
-    if (!stored || stored === auto) return '';
-    return / \(Cópia\)$/i.test(stored) ? stored : `${stored} (Cópia)`;
-  }
-  const label = displayProposalTitle(source) || stored;
-  if (!label) return '';
-  return / \(Cópia\)$/i.test(label) ? label : `${label} (Cópia)`;
+  const auto = defaultProposalTitle(source);
+  if (!stored || stored === auto) return '';
+  return / \(Cópia\)$/i.test(stored) ? stored : `${stored} (Cópia)`;
 }
 
 export function buildProposalCopyDraft(

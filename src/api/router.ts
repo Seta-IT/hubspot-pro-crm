@@ -247,6 +247,9 @@ import { emailCommentIsPublic, findInvalidTicketCreateEnums, parseTicketCommentS
 import { diffGestaoClickConfig, parseGestaoClickConfigPatch, toGestaoClickConfigView } from './gestaoclick-config-guard';
 import { pickRentalContractPatch } from './contract-patch-guard';
 import { handleAuxListsRoute, isAuxListsRoute } from './aux-lists-routes';
+import { handleProposalNoteDefaultsRoute, isProposalNoteDefaultsRoute } from './proposal-note-defaults-routes';
+import { applyProposalCommercialNotesDefault, proposalNoteDefaultTypeKey } from '../app/lib/proposal-note-defaults';
+import { loadProposalNoteDefaults } from '../modules/erp/proposal-note-defaults-store';
 import { LoginIpFailureGuard } from './login-ip-guard';
 import { rateLimitIpKey } from './client-ip';
 import { sanitizeApiResponseBody } from '../db/iam-security';
@@ -8568,9 +8571,15 @@ export class CrmApiRouter {
           return { status: 200, body: { data: list, total: list.length } };
         }
         if (method === 'POST') {
-          // Orçamento de produtos não exige nome: o repositório preenche o padrão automático.
-          if (!body.title && body.budgetType !== 'PRODUTOS') {
-            return { status: 400, body: { error: 'O campo "title" da proposta é obrigatório.' } };
+          // Nome da proposta não é obrigatório: o repositório preenche o padrão automático se vier vazio.
+          if (!String((body as { commercialNotes?: unknown }).commercialNotes || '').trim()) {
+            const noteDefaults = await loadProposalNoteDefaults();
+            const noteKey = proposalNoteDefaultTypeKey(body as { budgetType?: string; contractMonths?: unknown });
+            (body as { commercialNotes?: string }).commercialNotes = applyProposalCommercialNotesDefault({
+              currentNotes: '',
+              nextTypeKey: noteKey,
+              defaults: noteDefaults,
+            });
           }
           const createDealRequested = wantsCreateCrmDeal(body);
           if (createDealRequested && !this.sessionHasCrmModule(query, ctx)) {
@@ -9439,6 +9448,24 @@ export class CrmApiRouter {
           if (!deleted) return { status: 404, body: { error: 'Documento fiscal não encontrado.' } };
           return { status: 200, body: { success: true, deletedId: invId } };
         }
+      }
+
+      if (isProposalNoteDefaultsRoute(cleanPath)) {
+        if (method !== 'GET') {
+          const notesPriv = this.gestaoClickPrivilege(query, ctx);
+          if (!notesPriv.allowed) {
+            return {
+              status: notesPriv.authenticated ? 403 : 401,
+              body: {
+                error: notesPriv.authenticated
+                  ? 'Só administradores ou quem tem controle total do ERP podem alterar as observações padrão da proposta.'
+                  : 'Sessão obrigatória.',
+                code: notesPriv.authenticated ? 'PROPOSAL_NOTE_DEFAULTS_FORBIDDEN' : 'MFA_AUTH_REQUIRED',
+              },
+            };
+          }
+        }
+        return handleProposalNoteDefaultsRoute(method, body, this.sessionActorName(query));
       }
 
       if (isAuxListsRoute(cleanPath)) {
