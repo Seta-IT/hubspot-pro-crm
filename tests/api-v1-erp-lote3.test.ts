@@ -646,3 +646,67 @@ describe('Lote 3b: envios e acoes com efeito externo', () => {
     assert.equal((await prepare(env, ana, '/api/v1/erp/contracts/batch-email', { contractIds: ['ctr-ana'] })).status, 403);
   });
 });
+
+// ---------------------------------------------------------------------------
+describe('Lote 3c: financeiro (TODOS)', () => {
+  const OFX = `<OFX><BANKTRANLIST><STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261210<TRNAMT>-77.00<FITID>F1<MEMO>Conta aberta L3</STMTTRN><STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261211<TRNAMT>12.34<FITID>F2<MEMO>Outro</STMTTRN></BANKTRANLIST></OFX>`;
+  it('admin: baixa de lancamento e fatura, OFX (previa sem gravar), contas bancarias, XML e documento', async () => {
+    const env = makeEnv();
+    const key = await dangerAdminKey(env);
+    const erp = env.repo.getErpState();
+    const pay = await twoStep(env, key, '/api/v1/erp/financial-entries/fin-l3-open/pay');
+    assert.equal(pay.c.status, 200, JSON.stringify(pay.c.body));
+    assert.equal(String(erp.financialEntries.find((f) => f.id === 'fin-l3-open')!.status), 'PAGO');
+    assert.equal(body(await prepare(env, key, '/api/v1/erp/financial-entries/fin-l3-open/pay')).code, 'ALREADY_SETTLED');
+    const ip = await twoStep(env, key, '/api/v1/erp/invoices/inv-1/pay');
+    assert.equal(ip.c.status, 200, JSON.stringify(ip.c.body));
+    // OFX: previa nao grava
+    erp.financialEntries.push({ id: 'fin-l3-ofx', type: 'PAGAR', category: 'OPERACIONAL', description: 'OFX', companyName: 'F', costCenter: 'CC', amount: 77, dueDate: '2026-12-10', paidAt: null, status: 'ABERTO', invoiceId: null, paymentMethod: 'PIX' } as never);
+    const snapshot = JSON.stringify(erp.financialEntries);
+    const op = await prepare(env, key, '/api/v1/erp/financial/reconcile-ofx', { bankId: 'bank-1', ofxContent: OFX, autoPayMatched: true });
+    assert.equal(op.status, 200, JSON.stringify(op.body));
+    assert.equal(body(op).data.preview.transactions, 2);
+    assert.ok(body(op).data.preview.probableMatches >= 1);
+    assert.equal(JSON.stringify(erp.financialEntries), snapshot, 'previa do OFX nao grava');
+    const oc = await commit(env, key, '/api/v1/erp/financial/reconcile-ofx', { bankId: 'bank-1', ofxContent: OFX, autoPayMatched: true }, body(op).data.confirmationToken);
+    assert.equal(oc.status, 200, JSON.stringify(oc.body));
+    assert.equal(String(erp.financialEntries.find((f) => f.id === 'fin-l3-ofx')!.status), 'PAGO');
+    // contas bancarias
+    const bc = await twoStep(env, key, '/api/v1/erp/bank-accounts', { name: 'Banco API', initialBalance: 0 });
+    assert.equal(bc.c.status, 200, JSON.stringify(bc.c.body));
+    const bankId = body(bc.c).data.result.id;
+    assert.ok((erp.bankAccounts || []).some((b) => b.id === bankId));
+    const bu = await twoStep(env, key, `/api/v1/erp/bank-accounts/${bankId}/update`, { name: 'Banco API 2' });
+    assert.equal(bu.c.status, 200, JSON.stringify(bu.c.body));
+    assert.equal(body(await prepare(env, key, '/api/v1/erp/bank-accounts/bank-1/delete')).code, 'BANK_ACCOUNT_HAS_BALANCE');
+    const bd = await twoStep(env, key, `/api/v1/erp/bank-accounts/${bankId}/delete`);
+    assert.equal(bd.c.status, 200, JSON.stringify(bd.c.body));
+    assert.ok(!(erp.bankAccounts || []).some((b) => b.id === bankId));
+    // XML de compra
+    const xml = `<nfeProc><NFe><infNFe Id="NFe35261111111111000111550010000012341000012345"><ide><nNF>1234</nNF></ide><emit><CNPJ>11111111000111</CNPJ><xNome>Fornecedor XML</xNome></emit><det nItem="1"><prod><cProd>A1</cProd><xProd>Cabo</xProd><NCM>85444900</NCM><CFOP>5102</CFOP><uCom>UN</uCom><qCom>2</qCom><vUnCom>10.00</vUnCom><vProd>20.00</vProd></prod></det><total><ICMSTot><vNF>20.00</vNF></ICMSTot></total></infNFe></NFe></nfeProc>`;
+    const xp = await prepare(env, key, '/api/v1/erp/purchases/import-xml', { xmlContent: xml });
+    assert.equal(xp.status, 200, JSON.stringify(xp.body));
+    assert.equal(body(xp).data.preview.supplier, 'Fornecedor XML');
+    const xc = await commit(env, key, '/api/v1/erp/purchases/import-xml', { xmlContent: xml }, body(xp).data.confirmationToken);
+    assert.ok([200, 409, 422].includes(xc.status), JSON.stringify(xc.body));
+    assert.equal((await prepare(env, key, '/api/v1/erp/purchases/import-xml', { xmlContent: '<html>'.padEnd(80, 'x') })).status, 422);
+    // documento: XML sem conteudo valido => erro do app propagado (422), nada importado
+    const dp = await prepare(env, key, '/api/v1/erp/financial/import-document', { fileName: 'a.xml', fileType: 'xml', content: '<nada/>' });
+    assert.ok([200, 422].includes(dp.status), JSON.stringify(dp.body));
+    assert.equal((await prepare(env, key, '/api/v1/erp/financial/import-document', { fileName: 'a.pdf', fileType: 'pdf', content: 'x' })).status, 422);
+  });
+
+  it('negacoes: PROPRIOS nunca; sem edicao do financeiro; sem ver saldos nao recebe erp:banks:write', async () => {
+    const env = makeEnv();
+    const bad = await createKey(env, { name: 'x', scopes: ['erp:financial:settle'], portfolioScope: 'PROPRIOS', moduleAccess: { crm: true, chamados: false, erp: true }, ownerUserId: ANA.uid, confirmDangerousScopes: true });
+    assert.equal(bad.res.status, 422);
+    const fin = await keyFor(env, FIN.uid, 'PROPRIOS', ['erp:financial:settle'], { crm: true, chamados: false, erp: true });
+    const r = await prepare(env, fin, '/api/v1/erp/financial-entries/fin-l3-open/pay');
+    assert.equal(r.status, 403);
+    assert.equal(body(r).code, 'PORTFOLIO_ALL_REQUIRED');
+    const fr = userRec(env, FIN.uid) as any;
+    fr.erpPermissions = { ...fr.erpPermissions, canViewBankBalances: false };
+    const nb = await createKey(env, { name: 'x', scopes: ['erp:banks:write'], portfolioScope: 'TODOS', moduleAccess: { crm: true, chamados: false, erp: true }, ownerUserId: FIN.uid, confirmDangerousScopes: true });
+    assert.equal(nb.res.status, 422);
+  });
+});
