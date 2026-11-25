@@ -97,8 +97,37 @@ Regras:
 - `crm_insights_get` e `crm_data_health_summary_get`: DTOs fechados (allowlist). Removidos `contactEmail`, `emailOrDomain`, `suggestedMerge`, `description` das issues, `suggestedMessage`/`contactRole`; textos livres passam por máscara de e-mail/telefone (`maskPiiText`). Listas limitadas a 100 itens. `crm_data_health_duplicates_list` não usa mais o e-mail como rótulo.
 - `erp_service_orders_list`/`_get` (carteira PROPRIOS/EQUIPE): no máximo 10 páginas (2.000 OS) por chamada; acima disso `422 TOO_MANY_RECORDS` (nunca lista parcial). Cache da varredura por requisição.
 
+## Fase 2 / Lote 3 — operações perigosas em duas etapas (41 operações = 82 tools)
+Branch `feat/api-v1-erp-lote3` (empilhada sobre o Lote 2). Allowlist fechada `LOTE3_DANGEROUS_OPERATIONS` (`use-cases/index.ts`) + rotas internas `ALLOWED_DANGEROUS` (`data-port.ts`, método + caminho). Arquivos: `use-cases/dangerous.ts` (framework) e `danger-3a.ts` … `danger-3d.ts`.
+
+**Fluxo obrigatório**: `<tool>_prepare` (POST, `readOnlyHint=true`, não grava) confere escopo, alçada de tela, permissão de ação, carteira e estado, e devolve `{preview, effects, confirmationToken, expiresAt, commitTool}`. `<tool>_commit` (POST, `destructiveHint=true`) exige `confirmationToken` + **argumentos idênticos**, reconfere tudo com o estado vivo e executa. Token `stc_…` (32 bytes), só o SHA-256 no Postgres (`api_confirmation_tokens`), **uso único**, **5 min**, preso a operação + hash canônico dos argumentos + credencial/usuário/autorização efetiva. Erros 409: `CONFIRMATION_INVALID` (inexistente/forjado/outra credencial ou usuário — sem oráculo), `CONFIRMATION_USED`, `CONFIRMATION_EXPIRED`, `CONFIRMATION_ARGS_MISMATCH` (o token é queimado). Rate-limit próprio por credencial (`danger:`; padrão 10/min, `INTEGRATION_DANGEROUS_RATE_LIMIT_PER_MINUTE` 1–120) → 429 `DANGEROUS_RATE_LIMITED`. JSON-RPC batch continua 400. Auditoria `details.op` = delete/merge/send/approve/pay/issue/cancel… com antes/depois sanitizados.
+
+| Escopo (perigoso) | Alçada do dono (fail-closed; guards de papel NÃO contam) | Tools (pares `_prepare`/`_commit`) |
+|---|---|---|
+| `crm:delete` | `canDeleteCrmRecords` + edição | `crm_contacts_delete`, `crm_companies_delete`, `crm_deals_delete`, `crm_tasks_delete` (carteira) |
+| `crm:merge` | `canMergeCrmRecords` + edição | `crm_records_merge` (CONTACT/COMPANY; ambos na carteira; CNPJ diferente → 422) |
+| `crm:data_health:write` | `canMergeCrmRecords` + edição + TODOS | `crm_data_health_auto_clean`, `crm_data_health_reassign_orphans`, `crm_enrichment_run` |
+| `erp:records:delete` | `canDeleteErpRecords` + edição da área | `erp_proposals_delete`, `erp_contracts_delete` (carteira); `erp_financial_entries_delete`, `erp_catalog_items_delete`, `erp_records_delete`, `erp_bank_accounts_delete` (TODOS; banco só saldo 0 e sem uso); `erp_aux_list_items_delete` (TODOS + controle total do ERP) |
+| `comms:send` | edição no CRM (cobrança em lote: Contratos EDIÇÃO) | `comms_email_send` (só a caixa Outlook do próprio dono, ≤10 destinatários, sem anexos), `crm_sequences_enroll` (só cadência ATIVA), `crm_proposal_followup_set`, `erp_contracts_batch_email` |
+| `erp:proposals:approve` | Orçamentos EDIÇÃO + `canApproveProposals` | `erp_proposals_approve` (aceite com signatário; converte pela regra do app) |
+| `erp:public_links:write` | Orçamentos ou Financeiro EDIÇÃO | `erp_proposals_public_link` (carteira), `erp_invoices_public_link` (TODOS + Financeiro) |
+| `crm:automation:activate` | Marketing EDIÇÃO | `automation_workflows_activate` (TODOS), `automation_workflows_trigger` (só workflow ativo; registro na carteira) |
+| `crm:marketing:dispatch` | Marketing EDIÇÃO + TODOS | `marketing_campaigns_dispatch` |
+| `erp:financial:settle` | Financeiro EDIÇÃO + TODOS | `erp_financial_entries_pay`, `erp_invoices_pay`, `erp_financial_reconcile_ofx` (prévia calculada sem gravar), `erp_financial_import_document`, `erp_purchases_import_xml` (+ Estoque EDIÇÃO) |
+| `erp:banks:write` | Financeiro EDIÇÃO + ver saldos + TODOS | `erp_bank_accounts_create`, `erp_bank_accounts_update` |
+| `erp:fiscal:issue` | Fiscal EDIÇÃO + `canIssueFiscalDocuments` + TODOS | `erp_fiscal_documents_issue`, `erp_contracts_generate_invoice`, `erp_contracts_generate_remessa`, `erp_contracts_batch_billing` (sem e-mail), `erp_contracts_partial_return` (flags de NF explícitas), `erp_nfe_import_emit` |
+| `erp:contracts:readjust` | Contratos EDIÇÃO + TODOS | `erp_contracts_readjust` |
+| `erp:fiscal:cancel` | Fiscal EDIÇÃO + `canIssueFiscalDocuments` + TODOS | `erp_fiscal_documents_cancel` (só EMITIDA/VENCIDA, justificativa ≥15), `erp_fiscal_documents_delete` (só CANCELADA, não paga, sem lançamento vinculado) |
+
+Regras:
+- **Consentimento OAuth**: escopos perigosos aparecem num bloco "PERIGO" como **caixas desmarcadas** (`grant_<escopo>`); só entram no token se marcados. Só perigosos e nada marcado → `access_denied`. Acima do perfil → "Não concedidos".
+- **Chave IAM**: escopo perigoso exige `confirmDangerousScopes: true` (senão 422 `DANGEROUS_SCOPES_CONFIRMATION_REQUIRED`); a tela de IAM precisa enviar esse campo.
+- **Ator**: e-mail pela caixa e links públicos usam o dono da credencial como ator (`_integrationActorId`, honrado só no contexto interno; na caixa, só `POST /send`). Demais ações ficam como `Sistema STI-hub` no histórico interno.
+- **Fora**: IAM/admin/auth, certificado A1, gravar configurações fiscais, credenciais/config/sincronização GestãoClick, migração HubSpot, cron/portal, conectar caixa, chaves de integração.
+- Correção do Lote 2: `erp_aux_list_items_create/_update` agora exigem controle total do ERP (403 `ERP_FULL_CONTROL_REQUIRED`), como a tela.
+
 ## Travas
-- Catálogo de escopos fechado; bloqueados (rejeitados na criação, ausentes do OpenAPI/MCP): DELETE, merge, escrita de sequências/fiscal/financeiro/ERP, GestãoClick, IAM/admin/RBAC, `*`. Exceção do Lote 1: os 9 escopos `erp:*:read` e `crm:automation:read` (somente GET, allowlist `LOTE1_SENSITIVE_READS` no teste de trava).
+- Catálogo de escopos fechado; bloqueados (rejeitados na criação, ausentes do OpenAPI/MCP): DELETE, merge, escrita de sequências/fiscal/financeiro/ERP, GestãoClick, IAM/admin/RBAC, `*`. Exceção do Lote 1: os 9 escopos `erp:*:read` e `crm:automation:read` (somente GET, allowlist `LOTE1_SENSITIVE_READS` no teste de trava). Exceção do Lote 3: os 14 escopos perigosos, só em pares prepare/commit da allowlist `LOTE3_DANGEROUS_OPERATIONS`.
 - `portfolioScope` (PROPRIOS/EQUIPE/TODOS) e `moduleAccess` aplicados no servidor em listagem, busca, GET e mutação; teto = usuário dono ativo (estreitado a cada request). Fora da carteira → 404.
 - **Vínculos** (`companyId`, `contactId`, `dealId`) em contatos, negócios e chamados: inexistente **ou** fora da carteira → o mesmo `404` neutro (sem oráculo e sem vínculo cruzado).
 - **Alçada RBAC** (`requireOwnerAccess`) por área: contatos, empresas, negócios (inclui pipelines), atividades (por tipo de vínculo, na listagem, no filtro e na criação) e chamados (inclui filas). Alçada ausente → preset restrito do papel; desconhecida → **nega** (fail-closed).
@@ -119,6 +148,7 @@ Regras:
 | `OAUTH_ALLOWED_REDIRECT_SCHEMES` | Opcional | Esquemas privados extras aceitos pela validação básica de `redirect_uri`. |
 | `ERP_SYNC_SERVICE_KEY` / `ERP_SYNC_SERVICE_KEY_PREVIOUS` | Sim (só production) / opcional | Chave de serviço da sincronização ERP (`stihub_sync_…`). Ausente → `POST /api/v1/erp/sync/run` responde 503. |
 | `INTEGRATION_RATE_LIMIT_PER_MINUTE` / `INTEGRATION_OAUTH_RATE_LIMIT_PER_MINUTE` | Opcional | Limites (padrão 120 / 30). |
+| `INTEGRATION_DANGEROUS_RATE_LIMIT_PER_MINUTE` | Opcional | Limite das operações perigosas (Lote 3) por credencial (padrão 10, 1–120). |
 
 ## Chave de serviço da sincronização ERP (`POST /api/v1/erp/sync/run`)
 Uso: rotina diária (Nova) que sincroniza GestãoClick → STI-hub em produção sem sessão humana/MFA.
@@ -143,6 +173,8 @@ Uso: rotina diária (Nova) que sincroniza GestãoClick → STI-hub em produção
 
 ## Tabelas (criadas por `ensurePostgresSchema` → `ensureIntegrationSchema`)
 `integration_api_keys`, `api_idempotency_keys`, `integration_audit_logs` (+ `target_user_id`, `details` via `ADD COLUMN IF NOT EXISTS`), `api_rate_limits`, `oauth_clients`, `oauth_auth_codes`, `oauth_tokens`, `api_record_owners` (posse por ID dos registros criados pelo conector). Todos os segredos/tokens/códigos somente como SHA-256.
+
+`integration_api_keys`, `api_idempotency_keys`, `integration_audit_logs` (+ `target_user_id`, `details` via `ADD COLUMN IF NOT EXISTS`), `api_rate_limits`, `oauth_clients`, `oauth_auth_codes`, `oauth_tokens`, `api_confirmation_tokens` (Lote 3). Todos os segredos/tokens/códigos somente como SHA-256.
 
 ## Decisões do CISO (fechadas)
 1. OAuth não oferece `EQUIPE` (não há lista de equipe no cadastro): teto `TODOS` → `PROPRIOS` ou `TODOS`; teto `EQUIPE`/`PROPRIOS` → só `PROPRIOS`.
