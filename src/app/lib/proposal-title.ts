@@ -1,19 +1,47 @@
 import { formatProposalDisplayCode } from './proposal-number';
 
-/** Título padrão quando o orçamento de produtos não tem nome informado. */
+/** Rótulo curto do tipo, usado no nome automático. */
+export function proposalTypeTitleLabel(budgetType?: string | null): string {
+  switch (String(budgetType || '').trim().toUpperCase()) {
+    case 'PRODUTOS':
+      return 'Orçamento de Produtos';
+    case 'SERVICOS':
+      return 'Orçamento de Serviços';
+    case 'LOCACAO':
+      return 'Orçamento de Locação';
+    case 'CONJUNTO':
+      return 'Orçamento conjunto';
+    case 'SPARE_PARTS':
+      return 'Spare Parts / Hard Parts';
+    default:
+      return 'Orçamento';
+  }
+}
+
+/** Título padrão: "{Tipo} nº {número} — {cliente}". */
+export function defaultProposalTitle(input: {
+  budgetType?: string | null;
+  code?: unknown;
+  companyName?: unknown;
+}): string {
+  const tipo = proposalTypeTitleLabel(input.budgetType);
+  const num = formatProposalDisplayCode(input.code);
+  const client = String(input.companyName ?? '').trim();
+  const prefix = num ? `${tipo} nº ${num}` : tipo;
+  return client ? `${prefix} — ${client}` : prefix;
+}
+
+/** @deprecated use defaultProposalTitle({ ...input, budgetType: 'PRODUTOS' }) */
 export function defaultProductsProposalTitle(input: {
   code?: unknown;
   companyName?: unknown;
 }): string {
-  const num = formatProposalDisplayCode(input.code);
-  const client = String(input.companyName ?? '').trim();
-  const prefix = num ? `Orçamento de Produtos nº ${num}` : 'Orçamento de Produtos';
-  return client ? `${prefix} — ${client}` : prefix;
+  return defaultProposalTitle({ ...input, budgetType: 'PRODUTOS' });
 }
 
 /**
  * Nome exibido e gravado: mantém o título salvo quando houver;
- * em orçamento de produtos sem nome, usa o padrão automático.
+ * se estiver vazio, usa o padrão automático do tipo.
  */
 export function displayProposalTitle(input: {
   title?: unknown;
@@ -23,6 +51,5 @@ export function displayProposalTitle(input: {
 }): string {
   const stored = String(input.title ?? '').trim();
   if (stored) return stored;
-  if (input.budgetType === 'PRODUTOS') return defaultProductsProposalTitle(input);
-  return stored;
+  return defaultProposalTitle(input);
 }

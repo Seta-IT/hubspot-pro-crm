@@ -16,6 +16,7 @@ import { stripLeanMarker } from '../modules/bootstrap/lean-payload';
 import { parseBillingRecipientEmails } from '../modules/erp/billing-recipient-emails';
 import { isLegacyProposalCode, migrateLegacyProposalCodes, nextGcProposalNumber } from '../app/lib/proposal-number';
 import { displayProposalTitle } from '../app/lib/proposal-title';
+import { applyProposalCommercialNotesDefault, proposalNoteDefaultTypeKey } from '../app/lib/proposal-note-defaults';
 import { buildDefaultTechnicalSupportClauses, isTechnicalSupportProposal } from '../app/lib/proposal-technical-clauses';
 import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
@@ -5078,7 +5079,13 @@ export class CrmRepository {
       totalContractValue,
       commercialNotes:
         input.commercialNotes ||
-        'Locação de bens móveis sem mão de obra (Dispensa de ISSQN conforme LC 116/2003 e Súmula Vinculante 31 do STF).',
+        applyProposalCommercialNotesDefault({
+          currentNotes: '',
+          nextTypeKey: proposalNoteDefaultTypeKey({
+            budgetType: inferredBudgetType,
+            contractMonths,
+          }),
+        }),
       technicalClauses:
         input.technicalClauses ||
         (isTechnicalSupportProposal({ budgetType: inferredBudgetType, serviceType: input.serviceType })

@@ -2,13 +2,12 @@
 
 import { CannotDeleteModal } from './CannotDeleteModal';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus,
   Trash2,
   X,
   Save,
-  FileText,
   FileCheck2,
   Receipt,
   Edit3,
@@ -61,6 +60,13 @@ import {
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
 import { buildProposalInstallments, buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, proposalHidesFreight, proposalSetupFeeLabel, readablePaymentCondition, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
+import {
+  applyProposalCommercialNotesDefault,
+  commercialNoteFromDefaults,
+  proposalNoteDefaultTypeKey,
+  seedProposalNoteDefaults,
+  type ProposalNoteDefaultsMap,
+} from '../lib/proposal-note-defaults';
 import { resolveTechnicalClausesOnEdit } from '../lib/proposal-technical-clauses';
 import { displayPaymentConditionText, proposalPaymentMethodLabel, proposalPaymentMethodOptions, selectableContractPaymentMethods } from '../lib/proposal-payment-method';
 import { useContractAuxiliaryOptions } from '../lib/use-contract-aux-options';
@@ -123,6 +129,24 @@ export function ProposalEditModal({
       items: applyBudgetTypeToItems(structuredClone(proposal.items || []), proposal.budgetType, proposal.serviceType, catalog),
     })
   );
+  const [noteDefaults, setNoteDefaults] = useState<ProposalNoteDefaultsMap>(() => seedProposalNoteDefaults());
+  const noteDefaultsRef = useRef(noteDefaults);
+  const noteTypeKeyRef = useRef(proposalNoteDefaultTypeKey(proposal));
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/erp/proposal-note-defaults')
+      .then((r) => r.json())
+      .then((j) => {
+        if (!alive) return;
+        if (j?.data) setNoteDefaults({ ...seedProposalNoteDefaults(), ...j.data });
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const [saving, setSaving] = useState(false);
   const [contractFormError, setContractFormError] = useState<string | null>(null);
   const [showVersionHistoryPanel, setShowVersionHistoryPanel] = useState<boolean>(true);
@@ -245,10 +269,6 @@ export function ProposalEditModal({
     if (!focusProposalValidityField(validityInputRef.current)) return;
     setValidityHighlight(true);
   }, [focusField]);
-  const [coverText, setCoverText] = useState<string>(() =>
-    String((proposal as unknown as Record<string, unknown>).coverText || '')
-  );
-
   // Inline "+ Adicionar novo" Client Modal State (inside Proposal screen without losing draft)
   const [showQuickClientModal, setShowQuickClientModal] = useState<boolean>(false);
   const [qcPersonType, setQcPersonType] = useState<'PJ' | 'PF'>('PJ');
@@ -529,6 +549,32 @@ export function ProposalEditModal({
     });
   };
 
+  const notesPatchFor = (patch: Partial<ErpCommercialProposal>) => {
+    const nextDraft = { ...draft, ...patch };
+    const nextKey = proposalNoteDefaultTypeKey(nextDraft);
+    const commercialNotes = applyProposalCommercialNotesDefault({
+      currentNotes: nextDraft.commercialNotes,
+      nextTypeKey: nextKey,
+      previousTypeKey: noteTypeKeyRef.current,
+      defaults: noteDefaults,
+    });
+    noteTypeKeyRef.current = nextKey;
+    return { ...patch, commercialNotes };
+  };
+
+  useEffect(() => {
+    const prevDefaults = noteDefaultsRef.current;
+    noteDefaultsRef.current = noteDefaults;
+    if (!isNew) return;
+    const key = proposalNoteDefaultTypeKey(draft);
+    const current = String(draft.commercialNotes || '');
+    const prevText = commercialNoteFromDefaults(prevDefaults, key);
+    const nextText = commercialNoteFromDefaults(noteDefaults, key);
+    if (!current.trim() || current === prevText) {
+      if (nextText !== current) updateDraft({ commercialNotes: nextText });
+    }
+  }, [isNew, noteDefaults]);
+
   const handleGenerateInstallments = (countOverride?: number, methodOverride?: string) => {
     const count = Math.max(1, Number(countOverride ?? installmentCount ?? 1));
     const method = methodOverride || defaultPaymentMethod || 'BOLETO';
@@ -666,17 +712,16 @@ export function ProposalEditModal({
                   value={draft.budgetType || 'LOCACAO'}
                   onChange={(v) => {
                     const budgetType = v as ErpCommercialProposal['budgetType'];
-                    updateDraft({
+                    updateDraft(notesPatchFor({
                       budgetType,
                       ...(budgetType === 'SPARE_PARTS'
                         ? {
                             contractMonths: 1,
                             setupFee: 0,
                             slaTier: 'SEM_SLA_ESPECIFICO',
-                            title: draft.title?.trim() ? draft.title : 'Proposta de Spare Parts / Hard Parts',
                           }
                         : {}),
-                    });
+                    }));
                   }}
                   className="px-3 py-1.5 rounded border border-[#1e3a6e]/40 bg-blue-50/40 text-[#1e3a6e]"
                   options={[
@@ -684,7 +729,7 @@ export function ProposalEditModal({
                     { value: 'SERVICOS', label: 'Orçamento de Serviços' },
                     { value: 'SPARE_PARTS', label: 'Spare Parts / Hard Parts' },
                     { value: 'CONJUNTO', label: 'Orçamento conjunto' },
-                    { value: 'LOCACAO', label: 'Locação & Conectividade' },
+                    { value: 'LOCACAO', label: 'Locação' },
                   ]}
                 />
               </div>
@@ -1062,23 +1107,7 @@ export function ProposalEditModal({
                   </datalist>
                 </div>
 
-                {draft.budgetType !== "PRODUTOS" && (
                 <div className="sm:col-span-4">
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Nome da proposta <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={draft.title}
-                    onChange={(e) => updateDraft({ title: e.target.value })}
-                    placeholder="Ex: Locação Central PABX IP Seta Cloud + Terminais Yealink"
-                    className="w-full px-3 py-2 rounded border border-slate-300 text-slate-900"
-                  />
-                </div>
-                )}
-
-                <div className="sm:col-span-2">
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">CNPJ ou CPF</label>
                   <input
                     type="text"
@@ -1090,18 +1119,28 @@ export function ProposalEditModal({
                 </div>
 
                 {draft.budgetType !== "PRODUTOS" && (
-                <div className="sm:col-span-2">
+                <div className="sm:col-span-4">
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Prazo do contrato (meses) *
+                    Prazo do contrato (meses)
                   </label>
                   <input
                     type="number"
                     min={1}
                     max={120}
                     value={draft.contractMonths}
-                    onChange={(e) =>
-                      updateDraft({ contractMonths: Math.max(1, Number(e.target.value) || 24) })
-                    }
+                    onChange={(e) => {
+                      const contractMonths = Math.max(1, Number(e.target.value) || 24);
+                      const turningAvulso = draft.budgetType === "SERVICOS" && contractMonths === 1;
+                      if (turningAvulso) setInstallmentCount(1);
+                      const rawCondition = String(draft.paymentCondition || "").trim();
+                      const conditionIsSlug = /^a[_ ]?vista$/i.test(rawCondition) || /^pagamento_unico$/i.test(rawCondition);
+                      updateDraft(notesPatchFor({
+                        contractMonths,
+                        ...(turningAvulso && (!rawCondition || conditionIsSlug)
+                          ? { paymentCondition: "À vista — Pagamento único" }
+                          : {}),
+                      }));
+                    }}
                     className="w-full px-3 py-2 rounded border border-slate-300 text-[#1e3a6e]"
                   />
                 </div>
@@ -1172,63 +1211,7 @@ export function ProposalEditModal({
 
               {draft.budgetType !== "PRODUTOS" && draft.budgetType !== "SPARE_PARTS" && (
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 bg-blue-50/50 p-3 rounded border border-blue-200">
-                  <div className="sm:col-span-4">
-                    <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
-                      SLA contratado <span className="text-rose-600">*</span>
-                    </label>
-                    <AppSelect
-                      ariaLabel="SLA contratado"
-                      value={resolveProposalSlaOption(draft).id}
-                      onChange={(v) => {
-                        const opt = PROPOSAL_SLA_OPTIONS.find((o) => o.id === v) || PROPOSAL_SLA_OPTIONS[0];
-                        updateDraft({
-                          slaTier: opt.id,
-                          slaAvailabilityPercent: opt.slaAvailabilityPercent,
-                          slaResponseHours: opt.slaResponseHours,
-                        });
-                      }}
-                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-[#1e3a6e]"
-                      options={PROPOSAL_SLA_OPTIONS.map((opt) => ({
-                        value: opt.id,
-                        label: opt.label,
-                      }))}
-                    />
-                  </div>
-
-                  <div className="sm:col-span-3">
-                    <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
-                      Vigência / Contrato
-                    </label>
-                    <AppSelect
-                      ariaLabel="Vigência / Contrato"
-                      value={[1, 6, 12, 24, 36, 48, 60].includes(Number(draft.contractMonths)) ? String(draft.contractMonths) : "24"}
-                      onChange={(v) => {
-                        const contractMonths = Math.max(1, Number(v) || 24);
-                        const turningAvulso = draft.budgetType === "SERVICOS" && contractMonths === 1;
-                        if (turningAvulso) setInstallmentCount(1);
-                        const rawCondition = String(draft.paymentCondition || "").trim();
-                        const conditionIsSlug = /^a[_ ]?vista$/i.test(rawCondition) || /^pagamento_unico$/i.test(rawCondition);
-                        updateDraft({
-                          contractMonths,
-                          ...(turningAvulso && (!rawCondition || conditionIsSlug)
-                            ? { paymentCondition: "À vista — Pagamento único" }
-                            : {}),
-                        });
-                      }}
-                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-slate-900"
-                      options={[
-                        { value: '1', label: draft.budgetType === 'SERVICOS' ? 'Avulso (pagamento único)' : '1 mês' },
-                        { value: '6', label: '6 meses' },
-                        { value: '12', label: '12 meses' },
-                        { value: '24', label: '24 meses' },
-                        { value: '36', label: '36 meses' },
-                        { value: '48', label: '48 meses' },
-                        { value: '60', label: '60 meses' },
-                      ]}
-                    />
-                  </div>
-
-                <div className="sm:col-span-5">
+                <div className="sm:col-span-12">
                   <div className="flex items-center justify-between mb-1">
                     <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#1e3a6e] cursor-pointer">
                       <input
@@ -1276,26 +1259,6 @@ export function ProposalEditModal({
                   className="w-full px-3 py-2 rounded border border-slate-300"
                 />
               </div>
-            </div>
-          </div>
-
-          {/* BLOCO 2 DO GESTÃOCLICK: PREENCHA OS CAMPOS EXTRAS DA SUA EMPRESA (CAPA) */}
-          <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200">
-              <div className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
-                <FileText className="w-4 h-4 text-[#1e3a6e]" />
-                <span>Campos personalizados</span>
-              </div>
-            </div>
-            <div className="p-5">
-              <label className="block text-[11px] font-semibold text-slate-700 mb-1">Capa</label>
-              <input
-                type="text"
-                value={coverText}
-                onChange={(e) => setCoverText(e.target.value)}
-                placeholder="Texto ou identificador de capa da proposta (opcional)"
-                className="w-full px-3 py-2 rounded border border-slate-300"
-              />
             </div>
           </div>
 
