@@ -2286,7 +2286,7 @@ export interface StiHubUserRecord {
 
 export interface StiHubSubdomainRecord {
   domain: string;
-  type: "PRIMARY_VERCEL" | "CORPORATE_CNAME" | "ERP_ALIAS";
+  type: "PRIMARY" | "PRIMARY_VERCEL" | "CORPORATE_CNAME" | "ERP_ALIAS";
   cnameTarget: string;
   sslStatus: "ACTIVE_TLS_1_3" | "PENDING_DNS";
   isDefaultPublicProposalDomain: boolean;

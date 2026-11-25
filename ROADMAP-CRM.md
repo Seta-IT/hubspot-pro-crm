@@ -123,7 +123,7 @@
   - Bloqueia acessos não autenticados ou sem `mfaVerified` redirecionando páginas para `/login?next=...` e retornando `401 Unauthorized` em rotas `/api/*` protegidas (incluindo `GET /api/erp/proposals` e `/api/erp/daily-sync`, que exigem sessão MFA autenticada e módulo `ERP`).
   - Rotas públicas estritamente controladas: `/login`, `/api/auth/*`, `/portal` + `/api/portal/*`, `/proposta/[id]` + exclusivamente rotas individuais de uma proposta específica (`GET /api/erp/proposals/:id` e `POST /api/erp/proposals/:id/approve` para visualização/assinatura ICP-Brasil pelo cliente externo) e `/api/health`.
 - **Subdomínio Oficial em Produção (Vercel)**:
-  - Produção ativa e publicada em **`https://sti-hub.vercel.app`**, com suporte a CNAME customizado corporativo (`https://stihub.setatelecom.com.br` e `https://erp.setatelecom.com.br`).
+  - Produção ativa e publicada em **`https://sti-hub.setatelecom.com.br`**, com suporte a CNAME customizado corporativo (`https://stihub.setatelecom.com.br` e `https://erp.setatelecom.com.br`).
 
 ---
 

@@ -571,10 +571,14 @@ describe('Link interno: botão ao lado de Copiar link do cliente', () => {
     assert.match(menu, /data-testid="menu-copy-client-link"[\s\S]{0,400}Copiar link do cliente/);
     assert.match(menu, /data-testid="menu-open-internal-link"[\s\S]{0,800}Abrir Versão contrato/);
     assert.match(menu, /data-testid="menu-copy-internal-link"[\s\S]{0,500}Copiar Versão contrato/);
-    const url = buildStableInternalProposalUrl('prop-via-italia-loc-20261106', 'https://sti-hub.vercel.app');
-    assert.equal(url, 'https://sti-hub.vercel.app/interno/proposta/prop-via-italia-loc-20261106');
+    const url = buildStableInternalProposalUrl('prop-via-italia-loc-20261106');
+    assert.equal(url, 'https://sti-hub.setatelecom.com.br/interno/proposta/prop-via-italia-loc-20261106');
     const copied = await copyInternalProposalLink('prop-via-italia-loc-20261106');
     assert.equal(copied, url);
+    assert.equal(
+      buildStableInternalProposalUrl('prop-via-italia-loc-20261106', 'https://sti-hub.vercel.app'),
+      'https://sti-hub.vercel.app/interno/proposta/prop-via-italia-loc-20261106'
+    );
     assert.match(src('src/app/interno/proposta/[id]/page.tsx'), /InternalProposalSummaryView/);
   });
 

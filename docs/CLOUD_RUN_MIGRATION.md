@@ -98,7 +98,6 @@ As rotas validam o Bearer com comparação em tempo constante (`SHA-256` + `timi
 
 ## Pendências fora deste lote
 
-- `railway.json` ainda roda `cli-migrate` na inicialização. Fora do escopo Cloud Run.
-- Alguns textos e seeds de demonstração ainda citam `sti-hub.vercel.app` (RBAC/seed, e-mails de exemplo). Não foram reescritos para não misturar dado histórico com a troca de plataforma.
+- O destino de produção é o Cloud Run em `southamerica-east1`. O arquivo `railway.json` foi mantido apenas como legado: o `startCommand` sobe `npm run start:web` **sem** `cli-migrate`, e não há pre-deploy de migração. **O Railway não será usado.**
 - `erp.setatelecom.com.br` saiu da allowlist fixa de CORS; se ainda for origem de chamadas, precisa entrar em `STI_HUB_PUBLIC_ORIGIN` ou numa extensão futura da allowlist.
 - Cutover de DNS, mapeamento do domínio no Cloud Run, secrets, VPC/Neon e publicação: somente com o sim do Marcéllo após o parecer do CISO.

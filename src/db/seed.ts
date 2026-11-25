@@ -1749,8 +1749,8 @@ export function createInitialSeedState(): CrmDatabaseState {
       lastAssignedSellerIndex: 0,
       nurtureTargetCampaignId: 'cmp-1',
       highIntentUrls: [
-        'https://sti-hub.vercel.app/proposta',
-        'https://sti-hub.vercel.app/lp/locacao-equipamentos-ti-telecom-sv31',
+        'https://sti-hub.setatelecom.com.br/proposta',
+        'https://sti-hub.setatelecom.com.br/lp/locacao-equipamentos-ti-telecom-sv31',
       ],
       enrolledCount: 38,
       activeCount: 14,

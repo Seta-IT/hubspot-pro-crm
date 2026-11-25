@@ -1031,8 +1031,8 @@ export function SalesHubProToolsStrip({
               Links de Agendamento Comercial (STI HUB CRM Meetings)
             </div>
             {[
-              { name: 'Agenda Executiva — Marcelo Lopes Mira (30 min)', url: 'https://sti-hub.vercel.app/reuniao/marcelo-mira' },
-              { name: 'Agenda Comercial & Demo — Evelyn Ternero (30 min)', url: 'https://sti-hub.vercel.app/reuniao/evelyn-ternero' },
+              { name: 'Agenda Executiva — Marcelo Lopes Mira (30 min)', url: 'https://sti-hub.setatelecom.com.br/reuniao/marcelo-mira' },
+              { name: 'Agenda Comercial & Demo — Evelyn Ternero (30 min)', url: 'https://sti-hub.setatelecom.com.br/reuniao/evelyn-ternero' },
             ].map((m) => (
               <div key={m.url} className="p-2 rounded bg-white border border-slate-200 flex items-center justify-between gap-2">
                 <div className="truncate">

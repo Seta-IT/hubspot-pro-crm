@@ -677,7 +677,7 @@ export default function StiHubAdminRbacPanel({
 
   const handleGenerateUserInvite = async (user: StiHubUserRecord) => {
     const origin =
-      typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.vercel.app';
+      typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.setatelecom.com.br';
     const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/invite`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -856,7 +856,7 @@ export default function StiHubAdminRbacPanel({
         mfaMethod: newUserMfaMethod,
         totpConfigured: false,
         password: newUserPassword.trim().length >= NEW_PASSWORD_MIN_LENGTH ? newUserPassword.trim() : undefined,
-        origin: typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.vercel.app',
+        origin: typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.setatelecom.com.br',
       }),
     });
     if (res.ok) {
@@ -908,7 +908,7 @@ export default function StiHubAdminRbacPanel({
           to: testRecipient.trim(),
           cc: 'comercial@setatelecom.com.br',
           subject: '[STI-hub Mailer • Teste Validado] Proposta Comercial #4695 & Link PDF A4',
-          body: `Olá,\n\nEste é um disparo de validação oficial do STI-hub Mailer (Seta Telecom LTDA • CNPJ 14.806.925/0001-32).\n\n• Link Público PDF A4: https://sti-hub.vercel.app/proposta/prop-gc-4695\n• Enquadramento Fiscal: 0% ISS (LC 116/03 + Súmula Vinculante 31 STF).\n\nAtenciosamente,\nMarcelo Lopes Mira • STI-hub`,
+          body: `Olá,\n\nEste é um disparo de validação oficial do STI-hub Mailer (Seta Telecom LTDA • CNPJ 14.806.925/0001-32).\n\n• Link Público PDF A4: https://sti-hub.setatelecom.com.br/proposta/prop-gc-4695\n• Enquadramento Fiscal: 0% ISS (LC 116/03 + Súmula Vinculante 31 STF).\n\nAtenciosamente,\nMarcelo Lopes Mira • STI-hub`,
           companyName: 'Seta Telecom Homologação',
           documentCode: '4695',
           amountBrl: 14800,
@@ -1643,7 +1643,7 @@ export default function StiHubAdminRbacPanel({
                 <code className="font-mono font-semibold">cname.vercel-dns.com</code> | TTL: Automático.
               </p>
               <p className="text-slate-600">
-                • Todos os links públicos de propostas comerciais (<code>/proposta/[id]</code>) utilizam automaticamente o domínio ativo da sessão ou <code>https://sti-hub.vercel.app</code>.
+                • Todos os links públicos de propostas comerciais (<code>/proposta/[id]</code>) utilizam automaticamente o domínio ativo da sessão ou <code>https://sti-hub.setatelecom.com.br</code>.
               </p>
             </div>
           </div>

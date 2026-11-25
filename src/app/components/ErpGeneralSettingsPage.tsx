@@ -208,7 +208,7 @@ export default function ErpGeneralSettingsPage({
     await onSave(sanitizeErpGeneralSettingsForSave(draft));
   };
 
-  const systemAddress = typeof window !== 'undefined' ? window.location.host : 'sti-hub.vercel.app';
+  const systemAddress = typeof window !== 'undefined' ? window.location.host : 'sti-hub.setatelecom.com.br';
 
   // ------------------------------------------------------------------ seções
   const renderGeral = () => (

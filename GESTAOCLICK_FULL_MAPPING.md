@@ -1,7 +1,7 @@
 # 🏛️ Mapeamento Completo da API & MCP GestãoClick ERP (Loja Matriz `#118887`) ↔ HubSpot CRM v3 ↔ STI-hub
 
 - **Links Ativos da Aplicação (STI-hub — Seta Telecom CRM & ERP):**
-  - **Produção (Vercel):** `https://sti-hub.vercel.app` (`HTTP 200 OK`)
+  - **Produção:** `https://sti-hub.setatelecom.com.br` (`HTTP 200 OK`)
   - **Servidor Local / Box:** `http://localhost:3000` (`HTTP 200 OK`)
   - **Endpoint de Catálogo Completo (Schema JSON):** `GET /api/erp/gestaoclick/schema`
   - **Endpoint de Sincronização Ao Vivo:** `POST /api/erp/gestaoclick/sync`

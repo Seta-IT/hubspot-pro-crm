@@ -1,7 +1,7 @@
 # Protocolo Oficial de Governança e Sincronização entre Supervisores (STI-hub)
 
 **Projeto:** STI-hub — Seta Telecom LTDA (`CNPJ 14.806.925/0001-32` • Loja Matriz `#118887` • HubSpot Portal `#4369067`)  
-**Domínio Oficial em Produção:** [https://sti-hub.vercel.app](https://sti-hub.vercel.app)
+**Domínio Oficial em Produção:** [https://sti-hub.setatelecom.com.br](https://sti-hub.setatelecom.com.br)
 
 ---
 
@@ -10,7 +10,7 @@
 | Agente Supervisor | ID do Agente | Escopo Exclusivo de Governança | Documento Mestre |
 | :--- | :--- | :--- | :--- |
 | **ERP - Supervisor & Roadmap** | `030e3bff-e30f-4e10-b854-fb85ce5a9f1e` | **SETA ERP (10 Pilares Operacionais e Fiscais):** 1. Cadastros (Clientes, Fornecedores, Funcionários, Transportadoras com Consulta RFB e Trava Fiscal de CNPJ), 2. Produtos e Serviços (786 produtos + 39 serviços), 3. Propostas e Vendas (Orçamento fiel ao `#4695`, Link Público `/proposta/[id]`, Assinatura ICP-Brasil/Gov.br), 4. Estoque e Compras (S/N, MAC, Importação XML NF-e Mod. 55), 5. Contratos de Locação (344 contratos, 0% ISS SV 31 STF, Devolução Parcial Pro-Rata), 6. Financeiro (Contas a Pagar/Receber, Conciliação OFX Banco Inter `077` / Itaú `341`, DRE Vertical), 7. Fiscal (Fatura SV 31, NFS-e LC 116, NF-e CFOP `5.908`/`6.908`, NFCom Mod. 62), 8. O.S. de Campo (1.378 O.S.), 9. PDV Frente de Caixa, 10. Integração e Sincronização Diária GestãoClick (`/api/erp/daily-sync`). | `ROADMAP-ERP.md` |
-| **CRM - Supervisor & Roadmap** | `4d90e47d-e25a-4bd0-bc88-b8b8058cc78b` | **CRM, Chamados & Plataforma Corporativa:** Contatos & Empresas B2B (com ficha GestãoClick, Consulta CNPJ RFB e proteção contra exclusão na listagem), Sales Hub (Funil Kanban 4 pipelines, Forecast, Quotas, Playbooks, Meetings, Sequências), Marketing Hub (Campanhas ABM, Segmentos, Lead Scoring, Formulários), Item de Topo 3: Chamados (Service Hub NOC N1/N2/N3 SLA), Automações (Workflows), Saúde da Base (Data Health com trava anti-merge de CNPJ), Custom Properties (`#4369067`), Modelos/Validação de E-mail (`SPF/DKIM/DMARC`), Matriz Granular RBAC (9 perfis e 22 usuários), Login Corporativo com MFA 2FA (`/login`), Proteção de Rotas (`src/middleware.ts`) e Subdomínio Vercel (`sti-hub.vercel.app`). | `ROADMAP-CRM.md` |
+| **CRM - Supervisor & Roadmap** | `4d90e47d-e25a-4bd0-bc88-b8b8058cc78b` | **CRM, Chamados & Plataforma Corporativa:** Contatos & Empresas B2B (com ficha GestãoClick, Consulta CNPJ RFB e proteção contra exclusão na listagem), Sales Hub (Funil Kanban 4 pipelines, Forecast, Quotas, Playbooks, Meetings, Sequências), Marketing Hub (Campanhas ABM, Segmentos, Lead Scoring, Formulários), Item de Topo 3: Chamados (Service Hub NOC N1/N2/N3 SLA), Automações (Workflows), Saúde da Base (Data Health com trava anti-merge de CNPJ), Custom Properties (`#4369067`), Modelos/Validação de E-mail (`SPF/DKIM/DMARC`), Matriz Granular RBAC (9 perfis e 22 usuários), Login Corporativo com MFA 2FA (`/login`), Proteção de Rotas (`src/middleware.ts`) e domínio oficial (`sti-hub.setatelecom.com.br`). | `ROADMAP-CRM.md` |
 | **STI-hub - Coordenador Geral (Histórico & Ponte ERP-CRM)** | `7aeb7dd8-c371-4542-8182-04ea61c5e098` | **Guardião Histórico & Árbitro de Integração:** preserva integralmente o histórico consolidado do projeto e atua exclusivamente como ponte/árbitro em contratos compartilhados entre ERP e CRM. | `ROADMAP.md` |
 
 ---

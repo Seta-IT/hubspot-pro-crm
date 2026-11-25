@@ -1360,9 +1360,9 @@ export function createSeedRbacState(): StiHubRbacState {
       dkimSpfDmarcVerified: true,
       subdomains: [
         {
-          domain: 'sti-hub.vercel.app',
-          type: 'PRIMARY_VERCEL',
-          cnameTarget: 'cname.vercel-dns.com',
+          domain: 'sti-hub.setatelecom.com.br',
+          type: 'PRIMARY',
+          cnameTarget: 'sti-hub.setatelecom.com.br',
           sslStatus: 'ACTIVE_TLS_1_3',
           isDefaultPublicProposalDomain: true,
           verifiedAt: nowIso,

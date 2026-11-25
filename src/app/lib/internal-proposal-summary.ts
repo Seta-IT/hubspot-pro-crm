@@ -9,6 +9,7 @@
  * Suporte + spare parts no mesmo serviceType continua como serviço, e o
  * texto do escopo traz as duas partes.
  */
+import { parseHttpOrigin, resolveConfiguredPublicOrigin } from '../../lib/platform';
 import type { ErpCommercialProposal, ErpProposalItem } from '../../db/types';
 import { formatProposalDisplayCode } from './proposal-number';
 import { isAvulsoServiceProposal, proposalHidesFreight, proposalSetupFeeLabel, resolveEffectiveProposalBudgetType, resolveProposalSlaOption } from './proposal-share';
@@ -98,7 +99,11 @@ export function buildStableInternalProposalPath(proposalId: string): string {
 }
 
 export function buildStableInternalProposalUrl(proposalId: string, origin?: string): string {
-  const base = String(origin || 'https://sti-hub.vercel.app').replace(/\/+$/, '');
+  const base = (
+    parseHttpOrigin(origin) ||
+    resolveConfiguredPublicOrigin() ||
+    'https://sti-hub.setatelecom.com.br'
+  );
   return `${base}${buildStableInternalProposalPath(proposalId)}`;
 }
 

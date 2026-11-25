@@ -1530,7 +1530,7 @@ describe('13. Segurança Corporativa STI-hub: Login com MFA 2FA, Proteção de R
     assert.equal(rbacData.roles.length, 9);
     assert.ok(rbacData.users.length >= 22);
     assert.equal(rbacData.securityConfig.enforceMfaOnAllLogins, true);
-    assert.ok(rbacData.securityConfig.subdomains.some((s) => s.domain === 'sti-hub.vercel.app'));
+    assert.ok(rbacData.securityConfig.subdomains.some((s) => s.domain === 'sti-hub.setatelecom.com.br'));
     assert.ok(rbacData.securityConfig.subdomains.some((s) => s.domain === 'stihub.setatelecom.com.br'));
     assert.ok(rbacData.securityConfig.customProperties.some((p) => p.internalName === 'hs_buying_role'));
 
