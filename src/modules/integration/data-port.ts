@@ -457,6 +457,7 @@ export class RouterDataPort implements IntegrationDataPort {
     }
     this.cache = {};
     const query: Record<string, string> = opts.actorUserId ? { _integrationActorId: opts.actorUserId } : {};
+    if (opts.actorUserId && path === '/api/mailbox/send') query._integrationMailboxSend = '1';
     const res = await this.trusted(method, path, query, method === 'DELETE' ? {} : body);
     return { status: res.status, body: res.body };
   }

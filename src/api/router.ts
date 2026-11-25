@@ -4129,6 +4129,24 @@ export class CrmApiRouter {
     return { id: id || '\u0000sem-id', email: email || '\u0000sem-email' };
   }
 
+  /**
+   * API v1/MCP (Fase 2 / Lote 3): usuario dono da credencial como ATOR de acoes que a tela so faz
+   * com sessao (links publicos de proposta/fatura). Honrado SOMENTE no contexto interno confiavel
+   * (Symbol nao forjavel; vindo de HTTP e ignorado). O conector ja conferiu escopo, alcada de tela,
+   * permissao de acao, carteira e o token de confirmacao em duas etapas antes de chamar.
+   */
+  private integrationActor(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): { id: string; email: string; name: string; roleId: string; scope: string } | null {
+    if (!ctx.trustedInternal || ctx.serviceAccount) return null;
+    const id = String(query._integrationActorId || '').trim();
+    if (!id) return null;
+    const u = this.repo.getRbacState().users.find((x) => x.id === id);
+    if (!u || u.active === false) return null;
+    return { id: u.id, email: String(u.email || ''), name: String(u.name || u.email || ''), roleId: String(u.roleId || ''), scope: String(u.scope || 'PROPRIOS') };
+  }
+
   private static isRestrictedProposalScope(scope: string): boolean {
     return scope !== 'TODOS';
   }
@@ -4923,15 +4941,17 @@ export class CrmApiRouter {
     ctx: { trustedInternal: boolean; serviceAccount?: boolean }
   ): ApiResponse {
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
-    const token = ctx.serviceAccount ? null : query._sessionToken || null;
+    const integ = this.integrationActor(query, ctx);
+    const token = ctx.serviceAccount || integ ? null : query._sessionToken || null;
     const sess = token && verifyStiHubSessionToken(token).valid ? this.repo.resolveSessionFromToken(token) : null;
-    if (!token || !sess || !sess.authenticated || !sess.mfaVerified || this.isSessionOlderThanPasswordChange(token)) {
+    if (!integ && (!token || !sess || !sess.authenticated || !sess.mfaVerified || this.isSessionOlderThanPasswordChange(token))) {
       return {
         status: 401,
         body: { error: 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.', code: 'MFA_AUTH_REQUIRED' },
       };
     }
-    const actor = { email: sess.user.email, name: sess.user.name, role: String(sess.user.roleId || '') };
+    const sessUser = integ || (sess as unknown as { user: { id: string; email: string; name: string; roleId?: string; scope?: string } }).user;
+    const actor = { email: sessUser.email, name: sessUser.name, role: String(sessUser.roleId || '') };
     const finPriv = this.financePaymentPrivilege(query, ctx);
     if (!finPriv.allowed) {
       this.invoiceLinkAudit(
@@ -4950,7 +4970,7 @@ export class CrmApiRouter {
         },
       };
     }
-    if (!this.proposalLinkLimiters.issuePerUser.hit(`u:${sess.user.id}`)) {
+    if (!this.proposalLinkLimiters.issuePerUser.hit(`u:${sessUser.id}`)) {
       return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
     }
     if (!isInvoiceLinkConfigured()) {
@@ -4989,7 +5009,7 @@ export class CrmApiRouter {
           iat: signed.claims.iat,
           exp: signed.claims.exp,
           jti: signed.claims.jti,
-          createdBy: String(sess.user.email || sess.user.id || ''),
+          createdBy: String(sessUser.email || sessUser.id || ''),
           revokedAt: null,
         });
         shortUrl = buildShortInvoiceUrl(origin, code);
@@ -5324,17 +5344,19 @@ export class CrmApiRouter {
     ctx: { trustedInternal: boolean; serviceAccount?: boolean }
   ): ApiResponse {
     const ip = String(query._clientIp || 'sem-ip').slice(0, 64);
-    const token = ctx.serviceAccount ? null : query._sessionToken || null;
+    const integ = this.integrationActor(query, ctx);
+    const token = ctx.serviceAccount || integ ? null : query._sessionToken || null;
     const sess = token && verifyStiHubSessionToken(token).valid ? this.repo.resolveSessionFromToken(token) : null;
-    if (!token || !sess || !sess.authenticated || !sess.mfaVerified || this.isSessionOlderThanPasswordChange(token)) {
+    if (!integ && (!token || !sess || !sess.authenticated || !sess.mfaVerified || this.isSessionOlderThanPasswordChange(token))) {
       return {
         status: 401,
         body: { error: 'Acesso não autorizado. Autenticação corporativa STI-hub + MFA 2FA obrigatória.', code: 'MFA_AUTH_REQUIRED' },
       };
     }
     // M1: modulo ERP + acesso a propostas != NONE (mesma regra do GET completo).
+    const sessUser = integ || (sess as unknown as { user: { id: string; email: string; name: string; roleId?: string; scope?: string } }).user;
     const access = this.resolveProposalSessionAccess(query);
-    const roleId = String(sess.user.roleId || '');
+    const roleId = String(sessUser.roleId || '');
     const erpRole = access?.erpRole || 'ERP_NONE';
     const isAdmin = Boolean(access?.isAdmin);
     const proposalsAccess = access?.proposalsAccess || 'NONE';
@@ -5342,7 +5364,7 @@ export class CrmApiRouter {
       Boolean(access) &&
       (PROPOSAL_EDITOR_ERP_ROLES as readonly string[]).includes(erpRole) &&
       (proposalsAccess === 'FULL' || proposalsAccess === 'EDIT');
-    const actor = { email: sess.user.email, name: sess.user.name, role: roleId };
+    const actor = { email: sessUser.email, name: sessUser.name, role: roleId };
     const forbidden: ApiResponse = {
       status: 403,
       body: {
@@ -5350,11 +5372,12 @@ export class CrmApiRouter {
         code: 'PROPOSAL_LINK_FORBIDDEN',
       },
     };
-    if (!isAdmin && !canEdit) {
+    // Lote 3: ator do conector => alcada/permissao/carteira ja conferidas na API v1 antes da chamada.
+    if (!integ && !isAdmin && !canEdit) {
       this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, pathId, `perfil sem alcada (${erpRole}/${proposalsAccess})`, actor);
       return forbidden;
     }
-    if (!this.proposalLinkLimiters.issuePerUser.hit(`u:${sess.user.id}`)) {
+    if (!this.proposalLinkLimiters.issuePerUser.hit(`u:${sessUser.id}`)) {
       return { status: 429, body: { ...PROPOSAL_TOO_MANY_BODY } };
     }
     const found = this.repo
@@ -5362,9 +5385,9 @@ export class CrmApiRouter {
       .find((p) => p.id === pathId || String(p.code || '').toLowerCase() === pathId.toLowerCase());
     if (!found) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
     // M2: dono por sellerUserId (servidor) ou e-mail do vendedor; nunca pelo nome. EQUIPE = PROPRIOS.
-    if (!isAdmin && CrmApiRouter.isRestrictedProposalScope(String(sess.user.scope || 'PROPRIOS'))) {
-      if (!CrmApiRouter.isProposalOwnedBy(found, { id: String(sess.user.id || ''), email: String(sess.user.email || '') })) {
-        this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, `proposta de outro vendedor (escopo ${String(sess.user.scope || 'PROPRIOS')})`, actor);
+    if (!integ && !isAdmin && CrmApiRouter.isRestrictedProposalScope(String(sessUser.scope || 'PROPRIOS'))) {
+      if (!CrmApiRouter.isProposalOwnedBy(found, { id: String(sessUser.id || ''), email: String(sessUser.email || '') })) {
+        this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, `proposta de outro vendedor (escopo ${String(sessUser.scope || 'PROPRIOS')})`, actor);
         return forbidden;
       }
     }
@@ -5407,13 +5430,13 @@ export class CrmApiRouter {
         const sent = this.repo.updateProposal(found.id, {
           status: 'ENVIADA',
           statusObservation: 'Enviada ao cliente (link assinado emitido)',
-          updatedBy: sess.user.name || sess.user.email,
+          updatedBy: sessUser.name || sessUser.email,
         } as Partial<ErpCommercialProposal>);
         if (!sent) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
         target = sent;
         this.proposalStatusAudit(
           query,
-          { user: { email: String(sess.user.email || ''), name: String(sess.user.name || ''), roleId } },
+          { user: { email: String(sessUser.email || ''), name: String(sessUser.name || ''), roleId } },
           sent.id,
           'PROPOSAL_STATUS_CHANGE',
           'SUCCESS',
@@ -5457,7 +5480,7 @@ export class CrmApiRouter {
           iat: signed.claims.iat,
           exp: signed.claims.exp,
           jti: signed.claims.jti,
-          createdBy: String(sess.user.email || sess.user.id || ''),
+          createdBy: String(sessUser.email || sessUser.id || ''),
           revokedAt: null,
         });
         shortUrl = buildShortProposalUrl(origin, code);
