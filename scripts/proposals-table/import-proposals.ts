@@ -25,6 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { computeProposalTotals } from '../../src/app/lib/proposal-share';
+import { resolveProposalValidityForSave } from '../../src/app/lib/proposal-validity';
 import { extractGcProposalNumber } from '../../src/app/lib/proposal-number';
 import { fiscalNatureForBudgetType, inferGcContractMonths, inferGcProposalBudgetType } from '../../src/modules/erp/gc-proposal-budget-type';
 import {
@@ -193,7 +194,10 @@ export function mapGcProposal(o: Rec, links: Links, st: MapStats, importedAt: st
     costCenter: String(o.nome_centro_custo || ''),
     salesChannel: String(o.nome_canal_venda || ''),
     proposalDate: date,
-    validUntil: String(o.previsao_entrega || date),
+    validUntil: resolveProposalValidityForSave({
+      proposalDate: date,
+      validUntil: String(o.previsao_entrega || date),
+    }, date).validUntil,
     deliveryForecast: String(o.previsao_entrega || ''),
     deliveryLeadTime: String(o.validade || ''),
     contractMonths: inferGcContractMonths(o),

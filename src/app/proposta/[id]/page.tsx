@@ -75,7 +75,7 @@ import { copyInternalProposalLink, openInternalProposalLink } from '../../lib/in
 import { ProposalLinkOverrideContext } from '../../lib/proposal-link-override';
 import { formatProposalDisplayCode, isLegacyProposalCode } from '../../lib/proposal-number';
 import { displayProposalTechnicalClauses } from '../../lib/proposal-technical-clauses';
-import { isProposalValidityExpired, proposalExpiredRevalidationMessage, formatProposalValidUntilPtBr } from '../../lib/proposal-validity';
+import { isProposalEffectiveValidityExpired, proposalExpiredRevalidationMessage, formatProposalValidUntilPtBr, effectiveProposalValidUntil } from '../../lib/proposal-validity';
 
 /**
  * Token do link assinado: lido SOMENTE do FRAGMENTO (#t=...), que nao vai ao servidor, aos logs
@@ -631,8 +631,8 @@ function PublicProposalPrintContent() {
   const handleApproveAndConvertInPage = async () => {
     if (!proposal) return;
     setApprovalError(null);
-    if (isProposalValidityExpired(proposal.validUntil)) {
-      setApprovalError(proposalExpiredRevalidationMessage(proposal.validUntil));
+    if (isProposalEffectiveValidityExpired(proposal)) {
+      setApprovalError(proposalExpiredRevalidationMessage(effectiveProposalValidUntil(proposal)));
       setShowIcpSignatureModal(false);
       return;
     }
@@ -705,7 +705,7 @@ function PublicProposalPrintContent() {
           setApprovalError("Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente.");
         } else if (res.status === 409 && errJson?.code === "PROPOSAL_EXPIRED") {
           setApprovalError(
-            (typeof errJson?.error === "string" && errJson.error) || proposalExpiredRevalidationMessage(current.validUntil)
+            (typeof errJson?.error === "string" && errJson.error) || proposalExpiredRevalidationMessage(effectiveProposalValidUntil(current))
           );
         } else {
           setApprovalError(
@@ -886,9 +886,10 @@ function PublicProposalPrintContent() {
     isoToBrDate(new Date().toISOString());
 
   const validUntilStr = isoToBrDate(proposal.validUntil) || proposal.validUntil || '15 dias';
-  const proposalIsExpired = isProposalValidityExpired(proposal.validUntil);
-  const expiredBannerText = proposalExpiredRevalidationMessage(proposal.validUntil);
-  const expiredSinceLabel = formatProposalValidUntilPtBr(proposal.validUntil) || validUntilStr;
+  const effectiveUntil = effectiveProposalValidUntil(proposal);
+  const proposalIsExpired = isProposalEffectiveValidityExpired(proposal);
+  const expiredBannerText = proposalExpiredRevalidationMessage(effectiveUntil);
+  const expiredSinceLabel = formatProposalValidUntilPtBr(effectiveUntil) || validUntilStr;
 
   const commercialView = resolveProposalCommercialPresentation(proposal);
   const productsSubtotal = commercialView.productsSubtotal;
@@ -1696,7 +1697,8 @@ function PublicProposalPrintContent() {
             role="status"
             className="px-7 py-2 print:px-3.5 print:py-1.5 text-[11px] font-semibold leading-relaxed text-[#1e3a6e] bg-[#eef2fa] border-b border-[#c7d2e8]"
           >
-            Esta proposta está vencida desde {expiredSinceLabel} e precisa ser revalidada. Fale com seu consultor Seta Telecom.
+            <p>Proposta vencida</p>
+            <p>Esta proposta está vencida desde {expiredSinceLabel} e precisa ser revalidada. Fale com seu consultor Seta Telecom.</p>
           </div>
         )}
         {/* BLOCO 1: CABEÇALHO LEVE TIMBRADO SETA TELECOM / SETA | IT */}

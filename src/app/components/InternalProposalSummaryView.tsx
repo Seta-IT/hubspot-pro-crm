@@ -58,7 +58,8 @@ export function InternalProposalSummaryView({ model }: { model: InternalProposal
             role="status"
             className="mb-3 rounded-md border border-[#c7d2e8] bg-[#eef2fa] px-3 py-2 text-[11px] font-semibold leading-relaxed text-[#1e3a6e]"
           >
-            Esta proposta está vencida desde {sheet.validityExpiredSince} e precisa ser revalidada. Fale com seu consultor Seta Telecom.
+            <p>Proposta vencida</p>
+            <p>Esta proposta está vencida desde {sheet.validityExpiredSince} e precisa ser revalidada. Fale com seu consultor Seta Telecom.</p>
           </div>
         ) : null}
         <header className="flex items-start justify-between gap-4 border-b-2 border-[#1e3a6e] pb-2">

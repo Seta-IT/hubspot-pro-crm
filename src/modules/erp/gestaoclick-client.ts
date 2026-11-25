@@ -28,6 +28,7 @@ import path from 'path';
 import { calculateBrazilianTaxBreakdown } from './erp-tax-engine';
 import { gestaoClickFetch } from './gestaoclick-http';
 import { computeProposalTotals } from '../../app/lib/proposal-share';
+import { resolveProposalValidityForSave } from '../../app/lib/proposal-validity';
 import {
   fiscalNatureForBudgetType,
   inferGcContractMonths,
@@ -523,7 +524,11 @@ export function mapGcOrcamentoToProposal(
     status,
     contractMonths,
     paymentCondition: payment,
-    validUntil: String(o.previsao_entrega || dataStr),
+    proposalDate: dataStr,
+    validUntil: resolveProposalValidityForSave({
+      proposalDate: dataStr,
+      validUntil: String(o.previsao_entrega || dataStr),
+    }, dataStr).validUntil,
     items,
     shippingCost,
     setupFee: 0,

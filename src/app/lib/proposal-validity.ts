@@ -147,3 +147,35 @@ export function resolveProposalValidityForSave(
     days: DEFAULT_PROPOSAL_VALIDITY_DAYS,
   };
 }
+
+/** Validade efetiva para vencimento: validUntil, ou Data + dias se a janela estiver invertida/inválida. */
+export function effectiveProposalValidUntil(
+  input: {
+    proposalDate?: unknown;
+    createdAt?: unknown;
+    validUntil?: unknown;
+    validityDays?: unknown;
+  }
+): string | null {
+  const until = parseIsoDate(input.validUntil);
+  const date = parseIsoDate(input.proposalDate);
+  if (until && date) {
+    const inferred = calendarDaysBetween(date, until);
+    if (inferred != null && inferred > 0) return until;
+    const days = parseValidityDays(input.validityDays) ?? DEFAULT_PROPOSAL_VALIDITY_DAYS;
+    return addCalendarDays(date, days);
+  }
+  return until;
+}
+
+export function isProposalEffectiveValidityExpired(
+  input: {
+    proposalDate?: unknown;
+    createdAt?: unknown;
+    validUntil?: unknown;
+    validityDays?: unknown;
+  },
+  nowMs = Date.now()
+): boolean {
+  return isProposalValidityExpired(effectiveProposalValidUntil(input), nowMs);
+}

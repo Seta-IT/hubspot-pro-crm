@@ -12,6 +12,8 @@ import { CrmApiRouter } from '../src/api/router';
 import { signProposalLinkToken, verifyProposalLinkToken, isAuthenticProposalLinkToken } from '../src/app/lib/proposal-link';
 import {
   isProposalValidityExpired,
+  isProposalEffectiveValidityExpired,
+  effectiveProposalValidUntil,
   proposalExpiredRevalidationMessage,
   proposalLinkNotAfterMs,
   formatProposalValidUntilPtBr,
@@ -223,9 +225,10 @@ describe('Proposta vencida: aviso no documento publico e no link interno', () =>
   it('a folha publica mostra a linha de revalidacao e esconde a assinatura; 404 ja nao fala em expirar', () => {
     const page = src('src/app/proposta/[id]/page.tsx');
     assert.match(page, /data-testid="proposal-expired-banner"/);
+    assert.match(page, /Proposta vencida/);
     assert.match(page, /Esta proposta está vencida desde \{expiredSinceLabel\} e precisa ser revalidada/);
     assert.match(page, /data-testid="proposal-expired-sign-blocked"/);
-    assert.match(page, /isProposalValidityExpired\(proposal\.validUntil\)/);
+    assert.match(page, /isProposalEffectiveValidityExpired\(proposal\)/);
     assert.doesNotMatch(page, /inválido ou expirou/);
     assert.match(page, /publicLinkInvalid/);
     assert.match(page, /Link inválido ou sem permissão/);
@@ -245,8 +248,32 @@ describe('Proposta vencida: aviso no documento publico e no link interno', () =>
     } as unknown as ErpCommercialProposal);
     assert.equal(model.sheet.validityExpiredSince, '11/11/2026');
     const html = buildInternalProposalPrintHtml(model);
+    assert.match(html, /Proposta vencida/);
     assert.match(html, /vencida desde 11\/11\/2026 e precisa ser revalidada/);
     const view = src('src/app/components/InternalProposalSummaryView.tsx');
     assert.match(view, /data-testid="internal-proposal-expired-banner"/);
+  });
+});
+
+describe('Validade efetiva (validUntil invertido em relação à Data)', () => {
+  const now = Date.parse('2026-11-25T20:00:00.000Z');
+
+  it('4679: Até anterior à Data usa Data + 15 dias e continua vencida', () => {
+    const locar = { proposalDate: '2026-10-02', validUntil: '2024-12-12' };
+    assert.equal(effectiveProposalValidUntil(locar), '2026-10-17');
+    assert.equal(isProposalEffectiveValidityExpired(locar, now), true);
+    assert.equal(isProposalValidityExpired(locar.validUntil, now), true);
+  });
+
+  it('4727: Até anterior à Data usa Data + 15 e NÃO trata como vencida se essa data ainda é futura', () => {
+    const evamind = { proposalDate: '2026-11-25', validUntil: '2026-10-30' };
+    assert.equal(effectiveProposalValidUntil(evamind), '2026-12-10');
+    assert.equal(isProposalEffectiveValidityExpired(evamind, now), false);
+    assert.equal(isProposalValidityExpired(evamind.validUntil, now), true, 'o valor gravado invertido sozinho pareceria vencido');
+  });
+
+  it('sem Data, a validade efetiva é o validUntil gravado', () => {
+    assert.equal(effectiveProposalValidUntil({ validUntil: '2026-11-11' }), '2026-11-11');
+    assert.equal(isProposalEffectiveValidityExpired({ validUntil: '2026-11-11' }, now), true);
   });
 });
