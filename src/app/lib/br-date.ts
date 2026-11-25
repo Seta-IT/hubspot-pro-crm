@@ -76,3 +76,45 @@ export function isoYearMonth(value: string | null | undefined): { year: number; 
   const now = new Date();
   return { year: now.getFullYear(), month: now.getMonth() + 1 };
 }
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** aaaa-mm-dd a partir de ISO ou datetime; inválido devolve null. */
+export function parseIsoDate(value: unknown): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || '').trim());
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (probe.getUTCFullYear() !== year || probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) {
+    return null;
+  }
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+/** Soma dias em calendário civil (UTC), sem horário. */
+export function addCalendarDays(iso: string, days: number): string {
+  const start = parseIsoDate(iso);
+  if (!start) return '';
+  const [y, mo, d] = start.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, mo - 1, d + days));
+  return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
+}
+
+/** Diferença em dias civis (fim - início). */
+export function calendarDaysBetween(start: unknown, end: unknown): number | null {
+  const a = parseIsoDate(start);
+  const b = parseIsoDate(end);
+  if (!a || !b) return null;
+  const [y1, m1, d1] = a.split('-').map(Number);
+  const [y2, m2, d2] = b.split('-').map(Number);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
+}
+
+/** Data civil de hoje no fuso local do ambiente. */
+export function localIsoDate(now = new Date()): string {
+  return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+}

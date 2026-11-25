@@ -1,7 +1,11 @@
 import type { ErpCommercialProposal } from '../../db/types';
+import { localIsoDate } from './br-date';
 import { formatProposalDisplayCode } from './proposal-number';
 import { computeProposalTotals } from './proposal-share';
 import { defaultProposalTitle } from './proposal-title';
+
+import { recalculateProposalValidity } from './proposal-validity';
+export { recalculateProposalValidity };
 
 /** Campos de ciclo de vida, aceite, envio e vínculo que uma cópia não deve herdar. */
 export const PROPOSAL_COPY_OMIT_KEYS = [
@@ -35,23 +39,6 @@ export const PROPOSAL_COPY_OMIT_KEYS = [
   'gcSource',
 ] as const;
 
-export function recalculateProposalValidity(
-  input: { proposalDate?: string; createdAt?: string; validUntil?: string },
-  now = new Date()
-): string {
-  const start = String(input.proposalDate || input.createdAt || '').slice(0, 10);
-  const end = String(input.validUntil || '').slice(0, 10);
-  let days = 15;
-  if (start && end) {
-    const ms = Date.parse(end) - Date.parse(start);
-    if (Number.isFinite(ms)) {
-      const delta = Math.round(ms / 86400000);
-      if (delta > 0) days = delta;
-    }
-  }
-  return new Date(now.getTime() + days * 86400000).toISOString().slice(0, 10);
-}
-
 export function proposalCopyCreatedToast(sourceCode: unknown): string {
   const num = formatProposalDisplayCode(sourceCode);
   return num ? `Cópia do orçamento #${num} criada` : 'Cópia do orçamento criada';
@@ -70,7 +57,7 @@ export function buildProposalCopyDraft(
 ): ErpCommercialProposal {
   const now = options.now ?? new Date();
   const nowIso = now.toISOString();
-  const today = nowIso.slice(0, 10);
+  const today = localIsoDate(now);
   const isProducts = source.budgetType === 'PRODUTOS';
 
   const kept: Record<string, unknown> = { ...(source as unknown as Record<string, unknown>) };

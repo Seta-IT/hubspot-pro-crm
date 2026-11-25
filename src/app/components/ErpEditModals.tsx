@@ -83,7 +83,13 @@ import { billingRecipientEmailsText, parseBillingRecipientEmails } from '../../m
 import { focusProposalValidityField } from '../lib/proposal-validity-return';
 import { withoutEmailHistoryBccList } from '../lib/email-send-history';
 import { funnelLabelForBudgetType } from '../../modules/deals/proposal-deal-link';
-import { isoToBrDate } from '../lib/br-date';
+import { addCalendarDays, isoToBrDate, localIsoDate } from '../lib/br-date';
+import {
+  DEFAULT_PROPOSAL_VALIDITY_DAYS,
+  formatValidityDaysLabel,
+  parseValidityDays,
+  resolveProposalValidity,
+} from '../lib/proposal-validity';
 import { BrDateInput } from './BrDateInput';
 import { AppSelect } from './AppSelect';
 
@@ -123,12 +129,14 @@ export function ProposalEditModal({
   /** Gera uma cópia em memória a partir do rascunho atual e abre o formulário da cópia. */
   onGenerateCopy?: (current: ErpCommercialProposal) => void;
 }) {
-  const [draft, setDraft] = useState<ErpCommercialProposal>(() =>
-    computeProposalTotals({
+  const [draft, setDraft] = useState<ErpCommercialProposal>(() => {
+    const cloned = computeProposalTotals({
       ...structuredClone(proposal),
       items: applyBudgetTypeToItems(structuredClone(proposal.items || []), proposal.budgetType, proposal.serviceType, catalog),
-    })
-  );
+    });
+    const resolved = resolveProposalValidity(cloned);
+    return { ...cloned, validUntil: resolved.validUntil };
+  });
   const [noteDefaults, setNoteDefaults] = useState<ProposalNoteDefaultsMap>(() => seedProposalNoteDefaults());
   const noteDefaultsRef = useRef(noteDefaults);
   const noteTypeKeyRef = useRef(proposalNoteDefaultTypeKey(proposal));
@@ -259,8 +267,8 @@ export function ProposalEditModal({
   );
   const [clientDropdownOpen, setClientDropdownOpen] = useState<boolean>(false);
   const [validityDaysInput, setValidityDaysInput] = useState<string>(() => {
-    if (isNew && !proposal.validUntil) return '';
-    return '15 dias';
+    if (isNew && !proposal.validUntil) return formatValidityDaysLabel(DEFAULT_PROPOSAL_VALIDITY_DAYS);
+    return formatValidityDaysLabel(resolveProposalValidity(proposal).days);
   });
   const validityInputRef = React.useRef<HTMLInputElement>(null);
   const [validityHighlight, setValidityHighlight] = useState(false);
@@ -879,9 +887,15 @@ export function ProposalEditModal({
                     testId="proposal-date"
                     value={
                       draft.proposalDate ||
-                      (draft.createdAt ? draft.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10))
+                      (draft.createdAt ? draft.createdAt.slice(0, 10) : localIsoDate())
                     }
-                    onChange={(iso) => updateDraft({ proposalDate: iso })}
+                    onChange={(iso) => {
+                      const days = parseValidityDays(validityDaysInput) ?? DEFAULT_PROPOSAL_VALIDITY_DAYS;
+                      updateDraft({
+                        proposalDate: iso,
+                        validUntil: addCalendarDays(iso, days),
+                      });
+                    }}
                     className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
                   />
                 </div>
@@ -900,12 +914,12 @@ export function ProposalEditModal({
                     onChange={(e) => {
                       const val = e.target.value;
                       setValidityDaysInput(val);
-                      const numDays = parseInt(val.replace(/\D+/g, ""), 10);
-                      if (!Number.isNaN(numDays) && numDays > 0) {
-                        const dt = new Date(Date.now() + numDays * 86400000)
-                          .toISOString()
-                          .slice(0, 10);
-                        updateDraft({ validUntil: dt });
+                      const numDays = parseValidityDays(val);
+                      if (numDays) {
+                        const start =
+                          draft.proposalDate ||
+                          (draft.createdAt ? draft.createdAt.slice(0, 10) : localIsoDate());
+                        updateDraft({ validUntil: addCalendarDays(start, numDays) });
                       }
                     }}
                     className={`w-full px-3 py-2 rounded border ${validityHighlight ? 'border-[#1e3a6e] ring-2 ring-[#1e3a6e] bg-[#eef3fa]' : 'border-slate-300'}`}

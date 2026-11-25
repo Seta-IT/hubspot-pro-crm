@@ -117,7 +117,8 @@ import {
   type ProposalListSnapshot,
 } from '../lib/proposal-list-sync';
 import { buildDefaultTechnicalSupportClauses, displayProposalTechnicalClauses, isTechnicalSupportProposal } from '../lib/proposal-technical-clauses';
-import { isoToBrDate } from '../lib/br-date';
+import { addCalendarDays, isoToBrDate, localIsoDate } from '../lib/br-date';
+import { DEFAULT_PROPOSAL_VALIDITY_DAYS } from '../lib/proposal-validity';
 import GestaoClickDashboard from './GestaoClickDashboard';
 import type { ErpLiveDashboard } from '../../modules/erp/dashboard-metrics';
 import { ProposalTemplateSelect } from './ProposalTemplateSelect';
@@ -2583,7 +2584,7 @@ export default function ErpGestaoClickTab({
       salesChannel: '',
       costCenter: '',
       chartOfAccounts: '',
-      proposalDate: new Date().toISOString().slice(0, 10),
+      proposalDate: localIsoDate(),
       deliveryLeadTime: '',
       deliveryForecast: '',
       careOf: '',
@@ -2618,7 +2619,7 @@ export default function ErpGestaoClickTab({
       readjustmentIndex: "IPCA",
       contractMonths: inferredType === "PRODUTOS" || inferredType === "SPARE_PARTS" ? 1 : 24,
       paymentCondition: '',
-      validUntil: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
+      validUntil: addCalendarDays(localIsoDate(), DEFAULT_PROPOSAL_VALIDITY_DAYS),
       items: [],
       installments: [],
       monthlyRecurringTotal: 0,
