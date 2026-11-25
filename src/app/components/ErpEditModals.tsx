@@ -862,8 +862,8 @@ export function ProposalEditModal({
                   )}
                 </div>
 
-                {/* Coluna 5: Prazo de Entrega */}
-                <div className="sm:col-span-2">
+                {/* Coluna 5: Prazo de Entrega (único campo no bloco de dados; o do bloco azul foi removido) */}
+                <div className={draft.budgetType === "PRODUTOS" ? "sm:col-span-4" : "sm:col-span-2"}>
                   <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
                     Prazo de Entrega
                   </label>
@@ -880,9 +880,15 @@ export function ProposalEditModal({
                     }
                     className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-slate-900"
                   />
+                  <datalist id="proposal-delivery-leadtime-options">
+                    {PROPOSAL_DELIVERY_SUGGESTIONS.map((item) => (
+                      <option key={item} value={item} />
+                    ))}
+                  </datalist>
                 </div>
 
-                {/* Coluna 6: SLA (Nível de Serviço) */}
+                {/* Coluna 6: SLA — oculto em orçamento de produtos (venda) */}
+                {draft.budgetType !== "PRODUTOS" && (
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
                     SLA (Nível de Serviço)
@@ -905,6 +911,7 @@ export function ProposalEditModal({
                     }))}
                   />
                 </div>
+                )}
               </div>
 
               {/* LINHA 2 DO GESTÃOCLICK: Vendedor | E-mail do Vendedor | WhatsApp do Vendedor | Situação | Aos cuidados de */}
@@ -1042,6 +1049,7 @@ export function ProposalEditModal({
                   </datalist>
                 </div>
 
+                {draft.budgetType !== "PRODUTOS" && (
                 <div className="sm:col-span-4">
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     Nome da proposta <span className="text-rose-600">*</span>
@@ -1055,6 +1063,7 @@ export function ProposalEditModal({
                     className="w-full px-3 py-2 rounded border border-slate-300 text-slate-900"
                   />
                 </div>
+                )}
 
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">CNPJ ou CPF</label>
@@ -1067,6 +1076,7 @@ export function ProposalEditModal({
                   />
                 </div>
 
+                {draft.budgetType !== "PRODUTOS" && (
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     Prazo do contrato (meses) *
@@ -1082,6 +1092,7 @@ export function ProposalEditModal({
                     className="w-full px-3 py-2 rounded border border-slate-300 text-[#1e3a6e]"
                   />
                 </div>
+                )}
               </div>
 
               {/* LINHA DE CONFIGURAÇÃO POR TIPO DE PROPOSTA (PRODUTOS vs LOCAÇÃO vs SERVIÇOS) */}
@@ -1146,8 +1157,8 @@ export function ProposalEditModal({
                 </div>
               )}
 
+              {draft.budgetType !== "PRODUTOS" && draft.budgetType !== "SPARE_PARTS" && (
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 bg-blue-50/50 p-3 rounded border border-blue-200">
-                {draft.budgetType !== "PRODUTOS" && draft.budgetType !== "SPARE_PARTS" && (
                   <div className="sm:col-span-4">
                     <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
                       SLA contratado <span className="text-rose-600">*</span>
@@ -1170,34 +1181,8 @@ export function ProposalEditModal({
                       }))}
                     />
                   </div>
-                )}
 
-                <div className={draft.budgetType === "PRODUTOS" || draft.budgetType === "SPARE_PARTS" ? "sm:col-span-6" : "sm:col-span-3"}>
-                  <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
-                    Prazo de Entrega
-                  </label>
-                  <input
-                    type="text"
-                    list="proposal-delivery-leadtime-options"
-                    placeholder="Ex.: 10 dias úteis após o aceite"
-                    value={resolveProposalDeliveryLeadTime(draft)}
-                    onChange={(e) =>
-                      updateDraft({
-                        deliveryLeadTime: e.target.value,
-                        deliveryForecast: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-slate-900"
-                  />
-                  <datalist id="proposal-delivery-leadtime-options">
-                    {PROPOSAL_DELIVERY_SUGGESTIONS.map((item) => (
-                      <option key={item} value={item} />
-                    ))}
-                  </datalist>
-                </div>
-
-                {draft.budgetType !== "PRODUTOS" && draft.budgetType !== "SPARE_PARTS" && (
-                  <div className="sm:col-span-2">
+                  <div className="sm:col-span-3">
                     <label className="block text-[11px] font-semibold text-[#1e3a6e] mb-1">
                       Vigência / Contrato
                     </label>
@@ -1229,10 +1214,8 @@ export function ProposalEditModal({
                       ]}
                     />
                   </div>
-                )}
 
-                {draft.budgetType !== "SPARE_PARTS" && (
-                <div className={draft.budgetType === "PRODUTOS" ? "sm:col-span-6" : "sm:col-span-3"}>
+                <div className="sm:col-span-5">
                   <div className="flex items-center justify-between mb-1">
                     <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#1e3a6e] cursor-pointer">
                       <input
@@ -1264,8 +1247,8 @@ export function ProposalEditModal({
                     </div>
                   )}
                 </div>
-                )}
               </div>
+              )}
 
               {/* LINHA 4 DO GESTÃOCLICK: Introdução da proposta */}
               <div>

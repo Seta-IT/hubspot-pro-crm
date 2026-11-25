@@ -12,6 +12,7 @@
 import type { ErpCommercialProposal, ErpProposalItem } from '../../db/types';
 import { formatProposalDisplayCode } from './proposal-number';
 import { isAvulsoServiceProposal, proposalHidesFreight, proposalSetupFeeLabel, resolveEffectiveProposalBudgetType, resolveProposalSlaOption } from './proposal-share';
+import { displayProposalTitle } from './proposal-title';
 import { buildInternalProposalSheet, type InternalProposalIssuerInput, type InternalProposalSheet } from './internal-proposal-sheet';
 import { formatClientProposalViews } from './proposal-client-view';
 
@@ -372,7 +373,7 @@ export function toInternalProposalSummary(
     versionNumber,
     status: proposal.status || '',
     statusLabel: STATUS_LABEL[proposal.status] || textOrMissing(proposal.status),
-    title: textOrMissing(proposal.title),
+    title: textOrMissing(displayProposalTitle(proposal)),
     companyName: textOrMissing(proposal.companyName),
     companyCnpj: textOrMissing(proposal.companyCnpj),
     careOf: String(proposal.careOf || proposal.contactName || '').trim(),
@@ -406,7 +407,9 @@ export function toInternalProposalSummary(
       ...(avulso
         ? []
         : [{ label: 'Índice de reajuste', value: readjustmentValue(proposal), testId: 'internal-proposal-readjustment' }]),
-      { label: copy.slaLabel, value: slaValue(proposal), testId: 'internal-proposal-sla' },
+      ...(kind === 'PRODUTOS'
+        ? []
+        : [{ label: copy.slaLabel, value: slaValue(proposal), testId: 'internal-proposal-sla' }]),
       // A proposta não tem data de início (startDate é do contrato). Não usar prazo de entrega no lugar.
       { label: 'Início previsto', value: INTERNAL_FIELD_MISSING, testId: 'internal-proposal-start' },
       { label: 'Condição de pagamento', value: textOrMissing(proposal.paymentCondition), testId: 'internal-proposal-payment' },
@@ -421,7 +424,7 @@ export function toInternalProposalSummary(
       contractNumber: options?.contractNumber,
       clientCity: options?.clientCity,
       clientState: options?.clientState,
-      slaText: slaValue(proposal),
+      slaText: kind === 'PRODUTOS' ? '' : slaValue(proposal),
       readjustment: readjustmentValue(proposal),
     }),
   };

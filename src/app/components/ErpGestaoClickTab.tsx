@@ -108,6 +108,7 @@ import {
 } from '../lib/durable-storage';
 import { buildProposalDisplayCodeMap, formatProposalDisplayCode, nextGcProposalNumber } from '../lib/proposal-number';
 import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot, proposalSetupFeeLabel, resolveProposalAmountDisplay } from '../lib/proposal-share';
+import { displayProposalTitle } from '../lib/proposal-title';
 import { buildDefaultTechnicalSupportClauses, displayProposalTechnicalClauses, isTechnicalSupportProposal } from '../lib/proposal-technical-clauses';
 import { isoToBrDate } from '../lib/br-date';
 import GestaoClickDashboard from './GestaoClickDashboard';
@@ -1682,7 +1683,7 @@ export default function ErpGestaoClickTab({
       ...prop,
       id: `prop-copy-${Date.now()}`,
       code: nextProposalCodeHint(),
-      title: `${prop.title} (Cópia)`,
+      title: `${displayProposalTitle(prop)} (Cópia)`,
       status: "RASCUNHO",
       convertedContractId: null,
       convertedInvoiceId: null,
@@ -2713,7 +2714,7 @@ export default function ErpGestaoClickTab({
       const q = normErp(proposalsSearch);
       const qDigits = proposalsSearch.replace(/\D+/g, '');
       const hay = normErp(
-        `${p.code} ${showCode(p)} ${p.title} ${p.companyName} ${p.companyCnpj || ''} ${p.sellerName || ''} ${p.contactName || ''} ${p.careOf || ''}`
+        `${p.code} ${showCode(p)} ${displayProposalTitle(p)} ${p.title} ${p.companyName} ${p.companyCnpj || ''} ${p.sellerName || ''} ${p.contactName || ''} ${p.careOf || ''}`
       );
       const digitsHay = `${showCode(p)} ${p.companyCnpj || ''}`.replace(/\D+/g, '');
       return hay.includes(q) || (qDigits.length >= 2 && digitsHay.includes(qDigits));
@@ -3277,7 +3278,7 @@ export default function ErpGestaoClickTab({
                         </strong>
                       </span>
                     </div>
-                    <h3 className="text-base font-semibold text-slate-900 mt-1.5">{prop.title}</h3>
+                    <h3 className="text-base font-semibold text-slate-900 mt-1.5">{displayProposalTitle(prop)}</h3>
                     <div className="text-xs text-slate-500 mt-0.5">
                       Cliente: <strong>{prop.companyName}</strong> (CNPJ: {prop.companyCnpj}) • Aos cuidados de:{' '}
                       <strong>{prop.careOf || prop.contactName}</strong>
