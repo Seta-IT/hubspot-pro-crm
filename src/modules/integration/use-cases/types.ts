@@ -20,6 +20,17 @@ export interface UseCaseContext {
    * gravada pelo REST/MCP em integration_audit.details, ja sanitizada — sem segredos/PII de contato).
    */
   audit: WriteAuditTrail;
+  /**
+   * Correcao CISO (Lote 2): posse por ID dos registros criados pelo conector (metadado do conector,
+   * nao amplia visibilidade). get() devolve o ID do dono ou null.
+   */
+  owners: RecordOwnerPort;
+}
+
+export interface RecordOwnerPort {
+  get(entity: string, recordId: string): Promise<string | null>;
+  /** Grava o dono (padrao: dono da credencial; troca de vendedor com TODOS: o novo vendedor). */
+  set(entity: string, recordId: string, ownerUserId?: string): Promise<void>;
 }
 
 export interface WriteAuditTrail {

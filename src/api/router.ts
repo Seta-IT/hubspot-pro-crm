@@ -4129,6 +4129,24 @@ export class CrmApiRouter {
     return { id: id || '\u0000sem-id', email: email || '\u0000sem-email' };
   }
 
+  /**
+   * API v1/MCP (Fase 2 / Lote 3): usuario dono da credencial como ATOR de acoes que a tela so faz
+   * com sessao (links publicos de proposta/fatura). Honrado SOMENTE no contexto interno confiavel
+   * (Symbol nao forjavel; vindo de HTTP e ignorado). O conector ja conferiu escopo, alcada de tela,
+   * permissao de acao, carteira e o token de confirmacao em duas etapas antes de chamar.
+   */
+  private integrationActor(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): { id: string; email: string; name: string; roleId: string; scope: string } | null {
+    if (!ctx.trustedInternal || ctx.serviceAccount) return null;
+    const id = String(query._integrationActorId || '').trim();
+    if (!id) return null;
+    const u = this.repo.getRbacState().users.find((x) => x.id === id);
+    if (!u || u.active === false) return null;
+    return { id: u.id, email: String(u.email || ''), name: String(u.name || u.email || ''), roleId: String(u.roleId || ''), scope: String(u.scope || 'PROPRIOS') };
+  }
+
   private static isRestrictedProposalScope(scope: string): boolean {
     return scope !== 'TODOS';
   }
@@ -7891,10 +7909,14 @@ export class CrmApiRouter {
       );
       if (ticketCreateOsMatch && method === 'POST') {
         const idOrKey = decodeURIComponent(ticketCreateOsMatch[1]);
+        // API v1 (correcao CISO Lote 2, 3): pelo conector o vendedor da OS e o dono da credencial
+        // (ator da integracao, so no contexto interno), nunca o vendedor fixo do app.
+        const osActor = this.integrationActor(query, ctx);
         const result = this.repo.createServiceOrderFromTicket(idOrKey, {
           technicianName: body.technicianName ? String(body.technicianName) : undefined,
           totalAmount: body.totalAmount !== undefined ? Number(body.totalAmount) : undefined,
           description: body.description ? String(body.description) : undefined,
+          ...(osActor ? { sellerName: osActor.name, sellerUserId: osActor.id } : {}),
         });
         if (!result) {
           return { status: 404, body: { error: 'Chamado não encontrado.' } };

@@ -1729,6 +1729,8 @@ export interface ErpServiceOrder {
   serialNumber?: string;
   technicalReport?: string;
   priority?: 'BAIXA' | 'NORMAL' | 'ALTA' | 'CRITICA';
+  /** API v1: ID do usuario dono quando criada pelo conector (posse por ID na escrita). */
+  sellerUserId?: string;
 }
 
 export interface ErpSupplierRecord {

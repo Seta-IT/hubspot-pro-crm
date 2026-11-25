@@ -54,15 +54,27 @@ async function taskLinks(ctx: UseCaseContext, ids: { contactId?: string | null; 
   }
 }
 
-function assignee(ctx: UseCaseContext, requested: string | undefined): string {
+function assigneeUser(ctx: UseCaseContext, requested: string | undefined): { id: string; name: string } {
   const u = resolveAssignableOwner(ctx.portfolio, ctx.allUsers, requested, ctx.auth.actorUserId);
   if (!u) throw new UseCaseError(403, 'OWNER_OUT_OF_PORTFOLIO', 'Responsavel fora da carteira permitida para esta credencial.', { fields: ['assignedUserId'] });
-  return u.name;
+  return { id: u.id, name: u.name };
 }
 
+/**
+ * Tarefa da carteira (leitura) + POSSE POR ID para escrever (correcao CISO Lote 2, 2): a tarefa so
+ * guarda o NOME do responsavel; vale o ID gravado pelo conector (criacao/reatribuicao). Carteira
+ * TODOS => livre; ID diferente => 404; sem ID => 403 (homonimo nunca edita).
+ */
 async function findTask(ctx: UseCaseContext, id: string): Promise<CrmTask> {
   const t = (await tasksInScope(ctx, {})).find((x) => x.id === id);
   if (!t) throw notFound('Tarefa');
+  if (ctx.auth.portfolioScope !== 'TODOS') {
+    const ownerId = await ctx.owners.get('crm.task', t.id);
+    if (ownerId && ownerId !== ctx.owner.id) throw notFound('Tarefa');
+    if (!ownerId) {
+      throw new UseCaseError(403, 'OWNER_ID_REQUIRED', 'Tarefa sem ID de usuario dono: a escrita pela integracao exige carteira TODOS (posse por nome nao vale).');
+    }
+  }
   return t;
 }
 
@@ -82,15 +94,17 @@ export const crmTasksCreate = defineUseCase({
     rejectMaskedValues(input);
     await taskLinks(ctx, input);
     const { assignedUserId, ...rest } = input;
+    const who = assigneeUser(ctx, assignedUserId);
     const body = {
       type: 'TODO',
       priority: 'NONE',
       status: 'NOT_STARTED',
       ...rest,
       id: newId('task'),
-      assignedTo: assignee(ctx, assignedUserId),
+      assignedTo: who.name,
     };
     const created = unwrapWrite(await ctx.data.write('POST', '/api/tasks', body), 'Tarefa') as CrmTask;
+    await ctx.owners.set('crm.task', str(created.id), who.id);
     const out = toTask(created);
     recordWriteAudit(ctx, 'crm.task', 'create', out.id, null, out);
     return { data: out };
@@ -116,8 +130,10 @@ export const crmTasksUpdate = defineUseCase({
     const current = await findTask(ctx, id);
     await taskLinks(ctx, patch);
     const body: Record<string, unknown> = { ...patch };
-    if (assignedUserId) body.assignedTo = assignee(ctx, assignedUserId);
+    const who = assignedUserId ? assigneeUser(ctx, assignedUserId) : null;
+    if (who) body.assignedTo = who.name;
     const updated = unwrapWrite(await ctx.data.write('PATCH', `/api/tasks/${encodeURIComponent(current.id)}`, body), 'Tarefa') as CrmTask;
+    if (who) await ctx.owners.set('crm.task', current.id, who.id);
     const out = toTask(updated);
     recordWriteAudit(ctx, 'crm.task', 'update', out.id, toTask(current), out);
     return { data: out };

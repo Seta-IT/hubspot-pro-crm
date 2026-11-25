@@ -4,7 +4,7 @@
 // /api/v1/openapi.json (leitura da especificacao). Erros RFC 7807.
 // ============================================================================
 import { authenticateBearer, hasScope, verifyMfaSession, type AuthContext } from './auth-context';
-import { audit, beginIdempotency, checkRateLimit, credentialBucket, executeUseCase, finishIdempotency, newRequestId, preauthorizeUseCase } from './executor';
+import { audit, beginIdempotency, checkRateLimit, credentialBucket, executeUseCase, finishIdempotency, IDEMPOTENCY_PREVIOUS_FAILED, newRequestId, preauthorizeUseCase } from './executor';
 import { json, postgresUnavailable, problem, readSessionToken, type IntegrationHttpRequest, type IntegrationHttpResponse } from './http';
 import { getOpenApiDocument } from './openapi';
 import { resolveIntegrationDeps, type IntegrationDeps } from './runtime';
@@ -170,7 +170,12 @@ export async function handleRestV1(req: IntegrationHttpRequest, depsIn?: Integra
   const res = result.ok
     ? json(result.status, result.body, rate.headers)
     : problem(result.status, result.code, result.title, result.extra || {}, rate.headers);
-  if (uc.mutation) await finishIdempotency(store, idem, res.status, res.body);
+  if (uc.mutation) {
+    await finishIdempotency(store, idem, res.status, res.body, {
+      writeAttempted: result.writeAttempted === true,
+      failedBody: problem(IDEMPOTENCY_PREVIOUS_FAILED.status, IDEMPOTENCY_PREVIOUS_FAILED.code, IDEMPOTENCY_PREVIOUS_FAILED.title, {}).body,
+    });
+  }
   await audit(store, {
     requestId,
     channel: 'rest_v1',

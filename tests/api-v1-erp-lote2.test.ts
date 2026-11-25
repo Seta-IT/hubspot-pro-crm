@@ -23,6 +23,7 @@ import { buildOpenApiDocument } from '../src/modules/integration/openapi';
 import { INTEGRATION_USE_CASES } from '../src/modules/integration/use-cases';
 import { LOTE1_SCOPES, LOTE2_WRITE_SCOPES, isBlockedScope, validateRequestedScopes } from '../src/modules/integration/scopes';
 import { LOTE2_WRITE_OPERATIONS } from '../src/modules/integration/use-cases';
+import { finishIdempotency } from '../src/modules/integration/executor';
 
 const ORIGIN = 'https://stihub.test';
 const CSC_SECRET = 'CSCSEGREDO1234567890ABCD';
@@ -323,7 +324,7 @@ describe('Lote 2: cada ferramenta (admin, TODOS) sem gerar fatura/NF/e-mail/ativ
     assert.equal(os.status, 201, JSON.stringify(os.body));
     const osId = body(os).data.id;
     assert.equal(body(os).data.status, 'Em aberto');
-    assert.equal((await send(env, key, 'PATCH', `/api/v1/erp/service-orders/${osId}`, { totalAmount: 150 })).status, 200);
+    assert.equal((await send(env, key, 'PATCH', `/api/v1/erp/service-orders/${osId}`, { totalAmount: 150, expectedVersion: body(os).data.version })).status, 200);
     const st = await send(env, key, 'POST', `/api/v1/erp/service-orders/${osId}/status`, { status: 'Em andamento', note: 'iniciado' });
     assert.equal(st.status, 200, JSON.stringify(st.body));
     assert.equal(body(st).data.status, 'Em andamento');
@@ -340,11 +341,11 @@ describe('Lote 2: cada ferramenta (admin, TODOS) sem gerar fatura/NF/e-mail/ativ
     // Pedidos, fornecedores, catalogo, listas, financeiro
     const so = await send(env, key, 'POST', '/api/v1/erp/sales-orders', { companyId: env.ids.coAna, totalAmount: 99, itemsSummary: '1x cabo' });
     assert.equal(so.status, 201, JSON.stringify(so.body));
-    assert.equal((await send(env, key, 'PATCH', `/api/v1/erp/sales-orders/${body(so).data.id}`, { status: 'Concluido' })).status, 200);
+    assert.equal((await send(env, key, 'PATCH', `/api/v1/erp/sales-orders/${body(so).data.id}`, { status: 'Em andamento' })).status, 200);
     const po = await send(env, key, 'POST', '/api/v1/erp/purchase-orders', { supplierId: 'sup-1', totalAmount: 500, itemsSummary: '10x cabo' });
     assert.equal(po.status, 201, JSON.stringify(po.body));
     assert.equal(body(po).data.supplierName, 'Fornecedor Um');
-    assert.equal((await send(env, key, 'PATCH', `/api/v1/erp/purchase-orders/${body(po).data.id}`, { status: 'Recebido' })).status, 200);
+    assert.equal((await send(env, key, 'PATCH', `/api/v1/erp/purchase-orders/${body(po).data.id}`, { status: 'Em andamento' })).status, 200);
     const sup = await send(env, key, 'POST', '/api/v1/erp/suppliers', { name: 'Fornecedor Dois', supplierType: 'TRANSPORTADORA' });
     assert.equal(sup.status, 201, JSON.stringify(sup.body));
     assert.equal((await send(env, key, 'PATCH', `/api/v1/erp/suppliers/${body(sup).data.id}`, { cityState: 'SP/SP' })).status, 200);
@@ -602,5 +603,212 @@ describe('Lote 2: consentimento OAuth mostra escritas em vermelho e omite as aci
     const tok = await handleOAuth(req('POST', '/api/oauth/token', { headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: { grant_type: 'authorization_code', client_id: clientId, code, redirect_uri: redirect, code_verifier: verifier } }), env.deps);
     assert.equal(tok.status, 200, JSON.stringify(tok.body));
     assert.deepEqual(String(body(tok).scope).split(' ').sort(), ['erp:proposals:read', 'erp:proposals:write']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Correcoes do CISO (25/11/2026) — testes de regressao, um por item
+// ---------------------------------------------------------------------------
+function grantErp(env: Env, uid: string, patch: Record<string, unknown>) {
+  const r = userRec(env, uid);
+  r.erpPermissions = { ...(r.erpPermissions as object), ...patch } as never;
+}
+const OS_EDIT = { stockOsSalesAccess: 'EDIT' };
+const FULL_CONTROL = {
+  financeBanksAccess: 'FULL', fiscalIssuanceAccess: 'FULL', proposalsQuotesAccess: 'FULL', stockOsSalesAccess: 'FULL', rentalContractsAccess: 'FULL',
+  canIssueFiscalDocuments: true, canApproveProposals: true, canDeleteErpRecords: true,
+};
+
+describe('Lote 2 / CISO: correcoes de regressao', () => {
+  it('1. situacao de pedido de venda/compra: lista fechada, normalizada; faturado/pago/aprovado bloqueados', async () => {
+    const env = makeEnv();
+    const key = await adminKey(env);
+    for (const status of ['Faturado', 'FATURADO', 'faturádo', 'Pago', 'Aprovado', 'aprovada', 'Concretizada']) {
+      const r = await send(env, key, 'POST', '/api/v1/erp/sales-orders', { companyName: 'Cli', totalAmount: 10, itemsSummary: 'x', status });
+      assert.equal(r.status, 403, `${status}: ${JSON.stringify(r.body)}`);
+      assert.equal(body(r).code, 'ORDER_STATUS_FORBIDDEN');
+      const p = await send(env, key, 'POST', '/api/v1/erp/purchase-orders', { supplierName: 'F', totalAmount: 10, status });
+      assert.equal(p.status, 403, status);
+    }
+    assert.equal(body(await send(env, key, 'POST', '/api/v1/erp/sales-orders', { companyName: 'Cli', totalAmount: 10, itemsSummary: 'x', status: 'Qualquer' })).code, 'ORDER_STATUS_INVALID');
+    const ok = await send(env, key, 'POST', '/api/v1/erp/sales-orders', { companyName: 'Cli', totalAmount: 10, itemsSummary: 'x', status: 'EM ANDAMENTO' });
+    assert.equal(ok.status, 201, JSON.stringify(ok.body));
+    assert.equal(body(ok).data.status, 'Em andamento', 'canonicalizado');
+    const id = body(ok).data.id;
+    const fat = await send(env, key, 'PATCH', `/api/v1/erp/sales-orders/${id}`, { status: 'Faturado' });
+    assert.equal(fat.status, 403);
+    assert.equal(env.repo.getErpState().salesOrders!.find((x: any) => x.id === id)!.status, 'Em andamento');
+    // pedido ja faturado (tela/sync) nao e editado
+    (env.repo.getErpState().salesOrders as any[]).push({ id: 'so-fat', code: 'PV-9', companyName: 'C', sellerName: 'Admin API', date: '2026-11-01', status: 'Faturado', totalAmount: 1, itemsSummary: 'z' });
+    assert.equal(body(await send(env, key, 'PATCH', '/api/v1/erp/sales-orders/so-fat', { status: 'Em aberto' })).code, 'ORDER_LOCKED');
+    const po = await send(env, key, 'POST', '/api/v1/erp/purchase-orders', { supplierName: 'F', totalAmount: 10, status: 'em aberto' });
+    assert.equal(po.status, 201);
+    assert.equal(body(await send(env, key, 'PATCH', `/api/v1/erp/purchase-orders/${body(po).data.id}`, { status: 'Pago' })).code, 'ORDER_STATUS_FORBIDDEN');
+  });
+
+  it('2. posse por ID na escrita: homonimo nao edita; sem ID de dono so TODOS/controle total', async () => {
+    const env = makeEnv();
+    // homonimo: Carla renomeada para "Ana Vendas" (mesmo nome da Ana)
+    userRec(env, CARLA.uid).name = 'Ana Vendas';
+    for (const u of [ANA.uid, CARLA.uid]) grantErp(env, u, { ...OS_EDIT, rentalContractsAccess: 'EDIT' });
+    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['erp:orders:write', 'erp:orders:read', 'erp:contracts:write', 'erp:proposals:write']);
+    const carla = await keyFor(env, CARLA.uid, 'PROPRIOS', ['erp:orders:write', 'erp:orders:read', 'erp:contracts:write', 'erp:proposals:write']);
+    const os = await send(env, ana, 'POST', '/api/v1/erp/service-orders', { companyName: 'Cli', description: 'x' });
+    assert.equal(os.status, 201, JSON.stringify(os.body));
+    const osd = body(os).data;
+    // Carla (mesmo nome) ve pela tela/nome, mas nao escreve: ID do dono e da Ana => 404 neutro
+    assert.equal((await send(env, carla, 'POST', `/api/v1/erp/service-orders/${osd.id}/status`, { status: 'Em andamento' })).status, 404);
+    assert.equal((await send(env, carla, 'PATCH', `/api/v1/erp/service-orders/${osd.id}`, { description: 'y', expectedVersion: osd.version })).status, 404);
+    assert.equal((await send(env, ana, 'POST', `/api/v1/erp/service-orders/${osd.id}/status`, { status: 'Em andamento' })).status, 200);
+    const so = await send(env, ana, 'POST', '/api/v1/erp/sales-orders', { companyName: 'Cli', totalAmount: 5, itemsSummary: 'x' });
+    assert.equal(so.status, 201);
+    assert.equal((await send(env, carla, 'PATCH', `/api/v1/erp/sales-orders/${body(so).data.id}`, { itemsSummary: 'roubo' })).status, 404);
+    assert.equal((await send(env, ana, 'PATCH', `/api/v1/erp/sales-orders/${body(so).data.id}`, { itemsSummary: 'ok' })).status, 200);
+    const ct = await send(env, ana, 'POST', '/api/v1/erp/contracts', { title: 'C', companyName: 'Cli', equipments: [{ description: 'R', quantity: 1, unitMonthlyRent: 10 }] });
+    assert.equal(ct.status, 201, JSON.stringify(ct.body));
+    assert.equal((await send(env, carla, 'PATCH', `/api/v1/erp/contracts/${body(ct).data.id}`, { contractNotes: 'x' })).status, 404);
+    assert.equal((await send(env, ana, 'PATCH', `/api/v1/erp/contracts/${body(ct).data.id}`, { contractNotes: 'x' })).status, 200);
+    // registro sem ID de dono (criado pela tela, posse so por nome): PROPRIOS => 403 fail-closed
+    (env.repo.getErpState().salesOrders as any[]).find((x) => x.id === 'so-ana').status = 'Em aberto';
+    const noId = await send(env, ana, 'PATCH', '/api/v1/erp/sales-orders/so-ana', { itemsSummary: 'x' });
+    assert.equal(noId.status, 403);
+    assert.equal(body(noId).code, 'OWNER_ID_REQUIRED');
+    assert.equal(body(await send(env, ana, 'PATCH', '/api/v1/erp/contracts/ctr-ana', { contractNotes: 'x' })).code, 'OWNER_ID_REQUIRED');
+    const osTec = await send(env, ana, 'POST', '/api/v1/erp/service-orders/os-ana/status', { status: 'Em andamento' });
+    assert.equal(body(osTec).code, 'OWNER_ID_REQUIRED', 'tecnico por nome nao da posse de escrita');
+    // ... controle total do ERP (mesmo PROPRIOS) libera registro sem ID de dono
+    grantErp(env, ANA.uid, FULL_CONTROL);
+    assert.equal((await send(env, ana, 'PATCH', '/api/v1/erp/sales-orders/so-ana', { itemsSummary: 'x' })).status, 200);
+    // proposta: posse pelo sellerUserId (ID), nunca pelo nome
+    (env.repo.getErpState().proposals as any[]).find((p) => p.id === 'prop-carla').sellerName = 'Ana Vendas';
+    assert.equal((await send(env, ana, 'PATCH', '/api/v1/erp/proposals/prop-carla', { title: 'x' })).status, 404);
+    // tarefa (CRM): responsavel so por nome => sem ID => 403; criada pelo conector => posse por ID
+    const crmAna = await keyFor(env, ANA.uid, 'PROPRIOS', ['crm:tasks:write', 'crm:tasks:read']);
+    assert.equal(body(await send(env, crmAna, 'PATCH', `/api/v1/crm/tasks/${env.ids.tAna}`, { title: 'x' })).code, 'OWNER_ID_REQUIRED');
+    const tk = await send(env, crmAna, 'POST', '/api/v1/crm/tasks', { title: 'Nova' });
+    assert.equal(tk.status, 201, JSON.stringify(tk.body));
+    assert.equal((await send(env, crmAna, 'PATCH', `/api/v1/crm/tasks/${body(tk).data.id}`, { title: 'Nova 2' })).status, 200);
+    const crmCarla = await keyFor(env, CARLA.uid, 'PROPRIOS', ['crm:tasks:write', 'crm:tasks:read']);
+    assert.equal((await send(env, crmCarla, 'PATCH', `/api/v1/crm/tasks/${body(tk).data.id}`, { title: 'homonimo' })).status, 404);
+  });
+
+  it('3. OS a partir de chamado: vendedor = ator da integracao, na carteira dele; OS existente so se na carteira', async () => {
+    const env = makeEnv();
+    grantErp(env, ANA.uid, OS_EDIT);
+    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['erp:orders:write', 'erp:orders:read', 'tickets:read'], ALL_MODULES as never);
+    const t = addTicket(env);
+    const r = await send(env, ana, 'POST', '/api/v1/erp/service-orders/from-ticket', { ticketId: t.id });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    const os = body(r).data;
+    assert.equal(os.sellerName, 'Ana Vendas');
+    assert.notEqual(os.sellerName, 'Marcelo Mira');
+    const raw = env.repo.getErpState().serviceOrders!.find((x: any) => x.id === os.id) as any;
+    assert.equal(raw.sellerUserId, ANA.uid);
+    // fica na carteira de quem criou: lista e edita
+    const list = body(await get(env, ana, '/api/v1/erp/service-orders')).data.map((x: any) => x.id);
+    assert.ok(list.includes(os.id));
+    assert.equal((await send(env, ana, 'POST', `/api/v1/erp/service-orders/${os.id}/status`, { status: 'Concluída' })).status, 200);
+    // a tela (sem ator) continua com o padrao do app
+    const t2 = addTicket(env);
+    const screen = env.repo.createServiceOrderFromTicket(t2.id, {});
+    assert.equal(screen!.serviceOrder.sellerName, 'Marcelo Mira');
+    // OS ja vinculada (vendedor padrao, fora da carteira da Ana) => 404, sem devolver a OS
+    const again = await send(env, ana, 'POST', '/api/v1/erp/service-orders/from-ticket', { ticketId: t2.id });
+    assert.equal(again.status, 404, JSON.stringify(again.body));
+    assert.ok(!JSON.stringify(again.body).includes(screen!.serviceOrder.code));
+  });
+
+  it('4. marcador da conta de servico: recusado na escrita e nao amplia visibilidade no conector', async () => {
+    const env = makeEnv();
+    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['erp:proposals:write', 'erp:proposals:read']);
+    const bruno = await keyFor(env, BRUNO.uid, 'PROPRIOS', ['erp:proposals:write', 'erp:proposals:read']);
+    const items = [{ description: 'Item', quantity: 1, unitPrice: 10 }];
+    for (const notes of ['Criada por Assistente de Vendas (serviço).', 'xx CRIADA POR ASSISTENTE DE VENDAS yy']) {
+      const r = await send(env, ana, 'POST', '/api/v1/erp/proposals', { title: 'P', companyName: 'Cli', items, commercialNotes: notes });
+      assert.equal(r.status, 422, JSON.stringify(r.body));
+      assert.equal(body(r).code, 'SERVICE_ACCOUNT_MARKER_FORBIDDEN');
+    }
+    assert.equal(body(await send(env, ana, 'PATCH', '/api/v1/erp/proposals/prop-ana', { technicalClauses: 'Criada por Assistente de Vendas (serviço).' })).code, 'SERVICE_ACCOUNT_MARKER_FORBIDDEN');
+    // proposta legada com o marcador no texto: nao vira visivel/editavel por todos no conector
+    (env.repo.getErpState().proposals as any[]).find((p) => p.id === 'prop-carla').commercialNotes = 'Criada por Assistente de Vendas (serviço).';
+    assert.equal((await get(env, bruno, '/api/v1/erp/proposals/prop-carla')).status, 404);
+    assert.equal((await send(env, bruno, 'PATCH', '/api/v1/erp/proposals/prop-carla', { title: 'x' })).status, 404);
+    // autoria = carteira real (sellerUserId) + metadado do conector
+    const ok = await send(env, ana, 'POST', '/api/v1/erp/proposals', { title: 'P', companyName: 'Cli', items, commercialNotes: 'normal' });
+    assert.equal(ok.status, 201, JSON.stringify(ok.body));
+    const created = (env.repo.getErpState().proposals as any[]).find((p) => p.id === body(ok).data.id);
+    assert.equal(created.sellerUserId, ANA.uid);
+    assert.notEqual(created.createdByServiceAccount, true);
+    assert.equal(await env.store.getRecordOwner('erp.proposal', created.id), ANA.uid);
+    assert.equal((await get(env, bruno, `/api/v1/erp/proposals/${created.id}`)).status, 404);
+  });
+
+  it('5. contrato nasce so EM_IMPLANTACAO ou PENDENTE_ASSINATURA', async () => {
+    const env = makeEnv();
+    const key = await adminKey(env);
+    const base = { title: 'C', companyName: 'Cli', equipments: [{ description: 'R', quantity: 1, unitMonthlyRent: 10 }] };
+    for (const status of ['ATIVO', 'SUSPENSO', 'RENOVACAO_PROXIMA']) {
+      const r = await send(env, key, 'POST', '/api/v1/erp/contracts', { ...base, status });
+      assert.equal(r.status, 400, status);
+    }
+    const p = await send(env, key, 'POST', '/api/v1/erp/contracts', { ...base, status: 'PENDENTE_ASSINATURA' });
+    assert.equal(p.status, 201);
+    assert.equal(body(p).data.status, 'PENDENTE_ASSINATURA');
+    const d = await send(env, key, 'POST', '/api/v1/erp/contracts', base);
+    assert.equal(body(d).data.status, 'EM_IMPLANTACAO');
+    // camada de dados tambem recusa (defesa em profundidade)
+    await assert.rejects(new RouterDataPort(env.router).write('POST', '/api/erp/rental-contracts', { ...base, status: 'ATIVO' }));
+  });
+
+  it('6. idempotencia: 5xx depois de escrever nao libera a chave (retry => 409, sem segundo registro)', async () => {
+    const env = makeEnv();
+    const key = await adminKey(env);
+    const before = env.repo.getErpState().salesOrders!.length;
+    // falha DEPOIS da gravacao interna (ex.: store da posse indisponivel)
+    const orig = env.store.putRecordOwner.bind(env.store);
+    env.store.putRecordOwner = async () => {
+      throw new Error('falha simulada');
+    };
+    const idem = 'ciso-retry-5xx-0001';
+    const payload = { companyName: 'Cli', totalAmount: 10, itemsSummary: 'x' };
+    const first = await send(env, key, 'POST', '/api/v1/erp/sales-orders', payload, idem);
+    assert.ok(first.status >= 500, String(first.status));
+    env.store.putRecordOwner = orig;
+    const retry = await send(env, key, 'POST', '/api/v1/erp/sales-orders', payload, idem);
+    assert.equal(retry.status, 409, JSON.stringify(retry.body));
+    assert.equal(body(retry).code, 'IDEMPOTENCY_PREVIOUS_ATTEMPT_FAILED');
+    assert.equal(env.repo.getErpState().salesOrders!.length, before + 1, 'um unico registro');
+    // em andamento (reserva antes de executar) => 409
+    const fresh = 'ciso-inflight-0001';
+    const p1 = send(env, key, 'POST', '/api/v1/erp/sales-orders', payload, fresh);
+    const p2 = send(env, key, 'POST', '/api/v1/erp/sales-orders', payload, fresh);
+    const [a, b] = await Promise.all([p1, p2]);
+    assert.deepEqual([a.status, b.status].sort(), [201, 409]);
+    assert.equal(env.repo.getErpState().salesOrders!.length, before + 2);
+    // 5xx SEM escrita => libera (retry retoma)
+    const store = env.store;
+    await store.putIdempotency({ actorScopeKey: 'a', idempotencyKey: 'k', method: 'POST', path: '/x', requestHash: 'h', statusCode: 0, responseBody: null, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() });
+    await finishIdempotency(store, { kind: 'reserved', actor: 'a', key: 'k' }, 503, {}, { writeAttempted: false });
+    assert.equal(await store.getIdempotency('a', 'k', new Date().toISOString()), null);
+  });
+
+  it('7. update de OS: controle otimista (expectedVersion obrigatoria; versao antiga => 409)', async () => {
+    const env = makeEnv();
+    const key = await adminKey(env);
+    const os = body(await send(env, key, 'POST', '/api/v1/erp/service-orders', { companyName: 'Cli', description: 'a' })).data;
+    assert.match(os.version, /^v1-[0-9a-f]{24}$/);
+    assert.equal((await send(env, key, 'PATCH', `/api/v1/erp/service-orders/${os.id}`, { description: 'sem versao' })).status, 400);
+    const u1 = await send(env, key, 'PATCH', `/api/v1/erp/service-orders/${os.id}`, { description: 'b', expectedVersion: os.version });
+    assert.equal(u1.status, 200, JSON.stringify(u1.body));
+    assert.notEqual(body(u1).data.version, os.version);
+    // segundo cliente com a versao antiga => 409, sem sobrescrever
+    const u2 = await send(env, key, 'PATCH', `/api/v1/erp/service-orders/${os.id}`, { description: 'c', expectedVersion: os.version });
+    assert.equal(u2.status, 409);
+    assert.equal(body(u2).code, 'VERSION_CONFLICT');
+    assert.equal(body(u2).currentVersion, body(u1).data.version);
+    assert.equal((env.repo.getErpState().serviceOrders!.find((x: any) => x.id === os.id) as any).description, 'b');
+    // mudanca pela tela tambem invalida a versao
+    (env.repo.getErpState().serviceOrders!.find((x: any) => x.id === os.id) as any).technicianName = 'Outro Tec';
+    assert.equal((await send(env, key, 'PATCH', `/api/v1/erp/service-orders/${os.id}`, { description: 'd', expectedVersion: body(u1).data.version })).status, 409);
   });
 });

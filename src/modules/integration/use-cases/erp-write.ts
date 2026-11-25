@@ -16,6 +16,8 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod/v4';
 import type { ErpCommercialProposal, ErpRentalContract, ErpServiceOrder, ServiceTicket } from '../../../db/types';
 import { nextServiceOrderCode, SERVICE_ORDER_STATUSES } from '../../erp/service-order-workflow';
+import { serviceOrderVersion } from '../../erp/service-order-version';
+import { hasServiceAccountMarker, isForbiddenOrderStatus, normalizeStatusText } from '../data-port';
 import { companyInScope, contactInScope, dealInScope, ticketInScope } from '../portfolio';
 import {
   recordWriteAudit,
@@ -38,6 +40,7 @@ import {
   norm,
   num,
   ProposalDto,
+  requireWriteOwner,
   PurchaseOrderDto,
   SaleOrderDto,
   ServiceOrderDto,
@@ -73,6 +76,40 @@ const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === 'ob
 
 function nonEmpty(patch: Record<string, unknown>): void {
   if (Object.keys(patch).length === 0) throw new UseCaseError(422, 'EMPTY_PATCH', 'Nenhum campo para atualizar.');
+}
+
+/** Correcao CISO (Lote 2, 4): texto com o marcador da conta de servico => 422 (ampliaria a visibilidade). */
+function rejectServiceAccountMarker(input: unknown, path = ''): void {
+  if (typeof input === 'string') {
+    if (hasServiceAccountMarker(input)) {
+      throw new UseCaseError(422, 'SERVICE_ACCOUNT_MARKER_FORBIDDEN', 'Texto reservado ao app (marcador da conta de servico) nao e aceito pela integracao.', { fields: [path || '(corpo)'] });
+    }
+    return;
+  }
+  if (Array.isArray(input)) input.forEach((v, i) => rejectServiceAccountMarker(v, `${path}[${i}]`));
+  else if (input && typeof input === 'object') for (const [k, v] of Object.entries(input)) rejectServiceAccountMarker(v, path ? `${path}.${k}` : k);
+}
+
+/**
+ * Correcao CISO (Lote 2, 1): situacao de pedido de venda/compra e lista FECHADA de situacoes
+ * iniciais; comparacao normalizada (caixa/acentos). Faturado/Pago/Aprovado e equivalentes => 403.
+ */
+export const SALES_ORDER_STATUSES = ['Em aberto', 'Em andamento'] as const;
+export const PURCHASE_ORDER_STATUSES = ['Em aberto', 'Em andamento'] as const;
+export function canonicalOrderStatus(value: string, allowed: readonly string[]): string {
+  if (isForbiddenOrderStatus(value)) {
+    throw new UseCaseError(403, 'ORDER_STATUS_FORBIDDEN', 'Faturar, pagar ou aprovar pedido nao e feito pela integracao.', { fields: ['status'], allowed });
+  }
+  const n = normalizeStatusText(value);
+  const hit = allowed.find((a) => normalizeStatusText(a) === n);
+  if (!hit) throw new UseCaseError(422, 'ORDER_STATUS_INVALID', `Situacao invalida. Permitidas: ${allowed.join(', ')}.`, { fields: ['status'], allowed });
+  return hit;
+}
+/** Pedido que ja saiu das situacoes iniciais (faturado, pago, aprovado, concluido...) nao e editado. */
+function assertOrderEditable(current: { status?: unknown }, allowed: readonly string[], label: string): void {
+  const n = normalizeStatusText(current.status);
+  if (n === '' || allowed.some((a) => normalizeStatusText(a) === n)) return;
+  throw new UseCaseError(409, 'ORDER_LOCKED', `${label} fora das situacoes iniciais (${allowed.join(', ')}) nao e editado pela integracao.`);
 }
 
 /** Empresa/contato/negocio do CRM vinculados: inexistente ou fora da carteira => 404 neutro. */
@@ -209,6 +246,7 @@ export const erpProposalsCreate = defineUseCase({
   async handler(input, ctx) {
     requireOwnerScope(ctx, 'erp:proposals:write');
     rejectMaskedValues(input);
+    rejectServiceAccountMarker(input);
     checkDiscounts(ctx, input);
     if (!input.companyId && !input.companyName) {
       throw new UseCaseError(422, 'COMPANY_REQUIRED', 'Informe companyId (empresa do CRM) ou companyName.', { fields: ['companyId', 'companyName'] });
@@ -219,6 +257,8 @@ export const erpProposalsCreate = defineUseCase({
     body.sellerEmail = seller.email;
     body.status = input.status || 'RASCUNHO';
     const created = unwrapWrite(await ctx.data.write('POST', '/api/erp/proposals', body), 'Proposta') as ErpCommercialProposal;
+    // Autoria/posse: sellerUserId (servidor, pelo e-mail do vendedor) + metadado do conector; carteira real.
+    await ctx.owners.set('erp.proposal', str(created.id), seller.id);
     const out = toProposal(created);
     recordWriteAudit(ctx, 'erp.proposal', 'create', out.id, null, out);
     return { data: out };
@@ -245,17 +285,22 @@ export const erpProposalsUpdate = defineUseCase({
     const { id, expectedUpdatedAt, ...patch } = input;
     nonEmpty(patch);
     rejectMaskedValues(patch);
+    rejectServiceAccountMarker(patch);
     checkDiscounts(ctx, patch);
     const current = await loadOwnedProposal(ctx, id);
+    await requireWriteOwner(ctx, 'erp.proposal', current.id, current.sellerUserId, 'Proposta');
     assertProposalUnlocked(current);
     const { body, sellerUserId } = await proposalBody(ctx, patch);
+    let newSeller: string | null = null;
     if (sellerUserId !== undefined) {
       const seller = resolveSeller(ctx, sellerUserId);
       body.sellerName = seller.name;
       body.sellerEmail = seller.email;
+      newSeller = seller.id;
     }
     if (expectedUpdatedAt) body.expectedUpdatedAt = expectedUpdatedAt;
     const updated = unwrapWrite(await ctx.data.write('PATCH', `/api/erp/proposals/${encodeURIComponent(current.id)}`, body), 'Proposta') as ErpCommercialProposal;
+    if (newSeller) await ctx.owners.set('erp.proposal', current.id, newSeller);
     const out = toProposal(updated);
     recordWriteAudit(ctx, 'erp.proposal', 'update', out.id, toProposal(current), out);
     return { data: out };
@@ -279,10 +324,14 @@ export const erpProposalRestoreVersion = defineUseCase({
   async handler(input, ctx) {
     requireOwnerScope(ctx, 'erp:proposals:write');
     const current = await loadOwnedProposal(ctx, input.id);
+    await requireWriteOwner(ctx, 'erp.proposal', current.id, current.sellerUserId, 'Proposta');
     assertProposalUnlocked(current);
     const entry = (Array.isArray(current.versionHistory) ? current.versionHistory : []).find((v) => Number(v.version) === input.targetVersion);
     if (!entry) throw notFound('Versao do orcamento');
     const snap = asRecord(entry.snapshot);
+    if (hasServiceAccountMarker(snap.commercialNotes) || snap.createdByServiceAccount === true) {
+      throw new UseCaseError(403, 'SERVICE_ACCOUNT_MARKER_FORBIDDEN', 'Esta revisao traz o marcador da conta de servico (ampliaria a visibilidade); restaure pela tela.');
+    }
     if (LOCKED_PROPOSAL_STATUS.has(str(snap.status).trim().toUpperCase())) {
       throw new UseCaseError(403, 'PROPOSAL_STATUS_RESTORE_FORBIDDEN', 'Esta revisao mudaria a situacao para Aprovada/Convertida.');
     }
@@ -306,6 +355,8 @@ export const erpProposalRestoreVersion = defineUseCase({
 // CONTRATOS DE LOCACAO (nunca fatura/remessa/NF: generateNextInvoiceOnSave sempre false)
 // ---------------------------------------------------------------------------
 const ContractStatusInput = z.enum(['ATIVO', 'EM_IMPLANTACAO', 'RENOVACAO_PROXIMA', 'PENDENTE_ASSINATURA', 'SUSPENSO']);
+/** Correcao CISO (Lote 2, 5): contrato nasce so em implantacao (rascunho) ou pendente de assinatura. */
+const ContractCreateStatusInput = z.enum(['EM_IMPLANTACAO', 'PENDENTE_ASSINATURA']);
 const EquipmentInput = z
   .object({
     id: IdSchema.optional(),
@@ -387,9 +438,9 @@ export const erpContractsCreate = defineUseCase({
   summary: 'Criar contrato de locacao',
   description:
     'Cria um contrato (sem gerar fatura, remessa ou NF; e-mail automatico de cobranca e regua desligados). Vendedor = dono da credencial (outro so com TODOS). ' +
-    'Campos de faturamento/remessa/link de pagamento/assinatura nao sao aceitos. Idempotency-Key obrigatoria.',
+    'Nasce EM_IMPLANTACAO (padrao) ou PENDENTE_ASSINATURA (nunca ATIVO/SUSPENSO). Campos de faturamento/remessa/link de pagamento/assinatura nao sao aceitos. Idempotency-Key obrigatoria.',
   requiredScope: 'erp:contracts:write',
-  inputSchema: z.object({ title: text(200).min(1), equipments: Equipments, ...contractFields() }).strict(),
+  inputSchema: z.object({ title: text(200).min(1), equipments: Equipments, ...contractFields(), status: ContractCreateStatusInput.optional() }).strict(),
   outputSchema: one(ContractDto),
   async handler(input, ctx) {
     requireOwnerScope(ctx, 'erp:contracts:write');
@@ -399,6 +450,7 @@ export const erpContractsCreate = defineUseCase({
     }
     const body = await contractBody(ctx, input, null);
     if (input.sellerUserId === undefined) body.sellerName = ctx.owner.name;
+    const contractOwner = input.sellerUserId ? resolveSeller(ctx, input.sellerUserId).id : ctx.owner.id;
     body.status = input.status || 'EM_IMPLANTACAO';
     body.autoSendEmailOnBilling = false;
     body.dunningRuleEnabled = false;
@@ -406,6 +458,7 @@ export const erpContractsCreate = defineUseCase({
       body.monthlyValue = (body.equipments as Array<{ quantity: number; unitMonthlyRent: number }>).reduce((s, e) => s + e.quantity * e.unitMonthlyRent, 0);
     }
     const created = unwrapWrite(await ctx.data.write('POST', '/api/erp/rental-contracts', body), 'Contrato') as ErpRentalContract;
+    await ctx.owners.set('erp.contract', str(created.id), contractOwner);
     const out = toContract(created);
     recordWriteAudit(ctx, 'erp.contract', 'create', out.id, null, out);
     return { data: out };
@@ -429,9 +482,11 @@ export const erpContractsUpdate = defineUseCase({
     nonEmpty(patch);
     rejectMaskedValues(patch);
     const current = await findContract(ctx, id);
+    await requireWriteOwner(ctx, 'erp.contract', current.id, null, 'Contrato');
     if (current.status === 'ENCERRADO') throw new UseCaseError(409, 'CONTRACT_CLOSED', 'Contrato encerrado nao e editado pela integracao.');
     const body = await contractBody(ctx, patch, current);
     const updated = unwrapWrite(await ctx.data.write('PATCH', `/api/erp/rental-contracts/${encodeURIComponent(current.id)}`, body), 'Contrato') as ErpRentalContract;
+    if (patch.sellerUserId) await ctx.owners.set('erp.contract', current.id, resolveSeller(ctx, patch.sellerUserId).id);
     const out = toContract(updated);
     recordWriteAudit(ctx, 'erp.contract', 'update', out.id, toContract(current), out);
     return { data: out };
@@ -453,6 +508,7 @@ export const erpContractRestoreVersion = defineUseCase({
   async handler(input, ctx) {
     requireOwnerScope(ctx, 'erp:contracts:write');
     const current = await findContract(ctx, input.id);
+    await requireWriteOwner(ctx, 'erp.contract', current.id, null, 'Contrato');
     if (current.status === 'ENCERRADO') throw new UseCaseError(409, 'CONTRACT_CLOSED', 'Contrato encerrado nao e alterado pela integracao.');
     const entry = (Array.isArray(current.versionHistory) ? current.versionHistory : []).find((v) => Number(v.versionNumber) === input.targetVersion);
     if (!entry) throw notFound('Versao do contrato');
@@ -491,6 +547,7 @@ export const erpContractRenew = defineUseCase({
   async handler(input, ctx) {
     requireOwnerScope(ctx, 'erp:contracts:write');
     const current = await findContract(ctx, input.id);
+    await requireWriteOwner(ctx, 'erp.contract', current.id, null, 'Contrato');
     if (current.status === 'ENCERRADO') throw new UseCaseError(409, 'CONTRACT_CLOSED', 'Contrato encerrado nao e renovado pela integracao.');
     const renewed = unwrapWrite(
       await ctx.data.write('POST', `/api/erp/rental-contracts/${encodeURIComponent(current.id)}/renew`, { months: input.months }),
@@ -523,10 +580,12 @@ const osFields = () =>
     priority: z.enum(['BAIXA', 'NORMAL', 'ALTA', 'CRITICA']).optional(),
   }) as const;
 
+/** OS da carteira (leitura, como a tela) + POSSE POR ID para escrever (correcao CISO Lote 2, 2). */
 async function findOwnedServiceOrder(ctx: UseCaseContext, id: string): Promise<ErpServiceOrder> {
   const list = await allServiceOrders(ctx, {});
   const s = list.find((x) => x.id === id || x.code === id);
   if (!s || !serviceOrderInScope(s, erpOwner(ctx))) throw notFound('Ordem de servico');
+  await requireWriteOwner(ctx, 'erp.service_order', s.id, s.sellerUserId, 'Ordem de servico');
   return s;
 }
 
@@ -558,6 +617,7 @@ export const erpServiceOrdersCreate = defineUseCase({
       companyName,
       ...(links.company ? { companyCnpj: str(links.company.cnpj) } : {}),
       sellerName: seller.name,
+      sellerUserId: seller.id,
       technicianName: rest.technicianName ?? '',
       entryDate: rest.entryDate ?? '',
       exitDate: rest.exitDate ?? '',
@@ -565,6 +625,7 @@ export const erpServiceOrdersCreate = defineUseCase({
       description: rest.description ?? '',
     };
     const created = unwrapWrite(await ctx.data.write('POST', '/api/erp/service-orders', body), 'Ordem de servico') as ErpServiceOrder;
+    await ctx.owners.set('erp.service_order', str(created.id), seller.id);
     const out = toServiceOrder(created);
     recordWriteAudit(ctx, 'erp.service_order', 'create', out.id, null, out);
     return { data: out };
@@ -578,19 +639,26 @@ export const erpServiceOrdersUpdate = defineUseCase({
   path: '/api/v1/erp/service-orders/{id}',
   pathParams: ['id'],
   summary: 'Editar ordem de servico',
-  description: 'Edita campos permitidos (PATCH strict) de uma OS da carteira. Situacao muda so por erp_service_order_status_change.',
+  description:
+    'Edita campos permitidos (PATCH strict) de uma OS da carteira (posse por ID). Situacao muda so por erp_service_order_status_change. ' +
+    'Controle otimista OBRIGATORIO: expectedVersion = campo version lido da OS; versao diferente => 409 VERSION_CONFLICT.',
   requiredScope: 'erp:orders:write',
-  inputSchema: z.object({ id: IdSchema, ...osFields() }).strict(),
+  inputSchema: z.object({ id: IdSchema, expectedVersion: z.string().trim().min(4).max(64), ...osFields() }).strict(),
   outputSchema: one(ServiceOrderDto),
   async handler(input, ctx) {
     requireOwnerScope(ctx, 'erp:orders:write');
-    const { id, ...patch } = input;
+    const { id, expectedVersion, ...patch } = input;
     nonEmpty(patch);
     rejectMaskedValues(patch);
     const current = await findOwnedServiceOrder(ctx, id);
+    // Correcao CISO (Lote 2, 7): lost update => 409 (a versao e o hash dos campos editaveis).
+    const currentVersion = serviceOrderVersion(current as unknown as Record<string, unknown>);
+    if (expectedVersion !== currentVersion) {
+      throw new UseCaseError(409, 'VERSION_CONFLICT', 'A OS mudou desde a leitura (versao diferente). Releia e reaplique a alteracao.', { currentVersion });
+    }
     const links = await crmLinks(ctx, { companyId: patch.companyId });
-    const body: Record<string, unknown> = { ...current, ...patch, id: current.id, code: current.code, status: current.status };
-    delete body.statusHistory;
+    // So os campos alterados (+ chaves obrigatorias da rota): o upsert do app faz merge com o registro vivo.
+    const body: Record<string, unknown> = { ...patch, id: current.id, code: current.code, status: current.status, companyName: patch.companyName ?? current.companyName };
     if (links.company) {
       body.companyName = links.company.name;
       body.companyCnpj = str(links.company.cnpj);
@@ -650,6 +718,7 @@ export const erpServiceOrderDuplicate = defineUseCase({
       await ctx.data.write('POST', `/api/erp/service-orders/${encodeURIComponent(current.id)}/duplicate`, dup),
       'Ordem de servico'
     ) as ErpServiceOrder;
+    await ctx.owners.set('erp.service_order', str(created.id), str(current.sellerUserId) || ctx.owner.id);
     const out = toServiceOrder(created);
     recordWriteAudit(ctx, 'erp.service_order', 'duplicate', out.id, null, out);
     return { data: out };
@@ -684,16 +753,34 @@ export const erpServiceOrderFromTicket = defineUseCase({
     const contacts = new Map(snap.contacts.map((c) => [c.id, c]));
     const companies = new Map(snap.companies.map((c) => [c.id, c]));
     if (!t || !ticketInScope(ctx.portfolio, t, { contact: (i) => contacts.get(i), company: (i) => companies.get(i) })) throw notFound('Chamado');
+    // Correcao CISO (Lote 2, 3): OS ja vinculada so e devolvida se estiver na carteira do dono.
+    const linkedId = str((t as { serviceOrderId?: unknown }).serviceOrderId);
+    if (linkedId) {
+      const existing = (await allServiceOrders(ctx, {})).find((x) => x.id === linkedId || x.code === linkedId);
+      if (existing) {
+        if (!serviceOrderInScope(existing, erpOwner(ctx))) throw notFound('Ordem de servico vinculada ao chamado');
+        return { data: { ...toServiceOrder(existing), ticketId: t.id, ticketKey: str(t.key) } };
+      }
+    }
+    // Vendedor = ator da integracao (dono da credencial), nunca o vendedor fixo do app.
     const res = unwrapWrite(
-      await ctx.data.write('POST', `/api/tickets/${encodeURIComponent(t.id)}/create-os`, {
-        ...(input.technicianName ? { technicianName: input.technicianName } : {}),
-        ...(input.totalAmount !== undefined ? { totalAmount: input.totalAmount } : {}),
-        description: input.description || `Chamado ${str(t.key) || t.id}`,
-      }),
+      await ctx.data.write(
+        'POST',
+        `/api/tickets/${encodeURIComponent(t.id)}/create-os`,
+        {
+          ...(input.technicianName ? { technicianName: input.technicianName } : {}),
+          ...(input.totalAmount !== undefined ? { totalAmount: input.totalAmount } : {}),
+          description: input.description || `Chamado ${str(t.key) || t.id}`,
+        },
+        { actorUserId: ctx.owner.id }
+      ),
       'Chamado'
     ) as { ticket: ServiceTicket; serviceOrder: ErpServiceOrder };
-    const out = { ...toServiceOrder(res.serviceOrder), ticketId: t.id, ticketKey: str(t.key) };
-    recordWriteAudit(ctx, 'erp.service_order', 'create_from_ticket', out.id, null, { ...toServiceOrder(res.serviceOrder), ticketKey: out.ticketKey });
+    const os = res.serviceOrder;
+    if (!os || !serviceOrderInScope(os, erpOwner(ctx))) throw notFound('Ordem de servico vinculada ao chamado');
+    if (str(os.sellerUserId) === ctx.owner.id) await ctx.owners.set('erp.service_order', str(os.id));
+    const out = { ...toServiceOrder(os), ticketId: t.id, ticketKey: str(t.key) };
+    recordWriteAudit(ctx, 'erp.service_order', 'create_from_ticket', out.id, null, { ...toServiceOrder(os), ticketKey: out.ticketKey });
     return { data: out };
   },
 });
@@ -742,7 +829,8 @@ const saleFields = () =>
     companyId: IdSchema.optional(),
     companyName: text(200).min(1).optional(),
     date: DateText.optional(),
-    status: text(60).min(1).optional(),
+    /** Lista fechada (SALES_ORDER_STATUSES), comparacao sem caixa/acentos. */
+    status: text(60).min(1).optional().describe(`Situacao: ${SALES_ORDER_STATUSES.join(' | ')} (faturado/pago/aprovado nunca).`),
     totalAmount: money.optional(),
     itemsSummary: text(2000).optional(),
     paymentMethod: text(80).optional(),
@@ -781,10 +869,12 @@ export const erpSalesOrdersCreate = defineUseCase({
       code: nextCode(list, 'PV-API-'),
       companyName,
       sellerName: seller.name,
+      sellerUserId: seller.id,
       date: rest.date || new Date().toISOString().slice(0, 10),
-      status: rest.status || 'Em aberto',
+      status: canonicalOrderStatus(rest.status || 'Em aberto', SALES_ORDER_STATUSES),
     };
     const saved = unwrapWrite(await ctx.data.write('POST', '/api/erp/records/salesOrders', body), 'Pedido de venda');
+    await ctx.owners.set('erp.sales_order', str(saved.id), seller.id);
     const out = toSaleOrder(saved);
     recordWriteAudit(ctx, 'erp.sales_order', 'create', out.id, null, out);
     return { data: out };
@@ -810,11 +900,21 @@ export const erpSalesOrdersUpdate = defineUseCase({
     const o = erpOwner(ctx);
     const current = (await collections(ctx)).salesOrders.find((s) => s && s.id === id);
     if (!current || (o && norm(current.sellerName) !== norm(o.name))) throw notFound('Pedido de venda');
+    await requireWriteOwner(ctx, 'erp.sales_order', current.id, (current as { sellerUserId?: unknown }).sellerUserId, 'Pedido de venda');
+    assertOrderEditable(current, SALES_ORDER_STATUSES, 'Pedido de venda');
+    if (patch.status !== undefined) patch.status = canonicalOrderStatus(patch.status, SALES_ORDER_STATUSES);
     const links = await crmLinks(ctx, { companyId });
     const body: Record<string, unknown> = { ...patch };
     if (links.company) body.companyName = links.company.name;
-    if (sellerUserId !== undefined) body.sellerName = resolveSeller(ctx, sellerUserId).name;
+    let newSeller: string | null = null;
+    if (sellerUserId !== undefined) {
+      const sel = resolveSeller(ctx, sellerUserId);
+      body.sellerName = sel.name;
+      body.sellerUserId = sel.id;
+      newSeller = sel.id;
+    }
     const saved = unwrapWrite(await ctx.data.write('PATCH', `/api/erp/records/salesOrders/${encodeURIComponent(current.id)}`, body), 'Pedido de venda');
+    if (newSeller) await ctx.owners.set('erp.sales_order', current.id, newSeller);
     const out = toSaleOrder(saved);
     recordWriteAudit(ctx, 'erp.sales_order', 'update', out.id, toSaleOrder(current as unknown as Record<string, unknown>), out);
     return { data: out };
@@ -826,7 +926,8 @@ const purchaseFields = () =>
     supplierId: IdSchema.optional(),
     supplierName: text(200).min(1).optional(),
     issueDate: DateText.optional(),
-    status: text(60).min(1).optional(),
+    /** Lista fechada (PURCHASE_ORDER_STATUSES), comparacao sem caixa/acentos. */
+    status: text(60).min(1).optional().describe(`Situacao: ${PURCHASE_ORDER_STATUSES.join(' | ')} (faturado/pago/aprovado/recebido nunca).`),
     itemsSummary: text(2000).optional(),
     costCenter: text(120).optional(),
     totalAmount: money.optional(),
@@ -866,7 +967,7 @@ export const erpPurchaseOrdersCreate = defineUseCase({
       supplierName,
       ...(sup ? { supplierCnpj: str(sup.cnpj) } : {}),
       issueDate: rest.issueDate || new Date().toISOString().slice(0, 10),
-      status: rest.status || 'Em aberto',
+      status: canonicalOrderStatus(rest.status || 'Em aberto', PURCHASE_ORDER_STATUSES),
       nfeNumber: '',
     };
     const saved = unwrapWrite(await ctx.data.write('POST', '/api/erp/records/purchaseOrders', body), 'Pedido de compra');
@@ -898,6 +999,8 @@ export const erpPurchaseOrdersUpdate = defineUseCase({
     if (current.nfeAccessKey || (Array.isArray(current.parsedItems) && current.parsedItems.length > 0)) {
       throw new UseCaseError(409, 'PURCHASE_FROM_XML_LOCKED', 'Pedido importado de XML de NF-e nao e editado pela integracao.');
     }
+    assertOrderEditable(current, PURCHASE_ORDER_STATUSES, 'Pedido de compra');
+    if (patch.status !== undefined) patch.status = canonicalOrderStatus(patch.status, PURCHASE_ORDER_STATUSES);
     const sup = await purchaseSupplier(ctx, supplierId);
     const body: Record<string, unknown> = { ...patch };
     if (sup) {

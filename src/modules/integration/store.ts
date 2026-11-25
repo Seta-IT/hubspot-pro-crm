@@ -36,6 +36,17 @@ export interface IdempotencyRecord {
   expiresAt: string;
 }
 
+/**
+ * Correcao CISO (Lote 2, 2/3/4): posse (ID do usuario dono) dos registros criados pelo conector.
+ * Metadado so do conector: NAO amplia visibilidade na tela; serve para a escrita exigir posse por ID.
+ */
+export interface RecordOwnerRecord {
+  entity: string;
+  recordId: string;
+  ownerUserId: string;
+  createdAt: string;
+}
+
 export type AuditChannel = 'rest_v1' | 'mcp' | 'oauth' | 'iam';
 export type AuditAuthType = 'api_key' | 'oauth' | 'session' | 'service_key' | 'none';
 
@@ -127,6 +138,9 @@ export interface IntegrationStore {
   completeIdempotency(actorScopeKey: string, key: string, statusCode: number, responseBody: unknown): Promise<void>;
   /** Libera a reserva quando a operacao falhou (5xx/excecao), para permitir nova tentativa. */
   deleteIdempotency(actorScopeKey: string, key: string): Promise<void>;
+  // --- posse por ID dos registros criados pelo conector (troca de vendedor sobrescreve) ---
+  putRecordOwner(rec: RecordOwnerRecord): Promise<void>;
+  getRecordOwner(entity: string, recordId: string): Promise<string | null>;
   // --- auditoria ---
   insertAudit(entry: IntegrationAuditEntry): Promise<void>;
   // --- rate-limit (janela fixa, incremento atomico) ---
