@@ -15,6 +15,7 @@ import { handleChat, handleExecute, type AssistenteDeps } from '../../../../modu
 import type { AssistenteUser } from '../../../../modules/assistente/tools';
 import { resolveIntegrationDeps } from '../../../../modules/integration/runtime';
 import { randomBytes } from 'node:crypto';
+import { getAssistenteStore } from '../../../../modules/assistente/conversas-store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -142,6 +143,12 @@ export async function POST(req: NextRequest, { params }: { params: { acao: strin
       const recibo = signAuditReceipt(secret, { uid: user.uid, ...entry, at: Date.now(), n: randomBytes(8).toString('hex') });
       const r = await api({ method: 'POST', path: '/api/assistente/auditoria', body: { recibo } }).catch(() => null);
       if (!r || r.status !== 201) console.error('[assistente] falha ao gravar auditoria', r?.status ?? 'erro');
+    },
+    // Aprendizado contínuo: memória do próprio usuário (owner_uid) e regras de acessórios.
+    aprendizado: {
+      listarMemorias: () => getAssistenteStore().listarMemorias(user.uid),
+      criarMemoria: (m) => getAssistenteStore().criarMemoria(user.uid, m),
+      listarRegras: () => getAssistenteStore().listarRegras(),
     },
   };
 

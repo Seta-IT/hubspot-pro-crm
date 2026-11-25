@@ -113,10 +113,13 @@ export function tipoPropostaNoTexto(texto: string, respostaNumerica = false): Ti
     if (n) return TIPOS_PROPOSTA[Number(n[1]) - 1];
   }
   if (/\b(locac(?:ao|oes)|locar|alug(?:uel|ar|ado|ados)|haas|comodato)\b/.test(t)) return 'locacao';
-  const servico = /\b(servicos?|suporte|manutencao|instalacao|configuracao|consultoria|noc|mao de obra)\b/.test(t);
+  const servico = /\b(servicos?|suporte|manutencao|instalacao|configuracao|implantacao|consultoria|noc|monitoramento|mao de obra|visita tecnica)\b/.test(t);
   if (servico || /^\s*(pontual|avulso|mensal)\s*$/.test(t)) {
     if (/\b(pontua(?:l|is)|avuls[oa]s?|pagamento unico|unica vez|uma vez so|uma vez)\b/.test(t)) return 'servico_pontual';
     if (/\b(mensa(?:l|is)|mensalidade|recorrentes?|por mes|ao mes|contrato de suporte|\d{1,3} meses)\b/.test(t)) return 'servico_mensal';
+    // 25/11/2026 (t172u): instalação/configuração => pontual; suporte/monitoramento/NOC => mensal.
+    if (/\b(instalacao|configuracao|implantacao|visita tecnica|mao de obra)\b/.test(t)) return 'servico_pontual';
+    if (/\b(suporte|monitoramento|noc|outsourcing)\b/.test(t)) return 'servico_mensal';
     return 'servico';
   }
   if (/\b(produtos?|vendas?|vender|compra|comprar|equipamentos? (?:para|pra) venda|hardware|licencas?)\b/.test(t)) return 'produtos';

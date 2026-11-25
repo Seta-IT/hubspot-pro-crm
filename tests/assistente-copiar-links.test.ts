@@ -586,7 +586,7 @@ describe('assistente — texto copiável', () => {
   });
   it('botão Copiar em cada resposta, "Copiado", copiar tabela e copiar cartão', () => {
     assert.match(painel, /'Copiado'/);
-    assert.match(painel, /BotaoCopiar texto=\{it\.texto\}/);
+    assert.match(painel, /BotaoCopiar texto=\{textoSemMarkdown\(it\.texto\)\}/);
     assert.match(painel, /textoDoResultado\(r\)/);
     assert.match(painel, /textoDoCartao\(/);
     assert.match(painel, /Copiar tabela/);

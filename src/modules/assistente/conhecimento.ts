@@ -121,7 +121,7 @@ export const BASE_CONHECIMENTO: EntradaConhecimento[] = [
     titulo: 'Criar orçamento / proposta',
     chaves: [['tipos de proposta', 6], ['tipo de proposta', 6], ['tipos de orcamento', 6], ['gerar proposta', 5], ['gerar orcamento', 5], ['criar orcamento', 5], ['novo orcamento', 5], ['fazer orcamento', 5], ['criar proposta', 5], ['nova proposta', 5], ['fazer proposta', 5], ['montar proposta', 5], ['como faco um orcamento', 6], ['como faco uma proposta', 6]],
     resposta:
-      'Para criar: Orçamentos / Propostas → escolha o tipo → "Novo". O tipo vem primeiro, porque muda os campos: Produtos (itens, quantidades, valor unitário, frete e prazo de entrega); Serviços pontual (descrição e valor do serviço, pagamento único, sem "/mês"); Serviços mensal (prazo em meses, valor mensal, setup/implantação opcional e índice de reajuste); Locação (equipamentos, prazo em meses, mensalidade, setup/ativação cobrado à parte e índice de reajuste: IPCA, IGP-M, IST ou fixo). Em todos: cliente (nome ou CNPJ) e forma de pagamento, só Boleto, Pix ou Ted / Transferência. Eu também monto o rascunho: peça "gerar uma proposta" que eu pergunto o tipo e depois os campos dele. O rascunho passa pelo seu "Confirmar" e não é enviado ao cliente.',
+      'Para criar: Orçamentos / Propostas → escolha o tipo → "Novo". O tipo vem primeiro, porque muda os campos: Produtos (itens, quantidades, valor unitário, frete e prazo de entrega); Serviços pontual (descrição e valor do serviço, pagamento único, sem "/mês"); Serviços mensal (prazo em meses, valor mensal, setup/implantação opcional e índice de reajuste); Locação (equipamentos, prazo em meses, mensalidade, setup/ativação cobrado à parte e índice de reajuste: IPCA, IGP-M, IST ou fixo). Em todos: cliente (nome ou CNPJ) e forma de pagamento, só Boleto, Pix ou Ted / Transferência. Eu também monto o rascunho: o tipo sai da frase (venda = Produtos; instalação = Serviço pontual; suporte/monitoramento = Serviço mensal; alugar = Locação) e pergunto o tipo só quando não der para saber. Para produto (ex.: "gere uma proposta de 1 switch cisco 3850"), mostro os modelos do cadastro com código, preço e estoque para você escolher e sugiro acessórios compatíveis que existem no cadastro (fontes, ópticos, módulos de uplink). Frete (a definir), prazo de entrega (conforme disponibilidade) e forma (Boleto) usam o padrão e aparecem na tela de confirmação para ajuste. Pode responder em linhas numeradas (ex.: "3 incluso", "5 Boleto"). O rascunho passa pelo seu "Confirmar" e não é enviado ao cliente.',
   },
   {
     id: 'editar-orcamento',
@@ -221,6 +221,13 @@ export const BASE_CONHECIMENTO: EntradaConhecimento[] = [
     chaves: [['nao localizado', 5], ['nao localizada', 5], ['nao encontrado', 5], ['nao encontrei', 4], ['sumiu', 4], ['desapareceu', 4], ['nao aparece', 4], ['nao acho', 4]],
     resposta:
       'Quando algo "não é localizado", normalmente é: (1) link colado sem a assinatura do cliente (use "Copiar link do cliente" na lista); (2) seu perfil só vê os registros da sua carteira; (3) registro do ERP de origem ainda não sincronizado; ou (4) número digitado diferente. Me mande o número, o código prop-..., o link, o CNPJ ou o nome do cliente que eu procuro em todo o sistema.',
+  },
+  {
+    id: 'assistente-conversas',
+    titulo: 'Conversas, histórico e aprendizado do assistente',
+    chaves: [['historico', 4], ['conversas', 4], ['nova conversa', 6], ['apagar conversa', 6], ['encerrar conversa', 6], ['excluir conversa', 6], ['o que voce aprendeu', 6], ['aprendizado', 5], ['aprender', 3], ['memoria', 4], ['esquecer', 4]],
+    resposta:
+      'Cada conversa fica salva só para você, com título da primeira pergunta e data (ícone de relógio no topo do assistente; tem busca). "Nova conversa" começa outra; ao reabrir a página, a última conversa volta com os cartões e botões. "Encerrar" deixa a conversa só leitura (dá para reabrir e continuar); "Apagar" pede confirmação, só o dono apaga e a exclusão fica na auditoria; também dá para apagar todas as suas conversas. Eu aprendo com você: diga "sempre ...", "nunca ...", "prefiro ..." ou "não é assim, é ..." e use os botões de gostei / não gostei com o motivo. Veja, edite ou apague cada lição em "O que o assistente aprendeu" (ícone de cérebro). Nunca guardo senha, token ou cartão, e lição de um CNPJ só vale para ele (Trava Fiscal).',
   },
   {
     id: 'assistente-escopo',
