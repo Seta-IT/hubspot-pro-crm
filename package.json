@@ -10,6 +10,7 @@
     "start:web": "next start -p ${PORT:-3000}",
     "dev": "next dev -p 3000",
     "db:migrate": "tsc -p tsconfig.build.json && node dist/src/db/cli-migrate.js",
+    "db:migrate:run": "node dist/src/db/cli-migrate.js",
     "db:migrate:setadesk": "tsc -p tsconfig.build.json && node dist/src/db/setadesk-migrate.js",
     "setadesk:import-jira": "tsc -p tsconfig.build.json && node dist/src/db/cli-import-jira.js",
     "setadesk:purge-tickets": "tsc -p tsconfig.build.json && node dist/src/db/cli-purge-tickets.js",

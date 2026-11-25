@@ -253,6 +253,7 @@ import { applyProposalCommercialNotesDefault, proposalNoteDefaultTypeKey } from 
 import { loadProposalNoteDefaults } from '../modules/erp/proposal-note-defaults-store';
 import { LoginIpFailureGuard } from './login-ip-guard';
 import { rateLimitIpKey } from './client-ip';
+import { resolveConfiguredPublicOrigin, parseHttpOrigin, useSecureCookies } from '../lib/platform';
 import { sanitizeApiResponseBody } from '../db/iam-security';
 import { isProposalLinkPreviewAgent, isServiceCreatedProposal, nextClientProposalView } from '../app/lib/proposal-client-view';
 import {
@@ -456,11 +457,12 @@ export function normalizeResendApiKey(raw: unknown): string {
 
 // ---------------------------------------------------------------------------
 // Pacote C: cookie de sessao e cookie de remocao com os MESMOS atributos
-// (Path=/; HttpOnly; SameSite=Lax; Secure quando na Vercel).
+// (Path=/; HttpOnly; SameSite=Lax; Secure via useSecureCookies: SECURE_COOKIES,
+// producao, VERCEL=1 ou Cloud Run).
 // ---------------------------------------------------------------------------
 export const STIHUB_SESSION_COOKIE_NAME = 'stihub_session';
 function sessionCookieSecureAttr(): string {
-  return typeof process !== 'undefined' && process.env.VERCEL === '1' ? '; Secure' : '';
+  return useSecureCookies() ? '; Secure' : '';
 }
 export function buildSessionCookie(token: string): string {
   return `${STIHUB_SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${sessionCookieSecureAttr()}`;
@@ -3770,7 +3772,6 @@ export class CrmApiRouter {
       audit('SELF_PASSWORD_CHANGED', 'SUCCESS', 'Senha alterada pelo próprio usuário; sessões anteriores invalidadas.');
       // Cookie novo (iat >= passwordChangedAt): as outras sessoes ficam invalidas; esta continua.
       const newToken = signStiHubSessionToken({ ...claims, iat: Math.max(Date.now(), Date.parse(res.passwordChangedAt || '') || 0) });
-      const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
       headers['Set-Cookie'] = buildSessionCookie(newToken);
     }
     return {
@@ -11141,8 +11142,7 @@ export class CrmApiRouter {
 
         // Direct login when 2FA is disabled (mfaEnabled === false) for this user
         if (challenge.mfaRequired === false && challenge.sessionToken) {
-          const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
-          const cookieHeader = buildSessionCookie(challenge.sessionToken);
+              const cookieHeader = buildSessionCookie(challenge.sessionToken);
           return {
             status: 200,
             headers: {
@@ -11504,7 +11504,6 @@ export class CrmApiRouter {
         if (!suVerified.ok || !suVerified.sessionToken) {
           return { status: 401, body: { error: suVerified.error || 'Código inválido.', code: 'STEP_UP_FAILED' } };
         }
-        const suSecure = process.env.VERCEL === '1' ? '; Secure' : '';
         return {
           status: 200,
           headers: {
@@ -11566,8 +11565,7 @@ export class CrmApiRouter {
             body: { error: verified.error || 'Código MFA 2FA inválido.' },
           };
         }
-        const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
-        const cookieHeader = buildSessionCookie(verified.sessionToken);
+          const cookieHeader = buildSessionCookie(verified.sessionToken);
         return {
           status: 200,
           headers: {
@@ -11639,8 +11637,11 @@ export class CrmApiRouter {
           if (rec && rec.active !== false && rec.email.toLowerCase() === emailIn) {
             const pv = passwordVersionOf(rec as { passwordChangedAt?: string });
             const { token, claims } = signPasswordResetToken({ uid: rec.id, email: rec.email, pv });
-            // Origem fixa do servidor (nunca derivada do Host da requisicao).
-            const origin = String(process.env.STI_HUB_PUBLIC_ORIGIN || 'https://sti-hub.vercel.app').replace(/\/+$/, '');
+            // Origem fixa do servidor (STI_HUB_PUBLIC_ORIGIN validada; nunca do Host).
+            const origin = resolveConfiguredPublicOrigin();
+            if (!origin) {
+              console.error('[STI-hub auth] forgot-password: STI_HUB_PUBLIC_ORIGIN ausente/invalida; e-mail nao enviado.');
+            } else {
             const sent = await this.dispatchPasswordResetEmail({
               toEmail: rec.email,
               userName: rec.name || rec.email,
@@ -11648,6 +11649,7 @@ export class CrmApiRouter {
               expiresAt: new Date(claims.exp).toISOString(),
             });
             console.info(`[STI-hub auth] forgot-password: link emitido para ${rec.id} (entregue=${sent.delivered}${sent.emailId ? `, id=${sent.emailId}` : ''}).`);
+            }
           }
         } else if (!ipOk || !emailOk) {
           console.warn(`[STI-hub auth] forgot-password: rate-limit atingido (ip=${ipOk ? 'ok' : 'limite'}, email=${emailOk ? 'ok' : 'limite'}).`);
@@ -11690,8 +11692,7 @@ export class CrmApiRouter {
           // persistencia local opcional
         }
         console.info(`[STI-hub auth] reset-password: senha redefinida para ${rec.id}; sessoes anteriores invalidadas.`);
-        const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
-        return {
+          return {
           status: 200,
           headers: { 'Set-Cookie': buildClearSessionCookie() },
           body: {
@@ -11723,8 +11724,7 @@ export class CrmApiRouter {
         }
 
         if (accepted.mfaRequired === false && accepted.sessionToken) {
-          const secureAttr = process.env.VERCEL === '1' ? '; Secure' : '';
-          const cookieHeader = buildSessionCookie(accepted.sessionToken);
+              const cookieHeader = buildSessionCookie(accepted.sessionToken);
           return {
             status: 200,
             headers: {
@@ -11773,7 +11773,7 @@ export class CrmApiRouter {
         const target = userInviteMatch
           ? decodeURIComponent(userInviteMatch[1])
           : String(body.userId || body.email || '').trim();
-        const baseOrigin = String(process.env.STI_HUB_PUBLIC_ORIGIN || query._origin || 'https://sti-hub.vercel.app');
+        const baseOrigin = resolveConfiguredPublicOrigin() || parseHttpOrigin(query._origin) || '';
         const resetTotp = body.resetTotp !== false;
         const inviteRes = this.repo.createUserInvite(target, baseOrigin, resetTotp);
         if (!inviteRes.ok || !inviteRes.user || !inviteRes.inviteUrl) {
@@ -12208,7 +12208,7 @@ export class CrmApiRouter {
           return { status: 400, body: { error: pwCheckCreate.error, code: 'PASSWORD_TOO_SHORT' } };
         }
         const saved = this.repo.upsertRbacUser(stripClientTotpSecretFields(pwCheckCreate.body));
-        const baseOrigin = String(process.env.STI_HUB_PUBLIC_ORIGIN || query._origin || 'https://sti-hub.vercel.app');
+        const baseOrigin = resolveConfiguredPublicOrigin() || parseHttpOrigin(query._origin) || '';
         const inviteInfo = this.repo.createUserInvite(saved.id, baseOrigin, !body.totpConfigured);
         const roleDef = this.repo.getEffectiveUserAndRole(saved.id).role;
         const inviteDelivery = inviteInfo.inviteUrl

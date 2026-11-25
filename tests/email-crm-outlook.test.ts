@@ -37,14 +37,16 @@ const ADMIN = () => ({ ...HTTP, _sessionToken: tok('usr-seta-01', 'marcelo.mira@
 const SELLER = () => ({ ...HTTP, _sessionToken: tok('usr-seta-03', 'marialuiza@setatelecom.com.br', 'VENDEDOR_SALES') });
 
 const KEY = crypto.randomBytes(32).toString('base64url');
+const PUBLIC_ORIGIN = 'https://sti-hub.setatelecom.com.br';
 function enableEnv() {
   process.env.MS_CLIENT_ID = '11111111-2222-3333-4444-555555555555';
   process.env.MS_CLIENT_SECRET = 'segredo-de-teste';
   process.env.MS_TENANT_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
   process.env.STI_HUB_MAILBOX_ENC_KEY = KEY;
+  process.env.STI_HUB_PUBLIC_ORIGIN = PUBLIC_ORIGIN;
 }
 function disableEnv() {
-  for (const k of ['MS_CLIENT_ID', 'MS_CLIENT_SECRET', 'MS_TENANT_ID', 'STI_HUB_MAILBOX_ENC_KEY']) delete process.env[k];
+  for (const k of ['MS_CLIENT_ID', 'MS_CLIENT_SECRET', 'MS_TENANT_ID', 'STI_HUB_MAILBOX_ENC_KEY', 'STI_HUB_PUBLIC_ORIGIN']) delete process.env[k];
 }
 
 type Call = { url: string; method: string; body?: string; headers?: Record<string, string> };
@@ -203,7 +205,7 @@ describe('Rastreio de aberturas e cliques', () => {
     assert.equal(unknownOpen.status, 200);
     const unknownClick = await handleEmailTrackRequest(cPath(trackingId, 7), store);
     assert.equal(unknownClick.status, 302);
-    assert.equal(unknownClick.headers.get('location'), 'https://sti-hub.vercel.app');
+    assert.equal(unknownClick.headers.get('location'), PUBLIC_ORIGIN);
     // abertura dentro da carencia (varredura do provedor) nao conta
     const fresh = { ...msg, id: 'eml-2', externalId: 'graph:2', trackingId: newTrackingId(), occurredAt: new Date().toISOString() };
     await store.insertMessage(fresh);
@@ -233,7 +235,7 @@ describe('Rastreio de aberturas e cliques', () => {
     await handleEmailTrackRequest(oPath(trackingId), store, '1.2.3.4', lim);
     const over = await handleEmailTrackRequest(cPath(trackingId, 0), store, '1.2.3.4', lim);
     assert.equal(over.status, 302);
-    assert.equal(over.headers.get('location'), 'https://sti-hub.vercel.app');
+    assert.equal(over.headers.get('location'), PUBLIC_ORIGIN);
     assert.equal(store.messages[0].clickCount, 0);
     assert.equal(isPublicStiHubPath(oPath(trackingId), 'GET'), true);
     assert.equal(isPublicStiHubPath(cPath(trackingId, 0), 'GET'), true);
@@ -269,7 +271,7 @@ describe('Rotas /api/mailbox', () => {
     assert.ok(url.pathname.startsWith('/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/'));
     assert.equal(url.searchParams.get('scope'), 'offline_access User.Read Mail.Send Mail.Read');
     assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
-    assert.equal(url.searchParams.get('redirect_uri'), 'https://sti-hub.vercel.app/conta/email/retorno');
+    assert.equal(url.searchParams.get('redirect_uri'), `${PUBLIC_ORIGIN}/conta/email/retorno`);
     assert.equal(done.status, 200, JSON.stringify(done.body));
     const text = JSON.stringify(done.body);
     assert.ok(!/at-123|rt-456|tokenCipher/.test(text));

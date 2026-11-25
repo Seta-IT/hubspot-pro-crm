@@ -23,6 +23,7 @@ import { buildDefaultTechnicalSupportClauses, isTechnicalSupportProposal } from 
 import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
 import path from 'path';
+import { usesEphemeralFilesystem } from '../lib/platform';
 import crypto from 'crypto';
 import {
   applyServiceOrderStatusChange,
@@ -9341,7 +9342,7 @@ export class CrmRepository {
 
   createUserInvite(
     userOrEmail: string,
-    baseOrigin = "https://sti-hub.vercel.app",
+    baseOrigin = "",
     resetTotp = true
   ): {
     ok: boolean;
@@ -9402,7 +9403,7 @@ export class CrmRepository {
       exp: expMs,
     });
 
-    const cleanOrigin = String(baseOrigin || "https://sti-hub.vercel.app").replace(/\/+$/, "");
+    const cleanOrigin = String(baseOrigin || "").replace(/\/+$/, "");
     const inviteUrl = `${cleanOrigin}/login?invite=${encodeURIComponent(inviteToken)}`;
     const conviteUrl = `${cleanOrigin}/convite?token=${encodeURIComponent(inviteToken)}`;
 
@@ -11185,7 +11186,7 @@ let singletonRepo: CrmRepository | null = null;
 
 export function getRepository(): CrmRepository {
   if (!singletonRepo) {
-    const defaultStorePath = process.env.VERCEL
+    const defaultStorePath = usesEphemeralFilesystem()
       ? '/tmp/crm-store.json'
       : path.join(process.cwd(), '.data', 'crm-store.json');
     const storePath = process.env.CRM_STORE_PATH || defaultStorePath;

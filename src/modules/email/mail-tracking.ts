@@ -9,6 +9,7 @@
 // - Pixel 1x1 no fim do corpo. Rotas publicas: /api/email-track/o/:id e /api/email-track/c/:id/:n.
 // ============================================================================
 import crypto from 'node:crypto';
+import { resolveConfiguredPublicOrigin } from '../../lib/platform';
 import { resolveMailboxEncKey } from './mailbox-crypto';
 import {
   autolinkBareUrlsInSanitizedHtml,
@@ -67,14 +68,7 @@ export const escapeHtml = escapeHtmlFn;
 const URL_RE = /\bhttps?:\/\/[^\s<>"'()]+[^\s<>"'().,;:!?]/gi;
 
 export function publicOrigin(): string {
-  const raw = String(process.env.STI_HUB_PUBLIC_ORIGIN || 'https://sti-hub.vercel.app').trim();
-  try {
-    const u = new URL(raw);
-    if (u.protocol !== 'https:' && u.hostname !== 'localhost') return 'https://sti-hub.vercel.app';
-    return u.origin;
-  } catch {
-    return 'https://sti-hub.vercel.app';
-  }
+  return resolveConfiguredPublicOrigin() || '';
 }
 
 export interface BuiltEmailBody {

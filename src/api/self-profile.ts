@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { normalizeAndValidatePhone } from '../modules/data-health/validators';
 import type { StiHubUserRecord } from '../db/types';
 import { PASSWORD_RESET_MIN_LENGTH } from './password-reset';
+import { resolveConfiguredPublicOrigin } from '../lib/platform';
 
 /** Campos que exigem step-up MFA recente (STEP_UP_FRESH_MS). */
 export const SELF_PROFILE_STEP_UP_FIELDS = ['mfaMethod', 'newPassword', 'currentPassword'] as const;
@@ -28,7 +29,7 @@ export const SELF_TARGET_KEYS = ['id', 'userId', 'email'] as const;
 export const SELF_PASSWORD_MIN_LENGTH = PASSWORD_RESET_MIN_LENGTH;
 export const SELF_PASSWORD_MAX_LENGTH = 128;
 export const AVATAR_DATA_URL_MAX_BYTES = 200 * 1024;
-export const AVATAR_ALLOWED_HOSTS = ['sti-hub.vercel.app', 'setatelecom.com.br', 'gravatar.com', 'googleusercontent.com'] as const;
+export const AVATAR_ALLOWED_HOSTS = ['setatelecom.com.br', 'gravatar.com', 'googleusercontent.com'] as const;
 
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e]/;
@@ -48,7 +49,16 @@ function isAllowedAvatarUrl(v: string): boolean {
   }
   if (u.protocol !== 'https:' || u.username || u.password || u.port) return false;
   const host = u.hostname.toLowerCase();
-  return AVATAR_ALLOWED_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+  const extra: string[] = [];
+  const publicOrigin = resolveConfiguredPublicOrigin();
+  if (publicOrigin) {
+    try {
+      extra.push(new URL(publicOrigin).hostname.toLowerCase());
+    } catch {
+      /* origem invalida ja rejeitada */
+    }
+  }
+  return [...AVATAR_ALLOWED_HOSTS, ...extra].some((h) => host === h || host.endsWith(`.${h}`));
 }
 
 export const selfProfilePatchSchema = z

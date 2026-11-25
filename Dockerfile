@@ -1,42 +1,50 @@
 # ============================================================================
-# HubSpot Pro CRM - Production Multi-Stage Dockerfile (Next.js + PostgreSQL)
+# STI-hub — imagem de producao para Cloud Run (Next.js standalone + dist/).
+# Multi-stage, Node 24, usuario nao-root. PORT vem do ambiente (Cloud Run).
+# Migracoes NAO rodam na inicializacao: use o mesmo image como Cloud Run Job
+#   com o comando `node dist/src/db/cli-migrate.js` (ver docs/CLOUD_RUN_MIGRATION.md).
 # ============================================================================
 
-FROM node:20-alpine AS base
+FROM node:24-alpine AS base
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 
-# 1. Instalação de dependências
 FROM base AS deps
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm ci --omit=dev
 
-# 2. Compilação TypeScript + Next.js Build
 FROM base AS builder
-COPY --from=deps /app/node_modules ./node_modules
+COPY package.json package-lock.json* ./
+RUN npm ci
 COPY . .
+RUN mkdir -p public
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
 RUN npm run build && npm run build:web
 
-# 3. Imagem final de produção
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+ENV PORT=8080
 
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json* ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/next.config.mjs ./next.config.mjs
+# Sobrepoe o node_modules minimo do standalone com o de producao completo
+# (necessario para o Cloud Run Job `node dist/src/db/cli-migrate.js`).
+COPY --from=deps /app/node_modules ./node_modules
 
-RUN mkdir -p /app/.data && chown -R node:node /app
+RUN mkdir -p /app/.data /tmp && chown -R node:node /app /tmp
 USER node
 
-EXPOSE 3000
+EXPOSE 8080
 
-CMD ["sh", "-c", "node dist/src/db/cli-migrate.js && npx next start -p ${PORT:-3000}"]
+# Cloud Run injeta PORT. O server.js do Next standalone respeita PORT e HOSTNAME.
+CMD ["node", "server.js"]

@@ -295,7 +295,7 @@ export function buildProposalVersionShortUrl(
 ): string {
   const baseOrigin =
     options?.origin ||
-    (typeof window !== "undefined" ? window.location.origin : "https://sti-hub.vercel.app");
+    (typeof window !== "undefined" ? window.location.origin : "");
   const url = `${baseOrigin}/proposta/${encodeURIComponent(proposalId)}/v/${Math.max(1, Math.floor(Number(version) || 1))}`;
   return options?.autoPrint ? `${url}?print=1` : url;
 }
@@ -1742,7 +1742,7 @@ export function buildInternalProposalUrl(
 ): string {
   const baseOrigin =
     options?.origin ||
-    (typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.vercel.app');
+    (typeof window !== 'undefined' ? window.location.origin : '');
   const qs = options?.autoPrint ? '?print=1' : '';
   return `${baseOrigin}/proposta/${encodeURIComponent(prop.id)}${qs}`;
 }

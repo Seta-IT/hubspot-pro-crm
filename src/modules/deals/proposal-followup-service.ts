@@ -2,6 +2,7 @@
 // Funções de agenda, parada e inscrição são puras ou usam o repositório; o envio
 // de e-mail passa por deps injetadas (Outlook 365 / Graph no runtime, mock nos testes).
 
+import { resolveConfiguredPublicOrigin } from '../../lib/platform';
 import type { CrmRepository } from '../../db/repository';
 import { newTrackingId } from '../email/mail-tracking';
 import type { Company, Contact, Deal, Pipeline, ProposalFollowupEnrollment, FollowupEnrollmentStatus, FollowupStopReason, FollowupSentStep } from '../../db/types';
@@ -391,8 +392,8 @@ function proposalLinkForDeal(repo: CrmRepository, deal: Deal): string {
     const code = (prop as { publicCode?: string; shortCode?: string; code?: string }).publicCode
       || (prop as { shortCode?: string }).shortCode
       || (prop as { code?: string }).code;
-    const origin = String(process.env.STI_HUB_PUBLIC_ORIGIN || 'https://sti-hub.vercel.app').replace(/\/+$/, '');
-    return code ? `${origin}/p/${code}` : '';
+    const origin = resolveConfiguredPublicOrigin();
+    return origin && code ? `${origin}/p/${code}` : '';
   } catch {
     return '';
   }

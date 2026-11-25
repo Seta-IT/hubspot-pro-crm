@@ -141,8 +141,8 @@ export function parseAllowedRedirectHosts(env: NodeJS.ProcessEnv = process.env):
 }
 
 /**
- * Registro dinamico (DCR): alem de isAllowedRedirectUri, em PRODUCAO (NODE_ENV=production ou
- * VERCEL=1) toda redirect_uri que nao seja loopback precisa casar com OAUTH_ALLOWED_REDIRECT_HOSTS.
+ * Registro dinamico (DCR): alem de isAllowedRedirectUri, em PRODUCAO (NODE_ENV=production,
+ * VERCEL=1 ou Cloud Run) toda redirect_uri que nao seja loopback precisa casar com OAUTH_ALLOWED_REDIRECT_HOSTS.
  * Allowlist vazia em producao => so loopback (clientes nativos locais).
  */
 export function isRedirectUriAllowedForRegistration(raw: string, env: NodeJS.ProcessEnv = process.env): boolean {
