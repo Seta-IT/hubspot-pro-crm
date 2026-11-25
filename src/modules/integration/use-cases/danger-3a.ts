@@ -10,9 +10,10 @@
 import { z } from 'zod/v4';
 import { companyInScope, contactInScope, dealInScope } from '../portfolio';
 import { erpFullControl, requireAllPortfolio, userHasAccess, userHasErpAccess, type ErpArea } from './common';
-import { tasksInScope, unwrapRead as unwrapCrmRead } from './crm-extra';
+import { unwrapRead as unwrapCrmRead } from './crm-extra';
 import { defineDangerous, unwrapDangerous, type DangerousPlan } from './dangerous';
-import { allServiceOrders, collections, findContract, loadOwnedProposal, str } from './erp';
+import { findTask } from './crm-write';
+import { allServiceOrders, collections, findWritableContract, loadWritableProposal, str } from './erp';
 import { IdSchema, notFound, UseCaseError, type UseCaseContext, type UseCaseDefinition } from './types';
 
 const enc = encodeURIComponent;
@@ -92,8 +93,7 @@ const crmTasksDelete = defineDangerous({
   description: 'Exclui tarefa da carteira efetiva (canDeleteCrmRecords).',
   inputSchema: idOnly,
   async plan(input, ctx) {
-    const t: any = (await tasksInScope(ctx, {})).find((x) => x.id === input.id);
-    if (!t) throw notFound('Tarefa');
+    const t: any = await findTask(ctx, input.id);
     return delPlan('crm.task', t.id, { id: t.id, title: str(t.title), status: str(t.status) || null, dueDate: str(t.dueDate) || null }, `/api/tasks/${enc(t.id)}`, ctx, 'Tarefa');
   },
 });
@@ -112,7 +112,7 @@ const erpProposalsDelete = defineDangerous({
   description: 'Exclui proposta da carteira efetiva (canDeleteErpRecords + edicao de propostas). Proposta convertida/em uso => recusado pelo app.',
   async plan(input, ctx) {
     requireErpArea(ctx, 'proposals');
-    const p: any = await loadOwnedProposal(ctx, input.id);
+    const p: any = await loadWritableProposal(ctx, input.id);
     return delPlan('erp.proposal', p.id, { id: p.id, code: str(p.code) || null, companyName: str(p.companyName) || null, status: str(p.status) || null, totalAmount: Number(p.totalAmount ?? p.total) || 0 }, `/api/erp/proposals/${enc(p.id)}`, ctx, 'Proposta');
   },
 });
@@ -126,7 +126,7 @@ const erpContractsDelete = defineDangerous({
   description: 'Exclui contrato da carteira efetiva (canDeleteErpRecords + edicao de contratos). Contrato com faturas/remessas => recusado pelo app.',
   async plan(input, ctx) {
     requireErpArea(ctx, 'contracts');
-    const c: any = await findContract(ctx, input.id);
+    const c: any = await findWritableContract(ctx, input.id);
     return delPlan('erp.contract', c.id, { id: c.id, contractNumber: str(c.contractNumber) || null, companyName: str(c.companyName) || null, status: str(c.status) || null }, `/api/erp/rental-contracts/${enc(c.id)}`, ctx, 'Contrato');
   },
 });
