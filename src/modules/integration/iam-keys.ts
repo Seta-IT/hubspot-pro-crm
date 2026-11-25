@@ -12,7 +12,7 @@ import { audit, newRequestId } from './executor';
 import { scopesAboveUserAccess } from './use-cases/common';
 import { json, postgresUnavailable, problem, readSessionToken, type IntegrationHttpRequest, type IntegrationHttpResponse } from './http';
 import { resolveIntegrationDeps, type IntegrationDeps } from './runtime';
-import { moduleForScope, portfolioExceeds, PORTFOLIO_SCOPES, validateRequestedScopes } from './scopes';
+import { LOTE3_DANGEROUS_SCOPES, moduleForScope, portfolioExceeds, PORTFOLIO_SCOPES, validateRequestedScopes } from './scopes';
 import type { IntegrationApiKeyRecord } from './store';
 import { generateId, generateIntegrationKey } from './tokens';
 
@@ -23,6 +23,8 @@ const CreateKeySchema = z
   .object({
     name: z.string().trim().min(1).max(120),
     scopes: z.array(z.string().max(80)).min(1).max(30),
+    /** Lote 3: escopos perigosos so com confirmacao explicita do administrador. */
+    confirmDangerousScopes: z.boolean().optional(),
     portfolioScope: z.enum(PORTFOLIO_SCOPES),
     moduleAccess: z.object({ crm: z.boolean(), chamados: z.boolean(), erp: z.boolean().default(false) }).strict(),
     ownerUserId: z.string().regex(/^[A-Za-z0-9._@-]{1,120}$/).optional(),
@@ -120,6 +122,11 @@ export async function handleIamIntegrationKeys(req: IntegrationHttpRequest, deps
         return problem(400, scopes.code, scopes.code === 'SCOPE_BLOCKED'
           ? 'Escopo bloqueado pela politica CISO (IAM/Admin, DELETE, merge, escrita de Sequencias/Fiscal/Financeiro/ERP ou integracao com o ERP de origem).'
           : 'Escopo inexistente no catalogo.', { invalid: scopes.invalid });
+      }
+      const dangerous = scopes.scopes.filter((s) => LOTE3_DANGEROUS_SCOPES.has(s));
+      if (dangerous.length && input.confirmDangerousScopes !== true) {
+        await log(422, 'iam.integration_keys.create', null, 'DANGEROUS_SCOPES_CONFIRMATION_REQUIRED');
+        return problem(422, 'DANGEROUS_SCOPES_CONFIRMATION_REQUIRED', 'Escopos perigosos (excluir/mesclar/enviar/emitir/baixar...) exigem confirmDangerousScopes=true.', { invalid: dangerous });
       }
       const mismatch = scopes.scopes.filter((s) => {
         const mod = moduleForScope(s);

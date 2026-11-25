@@ -235,7 +235,7 @@ describe('Lote 1: catalogo, escopos e travas (ERP somente leitura)', () => {
   });
 
   it('escrita/fiscal/financeiro/GestaoClick fora da allowlist seguem bloqueados', () => {
-    for (const s of ['erp:fiscal:write', 'erp:financial:pay', 'erp:invoices:write', 'erp:banks:write', 'erp:gestaoclick:read', 'erp:*', 'erp:iam:read', 'crm:sequences:write', 'fiscal:nfe:read']) {
+    for (const s of ['erp:fiscal:write', 'erp:financial:pay', 'erp:invoices:write', 'erp:banks:delete', 'erp:gestaoclick:read', 'erp:*', 'erp:iam:read', 'crm:sequences:write', 'fiscal:nfe:read']) {
       assert.ok(isBlockedScope(s), s);
       const v = validateRequestedScopes(`crm:contacts:read ${s}`);
       assert.equal(v.ok, false, s);
