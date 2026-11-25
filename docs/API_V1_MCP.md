@@ -1,6 +1,6 @@
-# STI-hub — API v1, MCP remoto, OAuth 2.1 + DCR e chaves de integração (Fase 1 — backend)
+# STI-hub — API v1, MCP remoto, OAuth 2.1 + DCR e chaves de integração (Fase 1 + Fase 2/Lote 1 — leitura ERP/CRM)
 
-> Status: correções do parecer técnico do CISO aplicadas (branch `feat/api-v1-mcp`). Não publicado.
+> Status: Fase 1 em produção. **Fase 2 / Lote 1 (somente leitura do ERP e do CRM restante)** na branch `feat/api-v1-erp-lote1` — aguardando revisão do CISO, não publicado.
 
 ## Superfícies
 | Caminho | Auth | Observação |
@@ -28,8 +28,33 @@
 | tickets.comments.create | POST `/tickets/{id}/comments` | `tickets_comments_create` | `tickets:write` (+ `tickets:internal_notes:write` p/ `visibility=internal`) |
 | tickets.queues.list | GET `/tickets/queues` | `tickets_queues_list` | `tickets:read` |
 
+## Fase 2 / Lote 1 — leitura ERP e CRM restante (36 tools, todas `GET`, `readOnlyHint=true`)
+Módulo `erp` novo em `moduleAccess` (chave IAM e OAuth; padrão `false`). Toda autorização roda no conector (o `RouterDataPort` usa `TRUSTED_INTERNAL_CONTEXT`, que pula o RBAC de sessão): escopo → módulo do dono → alçada da tela (`erpPermissions`, fallback = preset do papel; valor ausente/desconhecido **nega**) → carteira. Rotas internas lidas só por allowlist (`ALLOWED_READ_PATHS` + chaves de query permitidas).
+
+| Escopo | Alçada exigida do dono | Carteira | Tools (REST `/api/v1/...`) |
+|---|---|---|---|
+| `erp:dashboard:read` | Propostas VIEW | TODOS | `erp_dashboard_get` (`/erp/dashboard`; KPIs financeiros só com Financeiro VIEW), `erp_sync_status_get` (`/erp/sync-status`; sem credenciais/URL) |
+| `erp:proposals:read` | `proposalsQuotesAccess` VIEW | PROPRIOS = vendedor (`sellerUserId`/`sellerEmail`; propostas da conta de serviço visíveis a todos, como no app) | `erp_proposals_list`, `erp_proposals_get`, `erp_proposal_versions_list` (só metadados), `erp_proposal_acceptance_get` |
+| `erp:contracts:read` | `rentalContractsAccess` VIEW | PROPRIOS = `sellerName` do dono ou empresa da carteira CRM | `erp_contracts_list`, `erp_contracts_get`, `erp_contract_versions_list` |
+| `erp:orders:read` | `stockOsSalesAccess` VIEW | OS/vendas por vendedor/técnico; compras só TODOS | `erp_service_orders_list`, `erp_service_orders_get`, `erp_sales_orders_list`, `erp_purchase_orders_list` |
+| `erp:catalog:read` | Propostas, Contratos ou Estoque VIEW | — | `erp_catalog_list`, `erp_catalog_get` (custo/margem `null` sem Financeiro VIEW), `erp_aux_lists_get` |
+| `erp:records:read` | Estoque ou Financeiro VIEW | colaboradores: TODOS + SUPER_ADMIN/DIRETORIA | `erp_suppliers_list`, `erp_employees_list` (telefone `phoneMasked` `****1234`) |
+| `erp:financial:read` | `financeBanksAccess` VIEW | TODOS | `erp_financial_entries_list`, `erp_financial_dre_get` |
+| `erp:banks:read` | Financeiro VIEW **e** `canViewBankBalances=true` | TODOS | `erp_bank_accounts_list` |
+| `erp:fiscal:read` | `fiscalIssuanceAccess` VIEW | TODOS | `erp_invoices_list`, `erp_invoices_get` (sem PIX copia-e-cola/linha digitável), `erp_fiscal_settings_get` (DTO allowlist: `cscConfigured` booleano; sem CSC, tokenId, CNPJ do certificado, lista autXML) |
+| `crm:tasks:read` | Contatos, Empresas ou Negócios VIEW | responsável ou vínculo na carteira | `crm_tasks_list`, `crm_tasks_get` |
+| `crm:automation:read` | Marketing VIEW | execuções filtradas por entidade da carteira | `crm_sequences_list`, `crm_workflows_list`, `crm_workflows_get`, `crm_workflow_runs_list` |
+| `crm:marketing:read` | Marketing VIEW | — | `crm_marketing_campaigns_list`, `crm_marketing_forms_list`, `crm_marketing_segments_list` (sem `matchedContactIds`) |
+| `crm:analytics:read` | Negócios VIEW | TODOS | `crm_insights_get` (`/analytics/insights`) |
+| `crm:data_health:read` | Contatos VIEW | TODOS | `crm_data_health_summary_get`, `crm_data_health_duplicates_list` (só ids, rótulos, score, motivos) |
+
+Erros novos: 403 `OWNER_ACCESS_INSUFFICIENT` (alçada), 403 `PORTFOLIO_ALL_REQUIRED` (exige TODOS), 403 `SENSITIVE_DATA_FORBIDDEN` (colaboradores). Fora da carteira → 404 neutro. Qualquer método ≠ GET em `/api/v1/erp/*` → 405.
+EQUIPE no ERP = só o dono (o app trata PROPRIOS/EQUIPE como "só os meus" para não-admin).
+Consentimento OAuth: escopos do Lote 1 acima do perfil do usuário são **omitidos** e listados como "Não concedidos (acima do seu perfil)"; se nada sobrar → `invalid_scope`. Clientes DCR já registrados mantêm a lista de escopos do registro — o conector do ChatGPT precisa **reconectar/re-registrar** para receber os novos escopos.
+Continua fora do conector: DELETE/merge, escrita no ERP, emissão/baixa fiscal ou financeira, sincronização/credenciais GestãoClick, certificado A1, IAM/admin/usuários, chaves de integração.
+
 ## Travas
-- Catálogo de escopos fechado; bloqueados (rejeitados na criação, ausentes do OpenAPI/MCP): DELETE, merge, sequências, fiscal/financeiro, GestãoClick/ERP, IAM/admin/RBAC, `*`.
+- Catálogo de escopos fechado; bloqueados (rejeitados na criação, ausentes do OpenAPI/MCP): DELETE, merge, escrita de sequências/fiscal/financeiro/ERP, GestãoClick, IAM/admin/RBAC, `*`. Exceção do Lote 1: os 9 escopos `erp:*:read` e `crm:automation:read` (somente GET, allowlist `LOTE1_SENSITIVE_READS` no teste de trava).
 - `portfolioScope` (PROPRIOS/EQUIPE/TODOS) e `moduleAccess` aplicados no servidor em listagem, busca, GET e mutação; teto = usuário dono ativo (estreitado a cada request). Fora da carteira → 404.
 - **Vínculos** (`companyId`, `contactId`, `dealId`) em contatos, negócios e chamados: inexistente **ou** fora da carteira → o mesmo `404` neutro (sem oráculo e sem vínculo cruzado).
 - **Alçada RBAC** (`requireOwnerAccess`) por área: contatos, empresas, negócios (inclui pipelines), atividades (por tipo de vínculo, na listagem, no filtro e na criação) e chamados (inclui filas). Alçada ausente → preset restrito do papel; desconhecida → **nega** (fail-closed).
