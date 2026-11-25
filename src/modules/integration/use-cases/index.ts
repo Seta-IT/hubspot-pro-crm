@@ -8,6 +8,7 @@ import { ERP_WRITE_USE_CASES } from './erp-write';
 import { LOTE3_DANGEROUS_SCOPES } from '../scopes';
 import { lote3aUseCases } from './danger-3a';
 import { lote3bUseCases } from './danger-3b';
+import { lote3cUseCases } from './danger-3c';
 import { TICKET_USE_CASES } from './tickets';
 
 export const INTEGRATION_USE_CASES: UseCaseDefinition[] = [
@@ -19,6 +20,7 @@ export const INTEGRATION_USE_CASES: UseCaseDefinition[] = [
   ...CRM_WRITE_USE_CASES,
   ...lote3aUseCases,
   ...lote3bUseCases,
+  ...lote3cUseCases,
 ] as unknown as UseCaseDefinition[];
 
 /**
@@ -106,6 +108,15 @@ export const LOTE3_DANGEROUS_OPERATIONS: ReadonlySet<string> = new Set([
   'automation.workflows.trigger',
   'marketing.campaigns.dispatch',
   'erp.contracts.batch_email',
+  // 3c
+  'erp.financial_entries.pay',
+  'erp.invoices.pay',
+  'erp.financial.reconcile_ofx',
+  'erp.financial.import_document',
+  'erp.purchases.import_xml',
+  'erp.bank_accounts.create',
+  'erp.bank_accounts.update',
+  'erp.bank_accounts.delete',
 ]);
 const NEVER = /(gestaoclick|iam|admin|rbac)/i;
 const lote3Base = (uc: UseCaseDefinition) => uc.operationId.replace(/\.(prepare|commit)$/, '');
