@@ -596,6 +596,85 @@ export const KV_STATE_UPSERT_SQL = `INSERT INTO crm_kv_store (key, payload, upda
 /** Leitura do crm_state_v1 sem as chaves que vivem fora dele (menos bytes por requisicao). */
 export const KV_STATE_SELECT_SQL = `SELECT payload - 'serviceTickets' AS payload FROM crm_kv_store WHERE key = $1 LIMIT 1`;
 
+/**
+ * Texto EXATO que vai para crm_kv_store.payload (mesma transformacao da gravacao): sem as chaves
+ * excluidas (serviceTickets...), sem propostas no modo tabela e sem os recursos do ERP em modo 'table'.
+ */
+export function kvPersistPayloadText(state: CrmDatabaseState, tableMode: boolean): string {
+  const kvState = stateForKvPersist(state);
+  return JSON.stringify(stripErpTableResourcesForKv(tableMode ? stateForKvTableMode(kvState) : kvState));
+}
+
+/**
+ * Perf 25/11: impressao digital do documento que seria gravado. Igual a da carga => gravar de novo
+ * nao muda nada no banco (o bootstrap e o login regravavam ~4,5 MB a cada abertura).
+ */
+export function kvPersistFingerprint(state: CrmDatabaseState, tableMode: boolean): string {
+  const kvState = stateForKvPersist(state);
+  const payload = stripErpTableResourcesForKv(tableMode ? stateForKvTableMode(kvState) : kvState);
+  // Forma canonica (chaves ordenadas): o JSONB reordena as chaves ao gravar, entao o texto carregado
+  // e o texto em memoria podem diferir so na ordem (ex.: dataHealthIssues[].suggestedMerge).
+  return createHash('sha256').update(canonicalJson(payload)).digest('hex');
+}
+
+/**
+ * JSON com as chaves de todo objeto em ordem — mesma semantica do JSON.stringify (toJSON, undefined/
+ * funcoes omitidos em objetos e null em arrays, numeros nao finitos => null). So para comparar.
+ */
+export function canonicalJson(value: unknown): string {
+  const parts: string[] = [];
+  const walk = (v: unknown, inArray: boolean): void => {
+    if (v !== null && typeof v === 'object' && typeof (v as { toJSON?: unknown }).toJSON === 'function') {
+      v = (v as { toJSON: () => unknown }).toJSON();
+    }
+    if (v === undefined || typeof v === 'function' || typeof v === 'symbol') {
+      if (inArray) parts.push('null');
+      return;
+    }
+    if (v === null) {
+      parts.push('null');
+      return;
+    }
+    if (typeof v === 'number') {
+      parts.push(Number.isFinite(v) ? String(v) : 'null');
+      return;
+    }
+    if (typeof v === 'boolean') {
+      parts.push(v ? 'true' : 'false');
+      return;
+    }
+    if (typeof v === 'string') {
+      parts.push(JSON.stringify(v));
+      return;
+    }
+    if (typeof v === 'bigint') throw new TypeError('BigInt nao serializa em JSON');
+    if (Array.isArray(v)) {
+      parts.push('[');
+      for (let i = 0; i < v.length; i++) {
+        if (i) parts.push(',');
+        walk(v[i], true);
+      }
+      parts.push(']');
+      return;
+    }
+    const obj = v as Record<string, unknown>;
+    const keys = Object.keys(obj).sort();
+    parts.push('{');
+    let first = true;
+    for (const k of keys) {
+      const val = obj[k];
+      if (val === undefined || typeof val === 'function' || typeof val === 'symbol') continue;
+      if (!first) parts.push(',');
+      first = false;
+      parts.push(JSON.stringify(k), ':');
+      walk(val, false);
+    }
+    parts.push('}');
+  };
+  walk(value, false);
+  return parts.join('');
+}
+
 /** Estado para o JSON em modo tabela: sem propostas (elas vivem em erp_proposals). */
 export function stateForKvTableMode(state: CrmDatabaseState): CrmDatabaseState {
   if (!state || !state.erp) return state;
@@ -667,11 +746,7 @@ export async function syncStateToPostgres(
 
     // 1. Atomic full state snapshot in crm_kv_store (recursos em modo 'table' vao com array vazio)
     // E1: serviceTickets nunca vai para o JSON (fonte: setadesk_*).
-    const kvState = stateForKvPersist(state);
-    await client.query(KV_STATE_UPSERT_SQL, [
-      'crm_state_v1',
-      JSON.stringify(stripErpTableResourcesForKv(tableMode ? stateForKvTableMode(kvState) : kvState)),
-    ]);
+    await client.query(KV_STATE_UPSERT_SQL, ['crm_state_v1', kvPersistPayloadText(state, tableMode)]);
 
     // 1b. Modo 'dual' (JSON = fonte): reconcilia a tabela num SAVEPOINT. Falha da tabela nunca
     // impede a gravacao do JSON; a proxima gravacao tenta de novo.

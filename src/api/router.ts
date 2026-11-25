@@ -44,6 +44,7 @@ import {
   checkPostgresHealth,
   getPostgresPool,
   isPostgresEnabled,
+  kvPersistFingerprint,
   loadStateFromPostgres,
   syncStateToPostgres,
 } from '../db/postgres';
@@ -1072,6 +1073,29 @@ const STATE_READ_FALLBACK_PATHS = new Set(["/api/bootstrap", "/api/state"]);
 
 /** Lote 1-b (c): rotas que devolvem reconciliation.journalAck. */
 const JOURNAL_ACK_PATHS = new Set(["/api/bootstrap", "/api/state", "/api/state/reconcile"]);
+
+/**
+ * Perf 25/11: rotas de abertura e login que so gravam o crm_state_v1 se ele realmente mudou
+ * (impressao digital do documento igual a da carga desta requisicao => nao regrava ~4,5 MB).
+ * O journal (tombstones, RBAC) continua sendo aplicado; se mudou algo, grava como antes.
+ */
+const UNCHANGED_STATE_SKIP_PATHS = new Set([
+  "/api/bootstrap",
+  "/api/state",
+  "/api/state/reconcile",
+  "/api/auth/login",
+  "/api/auth/verify-mfa",
+]);
+
+export function shouldSkipUnchangedStatePersist(method: string, cleanPath: string): boolean {
+  return method === "POST" && UNCHANGED_STATE_SKIP_PATHS.has(cleanPath);
+}
+
+let unchangedStateSkips = 0;
+/** Quantas gravacoes do estado foram puladas por nada ter mudado (diagnostico/testes). */
+export function getUnchangedStateSkips(): number {
+  return unchangedStateSkips;
+}
 
 export function isBootstrapLiveGestaoClickEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const v = String(env.BOOTSTRAP_LIVE_GESTAOCLICK || '').trim().toLowerCase();
@@ -2140,6 +2164,11 @@ export class CrmApiRouter {
             // fonte e erp_proposals); nunca entram na memoria nem no diff (incidente 04/11).
             pgState.erp.proposals = [];
           }
+          if (shouldSkipUnchangedStatePersist(method, cleanPath)) {
+            // Antes do loadState (que clona): o documento como esta no banco, na forma da gravacao.
+            const sctx = currentStateRequestContext();
+            if (sctx) sctx.kvBaselineFingerprint = kvPersistFingerprint(pgState, isProposalsTableState(pgState));
+          }
           this.repo.loadState(pgState);
           if (isProposalsTableState(pgState)) {
             this.proposalTableCtx = { hydrated: new Map(), strictInserts: false };
@@ -2470,6 +2499,10 @@ export class CrmApiRouter {
 
   private async writeStateToStore(state: CrmDatabaseState, options?: Parameters<typeof syncStateToPostgres>[1]): Promise<void> {
     await syncStateToPostgres(state, options);
+    // Perf 25/11: depois de qualquer gravacao, a impressao digital da carga nao vale mais (nunca
+    // pula uma gravacao seguinte comparando com um estado que ja nao e o do banco).
+    const sctx = currentStateRequestContext();
+    if (sctx) sctx.kvBaselineFingerprint = undefined;
   }
 
   /** Fase 2: grava o estado antes/depois de cada envio real da cadencia; falha => lanca (nao envia). */
@@ -2583,7 +2616,13 @@ export class CrmApiRouter {
     const osPlan = this.serviceOrdersPersistPlan();
     if ('response' in osPlan) return { response: osPlan.response, ok: false };
     const erpTables = osPlan.erpTables;
+    const sctx = currentStateRequestContext();
+    const baseline = sctx?.kvBaselineFingerprint;
     if (!ctx) {
+      if (baseline && !erpTables.length && kvPersistFingerprint(this.repo.getState(), false) === baseline) {
+        unchangedStateSkips++;
+        return { response: null, ok: true };
+      }
       try {
         await this.writeStateToStore(this.repo.getState(), erpTables.length ? { erpTables } : undefined);
         return { response: null, ok: true };
@@ -2594,6 +2633,17 @@ export class CrmApiRouter {
     }
     const diff = diffHydratedProposals(ctx.hydrated, this.repo.listProposals());
     const gcInserts = this.repo.takePendingGcProposalInserts();
+    if (
+      baseline &&
+      !erpTables.length &&
+      isEmptyDiff(diff) &&
+      !gcInserts.length &&
+      kvPersistFingerprint(this.repo.getState(), true) === baseline
+    ) {
+      // Nada mudou (nem JSON, nem orcamentos, nem tabelas do ERP): o banco ja tem exatamente isto.
+      unchangedStateSkips++;
+      return { response: null, ok: true };
+    }
     try {
       await this.writeStateToStore(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts, gcInserts }, ...(erpTables.length ? { erpTables } : {}) });
       return { response: null, ok: true };

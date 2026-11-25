@@ -7,6 +7,11 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export interface StateRequestContext {
   /** true = estado desta requisicao veio do Postgres (ou nao ha Postgres); false = bloqueia gravacao. */
   stateLoadOk: boolean;
+  /**
+   * Perf 25/11: impressao digital (kvPersistFingerprint) do crm_state_v1 como foi carregado NESTA
+   * requisicao. So e preenchida nas rotas de abertura/login; zerada depois de qualquer gravacao.
+   */
+  kvBaselineFingerprint?: string;
 }
 
 const storage = new AsyncLocalStorage<StateRequestContext>();
