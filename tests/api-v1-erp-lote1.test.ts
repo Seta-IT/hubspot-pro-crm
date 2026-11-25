@@ -24,7 +24,8 @@ import { buildOpenApiDocument } from '../src/modules/integration/openapi';
 import { INTEGRATION_USE_CASES } from '../src/modules/integration/use-cases';
 import { INTEGRATION_SCOPES, LOTE1_SCOPES, isBlockedScope, validateRequestedScopes } from '../src/modules/integration/scopes';
 import { ownerMeetsScope } from '../src/modules/integration/use-cases/common';
-import { maskPhone } from '../src/modules/integration/use-cases/erp';
+import { maskPhone, OS_MAX_PAGES_PER_CALL } from '../src/modules/integration/use-cases/erp';
+import { maskPiiText } from '../src/modules/integration/use-cases/crm-extra';
 
 const ORIGIN = 'https://stihub.test';
 const CSC_SECRET = 'CSCSEGREDO1234567890ABCD';
@@ -523,5 +524,80 @@ describe('Lote 1: consentimento OAuth lista os novos escopos e omite os acima do
     const page = await handleOAuth(req('GET', '/api/oauth/authorize', { query: q, session: session({ ...ANA, erp: false }) }), env.deps);
     assert.equal(page.status, 302);
     assert.equal(new URL(page.redirect!).searchParams.get('error'), 'invalid_scope');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Correcoes do CISO (25/11/2026) — testes de regressao
+// ---------------------------------------------------------------------------
+describe('Lote 1 / CISO: correcoes de regressao', () => {
+  it('(a) erp_dashboard_get: saldo bancario so com canViewBankBalances (senao null)', async () => {
+    const env = makeEnv();
+    const fin = await keyFor(env, FIN.uid, 'TODOS', ['erp:dashboard:read']);
+    const withBanks = body(await get(env, fin, '/api/v1/erp/dashboard')).data;
+    assert.equal(withBanks.financeVisible, true);
+    assert.equal(withBanks.bankBalancesVisible, true);
+    assert.equal(withBanks.summary.availableBalanceToday, 12345.67);
+    (userRec(env, FIN.uid).erpPermissions as any).canViewBankBalances = false;
+    const r = await get(env, fin, '/api/v1/erp/dashboard');
+    assert.equal(r.status, 200);
+    const noBanks = body(r).data;
+    assert.equal(noBanks.financeVisible, true, 'continua vendo o financeiro');
+    assert.equal(noBanks.bankBalancesVisible, false);
+    assert.equal(noBanks.summary.availableBalanceToday, null);
+    assert.equal(noBanks.summary.bankAccountsSummaryText, null);
+    assert.ok(!JSON.stringify(noBanks).includes('12345.67'));
+  });
+
+  it('(b) insights e data health: DTO fechado, sem e-mail/telefone de contato', async () => {
+    const env = makeEnv();
+    // duplicado do contato da Ana (mesmo e-mail) => issue com suggestedMerge no app
+    env.repo.createContact({ firstName: 'Cliente', lastName: 'DaAna', email: 'cliente.ana@empresa-a.com.br', phone: '(11) 91234-5678', ownerId: 'usr-ana', ownerName: 'Ana Vendas' } as never);
+    const emails = env.repo.listContacts().map((c: any) => String(c.email || '')).filter(Boolean);
+    assert.ok(emails.length > 0);
+    const key = await keyFor(env, ADMIN.uid, 'TODOS', ['crm:analytics:read', 'crm:data_health:read']);
+    for (const p of ['/api/v1/analytics/insights', '/api/v1/data-health/summary', '/api/v1/data-health/duplicates']) {
+      const r = await get(env, key, p);
+      assert.equal(r.status, 200, p);
+      const json = JSON.stringify(body(r));
+      for (const e of emails) assert.ok(!json.includes(e), `${p} vazou ${e}`);
+      assert.ok(!json.includes('91234-5678'), `${p} vazou telefone`);
+      for (const f of ['contactEmail', 'emailOrDomain', 'suggestedMerge', 'suggestedMessage', 'mergedFields']) assert.ok(!json.includes(`"${f}"`), `${p}: ${f}`);
+    }
+    const health = body(await get(env, key, '/api/v1/data-health/summary')).data;
+    assert.deepEqual(Object.keys(health).sort(), ['breakdown', 'counts', 'generatedAt', 'globalHealthScore', 'issues', 'recommendations', 'rottingDeals', 'staleRecords', 'statusLabel']);
+    const ins = body(await get(env, key, '/api/v1/analytics/insights')).data;
+    assert.deepEqual(Object.keys(ins).sort(), ['atRiskDeals', 'executiveSummary', 'funnelBottlenecks', 'generatedAt', 'hiddenOpportunities', 'priorityFollowUps', 'revenueForecast']);
+    assert.equal(maskPiiText('fale com joao@x.com.br ou (11) 98765-4321, total R$ 1.234.567,89'), 'fale com [e-mail omitido] ou [telefone omitido], total R$ 1.234.567,89');
+  });
+
+  it('sugestao: listagem de OS com teto de paginas por chamada (422, nunca parcial) e cache por requisicao', async () => {
+    const env = makeEnv();
+    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['erp:orders:read']);
+    let reads = 0;
+    const orig = env.deps.createDataPort;
+    env.deps.createDataPort = () => {
+      const port = orig();
+      const read = port.read.bind(port);
+      port.read = (path: string, q?: Record<string, string>) => {
+        if (path === '/api/erp/service-orders') reads += 1;
+        return read(path, q);
+      };
+      return port;
+    };
+    const ok = await get(env, ana, '/api/v1/erp/service-orders');
+    assert.equal(ok.status, 200);
+    assert.equal(reads, 1);
+    const erp = env.repo.getErpState();
+    for (let i = 0; i < OS_MAX_PAGES_PER_CALL * 200 + 5; i += 1) {
+      (erp.serviceOrders as any[]).push({ id: `os-x-${i}`, code: `OSX-${i}`, companyName: 'C', sellerName: 'Outro', technicianName: 'Tec', entryDate: '2026-11-01', exitDate: '', status: 'ABERTA', totalAmount: 1, description: '' });
+    }
+    reads = 0;
+    const big = await get(env, ana, '/api/v1/erp/service-orders');
+    assert.equal(big.status, 422, JSON.stringify(big.body));
+    assert.equal(body(big).error?.code ?? body(big).code, 'TOO_MANY_RECORDS');
+    assert.equal(reads, OS_MAX_PAGES_PER_CALL);
+    const filtered = await get(env, ana, '/api/v1/erp/service-orders', { search: 'OS-1' });
+    assert.equal(filtered.status, 200);
   });
 });

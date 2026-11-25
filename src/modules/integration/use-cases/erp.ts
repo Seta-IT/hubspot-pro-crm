@@ -556,7 +556,14 @@ export const erpDashboardGet = defineUseCase({
       await ctx.data.read('/api/erp/dashboard', { ...(input.month ? { mes: input.month } : {}), ...(finance ? {} : { _integrationIncludeFinance: '0' }) }),
       'Painel'
     );
-    const data = body?.data && typeof body.data === 'object' ? (body.data as Record<string, unknown>) : {};
+    const data = body?.data && typeof body.data === 'object' ? { ...(body.data as Record<string, unknown>) } : {};
+    // Correcao CISO (Lote 1, a): saldo bancario so com canViewBankBalances (mesma regra dos saldos
+    // em contas bancarias). Sem a permissao => campos de saldo null (nunca o valor).
+    const banks = ctx.owner.erpAccess.canViewBankBalances === true;
+    if (data.summary && typeof data.summary === 'object') {
+      data.summary = { ...(data.summary as Record<string, unknown>), ...(banks ? {} : { availableBalanceToday: null, bankAccountsSummaryText: null }) };
+    }
+    data.bankBalancesVisible = banks && data.financeVisible !== false;
     return { data };
   },
 });
@@ -865,18 +872,37 @@ export const erpContractVersionsList = defineUseCase({
 // OS, VENDAS, COMPRAS
 // ---------------------------------------------------------------------------
 const OS_PAGE = 200;
-const OS_MAX_PAGES = 50;
+/**
+ * Sugestao CISO (Lote 1): cada pagina recarrega o estado; teto de 10 paginas (2.000 OS) por
+ * chamada. Acima disso => 422 pedindo filtro (nunca lista parcial, que esconderia OS da carteira).
+ */
+export const OS_MAX_PAGES_PER_CALL = 10;
+/** Cache por requisicao (a porta de dados e criada por requisicao): mesma consulta nao recarrega. */
+const osCache = new WeakMap<object, Map<string, Promise<ErpServiceOrder[]>>>();
 
-/** Todas as OS (modo tabela ou JSON) pela rota da tela, paginando; teto de 10.000. */
-async function allServiceOrders(ctx: UseCaseContext, filters: Record<string, string>): Promise<ErpServiceOrder[]> {
-  const out: ErpServiceOrder[] = [];
-  for (let page = 0; page < OS_MAX_PAGES; page += 1) {
-    const body = unwrapRead(await ctx.data.read('/api/erp/service-orders', { ...filters, limit: String(OS_PAGE), offset: String(page * OS_PAGE) }), 'Ordens de servico');
-    const rows = (Array.isArray(body?.data) ? body.data : []) as ErpServiceOrder[];
-    out.push(...rows);
-    if (rows.length < OS_PAGE || out.length >= Number(body?.total || 0)) break;
+/** Todas as OS (modo tabela ou JSON) pela rota da tela, paginando com teto por chamada. */
+export async function allServiceOrders(ctx: UseCaseContext, filters: Record<string, string>): Promise<ErpServiceOrder[]> {
+  let byPort = osCache.get(ctx.data);
+  if (!byPort) {
+    byPort = new Map();
+    osCache.set(ctx.data, byPort);
   }
-  return out;
+  const key = JSON.stringify(Object.entries(filters).sort());
+  const hit = byPort.get(key);
+  if (hit) return hit;
+  const run = (async () => {
+    const out: ErpServiceOrder[] = [];
+    for (let page = 0; page < OS_MAX_PAGES_PER_CALL; page += 1) {
+      const body = unwrapRead(await ctx.data.read('/api/erp/service-orders', { ...filters, limit: String(OS_PAGE), offset: String(page * OS_PAGE) }), 'Ordens de servico');
+      const rows = (Array.isArray(body?.data) ? body.data : []) as ErpServiceOrder[];
+      out.push(...rows);
+      if (rows.length < OS_PAGE || out.length >= Number(body?.total || 0)) return out;
+    }
+    throw new UseCaseError(422, 'TOO_MANY_RECORDS', `Mais de ${OS_MAX_PAGES_PER_CALL * OS_PAGE} OS nesta consulta: refine com search/status/companyId.`);
+  })();
+  byPort.set(key, run);
+  run.catch(() => byPort!.delete(key));
+  return run;
 }
 
 export const erpServiceOrdersList = defineUseCase({

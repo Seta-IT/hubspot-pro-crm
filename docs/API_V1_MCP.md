@@ -53,6 +53,12 @@ EQUIPE no ERP = só o dono (o app trata PROPRIOS/EQUIPE como "só os meus" para 
 Consentimento OAuth: escopos do Lote 1 acima do perfil do usuário são **omitidos** e listados como "Não concedidos (acima do seu perfil)"; se nada sobrar → `invalid_scope`. Clientes DCR já registrados mantêm a lista de escopos do registro — o conector do ChatGPT precisa **reconectar/re-registrar** para receber os novos escopos.
 Continua fora do conector: DELETE/merge, escrita no ERP, emissão/baixa fiscal ou financeira, sincronização/credenciais GestãoClick, certificado A1, IAM/admin/usuários, chaves de integração.
 
+### Correções do CISO no Lote 1 (25/11/2026)
+
+- `erp_dashboard_get`: sem `canViewBankBalances`, `summary.availableBalanceToday` e `summary.bankAccountsSummaryText` saem `null` (`bankBalancesVisible=false`); o restante do financeiro segue a alçada `financeBanksAccess`.
+- `crm_insights_get` e `crm_data_health_summary_get`: DTOs fechados (allowlist). Removidos `contactEmail`, `emailOrDomain`, `suggestedMerge`, `description` das issues, `suggestedMessage`/`contactRole`; textos livres passam por máscara de e-mail/telefone (`maskPiiText`). Listas limitadas a 100 itens. `crm_data_health_duplicates_list` não usa mais o e-mail como rótulo.
+- `erp_service_orders_list`/`_get` (carteira PROPRIOS/EQUIPE): no máximo 10 páginas (2.000 OS) por chamada; acima disso `422 TOO_MANY_RECORDS` (nunca lista parcial). Cache da varredura por requisição.
+
 ## Travas
 - Catálogo de escopos fechado; bloqueados (rejeitados na criação, ausentes do OpenAPI/MCP): DELETE, merge, escrita de sequências/fiscal/financeiro/ERP, GestãoClick, IAM/admin/RBAC, `*`. Exceção do Lote 1: os 9 escopos `erp:*:read` e `crm:automation:read` (somente GET, allowlist `LOTE1_SENSITIVE_READS` no teste de trava).
 - `portfolioScope` (PROPRIOS/EQUIPE/TODOS) e `moduleAccess` aplicados no servidor em listagem, busca, GET e mutação; teto = usuário dono ativo (estreitado a cada request). Fora da carteira → 404.
