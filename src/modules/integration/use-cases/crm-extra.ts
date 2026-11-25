@@ -23,13 +23,13 @@ import {
 
 const listOf = <T extends z.ZodType>(item: T) => z.object({ data: z.array(item), page: PageInfoSchema });
 const one = <T extends z.ZodType>(item: T) => z.object({ data: item });
-const str = (v: unknown): string => (v === undefined || v === null ? '' : String(v));
-const strOrNull = (v: unknown): string | null => (v === undefined || v === null || v === '' ? null : String(v));
-const num = (v: unknown): number => {
+export const str = (v: unknown): string => (v === undefined || v === null ? '' : String(v));
+export const strOrNull = (v: unknown): string | null => (v === undefined || v === null || v === '' ? null : String(v));
+export const num = (v: unknown): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
-const low = (v: unknown) => String(v ?? '').trim().toLowerCase();
+export const low = (v: unknown) => String(v ?? '').trim().toLowerCase();
 
 const base = {
   tag: 'CRM' as const,
@@ -41,7 +41,7 @@ const base = {
   successStatus: 200 as const,
 };
 
-function unwrapRead(res: { status: number; body: any }, what: string): any {
+export function unwrapRead(res: { status: number; body: any }, what: string): any {
   if (res.status === 404) throw notFound(what);
   if (res.status < 200 || res.status >= 300) throw new UseCaseError(502, 'UPSTREAM_ERROR', `Falha interna ao ler ${what}.`);
   return res.body;
@@ -50,7 +50,7 @@ function unwrapRead(res: { status: number; body: any }, what: string): any {
 // ---------------------------------------------------------------------------
 // TAREFAS
 // ---------------------------------------------------------------------------
-const TaskDto = z.object({
+export const TaskDto = z.object({
   id: z.string(),
   title: z.string(),
   notes: z.string(),
@@ -68,7 +68,7 @@ const TaskDto = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
-const toTask = (t: CrmTask): z.infer<typeof TaskDto> => ({
+export const toTask = (t: CrmTask): z.infer<typeof TaskDto> => ({
   id: str(t.id),
   title: str(t.title),
   notes: str(t.notes).slice(0, 4000),
@@ -88,7 +88,7 @@ const toTask = (t: CrmTask): z.infer<typeof TaskDto> => ({
 });
 
 /** Tarefa na carteira: responsavel na carteira OU registro vinculado (contato/empresa/negocio) na carteira. */
-async function tasksInScope(ctx: UseCaseContext, filters: Record<string, string>): Promise<CrmTask[]> {
+export async function tasksInScope(ctx: UseCaseContext, filters: Record<string, string>): Promise<CrmTask[]> {
   const snap = await ctx.data.snapshot('crm');
   const body = unwrapRead(await ctx.data.read('/api/tasks', filters), 'Tarefas');
   const rows = (Array.isArray(body?.data) ? body.data : []) as CrmTask[];
@@ -168,7 +168,7 @@ export const crmTasksGet = defineUseCase({
 // ---------------------------------------------------------------------------
 // AUTOMACAO: SEQUENCES E WORKFLOWS (definicoes; sem ativar/inscrever)
 // ---------------------------------------------------------------------------
-const SequenceDto = z.object({
+export const SequenceDto = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
@@ -225,7 +225,7 @@ export const crmSequencesList = defineUseCase({
   },
 });
 
-const WorkflowDto = z.object({
+export const WorkflowDto = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
@@ -235,10 +235,10 @@ const WorkflowDto = z.object({
   enrolledCount: z.number(),
   updatedAt: z.string(),
 });
-const WorkflowDetailDto = WorkflowDto.extend({
+export const WorkflowDetailDto = WorkflowDto.extend({
   steps: z.array(z.object({ order: z.number(), actionType: z.string(), summary: z.string() })),
 });
-const toWorkflow = (w: any): z.infer<typeof WorkflowDto> => ({
+export const toWorkflow = (w: any): z.infer<typeof WorkflowDto> => ({
   id: str(w.id),
   name: str(w.name),
   description: strOrNull(w.description),
@@ -249,7 +249,7 @@ const toWorkflow = (w: any): z.infer<typeof WorkflowDto> => ({
   updatedAt: str(w.updatedAt || w.createdAt),
 });
 
-async function workflowsData(ctx: UseCaseContext): Promise<{ workflows: any[]; executions: any[] }> {
+export async function workflowsData(ctx: UseCaseContext): Promise<{ workflows: any[]; executions: any[] }> {
   const body = unwrapRead(await ctx.data.read('/api/workflows'), 'Workflows');
   return { workflows: Array.isArray(body?.data) ? body.data : [], executions: Array.isArray(body?.executions) ? body.executions : [] };
 }
@@ -358,7 +358,7 @@ export const crmWorkflowRunsList = defineUseCase({
 // ---------------------------------------------------------------------------
 // MARKETING (sem disparo)
 // ---------------------------------------------------------------------------
-const CampaignDto = z.object({
+export const CampaignDto = z.object({
   id: z.string(),
   name: z.string(),
   objective: z.string(),

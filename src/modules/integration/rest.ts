@@ -147,6 +147,10 @@ export async function handleRestV1(req: IntegrationHttpRequest, depsIn?: Integra
       return withReq(problem(pre.status, pre.code, pre.title, pre.extra || {}, rate.headers), requestId);
     }
   }
+  if (uc.requireIdempotencyKey && !req.headers['idempotency-key']) {
+    await audit(store, { requestId, channel: 'rest_v1', authType: auth.authType, auth, scope: uc.requiredScope, action: uc.operationId, path, statusCode: 428, ip: req.ip, startedAt, errorCode: 'IDEMPOTENCY_KEY_REQUIRED', now: deps.now() });
+    return withReq(problem(428, 'IDEMPOTENCY_KEY_REQUIRED', 'Esta criacao exige o cabecalho Idempotency-Key (8-128 caracteres A-Z a-z 0-9 _ . : -).', {}, rate.headers), requestId);
+  }
   if (uc.mutation) {
     idem = await beginIdempotency(store, auth, req.headers['idempotency-key'], method, path, input, deps);
     if (idem.kind === 'invalid') {
@@ -179,6 +183,7 @@ export async function handleRestV1(req: IntegrationHttpRequest, depsIn?: Integra
     ip: req.ip,
     startedAt,
     errorCode: result.ok ? null : result.code,
+    details: result.ok && result.audit ? { ...result.audit } : null,
     now: deps.now(),
   });
   return withReq(res, requestId);

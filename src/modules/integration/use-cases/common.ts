@@ -1,6 +1,6 @@
 // Utilitarios compartilhados pelos casos de uso (CRM e Chamados).
 import type { DataWriteResult, IntegrationUser } from '../data-port';
-import { UseCaseError, type UseCaseContext } from './types';
+import { UseCaseError, type UseCaseContext, type WriteAuditTrail } from './types';
 
 const ACCESS_RANK: Record<string, number> = { NONE: 0, VIEW: 1, EDIT: 2, FULL: 3 };
 
@@ -66,6 +66,7 @@ export function ownerMeetsScope(user: ScopeUser, scope: string): boolean {
   const need = areasForScope(scope);
   if (need) return need.areas.some((a) => userHasAccess(user, a, need.level));
   const erp = (a: ErpArea) => userHasErpAccess(user, a, 'VIEW');
+  const erpEdit = (a: ErpArea) => userHasErpAccess(user, a, 'EDIT');
   switch (scope) {
     case 'crm:tasks:read':
       return (['contacts', 'companies', 'deals'] as CrmArea[]).some((a) => userHasAccess(user, a, 'VIEW'));
@@ -93,6 +94,23 @@ export function ownerMeetsScope(user: ScopeUser, scope: string): boolean {
       return erp('finance') && user.erpAccess?.canViewBankBalances === true;
     case 'erp:fiscal:read':
       return erp('fiscal');
+    // --- Fase 2 / Lote 2: escritas reversiveis exigem alcada de EDICAO da tela correspondente ---
+    case 'erp:proposals:write':
+      return erpEdit('proposals');
+    case 'erp:contracts:write':
+      return erpEdit('contracts');
+    case 'erp:orders:write':
+    case 'erp:catalog:write':
+      return erpEdit('stockOsSales');
+    case 'erp:records:write':
+      return erpEdit('stockOsSales') || erpEdit('finance');
+    case 'erp:financial:write':
+      return erpEdit('finance');
+    case 'crm:tasks:write':
+      return (['contacts', 'companies', 'deals'] as CrmArea[]).some((a) => userHasAccess(user, a, 'EDIT'));
+    case 'crm:automation:write':
+    case 'crm:marketing:write':
+      return userHasAccess(user, 'marketing', 'EDIT');
     default:
       return true;
   }
@@ -151,4 +169,67 @@ export function sourceMetadata(ctx: UseCaseContext): Record<string, unknown> {
     oauthClientId: ctx.auth.oauthClientId,
     requestId: ctx.auth.requestId,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Fase 2 / Lote 2: escritas reversiveis — mascara, auditoria antes/depois.
+// ---------------------------------------------------------------------------
+const MASK_ARTIFACT = /\*{3,}|\u2022{3,}|\[(redacted|mascarado|oculto|omitido)\]/i;
+
+/** Valor mascarado (***, •••, [mascarado]) nunca sobrescreve o original: 422 com os campos. */
+export function rejectMaskedValues(input: Record<string, unknown>): void {
+  const bad: string[] = [];
+  const walk = (v: unknown, path: string, depth: number) => {
+    if (depth > 6 || bad.length >= 50) return;
+    if (typeof v === 'string') {
+      if (MASK_ARTIFACT.test(v)) bad.push(path);
+    } else if (Array.isArray(v)) {
+      v.forEach((x, i) => walk(x, `${path}[${i}]`, depth + 1));
+    } else if (v && typeof v === 'object') {
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, path ? `${path}.${k}` : k, depth + 1);
+    }
+  };
+  walk(input, '', 0);
+  if (bad.length) {
+    throw new UseCaseError(422, 'MASKED_VALUE_REJECTED', 'Valor mascarado (***) nao sobrescreve o original. Envie o valor real ou omita o campo.', { fields: bad });
+  }
+}
+
+const SENSITIVE_AUDIT_KEY = /(email|phone|telefone|celular|cnpj|cpf|document|token|secret|senha|password|csc|pix|boleto|key|chave|link|url|address|endereco|notes|observ|body|template|script)/i;
+
+function auditValue(k: string, v: unknown): unknown {
+  if (SENSITIVE_AUDIT_KEY.test(k)) return v === undefined || v === null || v === '' ? v ?? null : '[omitido]';
+  if (v === undefined) return null;
+  if (v === null || typeof v === 'number' || typeof v === 'boolean') return v;
+  if (typeof v === 'string') return v.length > 160 ? `${v.slice(0, 160)}…` : v;
+  if (Array.isArray(v)) return `[${v.length} item(ns)]`;
+  return '[objeto]';
+}
+
+/** Diff sanitizado (so campos alterados; PII/segredos omitidos; textos truncados). */
+export function auditDiff(
+  before: Record<string, unknown> | null | undefined,
+  after: Record<string, unknown> | null | undefined
+): Pick<WriteAuditTrail, 'changedFields' | 'before' | 'after'> {
+  const keys = new Set<string>([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  const changed: string[] = [];
+  for (const k of keys) {
+    if (k === 'updatedAt' || k === 'versionHistory' || k === 'statusHistory') continue;
+    if (JSON.stringify((before || {})[k] ?? null) !== JSON.stringify((after || {})[k] ?? null)) changed.push(k);
+  }
+  changed.sort();
+  const pick = (o: Record<string, unknown> | null | undefined) =>
+    o ? Object.fromEntries(changed.slice(0, 60).map((k) => [k, auditValue(k, o[k])])) : null;
+  return { changedFields: changed.slice(0, 60), before: pick(before), after: pick(after) };
+}
+
+export function recordWriteAudit(
+  ctx: Pick<UseCaseContext, 'audit'>,
+  entity: string,
+  op: NonNullable<WriteAuditTrail['op']>,
+  entityId: string,
+  before: Record<string, unknown> | null | undefined,
+  after: Record<string, unknown> | null | undefined
+): void {
+  Object.assign(ctx.audit, { entity, op, entityId: String(entityId).slice(0, 120), ...auditDiff(before, after) });
 }

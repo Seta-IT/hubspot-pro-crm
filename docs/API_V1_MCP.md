@@ -1,4 +1,4 @@
-# STI-hub — API v1, MCP remoto, OAuth 2.1 + DCR e chaves de integração (Fase 1 + Fase 2/Lote 1 — leitura ERP/CRM)
+# STI-hub — API v1, MCP remoto, OAuth 2.1 + DCR e chaves de integração (Fase 1 + Fase 2/Lote 1 — leitura ERP/CRM + Lote 2 — escritas reversíveis)
 
 > Status: Fase 1 em produção. **Fase 2 / Lote 1 (somente leitura do ERP e do CRM restante)** na branch `feat/api-v1-erp-lote1` — aguardando revisão do CISO, não publicado.
 
@@ -48,10 +48,34 @@ Módulo `erp` novo em `moduleAccess` (chave IAM e OAuth; padrão `false`). Toda 
 | `crm:analytics:read` | Negócios VIEW | TODOS | `crm_insights_get` (`/analytics/insights`) |
 | `crm:data_health:read` | Contatos VIEW | TODOS | `crm_data_health_summary_get`, `crm_data_health_duplicates_list` (só ids, rótulos, score, motivos) |
 
-Erros novos: 403 `OWNER_ACCESS_INSUFFICIENT` (alçada), 403 `PORTFOLIO_ALL_REQUIRED` (exige TODOS), 403 `SENSITIVE_DATA_FORBIDDEN` (colaboradores). Fora da carteira → 404 neutro. Qualquer método ≠ GET em `/api/v1/erp/*` → 405.
+Erros novos: 403 `OWNER_ACCESS_INSUFFICIENT` (alçada), 403 `PORTFOLIO_ALL_REQUIRED` (exige TODOS), 403 `SENSITIVE_DATA_FORBIDDEN` (colaboradores). Fora da carteira → 404 neutro. PUT/DELETE em `/api/v1/erp/*` → 405 (o Lote 2 libera apenas os POST/PATCH da allowlist abaixo).
 EQUIPE no ERP = só o dono (o app trata PROPRIOS/EQUIPE como "só os meus" para não-admin).
 Consentimento OAuth: escopos do Lote 1 acima do perfil do usuário são **omitidos** e listados como "Não concedidos (acima do seu perfil)"; se nada sobrar → `invalid_scope`. Clientes DCR já registrados mantêm a lista de escopos do registro — o conector do ChatGPT precisa **reconectar/re-registrar** para receber os novos escopos.
-Continua fora do conector: DELETE/merge, escrita no ERP, emissão/baixa fiscal ou financeira, sincronização/credenciais GestãoClick, certificado A1, IAM/admin/usuários, chaves de integração.
+Continua fora do conector: DELETE/merge, escrita no ERP fora da allowlist do Lote 2, emissão/baixa fiscal ou financeira, sincronização/credenciais GestãoClick, certificado A1, IAM/admin/usuários, chaves de integração.
+
+## Fase 2 / Lote 2 — escritas reversíveis (31 tools, `POST`/`PATCH`, 9 escopos `:write`)
+Branch `feat/api-v1-erp-lote2` (empilhada sobre o Lote 1). Allowlist fechada `LOTE2_WRITE_OPERATIONS` (`use-cases/index.ts`, valida no carregamento) + allowlist de rotas internas `ALLOWED_WRITE_PATHS` e `assertSafeWriteBody` (`data-port.ts`).
+
+| Escopo | Alçada do dono | Tools |
+|---|---|---|
+| `erp:proposals:write` | Orçamentos EDIÇÃO (não exige `canApproveProposals`) | `erp_proposals_create`, `erp_proposals_update`, `erp_proposal_restore_version` |
+| `erp:contracts:write` | Contratos EDIÇÃO | `erp_contracts_create`, `erp_contracts_update`, `erp_contract_restore_version`, `erp_contract_renew` |
+| `erp:orders:write` | Estoque/OS/Vendas EDIÇÃO | `erp_service_orders_create`, `erp_service_orders_update`, `erp_service_order_status_change`, `erp_service_order_duplicate`, `erp_service_order_from_ticket` (+ módulo Chamados e `tickets` VIEW), `erp_sales_orders_create/_update`, `erp_purchase_orders_create/_update` (TODOS) |
+| `erp:records:write` | Estoque/OS/Vendas ou Financeiro EDIÇÃO + TODOS | `erp_suppliers_create`, `erp_suppliers_update` |
+| `erp:catalog:write` | Estoque/OS/Vendas EDIÇÃO + TODOS (custo/margem exigem Financeiro EDIÇÃO) | `erp_catalog_create/_update`, `erp_aux_list_items_create/_update` |
+| `erp:financial:write` | Financeiro EDIÇÃO + TODOS | `erp_financial_entries_create/_update` (só ABERTO/ATRASADO) |
+| `crm:tasks:write` | Contatos/Empresas/Negócios EDIÇÃO | `crm_tasks_create`, `crm_tasks_update`, `crm_tasks_complete` |
+| `crm:automation:write` | Marketing/Automação EDIÇÃO | `crm_sequences_create_draft`, `crm_workflows_create_draft`, `crm_workflows_update_draft` |
+| `crm:marketing:write` | Marketing/Automação EDIÇÃO | `crm_marketing_campaigns_create_draft` |
+
+Regras:
+- **Idempotency-Key obrigatória** em toda criação (e em `renew`/`duplicate`/`from-ticket`): sem chave → **428** `IDEMPOTENCY_KEY_REQUIRED` (REST) ou `isError` (MCP). OpenAPI: `required: true` + `x-idempotency-key-required`.
+- **PATCH strict**: campo fora da allowlist → 400; valor mascarado (`***`, `•••`, `[mascarado]`…) → 422 `MASKED_VALUE_REJECTED`; PATCH vazio → 422; id inexistente → 404 (nunca upsert).
+- **Nunca**: aprovar/aceitar/converter orçamento (status só RASCUNHO/EM_NEGOCIACAO/RECUSADA; aprovado/convertido → 409 `PROPOSAL_LOCKED`), link público, envio de e-mail, fatura/NF/remessa (`generateNextInvoiceOnSave`, `autoSendEmailOnBilling`, `dunningRuleEnabled` sempre `false`; revisão que faturaria → 409), baixa/pagamento (lançamento pago/vinculado a nota → 409), importar XML (pedido de compra de XML → 409), excluir, ativar/disparar/inscrever (sequence/workflow sempre `isActive=false`, workflow ativo → 409; campanha sempre `PAUSED` com métricas zeradas).
+- **Carteira**: orçamentos/contratos/OS/vendas pelo dono (PROPRIOS/EQUIPE); troca de vendedor só com TODOS (403 `OWNER_IMMUTABLE`); desconto acima de `maxDiscountPercent` → 403 `DISCOUNT_ABOVE_LIMIT`. Entidades sem dono (catálogo, listas, fornecedores, compras, financeiro) exigem TODOS.
+- **Auditoria**: `details` = `{entity, entityId, op, changedFields, before, after}` só com os campos alterados; e-mail/telefone/documento/links/notas/corpo → `[omitido]`, textos truncados em 160.
+- **Consentimento**: escopos `:write` em vermelho ("⚠ ESCRITA"); acima do perfil → "Não concedidos". Clientes DCR antigos precisam reconectar para receber os escopos novos.
+- Efeitos do app a conhecer: o histórico interno registra o ator como `Sistema STI-hub`; `from-ticket` passa o chamado ABERTO → EM_ANDAMENTO e adiciona comentário interno (descrição padrão "Chamado <chave>", sem copiar o texto do cliente); o app permite inscrever contato em sequence inativa pela tela (o conector não inscreve).
 
 ## Travas
 - Catálogo de escopos fechado; bloqueados (rejeitados na criação, ausentes do OpenAPI/MCP): DELETE, merge, escrita de sequências/fiscal/financeiro/ERP, GestãoClick, IAM/admin/RBAC, `*`. Exceção do Lote 1: os 9 escopos `erp:*:read` e `crm:automation:read` (somente GET, allowlist `LOTE1_SENSITIVE_READS` no teste de trava).
@@ -61,7 +85,7 @@ Continua fora do conector: DELETE/merge, escrita no ERP, emissão/baixa fiscal o
 - Chamados: `assignee` no PATCH, com carteira PROPRIOS/EQUIPE, só para usuário ativo da carteira (403 `ASSIGNEE_OUT_OF_PORTFOLIO`).
 - SetaDesk: saída via `maskTicketForResponse`; busca via `ticketMatchesSearchServer` (só comentários visíveis); PATCH com allowlist estrita e recusa de valores mascarados (422); comentário interno exige escopo próprio; sem Blob público.
 - Rate-limit distribuído em Postgres (`api_rate_limits`): 429 + `X-RateLimit-*` + `Retry-After`. Padrão 120/min por credencial (`INTEGRATION_RATE_LIMIT_PER_MINUTE`), 30/min por IP no OAuth (`INTEGRATION_OAUTH_RATE_LIMIT_PER_MINUTE`), incluindo `authorize`.
-- `Idempotency-Key` (REST) / `_meta["stihub/idempotencyKey"]` (MCP): **opcional** nos POST/PATCH. Replay (`Idempotent-Replayed: true`) e 409 com payload diferente; TTL 24h. Antes de devolver o cache, reautoriza (escopo, dono ativo, teto vivo, alçada). O cache é isolado por credencial + usuário + autorização efetiva (escopos/carteira/módulos), sem replay entre chaves/usuários ou após revogação.
+- `Idempotency-Key` (REST) / `_meta["stihub/idempotencyKey"]` (MCP): opcional nos POST/PATCH da Fase 1; **obrigatória** nas criações do Lote 2 (428). Replay (`Idempotent-Replayed: true`) e 409 com payload diferente; TTL 24h. Antes de devolver o cache, reautoriza (escopo, dono ativo, teto vivo, alçada). O cache é isolado por credencial + usuário + autorização efetiva (escopos/carteira/módulos), sem replay entre chaves/usuários ou após revogação.
 - Sem Postgres **ou com Postgres inacessível** (conexão recusada, DNS, timeout, servidor reiniciando) → **503** `INTEGRATION_STORE_UNAVAILABLE` (problem+json), nunca 500 e sem fallback JSON/tmp. Store em memória só em `NODE_ENV=test` por injeção explícita.
 - `/login?next=`: só caminho da mesma origem (`sanitizeLoginNext`): rejeita `//host`, `/\host`, barra invertida, caracteres de controle, URL absoluta e `%2F%2F`; fallback `/`.
 

@@ -23,6 +23,7 @@ import { buildOpenApiDocument } from '../src/modules/integration/openapi';
 import { INTEGRATION_USE_CASES } from '../src/modules/integration/use-cases';
 import { INTEGRATION_SCHEMA_SQL } from '../src/modules/integration/store-postgres';
 import { isBlockedScope, validateRequestedScopes } from '../src/modules/integration/scopes';
+import { LOTE2_WRITE_OPERATIONS } from '../src/modules/integration/use-cases';
 import fs from 'node:fs';
 import { Pool } from 'pg';
 import { sanitizeLoginNext } from '../src/app/lib/safe-next';
@@ -333,15 +334,26 @@ describe('Travas CISO: escopos bloqueados fora da criacao, do OpenAPI e do MCP',
     for (const [p, ops] of Object.entries(doc.paths as Record<string, Record<string, unknown>>)) {
       assert.ok(!('delete' in ops), p);
       assert.ok(!/merge|gestaoclick|iam|admin/i.test(p), p);
-      // Lote 1 (24/11/2026): sequences/fiscal/financeiro so como LEITURA (GET) allowlistada.
-      if (/sequence|fiscal|financ|invoice/i.test(p)) assert.deepEqual(Object.keys(ops), ['get'], p);
+      // Lote 1: sequences/fiscal/financeiro so como LEITURA; Lote 2: + POST/PATCH da allowlist fechada.
+      if (/sequence|fiscal|financ|invoice/i.test(p)) {
+        for (const [m, op] of Object.entries(ops)) {
+          if (m === 'get') continue;
+          assert.ok(['post', 'patch'].includes(m), `${m} ${p}`);
+          assert.ok(LOTE2_WRITE_OPERATIONS.has((op as { operationId: string }).operationId), `${m} ${p}`);
+        }
+      }
+      assert.ok(!/fiscal|invoice/i.test(p) || Object.keys(ops).every((m) => m === 'get'), p);
     }
     for (const uc of INTEGRATION_USE_CASES) {
       assert.ok(!/delete|merge|gestaoclick|iam/i.test(uc.toolName), uc.toolName);
       assert.notEqual(uc.method as string, 'DELETE');
       if (/sequence|fiscal|financ|invoice/i.test(uc.toolName) || uc.requiredModule === 'erp') {
-        assert.equal(uc.method, 'GET', uc.toolName);
-        assert.equal(uc.mutation, false, uc.toolName);
+        if (LOTE2_WRITE_OPERATIONS.has(uc.operationId)) {
+          assert.ok(['POST', 'PATCH'].includes(uc.method), uc.toolName);
+        } else {
+          assert.equal(uc.method, 'GET', uc.toolName);
+          assert.equal(uc.mutation, false, uc.toolName);
+        }
       }
     }
     const env = makeEnv();

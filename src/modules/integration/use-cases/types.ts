@@ -15,6 +15,20 @@ export interface UseCaseContext {
   owner: IntegrationUser;
   portfolio: PortfolioView;
   allUsers: IntegrationUser[];
+  /**
+   * Fase 2 / Lote 2: trilha antes/depois da escrita (preenchida pelo handler via recordWriteAudit;
+   * gravada pelo REST/MCP em integration_audit.details, ja sanitizada — sem segredos/PII de contato).
+   */
+  audit: WriteAuditTrail;
+}
+
+export interface WriteAuditTrail {
+  entity?: string;
+  entityId?: string;
+  op?: 'create' | 'update' | 'restore_version' | 'renew' | 'status_change' | 'duplicate' | 'complete' | 'create_from_ticket';
+  changedFields?: string[];
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
 }
 
 export interface UseCaseDefinition<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodType> {
@@ -35,6 +49,8 @@ export interface UseCaseDefinition<I extends z.ZodType = z.ZodType, O extends z.
   /** true => repetir a mesma chamada nao muda o resultado (GET/PATCH). POST aceita Idempotency-Key. */
   idempotent: boolean;
   mutation: boolean;
+  /** Fase 2 / Lote 2: criacao exige Idempotency-Key (REST) / _meta["stihub/idempotencyKey"] (MCP). */
+  requireIdempotencyKey?: boolean;
   successStatus: 200 | 201;
   inputSchema: I;
   outputSchema: O;

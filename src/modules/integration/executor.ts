@@ -9,10 +9,11 @@ import type { AuditChannel, AuditAuthType, IntegrationStore } from './store';
 import { generateId, sha256Hex } from './tokens';
 import { isIntegrationStoreUnavailable } from './store-errors';
 import { UseCaseError, type UseCaseDefinition } from './use-cases';
+import type { WriteAuditTrail } from './use-cases/types';
 import { ownerMeetsScope } from './use-cases/common';
 
 export type ExecResult =
-  | { ok: true; status: number; body: unknown }
+  | { ok: true; status: number; body: unknown; audit?: WriteAuditTrail }
   | { ok: false; status: number; code: string; title: string; extra?: Record<string, unknown> };
 
 /** Lista de campos com problema (sem ecoar valores enviados). */
@@ -48,12 +49,13 @@ export async function executeUseCase(def: UseCaseDefinition, rawInput: unknown, 
       return { ok: false, status: 403, code: 'MODULE_FORBIDDEN', title: `Modulo ${def.requiredModule} nao habilitado para esta credencial ou para o usuario dono.` };
     }
     const portfolio = buildPortfolioView(auth, snap.users);
-    const out = await def.handler(parsed.data, { auth, data, owner: ceiling.owner, portfolio, allUsers: snap.users });
+    const trail: WriteAuditTrail = {};
+    const out = await def.handler(parsed.data, { auth, data, owner: ceiling.owner, portfolio, allUsers: snap.users, audit: trail });
     const checked = def.outputSchema.safeParse(out);
     if (!checked.success) {
       return { ok: false, status: 500, code: 'OUTPUT_CONTRACT_VIOLATION', title: 'Resposta fora do contrato da API.' };
     }
-    return { ok: true, status: def.successStatus, body: checked.data };
+    return { ok: true, status: def.successStatus, body: checked.data, ...(trail.entity ? { audit: trail } : {}) };
   } catch (err) {
     if (err instanceof UseCaseError) return { ok: false, status: err.status, code: err.code, title: err.title, extra: err.extra };
     if (isIntegrationStoreUnavailable(err)) {
