@@ -17,6 +17,7 @@ import { parseBillingRecipientEmails } from '../modules/erp/billing-recipient-em
 import { isLegacyProposalCode, migrateLegacyProposalCodes, nextGcProposalNumber } from '../app/lib/proposal-number';
 import { displayProposalTitle } from '../app/lib/proposal-title';
 import { applyProposalCommercialNotesDefault, proposalNoteDefaultTypeKey } from '../app/lib/proposal-note-defaults';
+import { resolveProposalValidityForSave } from '../app/lib/proposal-validity';
 import { buildDefaultTechnicalSupportClauses, isTechnicalSupportProposal } from '../app/lib/proposal-technical-clauses';
 import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
@@ -5072,7 +5073,12 @@ export class CrmRepository {
       readjustmentIndex: input.readjustmentIndex || 'IPCA',
       contractMonths,
       paymentCondition: input.paymentCondition || 'Boleto / PIX Corporativo — Vencimento dia 10',
-      validUntil: input.validUntil || new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
+      validUntil: resolveProposalValidityForSave({
+        proposalDate: input.proposalDate,
+        createdAt: input.createdAt || now,
+        validUntil: input.validUntil,
+        validityDays: (input as Record<string, unknown>).validityDays,
+      }, now.slice(0, 10)).validUntil,
       items: normalizedItems,
       monthlyRecurringTotal,
       oneTimeSetupTotal,
@@ -5274,6 +5280,14 @@ export class CrmRepository {
       totalContractValue,
       updatedAt: nowIso,
     };
+
+    const resolvedValidity = resolveProposalValidityForSave({
+      proposalDate: candidate.proposalDate,
+      createdAt: candidate.createdAt || current.createdAt,
+      validUntil: candidate.validUntil,
+      validityDays: (patch as Record<string, unknown>).validityDays,
+    });
+    candidate.validUntil = resolvedValidity.validUntil;
 
     const prevHistory = Array.isArray(current.versionHistory) ? [...current.versionHistory] : [];
     const detectedChanges = computeProposalChangedFields(current, candidate);
