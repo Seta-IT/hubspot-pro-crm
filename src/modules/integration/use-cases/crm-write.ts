@@ -65,7 +65,7 @@ function assigneeUser(ctx: UseCaseContext, requested: string | undefined): { id:
  * guarda o NOME do responsavel; vale o ID gravado pelo conector (criacao/reatribuicao). Carteira
  * TODOS => livre; ID diferente => 404; sem ID => 403 (homonimo nunca edita).
  */
-async function findTask(ctx: UseCaseContext, id: string): Promise<CrmTask> {
+export async function findTask(ctx: UseCaseContext, id: string): Promise<CrmTask> {
   const t = (await tasksInScope(ctx, {})).find((x) => x.id === id);
   if (!t) throw notFound('Tarefa');
   if (ctx.auth.portfolioScope !== 'TODOS') {

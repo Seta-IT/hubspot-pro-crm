@@ -181,3 +181,7 @@ Uso: rotina diária (Nova) que sincroniza GestãoClick → STI-hub em produção
 2. `Idempotency-Key` permanece **opcional** em POST/PATCH (recomendado para retries).
 3. `/login?next=` é respeitado para retomar o `authorize`, com validação estrita de mesma origem.
 4. `STI_HUB_PUBLIC_ORIGIN` é obrigatória em produção (falha fechado com 503).
+
+### Lote 3 alinhado à correção CISO do Lote 2 (item 2: posse por ID)
+
+As ações perigosas do Lote 3 que atuam sobre um registro da carteira (excluir tarefa, proposta e contrato; aceite e link público de proposta; cobrança em lote; fatura mensal, remessa, faturamento em lote, devolução e reajuste de contrato) passam a exigir posse por **ID** do usuário dono, como as escritas do Lote 2: carteira `TODOS` segue livre; ID de outro usuário ⇒ 404; registro sem ID dono ⇒ 403 `OWNER_ID_REQUIRED` (contratos/propostas: exceto controle total do ERP). O contrato criado pelo aceite de proposta via conector fica registrado em `api_record_owners` com o ID de quem aceitou.
