@@ -7278,6 +7278,15 @@ export class CrmApiRouter {
             utmCampaign: body.utmCampaign ? String(body.utmCampaign) : undefined,
             budgetBrl: body.budgetBrl !== undefined ? Number(body.budgetBrl) : 15000,
             ownerName: body.ownerName ? String(body.ownerName) : this.sessionActorName(query), // Pacote G
+            // API v1 / Lote 2: rascunho do conector (so contexto interno) nasce PAUSADO e sem metricas.
+            ...(ctx.trustedInternal && body.status === 'PAUSED'
+              ? {
+                  status: 'PAUSED' as const,
+                  sessions: 0, sentCount: 0, deliveredCount: 0, uniqueClicksCount: 0, repliesCount: 0, unsubscribesCount: 0,
+                  bouncesCount: 0, contactsGenerated: 0, mqlCount: 0, sqlCount: 0, opportunitiesCount: 0, attributedDeals: 0,
+                  wonDealsCount: 0, attributedRevenueBrl: 0,
+                }
+              : {}),
           });
           return { status: 201, body: { data: created } };
         }

@@ -102,9 +102,9 @@ async function handleMessage(
         serverInfo: MCP_SERVER_INFO,
         instructions:
           'Servidor MCP do STI-hub: CRM (contatos, empresas, negocios, atividades, pipelines, tarefas, automacao, marketing, insights, saude da base), ' +
-          'Chamados SetaDesk (TEC-/FIN-) e ERP somente leitura (painel, orcamentos, contratos, OS, vendas, compras, catalogo, cadastros, financeiro, bancos, fiscal). ' +
+          'Chamados SetaDesk (TEC-/FIN-) e ERP (leitura: painel, orcamentos, contratos, OS, vendas, compras, catalogo, cadastros, financeiro, bancos, fiscal; escrita reversivel: orcamentos, contratos, OS, pedidos, catalogo, fornecedores, lancamentos em aberto). ' +
           'Dados respeitam a carteira, os escopos e as alcadas do usuario; chamados mascarados; segredos fiscais nunca expostos. ' +
-          'Sem exclusao, merge, envio de e-mail/sequence, emissao/baixa fiscal ou financeira, sincronizacao ou administracao.',
+          'Criacoes exigem _meta["stihub/idempotencyKey"]. Sem exclusao, merge, envio de e-mail/sequence, emissao de fatura/NF/remessa, baixa/pagamento, aprovacao/aceite, ativacao/disparo de automacao, sincronizacao ou administracao.',
       });
     }
     case 'ping':
@@ -123,6 +123,10 @@ async function handleMessage(
       let idem: Awaited<ReturnType<typeof beginIdempotency>> = { kind: 'none' };
       if (uc.mutation) {
         const key = typeof meta['stihub/idempotencyKey'] === 'string' ? String(meta['stihub/idempotencyKey']) : undefined;
+        if (uc.requireIdempotencyKey && !key) {
+          await audit(store, { requestId, channel: 'mcp', authType: auth.authType, auth, scope: uc.requiredScope, action: `tools/call:${uc.toolName}`, path: req.path, statusCode: 428, ip: req.ip, startedAt, errorCode: 'IDEMPOTENCY_KEY_REQUIRED', now: deps.now() });
+          return rpcResult(id, { isError: true, content: [{ type: 'text', text: JSON.stringify({ status: 428, code: 'IDEMPOTENCY_KEY_REQUIRED', title: 'Esta criacao exige _meta["stihub/idempotencyKey"] (8-128 caracteres A-Z a-z 0-9 _ . : -).' }) }] });
+        }
         if (key) {
           // Reautoriza (escopo, dono ativo, teto vivo, alcada) ANTES de olhar o cache de replay.
           const pre = await preauthorizeUseCase(uc, auth, deps);
@@ -157,6 +161,7 @@ async function handleMessage(
         ip: req.ip,
         startedAt,
         errorCode: r.ok ? null : r.code,
+        details: r.ok && r.audit ? { ...r.audit } : null,
         now: deps.now(),
       });
       return rpcResult(id, result);

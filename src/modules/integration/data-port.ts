@@ -57,6 +57,8 @@ export interface IntegrationUser {
     finance?: string;
     fiscal?: string;
     canViewBankBalances: boolean;
+    /** Lote 2: teto de desconto (%) do cadastro (fallback preset do papel; invalido => 0). */
+    maxDiscountPercent?: number;
   };
   /** Papel do IAM (SUPER_ADMIN/DIRETORIA = administrador para dados sensiveis do ERP). */
   roleId: string;
@@ -168,6 +170,11 @@ export function toIntegrationUser(u: StiHubUserRecord): IntegrationUser {
       fiscal: ep?.fiscalIssuanceAccess ?? erpPreset.fiscalIssuanceAccess,
       // Booleano sensivel: so true explicito (cadastro ou preset do papel).
       canViewBankBalances: (ep ? ep.canViewBankBalances : erpPreset.canViewBankBalances) === true,
+      // Lote 2: teto de desconto (%) do cadastro/preset; invalido => 0 (fail-closed).
+      maxDiscountPercent: (() => {
+        const v = Number(ep?.maxDiscountPercent ?? erpPreset.maxDiscountPercent);
+        return Number.isFinite(v) && v >= 0 ? Math.min(100, v) : 0;
+      })(),
     },
     roleId: String(u.roleId || ''),
   };
@@ -184,7 +191,54 @@ const ALLOWED_WRITE_PATHS: RegExp[] = [
   /^\/api\/tickets$/,
   /^\/api\/tickets\/[A-Za-z0-9._-]{1,80}$/,
   /^\/api\/tickets\/[A-Za-z0-9._-]{1,80}\/comments$/,
+  // --- Fase 2 / Lote 2: escritas reversiveis (POST/PATCH). Nada de excluir, emitir, baixar,
+  // aprovar/aceitar, gerar link publico, enviar, ativar/disparar, importar XML ou sincronizar.
+  /^\/api\/erp\/proposals$/,
+  /^\/api\/erp\/proposals\/[A-Za-z0-9._-]{1,80}$/,
+  /^\/api\/erp\/proposals\/[A-Za-z0-9._-]{1,80}\/restore-version$/,
+  /^\/api\/erp\/rental-contracts$/,
+  /^\/api\/erp\/rental-contracts\/[A-Za-z0-9._-]{1,80}$/,
+  /^\/api\/erp\/rental-contracts\/[A-Za-z0-9._-]{1,80}\/(restore-version|renew)$/,
+  /^\/api\/erp\/service-orders$/,
+  /^\/api\/erp\/service-orders\/[A-Za-z0-9._-]{1,80}\/(status|duplicate)$/,
+  /^\/api\/tickets\/[A-Za-z0-9._-]{1,80}\/create-os$/,
+  /^\/api\/erp\/records\/(salesOrders|purchaseOrders|suppliers)$/,
+  /^\/api\/erp\/records\/(salesOrders|purchaseOrders|suppliers)\/[A-Za-z0-9._-]{1,80}$/,
+  /^\/api\/erp\/catalog$/,
+  /^\/api\/erp\/catalog\/[A-Za-z0-9._-]{1,80}$/,
+  /^\/api\/erp\/aux-lists$/,
+  /^\/api\/erp\/aux-lists\/[A-Za-z0-9._-]{1,80}$/,
+  /^\/api\/erp\/financial$/,
+  /^\/api\/erp\/financial\/[A-Za-z0-9._-]{1,80}$/,
+  /^\/api\/tasks$/,
+  /^\/api\/tasks\/[A-Za-z0-9._-]{1,80}$/,
+  /^\/api\/tasks\/[A-Za-z0-9._-]{1,80}\/complete$/,
+  /^\/api\/sequences$/,
+  /^\/api\/workflows$/,
+  /^\/api\/workflows\/[A-Za-z0-9._-]{1,80}$/,
+  /^\/api\/marketing\/campaigns$/,
 ];
+
+/**
+ * Fase 2 / Lote 2: travas de corpo na porta (defesa em profundidade alem do Zod strict dos casos
+ * de uso). Qualquer violacao => erro interno (nunca grava).
+ */
+function assertSafeWriteBody(method: 'POST' | 'PATCH', path: string, body: Record<string, unknown>): void {
+  const fail = (why: string) => {
+    throw new Error(`Escrita interna recusada pela trava da API v1: ${why}.`);
+  };
+  // Nenhuma escrita gera fatura/NF/remessa nem envia e-mail automatico.
+  for (const k of ['generateNextInvoiceOnSave', 'autoSendEmailOnBilling', 'dunningRuleEnabled', 'emitReturnNfe', 'emitProRataInvoice', 'createCrmDeal']) {
+    if (body[k] === true) fail(k);
+  }
+  if (/^\/api\/(sequences|workflows)/.test(path)) {
+    if ('action' in body || 'entityId' in body || 'workflowId' in body) fail('acao de automacao');
+    if (body.isActive !== false && (method === 'POST' || 'isActive' in body)) fail('automacao ativa');
+  }
+  if (path === '/api/marketing/campaigns' && body.status !== 'PAUSED') fail('campanha nao pausada');
+  if (/^\/api\/erp\/financial/.test(path) && (body.status === 'PAGO' || (body.paidAt !== undefined && body.paidAt !== null))) fail('baixa financeira');
+  if (/^\/api\/erp\/proposals/.test(path) && /^(APROVADA|CONVERTIDA_CONTRATO)$/.test(String(body.status ?? ''))) fail('aprovacao/conversao de proposta');
+}
 
 /**
  * Fase 2 / Lote 1: rotas internas de LEITURA permitidas (GET). Nada de escrita, emissao,
@@ -329,6 +383,7 @@ export class RouterDataPort implements IntegrationDataPort {
     if (!ALLOWED_WRITE_PATHS.some((re) => re.test(path))) {
       throw new Error('Escrita interna fora da allowlist da API v1.');
     }
+    assertSafeWriteBody(method, path, body);
     this.cache = {};
     const res = await this.trusted(method, path, {}, body);
     return { status: res.status, body: res.body };

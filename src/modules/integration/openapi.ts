@@ -49,8 +49,8 @@ function operationFor(uc: UseCaseDefinition): JsonSchema {
     parameters.push({
       name: 'Idempotency-Key',
       in: 'header',
-      required: false,
-      description: 'Chave unica por operacao (8-128 chars). Repeticao com o mesmo payload devolve a resposta original; payload diferente => 409. TTL 24h.',
+      required: uc.requireIdempotencyKey === true,
+      description: (uc.requireIdempotencyKey ? 'OBRIGATORIA nesta criacao (sem ela => 428). ' : '') + 'Chave unica por operacao (8-128 chars). Repeticao com o mesmo payload devolve a resposta original; payload diferente => 409. TTL 24h.',
       schema: { type: 'string', pattern: '^[A-Za-z0-9_.:-]{8,128}$' },
     });
   }
@@ -64,6 +64,7 @@ function operationFor(uc: UseCaseDefinition): JsonSchema {
     'x-required-module': uc.requiredModule,
     'x-idempotent': uc.idempotent,
     'x-mcp-tool': uc.toolName,
+    ...(uc.requireIdempotencyKey ? { 'x-idempotency-key-required': true } : {}),
     ...(parameters.length ? { parameters } : {}),
     ...(requestBody ? { requestBody } : {}),
     responses: {
@@ -80,6 +81,7 @@ function operationFor(uc: UseCaseDefinition): JsonSchema {
       '401': problemResponse('Credencial ausente, invalida, expirada ou revogada'),
       '403': problemResponse('Escopo, modulo ou carteira insuficiente'),
       ...(uc.pathParams.length ? { '404': problemResponse('Nao encontrado (ou fora da carteira)') } : {}),
+      ...(uc.requireIdempotencyKey ? { '428': problemResponse('Idempotency-Key obrigatoria ausente') } : {}),
       ...(uc.mutation ? { '409': problemResponse('Conflito (Idempotency-Key reutilizada / registro travado)'), '422': problemResponse('Regra de negocio violada') } : {}),
       '429': problemResponse('Limite de requisicoes excedido (veja Retry-After)'),
       '503': problemResponse('Postgres indisponivel'),
@@ -118,15 +120,15 @@ export function buildOpenApiDocument(): JsonSchema {
       title: 'STI-hub API v1 (Integracoes)',
       version: API_V1_VERSION,
       description:
-        'API REST de integracoes do STI-hub (CRM, Chamados/SetaDesk e ERP somente leitura). Autenticacao: Bearer stihub_int_* (chave de integracao do IAM) ou token OAuth 2.1 (PKCE S256). ' +
-        'Carteira (PROPRIOS/EQUIPE/TODOS), moduleAccess e alcadas de tela (CRM e ERP) aplicados no servidor. ERP somente leitura. Sem DELETE, merge, escrita de Sequencias/Fiscal/Financeiro/ERP, envio de e-mail ou integracao com o ERP de origem nesta versao. ' +
+        'API REST de integracoes do STI-hub (CRM, Chamados/SetaDesk e ERP). Autenticacao: Bearer stihub_int_* (chave de integracao do IAM) ou token OAuth 2.1 (PKCE S256). ' +
+        'Carteira (PROPRIOS/EQUIPE/TODOS), moduleAccess e alcadas de tela (CRM e ERP) aplicados no servidor. ERP: leitura e escritas reversiveis (criar/editar; criacoes exigem Idempotency-Key). Sem DELETE, merge, emissao de fatura/NF/remessa, baixa/pagamento, aprovacao/aceite, link publico, envio de e-mail, ativacao/disparo de automacao ou escrita no ERP de origem (GestaoClick). ' +
         'Erros em application/problem+json (RFC 7807). Mesmos casos de uso disponiveis como tools no servidor MCP (/api/mcp).',
     },
     servers: [{ url: '/' }],
     tags: [
       { name: 'CRM', description: 'Contatos, empresas, negocios, atividades e pipelines' },
       { name: 'Chamados', description: 'SetaDesk: chamados TEC-/FIN-, comentarios e filas (dados mascarados)' },
-      { name: 'ERP', description: 'Somente leitura: painel, orcamentos, contratos, OS, vendas, compras, catalogo, cadastros, financeiro, bancos e fiscal (segredos mascarados)' },
+      { name: 'ERP', description: 'Leitura (painel, orcamentos, contratos, OS, vendas, compras, catalogo, cadastros, financeiro, bancos, fiscal com segredos mascarados) e escritas reversiveis (orcamentos, contratos, OS, pedidos, catalogo, listas auxiliares, fornecedores, lancamentos em aberto)' },
       { name: 'Meta', description: 'Especificacao' },
     ],
     paths: sortedPaths,

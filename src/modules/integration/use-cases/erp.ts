@@ -40,13 +40,13 @@ import {
 
 const listOf = <T extends z.ZodType>(item: T) => z.object({ data: z.array(item), page: PageInfoSchema });
 const one = <T extends z.ZodType>(item: T) => z.object({ data: item });
-const str = (v: unknown): string => (v === undefined || v === null ? '' : String(v));
-const strOrNull = (v: unknown): string | null => (v === undefined || v === null || v === '' ? null : String(v));
-const num = (v: unknown): number => {
+export const str = (v: unknown): string => (v === undefined || v === null ? '' : String(v));
+export const strOrNull = (v: unknown): string | null => (v === undefined || v === null || v === '' ? null : String(v));
+export const num = (v: unknown): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
-const norm = (v: unknown): string =>
+export const norm = (v: unknown): string =>
   String(v ?? '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -70,14 +70,14 @@ const base = {
 // ---------------------------------------------------------------------------
 // Carteira do ERP
 // ---------------------------------------------------------------------------
-interface ErpOwner {
+export interface ErpOwner {
   id: string;
   email: string;
   name: string;
 }
 
 /** null => carteira TODOS (sem filtro). PROPRIOS/EQUIPE => so o dono da credencial (como a tela). */
-function erpOwner(ctx: UseCaseContext): ErpOwner | null {
+export function erpOwner(ctx: UseCaseContext): ErpOwner | null {
   if (ctx.auth.portfolioScope === 'TODOS') return null;
   return { id: ctx.owner.id, email: ctx.owner.email.toLowerCase(), name: ctx.owner.name };
 }
@@ -89,7 +89,7 @@ export function proposalOwnedBy(p: Pick<ErpCommercialProposal, 'sellerUserId' | 
   return norm(p.sellerEmail) !== '' && norm(p.sellerEmail) === norm(o.email);
 }
 
-async function companyIdsOwnedBy(ctx: UseCaseContext, o: ErpOwner): Promise<Set<string>> {
+export async function companyIdsOwnedBy(ctx: UseCaseContext, o: ErpOwner): Promise<Set<string>> {
   const snap = await ctx.data.snapshot('crm');
   const ids = new Set<string>();
   for (const c of snap.companies) {
@@ -99,13 +99,13 @@ async function companyIdsOwnedBy(ctx: UseCaseContext, o: ErpOwner): Promise<Set<
   return ids;
 }
 
-function contractInScope(c: ErpRentalContract, o: ErpOwner | null, ownedCompanies: Set<string>): boolean {
+export function contractInScope(c: ErpRentalContract, o: ErpOwner | null, ownedCompanies: Set<string>): boolean {
   if (!o) return true;
   if (c.sellerName && norm(c.sellerName) === norm(o.name)) return true;
   return !!c.companyId && ownedCompanies.has(c.companyId);
 }
 
-function serviceOrderInScope(s: Pick<ErpServiceOrder, 'sellerName' | 'technicianName'>, o: ErpOwner | null): boolean {
+export function serviceOrderInScope(s: Pick<ErpServiceOrder, 'sellerName' | 'technicianName'>, o: ErpOwner | null): boolean {
   if (!o) return true;
   const n = norm(o.name);
   return !!n && (norm(s.sellerName) === n || norm(s.technicianName) === n);
@@ -119,13 +119,13 @@ function decodeOffset(cursor: string | undefined): number {
 }
 const encodeOffset = (n: number) => Buffer.from(`o:${n}`, 'utf8').toString('base64url');
 
-function unwrapRead(res: { status: number; body: any }, what: string): any {
+export function unwrapRead(res: { status: number; body: any }, what: string): any {
   if (res.status === 404) throw notFound(what);
   if (res.status < 200 || res.status >= 300) throw new UseCaseError(502, 'UPSTREAM_ERROR', `Falha interna ao ler ${what}.`);
   return res.body;
 }
 
-async function collections(ctx: UseCaseContext): Promise<ErpCollections> {
+export async function collections(ctx: UseCaseContext): Promise<ErpCollections> {
   return ctx.data.erpCollections();
 }
 
@@ -204,7 +204,7 @@ export const ProposalDto = ProposalSummaryDto.extend({
     })
   ),
 });
-const toProposal = (p: ErpCommercialProposal): z.infer<typeof ProposalDto> => ({
+export const toProposal = (p: ErpCommercialProposal): z.infer<typeof ProposalDto> => ({
   ...toProposalSummary(p),
   companyCnpj: str(p.companyCnpj),
   paymentCondition: str(p.paymentCondition),
@@ -229,7 +229,7 @@ const toProposal = (p: ErpCommercialProposal): z.infer<typeof ProposalDto> => ({
   })),
 });
 
-const VersionDto = z.object({
+export const VersionDto = z.object({
   version: z.number(),
   versionLabel: z.string(),
   savedAt: z.string(),
@@ -297,7 +297,7 @@ export const ContractDto = ContractSummaryDto.extend({
     })
   ),
 });
-const toContract = (c: ErpRentalContract): z.infer<typeof ContractDto> => ({
+export const toContract = (c: ErpRentalContract): z.infer<typeof ContractDto> => ({
   ...toContractSummary(c),
   companyCnpj: str(c.companyCnpj),
   paymentMethod: strOrNull(c.paymentMethod),
@@ -330,7 +330,7 @@ export const ServiceOrderDto = z.object({
   equipmentName: z.string().nullable(),
   serialNumber: z.string().nullable(),
 });
-const toServiceOrder = (s: ErpServiceOrder): z.infer<typeof ServiceOrderDto> => ({
+export const toServiceOrder = (s: ErpServiceOrder): z.infer<typeof ServiceOrderDto> => ({
   id: str(s.id),
   code: str(s.code),
   status: str(s.status),
@@ -347,7 +347,7 @@ const toServiceOrder = (s: ErpServiceOrder): z.infer<typeof ServiceOrderDto> => 
   serialNumber: strOrNull(s.serialNumber),
 });
 
-const SaleOrderDto = z.object({
+export const SaleOrderDto = z.object({
   id: z.string(),
   code: z.string(),
   companyName: z.string(),
@@ -359,7 +359,7 @@ const SaleOrderDto = z.object({
   saleType: z.string().nullable(),
   paymentMethod: z.string().nullable(),
 });
-const PurchaseOrderDto = z.object({
+export const PurchaseOrderDto = z.object({
   id: z.string(),
   code: z.string(),
   supplierName: z.string(),
@@ -390,7 +390,7 @@ export const CatalogItemDto = z.object({
   costPrice: z.number().nullable(),
   profitMarginPercent: z.number().nullable(),
 });
-const toCatalogItem = (c: ErpCatalogItem, showCost: boolean): z.infer<typeof CatalogItemDto> => ({
+export const toCatalogItem = (c: ErpCatalogItem, showCost: boolean): z.infer<typeof CatalogItemDto> => ({
   id: str(c.id),
   code: str(c.gestaoClickCode),
   name: str(c.name),
@@ -408,7 +408,7 @@ const toCatalogItem = (c: ErpCatalogItem, showCost: boolean): z.infer<typeof Cat
   profitMarginPercent: showCost && c.profitMarginPercent !== undefined ? num(c.profitMarginPercent) : null,
 });
 
-const SupplierDto = z.object({
+export const SupplierDto = z.object({
   id: z.string(),
   name: z.string(),
   legalName: z.string(),
@@ -434,7 +434,7 @@ export function maskPhone(v: unknown): string {
   return `****${d.slice(-4)}`;
 }
 
-const FinancialEntryDto = z.object({
+export const FinancialEntryDto = z.object({
   id: z.string(),
   type: z.string(),
   category: z.string(),
@@ -604,7 +604,7 @@ export const erpSyncStatusGet = defineUseCase({
 // ---------------------------------------------------------------------------
 // PROPOSTAS / ORCAMENTOS
 // ---------------------------------------------------------------------------
-async function loadOwnedProposal(ctx: UseCaseContext, id: string): Promise<ErpCommercialProposal> {
+export async function loadOwnedProposal(ctx: UseCaseContext, id: string): Promise<ErpCommercialProposal> {
   const res = await ctx.data.read(`/api/erp/proposals/${encodeURIComponent(id)}`);
   const body = unwrapRead(res, 'Proposta');
   const p = body?.data as ErpCommercialProposal | undefined;
@@ -772,12 +772,12 @@ export const erpProposalAcceptanceGet = defineUseCase({
 // ---------------------------------------------------------------------------
 // CONTRATOS DE LOCACAO
 // ---------------------------------------------------------------------------
-async function contractsInScope(ctx: UseCaseContext): Promise<ErpRentalContract[]> {
+export async function contractsInScope(ctx: UseCaseContext): Promise<ErpRentalContract[]> {
   const o = erpOwner(ctx);
   const owned = o ? await companyIdsOwnedBy(ctx, o) : new Set<string>();
   return (await collections(ctx)).rentalContracts.filter((c) => c && contractInScope(c, o, owned));
 }
-async function findContract(ctx: UseCaseContext, id: string): Promise<ErpRentalContract> {
+export async function findContract(ctx: UseCaseContext, id: string): Promise<ErpRentalContract> {
   const c = (await contractsInScope(ctx)).find((x) => x.id === id || norm(x.contractNumber) === norm(id));
   if (!c) throw notFound('Contrato');
   return c;
@@ -1049,7 +1049,7 @@ export const erpPurchaseOrdersList = defineUseCase({
 // ---------------------------------------------------------------------------
 // CATALOGO E LISTAS AUXILIARES
 // ---------------------------------------------------------------------------
-const showCatalogCost = (ctx: UseCaseContext) => userHasErpAccess(ctx.owner, 'finance', 'VIEW');
+export const showCatalogCost = (ctx: UseCaseContext) => userHasErpAccess(ctx.owner, 'finance', 'VIEW');
 
 export const erpCatalogList = defineUseCase({
   ...base,

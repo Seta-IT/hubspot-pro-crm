@@ -227,14 +227,15 @@ describe('Lote 1: catalogo, escopos e travas (ERP somente leitura)', () => {
     for (const uc of lote1.filter((u) => u.requiredModule === 'erp')) {
       const p = uc.path;
       assert.ok(doc.paths[p]?.get, p);
-      assert.equal(Object.keys(doc.paths[p]).length, 1, p);
+      // Lote 2: o mesmo path pode ganhar POST/PATCH da allowlist; nunca PUT/DELETE.
+      assert.ok(Object.keys(doc.paths[p]).every((m) => ['get', 'post', 'patch'].includes(m)), p);
     }
     const oauthScopes = Object.keys(doc.components.securitySchemes.oauth2.flows.authorizationCode.scopes);
     for (const s of LOTE1_SCOPES) assert.ok(oauthScopes.includes(s), s);
   });
 
   it('escrita/fiscal/financeiro/GestaoClick fora da allowlist seguem bloqueados', () => {
-    for (const s of ['erp:fiscal:write', 'erp:financial:write', 'erp:proposals:write', 'erp:banks:write', 'erp:gestaoclick:read', 'erp:*', 'erp:iam:read', 'crm:sequences:write', 'fiscal:nfe:read']) {
+    for (const s of ['erp:fiscal:write', 'erp:financial:pay', 'erp:invoices:write', 'erp:banks:write', 'erp:gestaoclick:read', 'erp:*', 'erp:iam:read', 'crm:sequences:write', 'fiscal:nfe:read']) {
       assert.ok(isBlockedScope(s), s);
       const v = validateRequestedScopes(`crm:contacts:read ${s}`);
       assert.equal(v.ok, false, s);
@@ -287,8 +288,8 @@ describe('Lote 1: cada ferramenta responde (admin, carteira TODOS, todas as alca
     // Inexistente => 404 neutro
     assert.equal((await get(env, key, '/api/v1/erp/proposals/nao-existe')).status, 404);
     assert.equal((await get(env, key, '/api/v1/erp/invoices/nao-existe')).status, 404);
-    // Metodo de escrita em rota ERP => 405 (somente leitura)
-    for (const m of ['POST', 'PATCH', 'PUT', 'DELETE']) {
+    // PUT/DELETE em rota ERP => 405 (Lote 2 so libera POST/PATCH da allowlist)
+    for (const m of ['PUT', 'DELETE']) {
       const w = await handleRestV1(req(m, '/api/v1/erp/proposals', { headers: bearer(key), body: { title: 'x' } }), env.deps);
       assert.equal(w.status, 405, m);
     }
