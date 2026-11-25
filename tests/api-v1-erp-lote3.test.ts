@@ -273,6 +273,8 @@ async function twoStep(env: Env, key: string, path: string, payload: Record<stri
 describe('Lote 3: catalogo de operacoes perigosas', () => {
   it('todo par prepare/commit esta na allowlist, com escopo perigoso, POST e anotacoes corretas', () => {
     const danger = INTEGRATION_USE_CASES.filter((u) => u.dangerous);
+    assert.equal(LOTE3_DANGEROUS_OPERATIONS.size, 41);
+    assert.equal(LOTE3_DANGEROUS_SCOPES.size, 14);
     assert.equal(danger.length, LOTE3_DANGEROUS_OPERATIONS.size * 2);
     for (const uc of danger) {
       const base = uc.operationId.replace(/\.(prepare|commit)$/, '');
@@ -708,5 +710,67 @@ describe('Lote 3c: financeiro (TODOS)', () => {
     fr.erpPermissions = { ...fr.erpPermissions, canViewBankBalances: false };
     const nb = await createKey(env, { name: 'x', scopes: ['erp:banks:write'], portfolioScope: 'TODOS', moduleAccess: { crm: true, chamados: false, erp: true }, ownerUserId: FIN.uid, confirmDangerousScopes: true });
     assert.equal(nb.res.status, 422);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('Lote 3d: fiscal (TODOS + canIssueFiscalDocuments)', () => {
+  it('admin: emite, gera fatura/remessa, fatura em lote, devolucao parcial, reajuste, cancela e exclui', async () => {
+    const env = makeEnv();
+    const key = await dangerAdminKey(env);
+    const erp = env.repo.getErpState();
+    const before = erp.invoices.length;
+    const issueArgs = { documentType: 'NFSE_SERVICO', companyId: env.ids.coAna, grossAmount: 300, items: [{ description: 'Suporte', quantity: 3, unitValue: 100 }] };
+    const mism = await prepare(env, key, '/api/v1/erp/fiscal-documents/issue', { ...issueArgs, grossAmount: 299 });
+    assert.equal(body(mism).code, 'ITEMS_TOTAL_MISMATCH');
+    const is = await twoStep(env, key, '/api/v1/erp/fiscal-documents/issue', issueArgs);
+    assert.equal(is.c.status, 200, JSON.stringify(is.c.body));
+    assert.equal(erp.invoices.length, before + 1);
+    const invId = body(is.c).data.result.id;
+    const gi = await twoStep(env, key, '/api/v1/erp/contracts/ctr-ana/generate-invoice', { competenceMonth: '12/2026' });
+    assert.ok([200, 409].includes(gi.c.status), JSON.stringify(gi.c.body));
+    const gr = await twoStep(env, key, '/api/v1/erp/contracts/ctr-ana/generate-remessa');
+    assert.ok([200, 409].includes(gr.c.status), JSON.stringify(gr.c.body));
+    const bb = await twoStep(env, key, '/api/v1/erp/contracts/batch-billing', { competenceMonth: '01/2027', items: [{ contractId: 'ctr-ana-co' }] });
+    assert.equal(bb.c.status, 200, JSON.stringify(bb.c.body));
+    const pr = await twoStep(env, key, '/api/v1/erp/contracts/ctr-carla-co/partial-return', { returnDate: '2026-11-20', itemsToReturn: [{ equipmentId: 'eq1', quantityReturned: 1 }], emitReturnNfe: false, emitProRataInvoice: false, reason: 'cliente devolveu' });
+    assert.ok([200, 409, 422].includes(pr.c.status), JSON.stringify(pr.c.body));
+    assert.equal(body(await prepare(env, key, '/api/v1/erp/contracts/ctr-ana/partial-return', { returnDate: '2026-11-20', itemsToReturn: [{ equipmentId: 'eq1', quantityReturned: 5 }], emitReturnNfe: false, emitProRataInvoice: false, reason: 'x devolveu' })).code, 'RETURN_ABOVE_QUANTITY');
+    const rj = await twoStep(env, key, '/api/v1/erp/contracts/ctr-ana/readjust', { percentage: 5, index: 'IPCA' });
+    assert.equal(rj.c.status, 200, JSON.stringify(rj.c.body));
+    assert.equal(body(rj.p).data.preview.monthlyValueAfterEstimated, 525);
+    const nfe = await prepare(env, key, '/api/v1/erp/nfe-import/emit', { request: {} });
+    assert.equal(nfe.status, 422, JSON.stringify(nfe.body));
+    // excluir antes de cancelar => 409; cancelar; excluir
+    assert.equal(body(await prepare(env, key, `/api/v1/erp/fiscal-documents/${invId}/delete`)).code, 'INVOICE_NOT_DELETABLE');
+    assert.equal((await prepare(env, key, `/api/v1/erp/fiscal-documents/${invId}/cancel`, { reason: 'curta' })).status, 400);
+    const cn = await twoStep(env, key, `/api/v1/erp/fiscal-documents/${invId}/cancel`, { reason: 'Emitida em duplicidade por engano' });
+    assert.equal(cn.c.status, 200, JSON.stringify(cn.c.body));
+    assert.equal(String(erp.invoices.find((i) => i.id === invId)!.status), 'CANCELADA');
+    // o app cria titulo a receber vinculado na emissao: exclusao bloqueada (conector mais restrito que o app)
+    const linked = erp.financialEntries.filter((f) => f.invoiceId === invId).length;
+    if (linked) {
+      assert.ok(body(cn.p).data.preview.linkedOpenFinancialEntries >= 1);
+      assert.equal(body(await prepare(env, key, `/api/v1/erp/fiscal-documents/${invId}/delete`)).code, 'INVOICE_IN_USE');
+    }
+    erp.invoices.push({ ...(erp.invoices.find((i) => i.id === invId) as any), id: 'inv-l3-cancelada', status: 'CANCELADA', paidAt: null } as never);
+    const dl = await twoStep(env, key, '/api/v1/erp/fiscal-documents/inv-l3-cancelada/delete');
+    assert.equal(dl.c.status, 200, JSON.stringify(dl.c.body));
+    assert.ok(!erp.invoices.some((i) => i.id === 'inv-l3-cancelada'));
+    // fatura paga nao cancela
+    (erp.invoices.find((i) => i.id === 'inv-1') as any).status = 'PAGA';
+    assert.equal(body(await prepare(env, key, '/api/v1/erp/fiscal-documents/inv-1/cancel', { reason: 'Tentativa de cancelar paga' })).code, 'INVOICE_NOT_CANCELLABLE');
+  });
+
+  it('negacoes: sem canIssueFiscalDocuments nao recebe o escopo; PROPRIOS => 403', async () => {
+    const env = makeEnv();
+    const k = await createKey(env, { name: 'x', scopes: ['erp:fiscal:issue'], portfolioScope: 'TODOS', moduleAccess: { crm: true, chamados: false, erp: true }, ownerUserId: FIN.uid, confirmDangerousScopes: true });
+    assert.equal(k.res.status, 422);
+    assert.equal(body(k.res).code, 'SCOPE_EXCEEDS_OWNER_ACCESS');
+    grant(env, FIN.uid, { canIssueFiscalDocuments: true });
+    const fin = await keyFor(env, FIN.uid, 'PROPRIOS', ['erp:fiscal:issue', 'erp:fiscal:cancel'], { crm: true, chamados: false, erp: true });
+    const r = await prepare(env, fin, '/api/v1/erp/contracts/ctr-ana/generate-remessa');
+    assert.equal(r.status, 403);
+    assert.equal(body(r).code, 'PORTFOLIO_ALL_REQUIRED');
   });
 });
