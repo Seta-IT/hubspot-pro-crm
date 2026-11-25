@@ -129,6 +129,33 @@ export function ownerMeetsScope(user: ScopeUser, scope: string): boolean {
     case 'crm:automation:write':
     case 'crm:marketing:write':
       return userHasAccess(user, 'marketing', 'EDIT');
+    // --- Fase 2 / Lote 3: operacoes perigosas = alcada de EDICAO + permissao de ACAO da tela ---
+    case 'crm:delete':
+      return userHasGuard(user, 'canDeleteCrmRecords') && (['contacts', 'companies', 'deals'] as CrmArea[]).some((a) => userHasAccess(user, a, 'EDIT'));
+    case 'crm:merge':
+      return userHasGuard(user, 'canMergeCrmRecords') && (['contacts', 'companies'] as CrmArea[]).some((a) => userHasAccess(user, a, 'EDIT'));
+    case 'crm:data_health:write':
+      return userHasGuard(user, 'canMergeCrmRecords') && userHasAccess(user, 'contacts', 'EDIT');
+    case 'erp:records:delete':
+      return userHasGuard(user, 'canDeleteErpRecords') && (['proposals', 'contracts', 'stockOsSales', 'finance'] as ErpArea[]).some((a) => erpEdit(a));
+    case 'comms:send':
+      return (['contacts', 'companies', 'deals'] as CrmArea[]).some((a) => userHasAccess(user, a, 'EDIT'));
+    case 'crm:automation:activate':
+    case 'crm:marketing:dispatch':
+      return userHasAccess(user, 'marketing', 'EDIT');
+    case 'erp:proposals:approve':
+      return erpEdit('proposals') && userHasGuard(user, 'canApproveProposals');
+    case 'erp:public_links:write':
+      return erpEdit('proposals') || erpEdit('finance');
+    case 'erp:financial:settle':
+      return erpEdit('finance');
+    case 'erp:banks:write':
+      return erpEdit('finance') && user.erpAccess?.canViewBankBalances === true;
+    case 'erp:contracts:readjust':
+      return erpEdit('contracts');
+    case 'erp:fiscal:issue':
+    case 'erp:fiscal:cancel':
+      return erpEdit('fiscal') && userHasGuard(user, 'canIssueFiscalDocuments');
     default:
       return true;
   }

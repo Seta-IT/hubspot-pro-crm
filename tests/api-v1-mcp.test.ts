@@ -23,7 +23,7 @@ import { buildOpenApiDocument } from '../src/modules/integration/openapi';
 import { INTEGRATION_USE_CASES } from '../src/modules/integration/use-cases';
 import { INTEGRATION_SCHEMA_SQL } from '../src/modules/integration/store-postgres';
 import { isBlockedScope, validateRequestedScopes } from '../src/modules/integration/scopes';
-import { LOTE2_WRITE_OPERATIONS } from '../src/modules/integration/use-cases';
+import { LOTE2_WRITE_OPERATIONS, LOTE3_DANGEROUS_OPERATIONS } from '../src/modules/integration/use-cases';
 import fs from 'node:fs';
 import { Pool } from 'pg';
 import { sanitizeLoginNext } from '../src/app/lib/safe-next';
@@ -316,7 +316,7 @@ describe('IAM: chaves de integracao (sessao 2FA + ADMIN, segredo 1x, hash, revog
 describe('Travas CISO: escopos bloqueados fora da criacao, do OpenAPI e do MCP', () => {
   it('rejeita DELETE, merge, sequencias, fiscal/financeiro, GestaoClick e IAM na criacao', async () => {
     const env = makeEnv();
-    for (const s of ['crm:contacts:delete', 'crm:merge', 'crm:sequences:write', 'fiscal:nfe:write', 'financeiro:write', 'gestaoclick:write', 'iam:users:write', 'admin:all', '*']) {
+    for (const s of ['crm:contacts:delete', 'crm:contacts:merge', 'crm:sequences:write', 'fiscal:nfe:write', 'financeiro:write', 'gestaoclick:write', 'iam:users:write', 'admin:all', '*']) {
       const k = await createKey(env, { name: 'x', scopes: ['crm:contacts:read', s], portfolioScope: 'TODOS', moduleAccess: { crm: true, chamados: false } });
       assert.equal(k.res.status, 400, s);
       assert.equal(body(k.res).code, 'SCOPE_BLOCKED', s);
@@ -333,6 +333,15 @@ describe('Travas CISO: escopos bloqueados fora da criacao, do OpenAPI e do MCP',
     const doc = buildOpenApiDocument();
     for (const [p, ops] of Object.entries(doc.paths as Record<string, Record<string, unknown>>)) {
       assert.ok(!('delete' in ops), p);
+      // Lote 3: operacoes perigosas so como par prepare/commit (POST) da allowlist fechada.
+      if (Object.values(ops).every((op) => (op as Record<string, unknown>)['x-stihub-dangerous'])) {
+        for (const [m, op] of Object.entries(ops)) {
+          assert.equal(m, 'post', p);
+          assert.ok(LOTE3_DANGEROUS_OPERATIONS.has((op as { operationId: string }).operationId.replace(/\.(prepare|commit)$/, '')), p);
+          assert.ok(!/gestaoclick|iam|admin/i.test(p), p);
+        }
+        continue;
+      }
       assert.ok(!/merge|gestaoclick|iam|admin/i.test(p), p);
       // Lote 1: sequences/fiscal/financeiro so como LEITURA; Lote 2: + POST/PATCH da allowlist fechada.
       if (/sequence|fiscal|financ|invoice/i.test(p)) {
@@ -345,6 +354,11 @@ describe('Travas CISO: escopos bloqueados fora da criacao, do OpenAPI e do MCP',
       assert.ok(!/fiscal|invoice/i.test(p) || Object.keys(ops).every((m) => m === 'get'), p);
     }
     for (const uc of INTEGRATION_USE_CASES) {
+      if (uc.dangerous) {
+        assert.ok(LOTE3_DANGEROUS_OPERATIONS.has(uc.operationId.replace(/\.(prepare|commit)$/, '')), uc.toolName);
+        assert.ok(!/gestaoclick|iam/i.test(uc.toolName), uc.toolName);
+        continue;
+      }
       assert.ok(!/delete|merge|gestaoclick|iam/i.test(uc.toolName), uc.toolName);
       assert.notEqual(uc.method as string, 'DELETE');
       if (/sequence|fiscal|financ|invoice/i.test(uc.toolName) || uc.requiredModule === 'erp') {

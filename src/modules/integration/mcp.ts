@@ -60,7 +60,8 @@ export function describeTool(uc: UseCaseDefinition) {
     annotations: {
       title: uc.summary,
       readOnlyHint: !uc.mutation,
-      destructiveHint: false,
+      // Lote 3: commit de operacao perigosa (excluir/mesclar/enviar/emitir/baixar) => destrutivo.
+      destructiveHint: uc.dangerous === 'commit',
       idempotentHint: uc.idempotent,
       openWorldHint: false,
     },
