@@ -8,7 +8,7 @@ import {
   isDefaultTechnicalSupportClauses,
   isTechnicalSupportProposal,
 } from './proposal-technical-clauses';
-import { formatProposalValidUntilPtBr, isProposalValidityExpired } from './proposal-validity';
+import { formatProposalValidUntilPtBr, isProposalEffectiveValidityExpired, effectiveProposalValidUntil } from './proposal-validity';
 import {
   FORBIDDEN_TEMPLATE_CNPJ,
   SETA_INTERNAL_BRAND_TITLE,
@@ -439,7 +439,11 @@ export function buildInternalProposalSheet(
     readjustmentLine: partsBudget || oneTime ? '' : `Reajuste anual: ${readjustment}`,
     summaryRows,
     notices: SETA_INTERNAL_PROPOSAL_NOTICES,
-    validityExpiredSince: isProposalValidityExpired(proposal.validUntil) ? (formatProposalValidUntilPtBr(proposal.validUntil) || formatIsoDatePt(proposal.validUntil)) : null,
+    validityExpiredSince: (() => {
+      if (!isProposalEffectiveValidityExpired(proposal)) return null;
+      const effective = effectiveProposalValidUntil(proposal);
+      return formatProposalValidUntilPtBr(effective) || (effective ? formatIsoDatePt(effective) : null);
+    })(),
     validityLine: `VALIDADE DA PROPOSTA: ${formatIsoDatePt(proposal.validUntil)}${daysBetween(proposal.proposalDate, proposal.validUntil)}`,
     deliveryForecastLine: `PREVISÃO DE ENTREGA: ${(delivery || INTERNAL_FIELD_BLANK).toUpperCase()}`,
     clientLegalName: String(proposal.companyName || '').trim() || INTERNAL_FIELD_BLANK,

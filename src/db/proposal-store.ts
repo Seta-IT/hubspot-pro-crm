@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import { runGuardedDdl } from './schema-guard';
 import type { ErpCommercialProposal } from './types';
 import { extractGcProposalNumber, formatProposalDisplayCode, GESTAOCLICK_LAST_IMPORTED_PROPOSAL_NUMBER } from '../app/lib/proposal-number';
+import { resolveProposalValidityForSave } from '../app/lib/proposal-validity';
 
 export const PROPOSALS_TABLE = 'erp_proposals';
 export const PROPOSALS_STORAGE_MARKER = 'table';
@@ -521,7 +522,16 @@ export async function insertGcProposalsIfAbsent(db: PgQ, list: AnyP[]): Promise<
   const knownGc = new Set((known.rows || []).map((r) => String(r.gc_id || '')).filter(Boolean));
   const fresh = cand.filter((p) => !knownIds.has(String(p.id).toLowerCase()) && !(gcIdOf(p) && knownGc.has(String(gcIdOf(p)))));
   if (!fresh.length) return 0;
-  const r = await applyProposalDiff(db, { inserts: fresh as ErpCommercialProposal[], updates: [], deletes: [] });
+  const normalized = fresh.map((p) => {
+    const rec = p as ErpCommercialProposal;
+    const resolved = resolveProposalValidityForSave({
+      proposalDate: rec.proposalDate,
+      createdAt: rec.createdAt,
+      validUntil: rec.validUntil,
+    });
+    return { ...rec, validUntil: resolved.validUntil };
+  });
+  const r = await applyProposalDiff(db, { inserts: normalized, updates: [], deletes: [] });
   return r.inserted;
 }
 

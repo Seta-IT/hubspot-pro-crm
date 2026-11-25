@@ -289,6 +289,8 @@ import {
   describeProposalLinkInText,
   proposalLinkNotAfterMs,
   isProposalValidityExpired,
+  isProposalEffectiveValidityExpired,
+  effectiveProposalValidUntil,
   proposalExpiredRevalidationMessage,
   ProposalLinkExpiredProposalError,
   resolveProposalLinkOrigin,
@@ -5256,7 +5258,7 @@ export class CrmApiRouter {
       return proposalNotFoundResponse();
     }
     // Proposta vencida: o link continua abrindo, mas o aceite do cliente fica bloqueado.
-    if (!trusted && isProposalValidityExpired(existing.validUntil)) {
+    if (!trusted && isProposalEffectiveValidityExpired(existing)) {
       this.proposalLinkAudit(
         'PROPOSAL_PUBLIC_APPROVE',
         'BLOCKED',
@@ -5269,7 +5271,7 @@ export class CrmApiRouter {
       return {
         status: 409,
         body: {
-          error: proposalExpiredRevalidationMessage(existing.validUntil),
+          error: proposalExpiredRevalidationMessage(effectiveProposalValidUntil(existing)),
           code: 'PROPOSAL_EXPIRED',
         },
       };

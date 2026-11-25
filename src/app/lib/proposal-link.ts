@@ -18,7 +18,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { z } from 'zod';
 import { SlidingWindowRateLimiter } from '../../api/password-reset';
-export { proposalValidUntilEndMs, isProposalValidityExpired, proposalLinkNotAfterMs, proposalExpiredRevalidationMessage, PROPOSAL_EXPIRED_REVALIDATION_MESSAGE, formatProposalValidUntilPtBr } from './proposal-validity';
+export { proposalValidUntilEndMs, isProposalValidityExpired, isProposalEffectiveValidityExpired, effectiveProposalValidUntil, proposalLinkNotAfterMs, proposalExpiredRevalidationMessage, PROPOSAL_EXPIRED_REVALIDATION_MESSAGE, formatProposalValidUntilPtBr } from './proposal-validity';
 
 export const PROPOSAL_LINK_DEFAULT_TTL_DAYS = 30;
 export const PROPOSAL_LINK_MAX_TTL_DAYS = 90;

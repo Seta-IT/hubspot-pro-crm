@@ -17,6 +17,7 @@ import { parseBillingRecipientEmails } from '../modules/erp/billing-recipient-em
 import { isLegacyProposalCode, migrateLegacyProposalCodes, nextGcProposalNumber } from '../app/lib/proposal-number';
 import { displayProposalTitle } from '../app/lib/proposal-title';
 import { applyProposalCommercialNotesDefault, proposalNoteDefaultTypeKey } from '../app/lib/proposal-note-defaults';
+import { calendarDaysBetween, parseIsoDate } from '../app/lib/br-date';
 import { resolveProposalValidityForSave } from '../app/lib/proposal-validity';
 import { buildDefaultTechnicalSupportClauses, isTechnicalSupportProposal } from '../app/lib/proposal-technical-clauses';
 import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
@@ -5032,7 +5033,11 @@ export class CrmRepository {
       salesChannel: input.salesChannel || '',
       costCenter: input.costCenter || '',
       chartOfAccounts: input.chartOfAccounts || '',
-      proposalDate: input.proposalDate || now.slice(0, 10),
+      proposalDate:
+        input.proposalDate ||
+        (parseIsoDate(input.validUntil) && (calendarDaysBetween(now.slice(0, 10), input.validUntil) ?? 0) < 0
+          ? ''
+          : now.slice(0, 10)),
       deliveryLeadTime: String(input.deliveryLeadTime ?? input.deliveryForecast ?? '').trim(),
       deliveryForecast: String(input.deliveryLeadTime ?? input.deliveryForecast ?? '').trim(),
       careOf:

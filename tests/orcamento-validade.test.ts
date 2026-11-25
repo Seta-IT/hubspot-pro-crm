@@ -167,3 +167,50 @@ describe('Validade do orçamento = Data + dias (calendário civil)', () => {
     );
   });
 });
+
+describe('Gravação e aviso ao cliente: validade invertida e proposta vencida', () => {
+  it('importação e sync do GC normalizam validUntil invertido só em inserções novas', () => {
+    const gc = src('src/modules/erp/gestaoclick-client.ts');
+    assert.match(gc, /resolveProposalValidityForSave/);
+    assert.match(gc, /proposalDate: dataStr/);
+    const imp = src('scripts/proposals-table/import-proposals.ts');
+    assert.match(imp, /resolveProposalValidityForSave/);
+    const store = src('src/db/proposal-store.ts');
+    const insertFn = store.slice(
+      store.indexOf('export async function insertGcProposalsIfAbsent'),
+      store.indexOf('export async function applyProposalDiff')
+    );
+    assert.match(insertFn, /resolveProposalValidityForSave/);
+    assert.match(insertFn, /inserts: normalized/);
+    const applyFn = store.slice(store.indexOf('export async function applyProposalDiff'));
+    assert.doesNotMatch(
+      applyFn,
+      /resolveProposalValidityForSave/,
+      'updates do diff não reescrevem registros já gravados'
+    );
+  });
+
+  it('formulário, cópia, API e repositório já passam por resolveProposalValidity / ForSave', () => {
+    const form = src('src/app/components/ErpEditModals.tsx');
+    const editor = form.slice(form.indexOf('export function ProposalEditModal'), form.indexOf('export function ContractEditModal'));
+    assert.match(editor, /resolveProposalValidity/);
+    assert.match(src('src/app/lib/proposal-copy.ts'), /recalculateProposalValidity/);
+    assert.match(src('src/db/repository.ts'), /resolveProposalValidityForSave/);
+    assert.match(src('src/api/router.ts'), /this\.repo\.createProposal/);
+    assert.match(src('src/api/router.ts'), /this\.repo\.updateProposal/);
+    assert.match(
+      src('src/modules/assistente/tools.ts'),
+      /PATCH \/api\/erp\/proposals\/:id/
+    );
+  });
+
+  it('o aviso do cliente no link e no PDF começa com Proposta vencida', () => {
+    const page = src('src/app/proposta/[id]/page.tsx');
+    const start = page.indexOf('data-testid="proposal-expired-banner"');
+    const banner = page.slice(start, start + 900);
+    assert.match(banner, /<p>Proposta vencida<\/p>/);
+    assert.match(banner, /Esta proposta está vencida desde \{expiredSinceLabel\} e precisa ser revalidada/);
+    assert.match(src('src/app/lib/internal-proposal-pdf.ts'), /<p>Proposta vencida<\/p>/);
+    assert.match(src('src/app/components/InternalProposalSummaryView.tsx'), /<p>Proposta vencida<\/p>/);
+  });
+});
