@@ -9,7 +9,7 @@ import { contactInScope, companyInScope, dealInScope } from '../portfolio';
 import { requireAllPortfolio, userHasAccess, userHasErpAccess } from './common';
 import { unwrapRead, workflowsData } from './crm-extra';
 import { defineDangerous, unwrapDangerous } from './dangerous';
-import { collections, findContract, loadOwnedProposal, str } from './erp';
+import { collections, findWritableContract, loadWritableProposal, str } from './erp';
 import { IdSchema, notFound, text, UseCaseError, type UseCaseContext, type UseCaseDefinition } from './types';
 
 const enc = encodeURIComponent;
@@ -176,7 +176,7 @@ const erpProposalsApprove = defineDangerous({
     .strict(),
   async plan(input, ctx) {
     requireErpEdit(ctx, 'proposals');
-    const p: any = await loadOwnedProposal(ctx, input.id);
+    const p: any = await loadWritableProposal(ctx, input.id);
     if (!['ENVIADA', 'EM_NEGOCIACAO'].includes(String(p.status || '').toUpperCase())) {
       throw new UseCaseError(409, 'PROPOSAL_NOT_APPROVABLE', 'So proposta ENVIADA ou EM_NEGOCIACAO pode receber aceite.');
     }
@@ -189,7 +189,10 @@ const erpProposalsApprove = defineDangerous({
       run: async () => {
         const { id: _id, ...signer } = input;
         const r = unwrapDangerous(await ctx.data.dangerous('POST', `/api/erp/proposals/${enc(p.id)}/approve`, { ...signer, signerEmail: signer.signerEmail ?? null }), 'Proposta');
-        return { approved: true, proposalStatus: str(r?.proposal?.status) || null, contractId: str(r?.contract?.id) || null, invoiceId: str(r?.invoice?.id) || null };
+        const contractId = str(r?.contract?.id) || null;
+        // Contrato nascido do aceite: posse por ID de quem aceitou (registro; nao amplia leitura).
+        if (contractId) await ctx.owners.set('erp.contract', contractId, ctx.owner.id);
+        return { approved: true, proposalStatus: str(r?.proposal?.status) || null, contractId, invoiceId: str(r?.invoice?.id) || null };
       },
     };
   },
@@ -208,7 +211,7 @@ const erpProposalsPublicLink = defineDangerous({
   inputSchema: z.object({ id: IdSchema }).strict(),
   async plan(input, ctx) {
     requireErpEdit(ctx, 'proposals');
-    const p: any = await loadOwnedProposal(ctx, input.id);
+    const p: any = await loadWritableProposal(ctx, input.id);
     const draft = String(p.status || '').toUpperCase() === 'RASCUNHO';
     return {
       entity: 'erp.proposal',
@@ -398,7 +401,7 @@ const erpContractsBatchEmail = defineDangerous({
     requireErpEdit(ctx, 'contracts');
     const unique = [...new Set(input.contractIds)];
     const list: any[] = [];
-    for (const id of unique) list.push(await findContract(ctx, id));
+    for (const id of unique) list.push(await findWritableContract(ctx, id));
     return {
       entity: 'erp.contract',
       entityId: list.map((c) => c.id).join(',').slice(0, 120),

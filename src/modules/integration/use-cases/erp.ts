@@ -751,6 +751,13 @@ export async function loadOwnedProposal(ctx: UseCaseContext, id: string): Promis
   return p;
 }
 
+/** Proposta para ESCRITA/ACAO: carteira + posse por ID (sellerUserId nativo ou registro). */
+export async function loadWritableProposal(ctx: UseCaseContext, id: string): Promise<ErpCommercialProposal> {
+  const p = await loadOwnedProposal(ctx, id);
+  await requireWriteOwner(ctx, 'erp.proposal', p.id, (p as { sellerUserId?: unknown }).sellerUserId, 'Proposta');
+  return p;
+}
+
 export const erpProposalsList = defineUseCase({
   ...base,
   operationId: 'erp.proposals.list',
@@ -917,6 +924,16 @@ export async function contractsInScope(ctx: UseCaseContext): Promise<ErpRentalCo
 export async function findContract(ctx: UseCaseContext, id: string): Promise<ErpRentalContract> {
   const c = (await contractsInScope(ctx)).find((x) => x.id === id || norm(x.contractNumber) === norm(id));
   if (!c) throw notFound('Contrato');
+  return c;
+}
+
+/**
+ * Contrato para ESCRITA/ACAO (Lote 3 alinhado a correcao CISO Lote 2, 2): carteira de leitura + posse
+ * por ID (registro api_record_owners). Sem ID dono => so TODOS ou controle total do ERP.
+ */
+export async function findWritableContract(ctx: UseCaseContext, id: string): Promise<ErpRentalContract> {
+  const c = await findContract(ctx, id);
+  await requireWriteOwner(ctx, 'erp.contract', c.id, null, 'Contrato');
   return c;
 }
 

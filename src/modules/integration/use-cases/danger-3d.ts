@@ -8,7 +8,7 @@ import { z } from 'zod/v4';
 import { companyInScope } from '../portfolio';
 import { rejectMaskedValues, requireAllPortfolio, userHasErpAccess } from './common';
 import { defineDangerous, unwrapDangerous } from './dangerous';
-import { collections, findContract, str } from './erp';
+import { collections, findContract, findWritableContract, str } from './erp';
 import { IdSchema, notFound, text, UseCaseError, type UseCaseContext, type UseCaseDefinition } from './types';
 
 const enc = encodeURIComponent;
@@ -102,7 +102,7 @@ const erpContractsGenerateInvoice = defineDangerous({
   inputSchema: z.object({ id: IdSchema, competenceMonth: Competence, dueDate: DateText.optional() }).strict(),
   async plan(input, ctx) {
     requireFiscal(ctx, 'Gerar fatura', true);
-    const c: any = await findContract(ctx, input.id);
+    const c: any = await findWritableContract(ctx, input.id);
     const dup = (await collections(ctx)).invoices.find((i: any) => i.rentalContractId === c.id && str(i.competenceMonth) === input.competenceMonth && !/CANCEL/i.test(String(i.status)));
     return {
       entity: 'erp.contract',
@@ -131,7 +131,7 @@ const erpContractsGenerateRemessa = defineDangerous({
   inputSchema: z.object({ id: IdSchema }).strict(),
   async plan(input, ctx) {
     requireFiscal(ctx, 'Gerar remessa', true);
-    const c: any = await findContract(ctx, input.id);
+    const c: any = await findWritableContract(ctx, input.id);
     const eq = Array.isArray(c.equipments) ? c.equipments : [];
     return {
       entity: 'erp.contract',
@@ -162,7 +162,7 @@ const erpContractsBatchBilling = defineDangerous({
     const ids = input.items.map((i) => i.contractId);
     if (new Set(ids).size !== ids.length) throw new UseCaseError(422, 'DUPLICATE_CONTRACT', 'Contrato repetido no lote.');
     const list: any[] = [];
-    for (const id of ids) list.push(await findContract(ctx, id));
+    for (const id of ids) list.push(await findWritableContract(ctx, id));
     const total = list.reduce((a, c, i) => a + (input.items[i].customAmountBrl ?? Number(c.monthlyValue) ?? 0) - (input.items[i].discountBrl || 0) + (input.items[i].extraBrl || 0), 0);
     return {
       entity: 'erp.contract',
@@ -202,7 +202,7 @@ const erpContractsPartialReturn = defineDangerous({
     .strict(),
   async plan(input, ctx) {
     requireFiscal(ctx, 'Devolucao parcial', true);
-    const c: any = await findContract(ctx, input.id);
+    const c: any = await findWritableContract(ctx, input.id);
     const eq: any[] = Array.isArray(c.equipments) ? c.equipments : [];
     for (const it of input.itemsToReturn) {
       if (!it.equipmentId && !it.serialNumber) throw new UseCaseError(422, 'VALIDATION_ERROR', 'Cada item precisa de equipmentId ou serialNumber.');
@@ -239,7 +239,7 @@ const erpContractsReadjust = defineDangerous({
   async plan(input, ctx) {
     requireAllPortfolio(ctx, 'Reajuste de contrato');
     if (!userHasErpAccess(ctx.owner, 'contracts', 'EDIT')) throw new UseCaseError(403, 'OWNER_ACCESS_INSUFFICIENT', 'O usuario dono nao tem edicao em Contratos.');
-    const c: any = await findContract(ctx, input.id);
+    const c: any = await findWritableContract(ctx, input.id);
     const before = Number(c.monthlyValue) || 0;
     const after = Math.round(before * (1 + input.percentage / 100) * 100) / 100;
     return {

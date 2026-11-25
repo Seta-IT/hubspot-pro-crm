@@ -774,3 +774,69 @@ describe('Lote 3d: fiscal (TODOS + canIssueFiscalDocuments)', () => {
     assert.equal(body(r).code, 'PORTFOLIO_ALL_REQUIRED');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Lote 3 alinhado a correcao CISO Lote 2 (item 2): acoes perigosas tambem exigem posse por ID
+// ---------------------------------------------------------------------------
+describe('Lote 3 / CISO Lote 2 (2): posse por ID nas acoes perigosas', () => {
+  const own = (env: Env, entity: string, recordId: string, ownerUserId: string) =>
+    env.store.putRecordOwner({ entity, recordId, ownerUserId, createdAt: new Date().toISOString() });
+
+  it('tarefa: so nome do responsavel => 403 OWNER_ID_REQUIRED; ID de outro => 404; ID proprio => ok', async () => {
+    const env = makeEnv();
+    grant(env, ANA.uid, { canDeleteCrmRecords: true });
+    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['crm:delete', 'crm:tasks:read'], { crm: true, chamados: false, erp: true });
+    const path = `/api/v1/crm/tasks/${env.ids.tAna}/delete`;
+    const noId = await prepare(env, ana, path);
+    assert.equal(noId.status, 403);
+    assert.equal(body(noId).code, 'OWNER_ID_REQUIRED');
+    await own(env, 'crm.task', env.ids.tAna, CARLA.uid);
+    assert.equal((await prepare(env, ana, path)).status, 404);
+    await own(env, 'crm.task', env.ids.tAna, ANA.uid);
+    const ok = await twoStep(env, ana, path);
+    assert.equal(ok.c.status, 200, JSON.stringify(ok.c.body));
+  });
+
+  it('proposta: homonimo (sellerUserId de outro) => 404; sem ID => 403; registro do dono => ok', async () => {
+    const env = makeEnv();
+    grant(env, ANA.uid, { canDeleteErpRecords: true });
+    const erp = env.repo.getErpState() as any;
+    const base = erp.proposals.find((p: any) => p.id === 'prop-ana');
+    erp.proposals.push({ ...base, id: 'prop-homonimo', code: 'ORC-9101', sellerUserId: CARLA.uid }, { ...base, id: 'prop-sem-id', code: 'ORC-9102', sellerUserId: '' });
+    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['erp:records:delete', 'erp:proposals:read'], { crm: true, chamados: false, erp: true });
+    assert.equal((await prepare(env, ana, '/api/v1/erp/proposals/prop-homonimo/delete')).status, 404);
+    const noId = await prepare(env, ana, '/api/v1/erp/proposals/prop-sem-id/delete');
+    assert.equal(noId.status, 403);
+    assert.equal(body(noId).code, 'OWNER_ID_REQUIRED');
+    await own(env, 'erp.proposal', 'prop-sem-id', ANA.uid);
+    assert.equal((await prepare(env, ana, '/api/v1/erp/proposals/prop-sem-id/delete')).status, 200);
+    assert.equal((await prepare(env, ana, '/api/v1/erp/proposals/prop-ana/delete')).status, 200);
+  });
+
+  it('contrato: posse so por nome do vendedor => 403; registro do dono => ok; TODOS segue livre', async () => {
+    const env = makeEnv();
+    grant(env, ANA.uid, { canDeleteErpRecords: true });
+    (userRec(env, ANA.uid) as any).erpPermissions.rentalContractsAccess = 'EDIT';
+    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['erp:records:delete', 'erp:contracts:read'], { crm: true, chamados: false, erp: true });
+    const noId = await prepare(env, ana, '/api/v1/erp/contracts/ctr-ana/delete');
+    assert.equal(noId.status, 403, JSON.stringify(noId.body));
+    assert.equal(body(noId).code, 'OWNER_ID_REQUIRED');
+    await own(env, 'erp.contract', 'ctr-ana', CARLA.uid);
+    assert.equal((await prepare(env, ana, '/api/v1/erp/contracts/ctr-ana/delete')).status, 404);
+    await own(env, 'erp.contract', 'ctr-ana', ANA.uid);
+    assert.equal((await prepare(env, ana, '/api/v1/erp/contracts/ctr-ana/delete')).status, 200);
+    const admin = await dangerAdminKey(env);
+    assert.equal((await prepare(env, admin, '/api/v1/erp/contracts/ctr-ana-co/delete')).status, 200);
+  });
+
+  it('aceite de proposta pelo conector registra o ID de quem aceitou como dono do contrato criado', async () => {
+    const env = makeEnv();
+    grant(env, ANA.uid, { canApproveProposals: true });
+    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['erp:proposals:approve'], { crm: true, chamados: false, erp: true });
+    const { c } = await twoStep(env, ana, '/api/v1/erp/proposals/prop-ana/approve', { signerName: 'Fulano', signerCpf: '529.982.247-25', signerRole: 'Dir', modality: 'GOV_BR_OURO', acceptedTerms: true });
+    assert.equal(c.status, 200, JSON.stringify(c.body));
+    const contractId = body(c).data?.result?.contractId ?? body(c).data?.contractId;
+    assert.ok(contractId, JSON.stringify(c.body));
+    assert.equal(await env.store.getRecordOwner('erp.contract', contractId), ANA.uid);
+  });
+});
