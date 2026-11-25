@@ -109,6 +109,7 @@ import {
 import { buildProposalDisplayCodeMap, formatProposalDisplayCode, nextGcProposalNumber } from '../lib/proposal-number';
 import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot, proposalSetupFeeLabel, resolveProposalAmountDisplay } from '../lib/proposal-share';
 import { displayProposalTitle } from '../lib/proposal-title';
+import { buildProposalCopyDraft, proposalCopyCreatedToast } from '../lib/proposal-copy';
 import { buildDefaultTechnicalSupportClauses, displayProposalTechnicalClauses, isTechnicalSupportProposal } from '../lib/proposal-technical-clauses';
 import { isoToBrDate } from '../lib/br-date';
 import GestaoClickDashboard from './GestaoClickDashboard';
@@ -1679,29 +1680,12 @@ export default function ErpGestaoClickTab({
       }
       prop = full.data as ErpCommercialProposal;
     }
-    const copyPayload: Partial<ErpCommercialProposal> = {
-      ...prop,
-      id: `prop-copy-${Date.now()}`,
-      code: nextProposalCodeHint(),
-      title: `${displayProposalTitle(prop)} (Cópia)`,
-      status: "RASCUNHO",
-      convertedContractId: null,
-      convertedInvoiceId: null,
-      digitalSignature: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const res = await fetch("/api/erp/proposals", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(copyPayload),
-    });
-    if (res.ok) {
-      const j = await res.json();
-      if (j.data) recordUpsertedProposal(j.data);
-      onShowToast(`Cópia do orçamento ${showCode(prop)} gerada com sucesso!`);
-      await onRefresh();
-    }
+    // Igual ao "Novo orçamento": abre o formulário pré-preenchido e só grava ao salvar,
+    // evitando orçamento numerado órfão se a cópia for descartada.
+    const draft = buildProposalCopyDraft(prop, { nextCode: nextProposalCodeHint() });
+    setIsCreatingProposalModal(true);
+    setEditingProposal(draft);
+    onShowToast(proposalCopyCreatedToast(showCode(prop) || prop.code));
   };
 
   const handleGenerateFromProposalMenu = async (
@@ -2135,6 +2119,7 @@ export default function ErpGestaoClickTab({
                   </button>
                   <button
                     type="button"
+                    data-testid="menu-gerar-copia"
                     onClick={() => handleGenerateFromProposalMenu(prop, "COPIA")}
                     className="w-full text-left py-1.5 px-2 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
                   >
@@ -7185,6 +7170,7 @@ export default function ErpGestaoClickTab({
       )}
       {editingProposal && (
         <ProposalEditModal
+          key={editingProposal.id}
           proposal={editingProposal}
           onClose={() => {
             setEditingProposal(null);
@@ -7205,6 +7191,7 @@ export default function ErpGestaoClickTab({
           deals={deals}
           isNew={isCreatingProposalModal}
           focusField={proposalEditorFocus}
+          onGenerateCopy={isCreatingProposalModal ? undefined : (current) => { void handleDuplicateProposal(current); }}
         />
       )}
       {rowBillingPreviewContract && (

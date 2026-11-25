@@ -97,6 +97,7 @@ export function ProposalEditModal({
   isNew = false,
   focusField = null,
   canAccessCrm = true,
+  onGenerateCopy,
 }: {
   proposal: ErpCommercialProposal;
   onClose: () => void;
@@ -113,6 +114,8 @@ export function ProposalEditModal({
   /** Aberto a partir de "Atualizar validade": rola, foca e destaca o campo Validade. */
   focusField?: 'validUntil' | null;
   canAccessCrm?: boolean;
+  /** Gera uma cópia em memória a partir do rascunho atual e abre o formulário da cópia. */
+  onGenerateCopy?: (current: ErpCommercialProposal) => void;
 }) {
   const [draft, setDraft] = useState<ErpCommercialProposal>(() =>
     computeProposalTotals({
@@ -587,6 +590,16 @@ export function ProposalEditModal({
             <span className="text-xs text-slate-500" data-testid="proposal-edit-version-text">
               Versão {draft.version || 1}
             </span>
+            {onGenerateCopy && (
+              <button
+                type="button"
+                data-testid="proposal-generate-copy"
+                onClick={() => onGenerateCopy(draft)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold cursor-pointer"
+              >
+                Gerar cópia
+              </button>
+            )}
             {!isNew && (
               <button
                 type="button"
