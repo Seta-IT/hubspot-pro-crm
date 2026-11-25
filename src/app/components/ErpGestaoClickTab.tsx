@@ -143,6 +143,7 @@ import GestaoClickSidebar, { GESTAO_CLICK_MENU_TREE, erpReportTitle } from './Ge
 import SebraeImportNfeWorkspace from './SebraeImportNfeWorkspace';
 import ImportFilePicker from './ImportFilePicker';
 import FiscalSettingsPanel from './FiscalSettingsPanel';
+import ProposalNoteDefaultsPage from './ProposalNoteDefaultsPage';
 import { decodeImportFileBytes, MAX_IMPORT_FILE_BYTES } from '../../modules/erp/sebrae-nfe-import-engine';
 import { defaultIssuerAddressLine } from '../lib/company-issuer-address';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
@@ -423,7 +424,7 @@ export default function ErpGestaoClickTab({
   );
   const [activeSubId, setActiveSubId] = useState<string>("INICIO");
   // Telas dedicadas de Configurações (padrão GestãoClick): sem o cabeçalho genérico, o banner e as abas da Central.
-  const isDedicatedCfgScreen = activeSection === 'CONFIGURACOES' && (activeSubId === 'CFG_CERTIFICADO' || activeSubId === 'CFG_GERAIS');
+  const isDedicatedCfgScreen = activeSection === 'CONFIGURACOES' && (activeSubId === 'CFG_CERTIFICADO' || activeSubId === 'CFG_GERAIS' || activeSubId === 'CFG_ORCAMENTO_OBS');
   // B2: Configurações por permissão (sessão do servidor + matriz rbac.ts). null = carregando (fail closed).
   const erpConfigAccess = useErpConfigAccess(activeUser?.id ?? null);
   // Sync GestãoClick e regime/parâmetros fiscais: mesma regra do gestaoClickPrivilege do servidor (2FA + admin ou ERP FULL).
@@ -1387,7 +1388,6 @@ export default function ErpGestaoClickTab({
 
   const handleCreateProposalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!propTitle.trim()) return;
     const comp = companies.find((c) => c.id === propCompanyId);
     const cont = contacts.find((c) => c.id === propContactId);
     const catItem = catalog.find((c) => c.gestaoClickCode === propSku) || catalog[0];
@@ -7170,7 +7170,9 @@ export default function ErpGestaoClickTab({
                   Integração STI HUB ERP: loja {gestaoClickConfig.storeName || 'Matriz'} • {gestaoClickConfig.mcpStatus === 'OFFLINE' ? 'desconectada' : gestaoClickConfig.mcpStatus === 'NOT_CONFIGURED' ? 'não configurada' : 'conectada'}
                 </p>
               )}
-              {rbacState && (
+              {activeSubId === 'CFG_ORCAMENTO_OBS' ? (
+                <ProposalNoteDefaultsPage onShowToast={onShowToast} />
+              ) : rbacState && (
                 <div>
                   <StiHubAdminRbacPanel
                     access={erpConfigAccess}
@@ -8548,20 +8550,6 @@ export default function ErpGestaoClickTab({
               </button>
             </div>
             <form onSubmit={handleCreateProposalSubmit} className="p-6 space-y-3.5 text-xs">
-              <div>
-                <label className="block font-semibold text-[#33475b] mb-1">
-                  Nome da proposta *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={propTitle}
-                  onChange={(e) => setPropTitle(e.target.value)}
-                  placeholder="Ex: Locação PABX IP Seta Cloud + Kit 20 Terminais Yealink"
-                  className="w-full px-3 py-2 rounded-[4px] border border-[#cbd6e2]"
-                />
-              </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-[#33475b] mb-1">

@@ -2344,7 +2344,8 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(modalsSrc.includes('showQuickClientModal'));
     assert.ok(modalsSrc.includes('handleSaveAndLinkQuickClient'));
     assert.ok(modalsSrc.includes('Salvar e Vincular à Proposta'));
-    assert.ok(modalsSrc.includes('Campos personalizados') || modalsSrc.includes('campos extras'));
+    assert.equal(modalsSrc.includes('Campos personalizados'), false);
+    assert.equal(modalsSrc.includes('>Capa<') || modalsSrc.includes('Capa</label>'), false);
   });
   it('permite selecionar e desmarcar livremente orçamentos, clientes e itens do catálogo (sem travar no primeiro item)', () => {
     const erpTabSrc = fs.readFileSync(
@@ -3100,7 +3101,8 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.equal(created.totalContractValue, 3000 * 24 + 1500 + 350);
 
     // 6. SLA é um campo selecionável durante a criação/edição da proposta
-    assert.ok(modalsSrc.includes("SLA contratado"));
+    assert.ok(modalsSrc.includes("SLA (Nível de Serviço)"));
+    assert.equal(modalsSrc.includes("SLA contratado"), false);
     assert.ok(Array.isArray(shareMod.PROPOSAL_SLA_OPTIONS) && shareMod.PROPOSAL_SLA_OPTIONS.length >= 4);
 
     // 7. Seletor de templates persiste no link compartilhado (?d=), no estado/API e altera o layout
