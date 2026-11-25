@@ -20,6 +20,7 @@ import type { IntegrationUser } from './data-port';
 import {
   INTEGRATION_SCOPES,
   LOTE1_SCOPES as LOTE1_SCOPE_SET,
+  LOTE2_WRITE_SCOPES,
   isPortfolioScope,
   moduleForScope,
   narrowestPortfolio,
@@ -512,11 +513,11 @@ async function handleAuthorize(
       erp: (claims.moduleAccess as { erp?: boolean } | undefined)?.erp === true && user.moduleAccess.erp,
     },
   };
-  // Fase 2 / Lote 1: escopos NOVOS (LOTE1) acima do perfil do usuario NAO derrubam o
+  // Fase 2 / Lotes 1 e 2: escopos NOVOS (LOTE1/LOTE2) acima do perfil do usuario NAO derrubam o
   // consentimento; sao omitidos (nunca concedidos) e listados na tela como "nao concedidos".
   // Escopos da Fase 1 mantem a regra original (invalid_scope).
   const lote1Denied = (s: string) => {
-    if (!LOTE1_SCOPE_SET.has(s)) return false;
+    if (!LOTE1_SCOPE_SET.has(s) && !LOTE2_WRITE_SCOPES.has(s)) return false;
     const mod = moduleForScope(s as never);
     if ((mod === 'crm' && !live.moduleAccess.crm) || (mod === 'erp' && !live.moduleAccess.erp)) return true;
     return scopesAboveUserAccess([s], user).length > 0;
@@ -600,7 +601,7 @@ Os dados e o codigo de acesso serao enviados para:<div class="host">${escapeHtml
 Autorize somente se voce reconhece este endereco.</div>
 <p>Conectado como <b>${escapeHtml(claims.email)}</b>. O aplicativo tera acesso, em seu nome, a:</p><ul>${scopesHtml}</ul>
 ${notGrantedHtml}
-<p>Somente leitura no ERP. Sem exclusao, merge, envio de e-mail, emissao/baixa fiscal ou financeira, sincronizacao ou administracao.</p>
+<p>${v.scopes.some((s) => s.startsWith('erp:') && s.endsWith(':write')) ? 'Escritas no ERP somente reversiveis (criar/editar).' : 'Somente leitura no ERP.'} Sem exclusao, merge, envio de e-mail, emissao de fatura/NF/remessa, baixa/pagamento, aprovacao/aceite, ativacao ou disparo de automacao, sincronizacao ou administracao.</p>
 <form method="post" action="/api/oauth/authorize">${hidden}
 <p><label>Carteira: <select name="portfolio_scope">${portfolioOptions}</select></label></p>
 <button class="ok" type="submit" name="decision" value="approve">Autorizar</button><button type="submit" name="decision" value="deny">Negar</button></form>`,

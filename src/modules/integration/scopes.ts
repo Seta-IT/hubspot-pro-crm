@@ -35,6 +35,16 @@ export const INTEGRATION_SCOPES = [
   'erp:financial:read',
   'erp:banks:read',
   'erp:fiscal:read',
+  // --- Fase 2 / Lote 2 (24/11/2026): ESCRITAS REVERSIVEIS (sem exclusao, emissao, baixa, envio ou ativacao) ---
+  'erp:proposals:write',
+  'erp:contracts:write',
+  'erp:orders:write',
+  'erp:catalog:write',
+  'erp:records:write',
+  'erp:financial:write',
+  'crm:tasks:write',
+  'crm:automation:write',
+  'crm:marketing:write',
 ] as const;
 
 /** Todos os escopos novos do Lote 1 (somente leitura). */
@@ -70,6 +80,22 @@ export const LOTE1_READ_SCOPES: ReadonlySet<string> = new Set([
   'erp:financial:read',
   'erp:banks:read',
   'erp:fiscal:read',
+]);
+
+/**
+ * Fase 2 / Lote 2: escopos de ESCRITA reversivel, liberados um a um (explicitamente). Qualquer
+ * outra variacao (erp:fiscal:write, erp:banks:write, erp:*:delete...) segue bloqueada.
+ */
+export const LOTE2_WRITE_SCOPES: ReadonlySet<string> = new Set([
+  'erp:proposals:write',
+  'erp:contracts:write',
+  'erp:orders:write',
+  'erp:catalog:write',
+  'erp:records:write',
+  'erp:financial:write',
+  'crm:tasks:write',
+  'crm:automation:write',
+  'crm:marketing:write',
 ]);
 
 export type IntegrationScope = (typeof INTEGRATION_SCOPES)[number];
@@ -114,6 +140,15 @@ export const SCOPE_DESCRIPTIONS: Record<IntegrationScope, string> = {
   'erp:financial:read': 'Ler lancamentos financeiros e DRE (exige carteira TODOS + alcada Financeiro).',
   'erp:banks:read': 'Ler contas e saldos bancarios (exige carteira TODOS + permissao de ver saldos).',
   'erp:fiscal:read': 'Ler notas fiscais e configuracoes fiscais mascaradas (exige carteira TODOS + alcada Fiscal).',
+  'erp:proposals:write': 'Criar, editar e restaurar versao de orcamentos/propostas (sem aprovar, aceitar, gerar link publico ou enviar).',
+  'erp:contracts:write': 'Criar, editar, restaurar versao e renovar contratos (nunca gera fatura, remessa ou NF).',
+  'erp:orders:write': 'Criar OS, mudar situacao, duplicar, abrir OS a partir de chamado; criar/editar pedidos de venda e compra (sem importar XML).',
+  'erp:catalog:write': 'Criar e editar produtos/servicos e listas auxiliares.',
+  'erp:records:write': 'Criar e editar fornecedores.',
+  'erp:financial:write': 'Criar e editar lancamentos financeiros em aberto (sem baixa/pagamento; exige carteira TODOS + edicao Financeiro).',
+  'crm:tasks:write': 'Criar, editar e concluir tarefas do CRM.',
+  'crm:automation:write': 'Criar rascunhos INATIVOS de sequences e workflows (sem ativar, disparar ou inscrever).',
+  'crm:marketing:write': 'Criar rascunhos PAUSADOS de campanhas (sem disparo).',
 };
 
 /** Modulo exigido por escopo (moduleAccess e aplicado no servidor). */
@@ -141,7 +176,7 @@ const BLOCKED_SCOPE_PATTERNS: RegExp[] = [
 
 export function isBlockedScope(raw: string): boolean {
   const s = String(raw || '').trim();
-  if (LOTE1_READ_SCOPES.has(s)) return false;
+  if (LOTE1_READ_SCOPES.has(s) || LOTE2_WRITE_SCOPES.has(s)) return false;
   return BLOCKED_SCOPE_PATTERNS.some((re) => re.test(s));
 }
 
