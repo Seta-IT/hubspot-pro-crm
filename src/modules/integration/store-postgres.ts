@@ -5,6 +5,7 @@
 // Segredos/tokens: so SHA-256. Auditoria nunca grava segredo/token.
 // ============================================================================
 import type {
+  ConfirmationTokenRecord,
   IdempotencyRecord,
   RecordOwnerRecord,
   IntegrationApiKeyRecord,
@@ -95,6 +96,18 @@ CREATE TABLE IF NOT EXISTS api_rate_limits (
   PRIMARY KEY (bucket_key, window_start)
 );
 CREATE INDEX IF NOT EXISTS idx_api_rate_limits_window ON api_rate_limits(window_start);
+
+CREATE TABLE IF NOT EXISTS api_confirmation_tokens (
+  token_hash TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL,
+  args_hash TEXT NOT NULL,
+  principal_key TEXT NOT NULL,
+  actor_user_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_api_confirmation_expires ON api_confirmation_tokens(expires_at);
 
 CREATE TABLE IF NOT EXISTS oauth_clients (
   client_id TEXT PRIMARY KEY,
@@ -364,6 +377,7 @@ export class PostgresIntegrationStore implements IntegrationStore {
     if (Math.random() < 0.01) {
       await this.db.query(`DELETE FROM api_rate_limits WHERE window_start < ($1::timestamptz - INTERVAL '1 hour')`, [now]).catch(() => undefined);
       await this.db.query(`DELETE FROM api_idempotency_keys WHERE expires_at < $1`, [now]).catch(() => undefined);
+      await this.db.query(`DELETE FROM api_confirmation_tokens WHERE expires_at < ($1::timestamptz - INTERVAL '1 day')`, [now]).catch(() => undefined);
     }
     return { count: Number(r.rows[0]?.request_count || 0), windowStart };
   }
@@ -431,4 +445,34 @@ export class PostgresIntegrationStore implements IntegrationStore {
     );
     return r.rowCount ?? r.rows.length;
   }
+  async insertConfirmation(c: ConfirmationTokenRecord) {
+    await this.q(
+      `INSERT INTO api_confirmation_tokens (token_hash, operation_id, args_hash, principal_key, actor_user_id, created_at, expires_at, used_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [c.tokenHash, c.operationId, c.argsHash, c.principalKey, c.actorUserId, c.createdAt, c.expiresAt, c.usedAt]
+    );
+  }
+  async consumeConfirmation(tokenHash: string, principalKey: string, at: string) {
+    const upd = await this.q(
+      `UPDATE api_confirmation_tokens SET used_at = $3 WHERE token_hash = $1 AND principal_key = $2 AND used_at IS NULL RETURNING *`,
+      [tokenHash, principalKey, at]
+    );
+    if (upd.rows[0]) return { record: rowToConfirmation(upd.rows[0]), alreadyUsed: false };
+    const sel = await this.q(`SELECT * FROM api_confirmation_tokens WHERE token_hash = $1 AND principal_key = $2`, [tokenHash, principalKey]);
+    return sel.rows[0] ? { record: rowToConfirmation(sel.rows[0]), alreadyUsed: true } : null;
+  }
+}
+
+function rowToConfirmation(r: any): ConfirmationTokenRecord {
+  const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : v ? String(v) : null);
+  return {
+    tokenHash: String(r.token_hash),
+    operationId: String(r.operation_id),
+    argsHash: String(r.args_hash),
+    principalKey: String(r.principal_key),
+    actorUserId: String(r.actor_user_id),
+    createdAt: iso(r.created_at) || '',
+    expiresAt: iso(r.expires_at) || '',
+    usedAt: iso(r.used_at),
+  };
 }

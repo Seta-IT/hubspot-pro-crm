@@ -21,6 +21,7 @@ import {
   INTEGRATION_SCOPES,
   LOTE1_SCOPES as LOTE1_SCOPE_SET,
   LOTE2_WRITE_SCOPES,
+  LOTE3_DANGEROUS_SCOPES,
   isPortfolioScope,
   moduleForScope,
   narrowestPortfolio,
@@ -464,6 +465,11 @@ export function oauthPortfolioOptions(ceiling: PortfolioScope): PortfolioScope[]
   return ceiling === 'TODOS' ? ['PROPRIOS', 'TODOS'] : ['PROPRIOS'];
 }
 
+/** Lote 3: nome do campo do checkbox do escopo perigoso (nomes distintos; o parser guarda 1 valor por nome). */
+export function dangerousFieldName(scope: string): string {
+  return `grant_${scope.replace(/[^a-z0-9]/gi, '_')}`;
+}
+
 async function handleAuthorize(
   req: IntegrationHttpRequest,
   store: IntegrationStore,
@@ -517,7 +523,7 @@ async function handleAuthorize(
   // consentimento; sao omitidos (nunca concedidos) e listados na tela como "nao concedidos".
   // Escopos da Fase 1 mantem a regra original (invalid_scope).
   const lote1Denied = (s: string) => {
-    if (!LOTE1_SCOPE_SET.has(s) && !LOTE2_WRITE_SCOPES.has(s)) return false;
+    if (!LOTE1_SCOPE_SET.has(s) && !LOTE2_WRITE_SCOPES.has(s) && !LOTE3_DANGEROUS_SCOPES.has(s)) return false;
     const mod = moduleForScope(s as never);
     if ((mod === 'crm' && !live.moduleAccess.crm) || (mod === 'erp' && !live.moduleAccess.erp)) return true;
     return scopesAboveUserAccess([s], user).length > 0;
@@ -574,12 +580,20 @@ async function handleAuthorize(
       .map(([k, val]) => `<input type="hidden" name="${k}" value="${escapeHtml(val)}">`)
       .join('');
     const scopesHtml = v.scopes
+      .filter((s) => !LOTE3_DANGEROUS_SCOPES.has(s))
       .map((s) => {
         const isWrite = s.endsWith(':write');
         const label = `<code>${escapeHtml(s)}</code> — ${escapeHtml(SCOPE_DESCRIPTIONS[s as keyof typeof SCOPE_DESCRIPTIONS] || '')}`;
         return isWrite ? `<li class="write">&#9888; ESCRITA: ${label}</li>` : `<li>${label}</li>`;
       })
       .join('');
+    // Lote 3: escopos PERIGOSOS vem DESMARCADOS; so entram se o usuario marcar um por um.
+    const dangerousRequested = v.scopes.filter((s) => LOTE3_DANGEROUS_SCOPES.has(s));
+    const dangerousHtml = dangerousRequested.length
+      ? `<div class="warn"><b>&#9888; PERIGO: acoes irreversiveis ou com efeito externo.</b> Marque somente o que voce quer liberar. Cada acao exige previa + confirmacao em duas etapas, mas ao ser confirmada NAO pode ser desfeita (exclusao, merge, envio de e-mail, emissao fiscal, baixa/pagamento...).<ul>${dangerousRequested
+          .map((s) => `<li><label><input type="checkbox" name="${dangerousFieldName(s)}" value="1"> <code>${escapeHtml(s)}</code> — ${escapeHtml(SCOPE_DESCRIPTIONS[s as keyof typeof SCOPE_DESCRIPTIONS] || '')}</label></li>`)
+          .join('')}</ul></div>`
+      : '';
     const notGrantedHtml = notGranted.length
       ? `<p>Nao concedidos (acima do seu perfil): ${notGranted.map((s) => `<code>${escapeHtml(s)}</code>`).join(', ')}</p>`
       : '';
@@ -601,8 +615,9 @@ Os dados e o codigo de acesso serao enviados para:<div class="host">${escapeHtml
 Autorize somente se voce reconhece este endereco.</div>
 <p>Conectado como <b>${escapeHtml(claims.email)}</b>. O aplicativo tera acesso, em seu nome, a:</p><ul>${scopesHtml}</ul>
 ${notGrantedHtml}
-<p>${v.scopes.some((s) => s.startsWith('erp:') && s.endsWith(':write')) ? 'Escritas no ERP somente reversiveis (criar/editar).' : 'Somente leitura no ERP.'} Sem exclusao, merge, envio de e-mail, emissao de fatura/NF/remessa, baixa/pagamento, aprovacao/aceite, ativacao ou disparo de automacao, sincronizacao ou administracao.</p>
+<p>${v.scopes.some((s) => s.startsWith('erp:') && s.endsWith(':write')) ? 'Escritas no ERP somente reversiveis (criar/editar).' : 'Somente leitura no ERP.'} Acoes perigosas so com os itens marcados abaixo. Nunca: administracao/IAM, certificado, configuracoes fiscais, credenciais/sincronizacao GestaoClick.</p>
 <form method="post" action="/api/oauth/authorize">${hidden}
+${dangerousHtml}
 <p><label>Carteira: <select name="portfolio_scope">${portfolioOptions}</select></label></p>
 <button class="ok" type="submit" name="decision" value="approve">Autorizar</button><button type="submit" name="decision" value="deny">Negar</button></form>`,
         formActionSrc
@@ -629,6 +644,15 @@ ${notGrantedHtml}
   // EQUIPE nao e oferecida (sem lista de equipe no cadastro); qualquer valor fora das opcoes => PROPRIOS.
   const requested = String(source.portfolio_scope || 'PROPRIOS').toUpperCase() as PortfolioScope;
   const portfolio: PortfolioScope = options.includes(requested) ? requested : 'PROPRIOS';
+  // Lote 3: escopos perigosos so com a caixa marcada (ausente/qualquer outro valor => nao concedido).
+  const granted = v.scopes.filter((s) => !LOTE3_DANGEROUS_SCOPES.has(s) || source[dangerousFieldName(s)] === '1');
+  if (granted.length === 0) {
+    return done(redirectWith(a.redirectUri, { error: 'access_denied', error_description: 'Nenhum escopo concedido.', state: a.state, iss: req.origin }), {
+      clientId: v.client.clientId,
+      userId: claims.uid,
+      errorCode: 'access_denied',
+    });
+  }
   const code = generateOAuthCode();
   const now = deps.now();
   await store.insertAuthCode({
@@ -636,7 +660,7 @@ ${notGrantedHtml}
     clientId: v.client.clientId,
     userId: claims.uid,
     redirectUri: a.redirectUri,
-    scope: v.scopes.join(' '),
+    scope: granted.join(' '),
     portfolioScope: portfolio,
     moduleAccess: live.moduleAccess,
     teamMemberIds: [],
@@ -649,7 +673,7 @@ ${notGrantedHtml}
   return done(redirectWith(a.redirectUri, { code, state: a.state, iss: req.origin }), {
     clientId: v.client.clientId,
     userId: claims.uid,
-    scope: v.scopes.join(' '),
+    scope: granted.join(' '),
   });
 }
 

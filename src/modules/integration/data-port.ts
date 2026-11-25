@@ -131,6 +131,12 @@ export interface IntegrationDataPort {
   listUsers(): Promise<IntegrationUser[]>;
   /** Escrita via rota interna existente (POST/PATCH apenas). */
   write(method: 'POST' | 'PATCH', path: string, body: Record<string, unknown>, opts?: { actorUserId?: string }): Promise<DataWriteResult>;
+  /**
+   * Fase 2 / Lote 3: operacao PERIGOSA (excluir/mesclar/enviar/emitir/baixar...). Allowlist propria
+   * (metodo + rota) separada da escrita reversivel; so chamada pelo *_commit apos o token de
+   * confirmacao. `actorUserId` = dono da credencial como ator (honrado so no contexto interno).
+   */
+  dangerous(method: 'POST' | 'PATCH' | 'DELETE', path: string, body: Record<string, unknown>, opts?: { actorUserId?: string }): Promise<DataWriteResult>;
 }
 
 export interface ErpCollections {
@@ -310,6 +316,43 @@ const ALLOWED_READ_PATHS: RegExp[] = [
 /** Parametros internos (so honrados no contexto interno) aceitos pela porta. */
 const ALLOWED_READ_QUERY = /^(q|status|type|companyId|dealId|limit|offset|mes|competenceMonth|_integrationOwnerId|_integrationOwnerEmail|_integrationIncludeFinance)$/;
 
+const ID = '[A-Za-z0-9._-]{1,80}';
+/** Lote 3: allowlist FECHADA de operacoes perigosas (metodo + rota). */
+const ALLOWED_DANGEROUS: Array<{ method: 'POST' | 'PATCH' | 'DELETE'; re: RegExp }> = [
+  // 3a: exclusao, merge, data health, enriquecimento
+  { method: 'DELETE', re: new RegExp(`^/api/(contacts|companies|deals|tasks)/${ID}$`) },
+  { method: 'DELETE', re: new RegExp(`^/api/erp/(proposals|rental-contracts|financial|catalog|aux-lists)/${ID}$`) },
+  { method: 'DELETE', re: new RegExp(`^/api/erp/records/(suppliers|salesOrders|purchaseOrders|serviceOrders|bankAccounts)/${ID}$`) },
+  { method: 'POST', re: /^\/api\/(companies\/merge|data-health\/merge|data-health\/auto-clean|data-health\/reassign-orphans|enrichment\/run)$/ },
+  // 3b: envios, aceite/aprovacao, links publicos, ativacao/disparo
+  { method: 'POST', re: /^\/api\/mailbox\/send$/ },
+  { method: 'POST', re: /^\/api\/sequences\/enroll$/ },
+  { method: 'POST', re: new RegExp(`^/api/deals/${ID}/proposal-followup$`) },
+  { method: 'POST', re: new RegExp(`^/api/erp/proposals/${ID}/(approve|public-link)$`) },
+  { method: 'POST', re: new RegExp(`^/api/erp/invoices/${ID}/public-link$`) },
+  { method: 'PATCH', re: new RegExp(`^/api/workflows/${ID}$`) },
+  { method: 'POST', re: /^\/api\/workflows\/trigger$/ },
+  { method: 'POST', re: /^\/api\/marketing\/campaigns\/dispatch$/ },
+  { method: 'POST', re: /^\/api\/erp\/rental-contracts\/batch-email$/ },
+  // 3c: financeiro
+  { method: 'POST', re: new RegExp(`^/api/erp/(financial|invoices)/${ID}/pay$`) },
+  { method: 'POST', re: /^\/api\/erp\/financial\/(reconcile-ofx|import-document|import-document\/confirm)$/ },
+  { method: 'POST', re: /^\/api\/erp\/purchases\/import-xml$/ },
+  { method: 'POST', re: /^\/api\/erp\/records\/bankAccounts$/ },
+  { method: 'PATCH', re: new RegExp(`^/api/erp/records/bankAccounts/${ID}$`) },
+  // 3d: fiscal
+  { method: 'POST', re: /^\/api\/erp\/invoices$/ },
+  { method: 'POST', re: new RegExp(`^/api/erp/rental-contracts/${ID}/(generate-invoice|generate-remessa|partial-return|readjust)$`) },
+  { method: 'POST', re: /^\/api\/erp\/rental-contracts\/batch-billing$/ },
+  { method: 'POST', re: /^\/api\/erp\/nfe-importacao\/(calculate|emit)$/ },
+  { method: 'PATCH', re: new RegExp(`^/api/erp/invoices/${ID}$`) },
+  { method: 'DELETE', re: new RegExp(`^/api/erp/invoices/${ID}$`) },
+];
+
+export function isAllowedDangerousRoute(method: string, path: string): boolean {
+  return ALLOWED_DANGEROUS.some((r) => r.method === method && r.re.test(path));
+}
+
 export class RouterDataPort implements IntegrationDataPort {
   private cache: { crm?: CrmSnapshot; tickets?: TicketSnapshot; erp?: ErpUsersSnapshot; erpCollections?: ErpCollections } = {};
 
@@ -431,6 +474,16 @@ export class RouterDataPort implements IntegrationDataPort {
     // Correcao CISO (Lote 2, 3): dono da credencial como ator (so honrado no contexto interno).
     const query: Record<string, string> = opts.actorUserId ? { _integrationActorId: opts.actorUserId } : {};
     const res = await this.trusted(method, path, query, body);
+    return { status: res.status, body: res.body };
+  }
+
+  async dangerous(method: 'POST' | 'PATCH' | 'DELETE', path: string, body: Record<string, unknown>, opts: { actorUserId?: string } = {}): Promise<DataWriteResult> {
+    if (!isAllowedDangerousRoute(method, path)) {
+      throw new Error('Operacao perigosa fora da allowlist da API v1 (Lote 3).');
+    }
+    this.cache = {};
+    const query: Record<string, string> = opts.actorUserId ? { _integrationActorId: opts.actorUserId } : {};
+    const res = await this.trusted(method, path, query, method === 'DELETE' ? {} : body);
     return { status: res.status, body: res.body };
   }
 }

@@ -4,6 +4,7 @@
 // O construtor recusa rodar fora de NODE_ENV=test (fail-closed).
 // ============================================================================
 import type {
+  ConfirmationTokenRecord,
   IdempotencyRecord,
   RecordOwnerRecord,
   IntegrationApiKeyRecord,
@@ -26,6 +27,7 @@ export class TestOnlyMemoryIntegrationStore implements IntegrationStore {
   readonly clients = new Map<string, OAuthClientRecord>();
   readonly codes = new Map<string, OAuthAuthCodeRecord>();
   readonly tokens = new Map<string, OAuthTokenRecord>();
+  readonly confirmations = new Map<string, ConfirmationTokenRecord>();
 
   constructor() {
     if (process.env.NODE_ENV !== 'test') {
@@ -143,5 +145,16 @@ export class TestOnlyMemoryIntegrationStore implements IntegrationStore {
       }
     }
     return n;
+  }
+  async insertConfirmation(rec: ConfirmationTokenRecord) {
+    this.confirmations.set(rec.tokenHash, clone(rec));
+  }
+  async consumeConfirmation(tokenHash: string, principalKey: string, at: string) {
+    const c = this.confirmations.get(tokenHash);
+    if (!c || c.principalKey !== principalKey) return null;
+    const before = clone(c);
+    if (c.usedAt) return { record: before, alreadyUsed: true };
+    c.usedAt = at;
+    return { record: before, alreadyUsed: false };
   }
 }

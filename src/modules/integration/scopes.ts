@@ -45,6 +45,21 @@ export const INTEGRATION_SCOPES = [
   'crm:tasks:write',
   'crm:automation:write',
   'crm:marketing:write',
+  // --- Fase 2 / Lote 3: operacoes IRREVERSIVEIS/externas (prepare + commit; desmarcadas no consentimento)
+  'crm:delete',
+  'crm:merge',
+  'crm:data_health:write',
+  'erp:records:delete',
+  'comms:send',
+  'crm:automation:activate',
+  'crm:marketing:dispatch',
+  'erp:proposals:approve',
+  'erp:public_links:write',
+  'erp:financial:settle',
+  'erp:banks:write',
+  'erp:contracts:readjust',
+  'erp:fiscal:issue',
+  'erp:fiscal:cancel',
 ] as const;
 
 /** Todos os escopos novos do Lote 1 (somente leitura). */
@@ -98,6 +113,29 @@ export const LOTE2_WRITE_SCOPES: ReadonlySet<string> = new Set([
   'crm:marketing:write',
 ]);
 
+/**
+ * Fase 2 / Lote 3: escopos PERIGOSOS (exclusao, merge, envio, aprovacao, link publico, baixa,
+ * bancos, reajuste, emissao/cancelamento fiscal). Liberados um a um; vem DESMARCADOS no
+ * consentimento OAuth (opt-in explicito por escopo) e a chave no IAM exige confirmacao explicita.
+ * Toda tool desses escopos e um par *_prepare (previa + token de uso unico) / *_commit.
+ */
+export const LOTE3_DANGEROUS_SCOPES: ReadonlySet<string> = new Set([
+  'crm:delete',
+  'crm:merge',
+  'crm:data_health:write',
+  'erp:records:delete',
+  'comms:send',
+  'crm:automation:activate',
+  'crm:marketing:dispatch',
+  'erp:proposals:approve',
+  'erp:public_links:write',
+  'erp:financial:settle',
+  'erp:banks:write',
+  'erp:contracts:readjust',
+  'erp:fiscal:issue',
+  'erp:fiscal:cancel',
+]);
+
 export type IntegrationScope = (typeof INTEGRATION_SCOPES)[number];
 
 export const PORTFOLIO_SCOPES = ['PROPRIOS', 'EQUIPE', 'TODOS'] as const;
@@ -149,6 +187,20 @@ export const SCOPE_DESCRIPTIONS: Record<IntegrationScope, string> = {
   'crm:tasks:write': 'Criar, editar e concluir tarefas do CRM.',
   'crm:automation:write': 'Criar rascunhos INATIVOS de sequences e workflows (sem ativar, disparar ou inscrever).',
   'crm:marketing:write': 'Criar rascunhos PAUSADOS de campanhas (sem disparo).',
+  'crm:delete': 'EXCLUIR contatos, empresas, negocios e tarefas (exige permissao de exclusao do CRM; confirmacao em 2 etapas).',
+  'crm:merge': 'MESCLAR empresas/contatos duplicados (exige permissao de merge do CRM; confirmacao em 2 etapas).',
+  'crm:data_health:write': 'Limpeza automatica, reatribuir orfaos e enriquecimento em massa (exige merge do CRM + carteira TODOS).',
+  'erp:records:delete': 'EXCLUIR orcamentos, contratos, lancamentos, catalogo, listas e cadastros do ERP (exige permissao de exclusao do ERP).',
+  'comms:send': 'ENVIAR e-mail pela caixa do proprio usuario, retomar follow-up de proposta e envio em lote de contratos.',
+  'crm:automation:activate': 'ATIVAR/DISPARAR workflows e INSCREVER contatos em sequences ativas.',
+  'crm:marketing:dispatch': 'DISPARAR campanhas de marketing.',
+  'erp:proposals:approve': 'APROVAR orcamentos/propostas (exige permissao de aprovar propostas).',
+  'erp:public_links:write': 'Gerar LINKS PUBLICOS de proposta/fatura para o cliente.',
+  'erp:financial:settle': 'BAIXA/pagamento de titulos e faturas, conciliacao OFX, importacao de documento e XML de compra (carteira TODOS + Financeiro EDICAO).',
+  'erp:banks:write': 'Criar, editar e excluir contas bancarias (carteira TODOS + Financeiro EDICAO + ver saldos).',
+  'erp:contracts:readjust': 'Aplicar REAJUSTE de valor em contratos (carteira TODOS + Contratos EDICAO).',
+  'erp:fiscal:issue': 'EMITIR fatura/NF, remessa, faturamento em lote, devolucao parcial e NF-e de importacao (carteira TODOS + alcada fiscal).',
+  'erp:fiscal:cancel': 'CANCELAR ou EXCLUIR nota/fatura (carteira TODOS + alcada fiscal).',
 };
 
 /** Modulo exigido por escopo (moduleAccess e aplicado no servidor). */
@@ -156,6 +208,7 @@ export function moduleForScope(scope: IntegrationScope): IntegrationModule | nul
   if (scope.startsWith('crm:')) return 'crm';
   if (scope.startsWith('tickets:')) return 'chamados';
   if (scope.startsWith('erp:')) return 'erp';
+  if (scope === 'comms:send') return 'crm';
   return null;
 }
 
@@ -176,7 +229,7 @@ const BLOCKED_SCOPE_PATTERNS: RegExp[] = [
 
 export function isBlockedScope(raw: string): boolean {
   const s = String(raw || '').trim();
-  if (LOTE1_READ_SCOPES.has(s) || LOTE2_WRITE_SCOPES.has(s)) return false;
+  if (LOTE1_READ_SCOPES.has(s) || LOTE2_WRITE_SCOPES.has(s) || LOTE3_DANGEROUS_SCOPES.has(s)) return false;
   return BLOCKED_SCOPE_PATTERNS.some((re) => re.test(s));
 }
 
