@@ -66,6 +66,7 @@ import {
   resolveProposalAmountDisplay,
   resolveProposalCommercialPresentation,
 } from '../../lib/proposal-share';
+import { displayProposalTitle } from '../../lib/proposal-title';
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
 import { copySignedProposalVersionLink } from '../../lib/proposal-link-client';
@@ -2046,7 +2047,7 @@ function PublicProposalPrintContent() {
           {/* BLOCO 5: TÍTULO, TABELA LEVE DE ITENS E RESUMO DE SUBTOTAIS */}
           <div className={`print-avoid-break print-keep-with-next border-l-3 ${scopeBorderClass} pl-3.5 py-0.5 space-y-1`}>
             <h2 className="text-sm sm:text-base font-semibold text-slate-900">
-              {proposal.title}
+              {displayProposalTitle(proposal)}
             </h2>
             {shownIntroduction && (
               <p className="text-xs text-slate-600 leading-relaxed">

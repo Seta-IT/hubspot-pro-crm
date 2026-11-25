@@ -8568,7 +8568,8 @@ export class CrmApiRouter {
           return { status: 200, body: { data: list, total: list.length } };
         }
         if (method === 'POST') {
-          if (!body.title) {
+          // Orçamento de produtos não exige nome: o repositório preenche o padrão automático.
+          if (!body.title && body.budgetType !== 'PRODUTOS') {
             return { status: 400, body: { error: 'O campo "title" da proposta é obrigatório.' } };
           }
           const createDealRequested = wantsCreateCrmDeal(body);

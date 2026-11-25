@@ -6,6 +6,7 @@ import {
   ErpProposalVersionEntry,
   ErpProposalVersionSnapshot,
 } from '../../db/types';
+import { displayProposalTitle } from './proposal-title';
 
 export interface ProposalSlaOptionSpec {
   id: string;
@@ -973,6 +974,7 @@ export function computeProposalTotals(next: ErpCommercialProposal): ErpCommercia
     deliveryLeadTime: resolvedDeliveryLeadTime,
     deliveryForecast: resolvedDeliveryLeadTime,
     templateStyle: next.templateStyle || "CLEAN_CORPORATE_LIGHT",
+    title: displayProposalTitle({ ...next, budgetType: inferredBudgetType }),
     slaTier: isProductsProposal ? "SEM_SLA_ESPECIFICO" : resolvedSla.id,
     slaAvailabilityPercent: isProductsProposal ? "" : resolvedSla.slaAvailabilityPercent,
     slaResponseHours: isProductsProposal ? 0 : resolvedSla.slaResponseHours,

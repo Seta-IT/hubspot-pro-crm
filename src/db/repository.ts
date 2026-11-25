@@ -15,6 +15,7 @@ import { RecordIdConflictError, assertNewRecordId, formatProposalCode, nextFreeC
 import { stripLeanMarker } from '../modules/bootstrap/lean-payload';
 import { parseBillingRecipientEmails } from '../modules/erp/billing-recipient-emails';
 import { isLegacyProposalCode, migrateLegacyProposalCodes, nextGcProposalNumber } from '../app/lib/proposal-number';
+import { displayProposalTitle } from '../app/lib/proposal-title';
 import { buildDefaultTechnicalSupportClauses, isTechnicalSupportProposal } from '../app/lib/proposal-technical-clauses';
 import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
@@ -5018,7 +5019,12 @@ export class CrmRepository {
       ...input,
       id: newId,
       code,
-      title: input.title.trim(),
+      title: displayProposalTitle({
+        title: input.title,
+        budgetType: inferredBudgetType,
+        code,
+        companyName: input.companyName,
+      }),
       budgetType: inferredBudgetType,
       storeName: input.storeName || '',
       salesChannel: input.salesChannel || '',
@@ -5220,7 +5226,12 @@ export class CrmRepository {
       sellerUserId: current.sellerUserId,
       approvalIdempotencyKeySha256: current.approvalIdempotencyKeySha256,
       code: patch.code || current.code,
-      title: patch.title !== undefined ? String(patch.title).trim() : current.title,
+      title: displayProposalTitle({
+        title: patch.title !== undefined ? String(patch.title).trim() : current.title,
+        budgetType: patch.budgetType || current.budgetType,
+        code: patch.code || current.code,
+        companyName: patch.companyName !== undefined ? String(patch.companyName).trim() : current.companyName,
+      }),
       companyName: patch.companyName !== undefined ? String(patch.companyName).trim() : current.companyName,
       companyCnpj: patch.companyCnpj !== undefined ? String(patch.companyCnpj).trim() : current.companyCnpj,
       contactName: patch.contactName !== undefined ? String(patch.contactName).trim() : current.contactName,
