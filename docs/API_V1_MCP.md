@@ -87,6 +87,10 @@ Regras:
 6. **Idempotência**: a chave é reservada antes de executar (em andamento ⇒ 409). 5xx sem nenhuma escrita interna ⇒ chave liberada (retry retoma); 5xx depois de tentar escrever ⇒ a chave guarda `409 IDEMPOTENCY_PREVIOUS_ATTEMPT_FAILED` (o retry nunca cria um segundo registro).
 7. **Update de OS**: `expectedVersion` obrigatória (campo `version` da OS = hash dos campos editáveis); versão diferente ⇒ `409 VERSION_CONFLICT` com `currentVersion`. O corpo enviado ao app leva só os campos alterados.
 
+### Ponto (9) — operações que ampliam o plano (aguardando o ok do Marcéllo)
+
+`erp_service_orders_update` (editar OS), `erp_sales_orders_create` e `erp_sales_orders_update` ficam **desligadas por padrão**: fora do `tools/list`, do OpenAPI e das rotas REST (404/405), e o executor recusa (`404 OPERATION_DISABLED`). Liga com `INTEGRATION_ENABLE_PLAN_EXPANSION_OPS=1`. Para remover de vez: `git revert` do commit do ponto (9) volta a deixá-las ligadas — então, se a resposta for "não", basta **não ligar a flag**, ou apagar as três definições em `use-cases/erp-write.ts` e a lista `PLAN_EXPANSION_OPERATIONS` em `use-cases/index.ts`.
+
 ### Correções do CISO no Lote 1 (25/11/2026)
 
 - `erp_dashboard_get`: sem `canViewBankBalances`, `summary.availableBalanceToday` e `summary.bankAccountsSummaryText` saem `null` (`bankBalancesVisible=false`); o restante do financeiro segue a alçada `financeBanksAccess`.
@@ -106,6 +110,8 @@ Regras:
 - `/login?next=`: só caminho da mesma origem (`sanitizeLoginNext`): rejeita `//host`, `/\host`, barra invertida, caracteres de controle, URL absoluta e `%2F%2F`; fallback `/`.
 
 ## Variáveis de ambiente (produção = `NODE_ENV=production` ou `VERCEL=1`)
+
+- `INTEGRATION_ENABLE_PLAN_EXPANSION_OPS=1`: liga as 3 operações do ponto (9) (padrão: desligadas).
 | Variável | Obrigatória | Efeito |
 |---|---|---|
 | `STI_HUB_PUBLIC_ORIGIN` | **Sim** em produção | Origem https usada como issuer/resource. Ausente ou inválida em produção → rotas de integração respondem 503 `PUBLIC_ORIGIN_NOT_CONFIGURED` (sem confiar no Host). |

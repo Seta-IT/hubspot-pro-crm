@@ -6,7 +6,7 @@
 // ============================================================================
 import { z } from 'zod/v4';
 import { INTEGRATION_SCOPES, SCOPE_DESCRIPTIONS } from './scopes';
-import { INTEGRATION_USE_CASES, type UseCaseDefinition } from './use-cases';
+import { INTEGRATION_USE_CASES, isUseCaseEnabled, planExpansionEnabled, type UseCaseDefinition } from './use-cases';
 
 export const API_V1_VERSION = '1.0.0';
 
@@ -92,6 +92,7 @@ function operationFor(uc: UseCaseDefinition): JsonSchema {
 export function buildOpenApiDocument(): JsonSchema {
   const paths: Record<string, Record<string, JsonSchema>> = {};
   for (const uc of INTEGRATION_USE_CASES) {
+    if (!isUseCaseEnabled(uc)) continue; // ponto (9)
     paths[uc.path] = paths[uc.path] || {};
     paths[uc.path][uc.method.toLowerCase()] = operationFor(uc);
   }
@@ -174,7 +175,12 @@ export function buildOpenApiDocument(): JsonSchema {
 }
 
 let cached: JsonSchema | null = null;
+let cachedFlag: boolean | null = null;
 export function getOpenApiDocument(): JsonSchema {
-  if (!cached) cached = buildOpenApiDocument();
+  const flag = planExpansionEnabled();
+  if (!cached || cachedFlag !== flag) {
+    cached = buildOpenApiDocument();
+    cachedFlag = flag;
+  }
   return cached;
 }

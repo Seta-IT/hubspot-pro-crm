@@ -8,7 +8,7 @@ import type { IntegrationDeps } from './runtime';
 import type { AuditChannel, AuditAuthType, IntegrationStore } from './store';
 import { generateId, sha256Hex } from './tokens';
 import { isIntegrationStoreUnavailable } from './store-errors';
-import { UseCaseError, type UseCaseDefinition } from './use-cases';
+import { isUseCaseEnabled, UseCaseError, type UseCaseDefinition } from './use-cases';
 import type { WriteAuditTrail } from './use-cases/types';
 import { ownerMeetsScope } from './use-cases/common';
 
@@ -48,6 +48,9 @@ function issueFields(issues: Array<{ code: string; path: PropertyKey[]; keys?: s
 }
 
 export async function executeUseCase(def: UseCaseDefinition, rawInput: unknown, auth: AuthContext, deps: IntegrationDeps): Promise<ExecResult> {
+  if (!isUseCaseEnabled(def)) {
+    return { ok: false, status: 404, code: 'OPERATION_DISABLED', title: 'Operacao desligada nesta instalacao.' };
+  }
   if (!hasScope(auth, def.requiredScope)) {
     return { ok: false, status: 403, code: 'SCOPE_INSUFFICIENT', title: `Escopo insuficiente: exige ${def.requiredScope}.`, extra: { requiredScope: def.requiredScope } };
   }
