@@ -24,6 +24,10 @@ import { INTEGRATION_USE_CASES } from '../src/modules/integration/use-cases';
 import { LOTE1_SCOPES, LOTE2_WRITE_SCOPES, isBlockedScope, validateRequestedScopes } from '../src/modules/integration/scopes';
 import { LOTE2_WRITE_OPERATIONS } from '../src/modules/integration/use-cases';
 import { finishIdempotency } from '../src/modules/integration/executor';
+import { PLAN_EXPANSION_FLAG, PLAN_EXPANSION_OPERATIONS } from '../src/modules/integration/use-cases';
+
+// Ponto (9): este arquivo testa tambem editar OS e criar/editar pedido de venda => liga a flag.
+process.env[PLAN_EXPANSION_FLAG] = '1';
 
 const ORIGIN = 'https://stihub.test';
 const CSC_SECRET = 'CSCSEGREDO1234567890ABCD';
@@ -810,5 +814,41 @@ describe('Lote 2 / CISO: correcoes de regressao', () => {
     // mudanca pela tela tambem invalida a versao
     (env.repo.getErpState().serviceOrders!.find((x: any) => x.id === os.id) as any).technicianName = 'Outro Tec';
     assert.equal((await send(env, key, 'PATCH', `/api/v1/erp/service-orders/${os.id}`, { description: 'd', expectedVersion: body(u1).data.version })).status, 409);
+  });
+});
+
+describe('Lote 2 / ponto (9): editar OS e criar/editar pedido de venda atras de flag', () => {
+  it('flag desligada (padrao): fora do tools/list e do OpenAPI, REST 404 e nada gravado; ligada: funciona', async () => {
+    const env = makeEnv();
+    const key = await adminKey(env);
+    const prev = process.env[PLAN_EXPANSION_FLAG];
+    delete process.env[PLAN_EXPANSION_FLAG];
+    try {
+      const before = env.repo.getErpState().salesOrders!.length;
+      const so = await send(env, key, 'POST', '/api/v1/erp/sales-orders', { companyName: 'Cli', totalAmount: 1, itemsSummary: 'x' });
+      // mesma URL da leitura => 405 (metodo inexistente); nada gravado
+      const gone = [404, 405];
+      assert.ok(gone.includes(so.status), String(so.status));
+      assert.equal(env.repo.getErpState().salesOrders!.length, before);
+      assert.ok(gone.includes((await send(env, key, 'PATCH', '/api/v1/erp/sales-orders/so-ana', { itemsSummary: 'x' })).status));
+      assert.ok(gone.includes((await send(env, key, 'PATCH', '/api/v1/erp/service-orders/os-ana', { description: 'x', expectedVersion: 'v1-x' })).status));
+      // leitura e as demais escritas de OS seguem ligadas
+      assert.equal((await get(env, key, '/api/v1/erp/sales-orders')).status, 200);
+      assert.equal((await send(env, key, 'POST', '/api/v1/erp/service-orders', { companyName: 'Cli' })).status, 201);
+      const list = await handleMcp(rpc(key, { jsonrpc: '2.0', id: 1, method: 'tools/list' }), env.deps);
+      const names = (body(list).result.tools as Array<{ name: string }>).map((t) => t.name);
+      for (const n of ['erp_service_orders_update', 'erp_sales_orders_create', 'erp_sales_orders_update']) assert.ok(!names.includes(n), n);
+      assert.ok(names.includes('erp_service_orders_create'));
+      const call = await handleMcp(rpc(key, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'erp_sales_orders_create', arguments: {}, _meta: { 'stihub/idempotencyKey': 'p9-mcp-0001' } } }), env.deps);
+      assert.ok(body(call).error || body(call).result?.isError);
+      const doc = buildOpenApiDocument() as any;
+      const ops = Object.values(doc.paths).flatMap((p: any) => Object.values(p).map((o: any) => o.operationId));
+      for (const id of PLAN_EXPANSION_OPERATIONS) assert.ok(!ops.includes(id), id);
+      assert.ok(ops.includes('erp.service_orders.create'));
+    } finally {
+      process.env[PLAN_EXPANSION_FLAG] = prev ?? '1';
+    }
+    const on = await send(env, key, 'POST', '/api/v1/erp/sales-orders', { companyName: 'Cli', totalAmount: 1, itemsSummary: 'x' });
+    assert.equal(on.status, 201);
   });
 });

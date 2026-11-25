@@ -92,6 +92,25 @@ function FORBIDDEN_OPERATION_HIT(uc: UseCaseDefinition): boolean {
   return FORBIDDEN_UNLESS_READ_ALLOWLISTED.test(uc.operationId) || FORBIDDEN_UNLESS_READ_ALLOWLISTED.test(uc.path);
 }
 
+// ---------------------------------------------------------------------------
+// Ponto (9) do CISO: editar OS e criar/editar pedido de venda AMPLIAM o plano e dependem do ok
+// direto do Marcello. Ficam DESLIGADAS por padrao: fora do tools/list, do OpenAPI e das rotas
+// REST (404) e recusadas no executor. Liga com INTEGRATION_ENABLE_PLAN_EXPANSION_OPS=1.
+// Para remover de vez: apagar este bloco + as 3 definicoes em erp-write.ts (ver docs).
+// ---------------------------------------------------------------------------
+export const PLAN_EXPANSION_FLAG = 'INTEGRATION_ENABLE_PLAN_EXPANSION_OPS';
+export const PLAN_EXPANSION_OPERATIONS: ReadonlySet<string> = new Set(['erp.service_orders.update', 'erp.sales_orders.create', 'erp.sales_orders.update']);
+for (const id of PLAN_EXPANSION_OPERATIONS) {
+  if (!INTEGRATION_USE_CASES.some((u) => u.operationId === id)) throw new Error(`Ponto (9): operacao inexistente no catalogo: ${id}`);
+}
+export function planExpansionEnabled(): boolean {
+  return process.env[PLAN_EXPANSION_FLAG] === '1';
+}
+/** false => a operacao nao existe para o cliente (desligada pelo ponto 9). */
+export function isUseCaseEnabled(uc: Pick<UseCaseDefinition, 'operationId'>): boolean {
+  return !PLAN_EXPANSION_OPERATIONS.has(uc.operationId) || planExpansionEnabled();
+}
+
 export function findUseCaseByOperationId(id: string): UseCaseDefinition | undefined {
   return INTEGRATION_USE_CASES.find((u) => u.operationId === id);
 }

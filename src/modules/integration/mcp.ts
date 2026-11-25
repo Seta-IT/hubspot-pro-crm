@@ -15,7 +15,7 @@ import { json, postgresUnavailable, problem, type IntegrationHttpRequest, type I
 import { API_V1_VERSION } from './openapi';
 import { resolveIntegrationDeps, type IntegrationDeps } from './runtime';
 import type { IntegrationStore } from './store';
-import { INTEGRATION_USE_CASES, findUseCaseByToolName, type UseCaseDefinition } from './use-cases';
+import { INTEGRATION_USE_CASES, findUseCaseByToolName, isUseCaseEnabled, type UseCaseDefinition } from './use-cases';
 
 export const MCP_SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
 export const MCP_SERVER_INFO = { name: 'stihub-mcp', title: 'STI-hub (CRM, Chamados e ERP)', version: API_V1_VERSION };
@@ -47,7 +47,7 @@ function toolSchema(schema: z.ZodType, io: 'input' | 'output'): Record<string, u
 }
 
 export function visibleTools(auth: Pick<AuthContext, 'scopes' | 'moduleAccess'>): UseCaseDefinition[] {
-  return INTEGRATION_USE_CASES.filter((uc) => hasScope(auth as AuthContext, uc.requiredScope));
+  return INTEGRATION_USE_CASES.filter((uc) => isUseCaseEnabled(uc) && hasScope(auth as AuthContext, uc.requiredScope));
 }
 
 export function describeTool(uc: UseCaseDefinition) {
