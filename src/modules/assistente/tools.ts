@@ -731,6 +731,8 @@ const itemSchema = z
     valor_unitario: z.number().min(0).max(100_000_000).optional(),
     /** Legado (o tipo agora e da proposta inteira, em tipo_proposta): aceito e ignorado. */
     tipo: z.enum(['locacao', 'servico', 'produto']).optional(),
+    /** Codigo do produto no cadastro (quando escolhido na lista de modelos). */
+    codigo: z.string().trim().max(60).optional(),
   })
   .strict();
 const propostaSchema = z
@@ -745,6 +747,8 @@ const propostaSchema = z
     setup: z.number().min(0).max(100_000_000).optional(),
     indice_reajuste: z.enum(INDICES_REAJUSTE).optional(),
     frete: z.number().min(0).max(10_000_000).optional(),
+    /** Frete incluso no preco (sem cobranca a parte). */
+    frete_incluso: z.boolean().optional(),
     prazo_entrega: z.string().trim().max(120).optional(),
     forma_pagamento: z.enum(['boleto', 'pix', 'ted']).optional(),
     observacoes: z.string().trim().max(1000).optional(),
@@ -788,7 +792,7 @@ export function corpoRascunhoProposta(a: PropostaArgs, company: { id: string; na
   const meses = mesesDaProposta(a);
   const items = a.itens.map((i, idx) => ({
     id: `pi-${agora}-${idx + 1}`,
-    sku: '',
+    sku: i.codigo || '',
     description: i.descricao,
     itemType: cfg.itemType,
     fiscalNature: cfg.fiscalNature,
@@ -825,7 +829,7 @@ export function corpoRascunhoProposta(a: PropostaArgs, company: { id: string; na
     base.installments = built.installments;
     base.paymentCondition = built.paymentCondition.includes(rotulo) ? built.paymentCondition : `${rotulo} — ${built.paymentCondition}`;
   }
-  const notas = [a.observacoes, semValor(a) ? 'Criada pelo assistente de IA: há itens sem valor unitário, preencher.' : ''].filter(Boolean).join('\n');
+  const notas = [a.observacoes, a.frete_incluso ? 'Frete incluso no preço.' : '', semValor(a) ? 'Criada pelo assistente de IA: há itens sem valor unitário, preencher.' : ''].filter(Boolean).join('\n');
   if (notas) base.internalNotes = notas;
   return base;
 }
@@ -859,12 +863,17 @@ function coagirProposta(a: any): any {
   // Setup 0 / frete 0 ("sem setup") = sem o campo.
   if (out.setup === 0) delete out.setup;
   if (out.frete === 0) delete out.frete;
+  if (out.frete_incluso !== true) delete out.frete_incluso;
+  if (out.frete_incluso) delete out.frete;
   // Servico pontual e produtos nao tem prazo de contrato (pagamento unico).
   if (out.tipo_proposta === 'servico_pontual' || out.tipo_proposta === 'produtos') {
     delete out.prazo_meses;
     delete out.indice_reajuste;
   }
-  if (out.tipo_proposta === 'servico_pontual' || out.tipo_proposta === 'servico_mensal') delete out.frete;
+  if (out.tipo_proposta === 'servico_pontual' || out.tipo_proposta === 'servico_mensal') {
+    delete out.frete;
+    delete out.frete_incluso;
+  }
   return out;
 }
 
@@ -909,6 +918,7 @@ const criarRascunhoProposta: AssistenteTool<PropostaArgs> = {
       setup: { type: 'number', description: 'Setup / ativação (locação) ou implantação (serviço mensal): valor único, cobrado à parte da mensalidade. Nunca some na mensalidade.' },
       indice_reajuste: { type: 'string', enum: [...INDICES_REAJUSTE], description: 'Índice de reajuste (locação e serviço mensal). Padrão IPCA.' },
       frete: { type: 'number', description: 'Valor do frete (produtos ou locação).' },
+      frete_incluso: { type: 'boolean', description: 'true quando o usuário disser frete incluso.' },
       prazo_entrega: { type: 'string', description: 'Prazo de entrega (produtos), ex.: "10 dias úteis".' },
       forma_pagamento: { type: 'string', enum: ['boleto', 'pix', 'ted'], description: 'Boleto, Pix ou Ted / Transferência. Padrão boleto.' },
       observacoes: { type: 'string', description: 'Observações internas (opcional).' },
@@ -935,8 +945,14 @@ const criarRascunhoProposta: AssistenteTool<PropostaArgs> = {
           : `${pontual ? 'Valor do serviço (pagamento único)' : 'Total dos itens'}: ${formatBRL(total)}`,
         ...(mensal ? [`${a.tipo_proposta === 'locacao' ? 'Setup / ativação' : 'Setup / implantação'}: ${a.setup ? `${formatBRL(a.setup)} (pagamento único, à parte da mensalidade)` : 'sem setup'}`] : []),
         ...(mensal ? [`Índice de reajuste: ${ROTULO_INDICE[(a.indice_reajuste || 'IPCA') as IndiceReajuste]}${a.indice_reajuste ? '' : ' (padrão)'}`] : []),
-        ...(a.tipo_proposta === 'produtos' || a.tipo_proposta === 'locacao' ? [`Frete: ${a.frete ? formatBRL(a.frete) : 'sem frete'}`] : []),
-        ...(a.prazo_entrega ? [`Prazo de entrega: ${a.prazo_entrega}`] : []),
+        ...(a.tipo_proposta === 'produtos' || a.tipo_proposta === 'locacao'
+          ? [`Frete: ${a.frete_incluso ? 'incluso (sem cobrança à parte)' : a.frete ? formatBRL(a.frete) : 'a definir (padrão; ajuste se precisar)'}`]
+          : []),
+        ...(a.prazo_entrega
+          ? [`Prazo de entrega: ${a.prazo_entrega}`]
+          : a.tipo_proposta === 'produtos' || a.tipo_proposta === 'locacao'
+            ? ['Prazo de entrega: conforme disponibilidade (padrão do sistema)']
+            : []),
         `Forma de pagamento: ${ROTULO_FORMA_PAGAMENTO[(a.forma_pagamento || 'boleto') as FormaPagamento]}${a.forma_pagamento ? '' : ' (padrão; pode ser Pix ou Ted / Transferência)'}`,
         ...(semValor(a) ? ['Há itens sem valor: preencha no ERP.'] : []),
         ...(a.observacoes ? [`Observações: ${cut(a.observacoes, 200)}`] : []),

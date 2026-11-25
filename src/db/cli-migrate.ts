@@ -13,6 +13,7 @@ import {
 } from './postgres';
 import { getRepository } from './repository';
 import { applySetaDeskMigrations } from './setadesk-schema';
+import { applyAssistenteMigrations } from '../modules/assistente/conversas-store';
 import { ensureErpAuxListsSchema } from '../modules/erp/aux-lists-store';
 import { ensureErpTablesSchema } from './erp-tables-registry';
 
@@ -63,6 +64,8 @@ async function main() {
   console.log('      Listas auxiliares (centro de custo e plano de contas): tabela e seed prontos');
   await ensureCrmDealProposalUniqueIndex(pool);
   console.log('      Índice único de negócio por proposta (ux_crm_deals_proposal_id): pronto');
+  const assistenteApplied = await applyAssistenteMigrations(pool as unknown as Parameters<typeof applyAssistenteMigrations>[0]);
+  console.log(`      Assistente (conversas, memória, regras de acessórios): ${assistenteApplied.length ? assistenteApplied.join(', ') : 'esquema ja atualizado'}`);
 
   console.log(
     `[2/3] Sincronizando estado do CRM (${forceReset ? 'redefinindo seed inicial' : 'preservando dados existentes ou aplicando seed inicial'})...`

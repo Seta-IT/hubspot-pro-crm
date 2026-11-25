@@ -27,6 +27,9 @@ import {
 import { signActionToken, verifyActionToken } from './confirmation';
 import { rotearPergunta, hojeIso } from './roteador';
 import { resumoConhecimentoParaPrompt } from './conhecimento';
+import { avancarFluxo, fluxoSchema, selecaoSchema, textoMemoriaSugestao, type SaidaFluxo } from './fluxo-proposta';
+import { RESPOSTA_LICAO_CNPJS, RESPOSTA_LICAO_SEGREDO, blocoMemoriasParaPrompt, detectarLicao, respostaLicaoGravada, selecionarMemorias } from './memoria';
+import type { MemoriaAprendida, RegraAcessorio, TipoMemoria } from './conversas-store';
 import { PERGUNTA_QUAL_REGISTRO, marcaContexto, registroEmContexto, rotaDoContexto, termoGenerico, type RegistroContexto } from './contexto';
 
 export interface AssistenteAuditEntry {
@@ -53,6 +56,12 @@ export interface AssistenteDeps {
   /** true = primeiro uso do nonce (false = ja usado). */
   consumeNonce(nonce: string, ttlMs: number): Promise<boolean>;
   audit(entry: AssistenteAuditEntry): Promise<void>;
+  /** Aprendizado contínuo (memória do usuário e regras de acessórios). Opcional em testes antigos. */
+  aprendizado?: {
+    listarMemorias(): Promise<MemoriaAprendida[]>;
+    criarMemoria(m: { tipo: TipoMemoria; texto: string; cnpj?: string | null; dados?: MemoriaAprendida['dados'] }): Promise<MemoriaAprendida | null>;
+    listarRegras(): Promise<RegraAcessorio[]>;
+  };
 }
 
 export interface ServiceResponse {
@@ -80,10 +89,17 @@ const mensagemSchema = z.object({
   papel: z.enum(['usuario', 'assistente']),
   texto: z.string().max(ASSISTENTE_LIMITS.maxMessageChars * 2),
 });
-const chatSchema = z.object({ mensagens: z.array(mensagemSchema).min(1).max(60) });
+const chatSchema = z.object({
+  mensagens: z.array(mensagemSchema).min(1).max(60),
+  /** Estado do rascunho de proposta pendente nesta conversa (slot-filling). */
+  fluxo: fluxoSchema.nullable().optional(),
+  /** Clique numa lista (modelo, acessórios, empresa, tipo). */
+  selecao: selecaoSchema.optional(),
+  conversaId: z.string().max(80).optional(),
+});
 const execSchema = z.object({ token: z.string().min(10).max(16_000), confirmar: z.boolean() });
 
-function systemPrompt(user: AssistenteUser, now: number): string {
+function systemPrompt(user: AssistenteUser, now: number, memorias = ''): string {
   const hoje = hojeIso(now);
   const mods = [user.moduleAccess.crm && 'CRM', user.moduleAccess.erp && 'ERP', user.moduleAccess.chamados && 'STI HUB Desk Service'].filter(Boolean).join(', ') || 'nenhum';
   return [
@@ -112,6 +128,7 @@ function systemPrompt(user: AssistenteUser, now: number): string {
     'Nunca peça nem repita senhas, tokens ou chaves.',
     'Base de conhecimento do STI-hub (use para dúvidas de "como faço", regras e erros; responda em texto, sem ferramenta):',
     resumoConhecimentoParaPrompt(),
+    ...(memorias ? [memorias] : []),
   ].join('\n');
 }
 
@@ -163,7 +180,6 @@ const MODULO_ROTULO: Record<string, string> = { crm: 'CRM', erp: 'ERP', chamados
 // Chat
 // ---------------------------------------------------------------------------
 export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promise<ServiceResponse> {
-  if (!deps.llm) return err(503, 'ASSISTENTE_DESLIGADO', 'O assistente de IA ainda não está configurado neste ambiente.');
   const parsed = chatSchema.safeParse(rawBody);
   if (!parsed.success) return err(400, 'ENTRADA_INVALIDA', 'Mensagem inválida.');
   const last = parsed.data.mensagens[parsed.data.mensagens.length - 1];
@@ -181,7 +197,54 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
   const history = buildHistory(parsed.data.mensagens);
   if (!history) return err(400, 'ENTRADA_INVALIDA', 'Envie uma mensagem.');
 
-  // Proposta nova: primeiro o tipo, depois os campos do tipo (sem depender do modelo).
+  // Aprendizado: lição explícita ("sempre faça X", "não é assim, é Y") vira memória do usuário.
+  if (!parsed.data.selecao) {
+    const licao = detectarLicao(last.texto);
+    if (licao && deps.aprendizado) {
+      if (!licao.ok) return { status: 200, body: { tipo: 'texto', texto: licao.motivo === 'segredo' ? RESPOSTA_LICAO_SEGREDO : RESPOSTA_LICAO_CNPJS, fluxo: parsed.data.fluxo ?? null } };
+      const m = await deps.aprendizado.criarMemoria({ tipo: licao.tipo, texto: licao.texto, cnpj: licao.cnpj }).catch(() => null);
+      if (m) return { status: 200, body: { tipo: 'texto', texto: respostaLicaoGravada(m.texto, m.cnpj), memoria: { id: m.id }, fluxo: parsed.data.fluxo ?? null } };
+    }
+  }
+
+  let memorias: MemoriaAprendida[] = [];
+  let regras: RegraAcessorio[] = [];
+  if (deps.aprendizado) {
+    [memorias, regras] = await Promise.all([deps.aprendizado.listarMemorias().catch(() => []), deps.aprendizado.listarRegras().catch(() => [])]);
+  }
+
+  // Rascunho de proposta guiado (tipo inferido, cadastro de produtos, acessórios, slot-filling).
+  if (deps.user.moduleAccess.erp) {
+    let saida: SaidaFluxo | null = null;
+    try {
+      saida = await avancarFluxo(
+        { texto: last.texto, selecao: parsed.data.selecao ?? null, fluxo: parsed.data.fluxo ?? null, mensagens: parsed.data.mensagens },
+        {
+          api: deps.api,
+          memorias,
+          regras,
+          aprender: deps.aprendizado
+            ? async ({ familia, item, aceito }) => {
+                const texto = textoMemoriaSugestao(familia, item);
+                const atual = memorias.find((m) => m.tipo === 'sugestao' && m.texto === texto);
+                const aceitos = Number(atual?.dados?.aceitos || 0) + (aceito ? 1 : 0);
+                const recusados = Number(atual?.dados?.recusados || 0) + (aceito ? 0 : 1);
+                await deps.aprendizado!.criarMemoria({ tipo: 'sugestao', texto, dados: { base: familia, item, aceitos, recusados } });
+              }
+            : undefined,
+        },
+      );
+    } catch {
+      saida = { tipo: 'texto', texto: 'Não consegui continuar o rascunho agora. Tente de novo.', fluxo: parsed.data.fluxo ?? null };
+    }
+    if (saida && saida.tipo !== 'servico' && saida.tipo !== 'legado') return respostaFluxo(saida, deps, parsed.data.mensagens);
+  } else if (parsed.data.selecao) {
+    return { status: 200, body: { tipo: 'texto', texto: 'Seu usuário não tem acesso ao módulo ERP, então não posso montar propostas.', fluxo: null } };
+  }
+  if (parsed.data.selecao) return { status: 200, body: { tipo: 'texto', texto: 'Essa lista expirou. Peça a proposta de novo.', fluxo: null } };
+  if (!deps.llm) return err(503, 'ASSISTENTE_DESLIGADO', 'O assistente de IA ainda não está configurado neste ambiente.');
+
+  // Proposta nova de serviço: primeiro o tipo, depois os campos do tipo (sem depender do modelo).
   const fluxo = fluxoNovaProposta(parsed.data.mensagens, deps.user);
   if (fluxo) return { status: 200, body: { tipo: 'texto', texto: fluxo } };
 
@@ -218,7 +281,8 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
 
   let result;
   try {
-    result = await deps.llm.complete([{ role: 'system', content: systemPrompt(deps.user, deps.now()) }, ...history], toolDefinitionsFor(deps.user));
+    const bloco = blocoMemoriasParaPrompt(selecionarMemorias(memorias, parsed.data.mensagens));
+    result = await deps.llm.complete([{ role: 'system', content: systemPrompt(deps.user, deps.now(), bloco) }, ...history], toolDefinitionsFor(deps.user));
   } catch (e) {
     const code = e instanceof LlmError ? e.code : 'LLM_UNAVAILABLE';
     if (code === 'LLM_RATE_LIMITED') return err(429, code, 'O provedor de IA está no limite de uso. Tente de novo em instantes.');
@@ -238,6 +302,16 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
 }
 
 type Msg = { papel: 'usuario' | 'assistente'; texto: string };
+
+/** Saída do fluxo guiado => corpo da resposta (cartão de confirmação só via proporAcao). */
+async function respostaFluxo(saida: Exclude<SaidaFluxo, { tipo: 'servico' } | { tipo: 'legado' }>, deps: AssistenteDeps, mensagens: Msg[]): Promise<ServiceResponse> {
+  if (saida.tipo === 'cartao') {
+    const r = await proporAcao('criar_rascunho_proposta', saida.args, saida.texto, deps, mensagens);
+    if (r.status === 200) r.body = { ...r.body, fluxo: saida.fluxo };
+    return r;
+  }
+  return { status: 200, body: { ...saida } };
+}
 
 /**
  * Passos de texto do rascunho de proposta: pergunta o tipo, o modo do servico e os campos

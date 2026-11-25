@@ -264,11 +264,15 @@ describe('assistente — fluxo de confirmação', () => {
     assert.equal(r0.body.tipo, 'texto');
     assert.match(String(r0.body.texto), /tipo da proposta/);
     assert.equal(llm0.calls.length, 0);
-    // Com tipo e sem itens: pede os campos do tipo e diz o que falta.
+    // Com tipo e sem itens: pede os campos do tipo e diz o que falta (modelo com argumentos incompletos).
     const d = deps({ llm: fakeLlm({ toolCalls: [{ name: 'criar_rascunho_proposta', args: { cliente: 'Alfa', tipo_proposta: 'produtos' } }] }) });
-    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'gere uma proposta de produtos para a Alfa com 2 switches' }] }, d);
+    const r = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'gere uma proposta de produtos para a Alfa no valor de 500' }] }, d);
     assert.equal(r.body.tipo, 'texto');
     assert.match(String(r.body.texto), /Ainda falta: os itens com quantidade/);
+    // Sem valores (25/11/2026): o fluxo guiado conduz (cadastro de produtos), sem cartão incompleto.
+    const g = await handleChat({ mensagens: [{ papel: 'usuario', texto: 'gere uma proposta de produtos para a Alfa com 2 switches' }] }, deps({ llm: llm0 }));
+    assert.equal(g.body.tipo, 'texto');
+    assert.equal(g.body.proposta, undefined);
   });
 
   it('limites: tamanho da mensagem e mensagens por minuto', async () => {
