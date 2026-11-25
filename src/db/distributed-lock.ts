@@ -9,6 +9,7 @@
 // Falha do banco => o chamador trata como "nao adquirida" (fail-closed: nao envia).
 // ============================================================================
 import { getPostgresPool, isPostgresEnabled, type PgQueryable } from './postgres';
+import { runGuardedDdl } from './schema-guard';
 
 export interface LockInfo {
   owner: string;
@@ -55,7 +56,7 @@ export class PostgresLockStore implements DistributedLockStore {
 
   private ensure(): Promise<void> {
     if (!this.ready) {
-      this.ready = this.db.query(DISTRIBUTED_LOCKS_DDL).then(() => undefined);
+      this.ready = runGuardedDdl(this.db, DISTRIBUTED_LOCKS_DDL).then(() => undefined);
       this.ready.catch(() => {
         this.ready = null;
       });

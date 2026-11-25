@@ -19,6 +19,7 @@ import type { MarketingStore } from '../marketing/marketing-store';
 import { MARKETING_PURPOSE_LABELS, isMarketingPurpose } from '../marketing/marketing-config';
 import type { SignalStore } from '../analytics/signal-store';
 import { classifyReply } from '../analytics/signal-classifier';
+import { runGuardedDdl } from '../../db/schema-guard';
 
 export type AiKind = 'SUBJECT' | 'COPY' | 'NEXT_STEP' | 'ACCOUNT_SUMMARY';
 export const AI_KIND_LABELS: Record<AiKind, string> = {
@@ -107,7 +108,7 @@ export class PostgresAiSuggestionStore implements AiSuggestionStore {
   constructor(private readonly pool: PgQueryable) {}
   private async db(): Promise<PgQueryable> {
     if (!this.ready) {
-      this.ready = this.pool.query(AI_TABLES_DDL).then(() => undefined);
+      this.ready = runGuardedDdl(this.pool, AI_TABLES_DDL).then(() => undefined);
       this.ready.catch(() => {
         this.ready = null;
       });

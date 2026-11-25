@@ -113,7 +113,9 @@ describe('Trava global: contrato do lease', () => {
     assert.equal(await store.acquire('sequences:run', 'B', 60_000), false);
     await store.release('sequences:run', 'A');
     assert.equal(await store.acquire('sequences:run', 'B', 60_000), true);
-    assert.ok(calls[0].text.includes('CREATE TABLE IF NOT EXISTS crm_distributed_locks'));
+    // Perf 25/11: o DDL so roda se o catalogo disser que falta (1a chamada = leitura do catalogo).
+    assert.ok(calls[0].text.includes('to_regclass'));
+    assert.ok((calls[0].params![0] as string[]).includes('crm_distributed_locks'));
     const ins = calls.find((c) => c.text.startsWith('INSERT'))!;
     assert.deepEqual(ins.params, ['sequences:run', 'A', 60000]);
   });

@@ -6,6 +6,7 @@
 // ============================================================================
 import { getPostgresPool, isPostgresEnabled, type PgQueryable } from '../../db/postgres';
 import type { ExperimentDecision } from './ab-stats';
+import { runGuardedDdl } from '../../db/schema-guard';
 
 export type ExperimentStatus = 'DRAFT' | 'TESTING' | 'NEEDS_DECISION' | 'WINNER_SELECTED' | 'COMPLETED' | 'CANCELLED';
 export type ExperimentMetric = 'HUMAN_CLICK' | 'OPEN_OBSERVED';
@@ -121,7 +122,7 @@ export class PostgresExperimentStore implements ExperimentStore {
   constructor(private readonly pool: PgQueryable) {}
   private async db(): Promise<PgQueryable> {
     if (!this.ready) {
-      this.ready = this.pool.query(EXPERIMENT_TABLES_DDL).then(() => undefined);
+      this.ready = runGuardedDdl(this.pool, EXPERIMENT_TABLES_DDL).then(() => undefined);
       this.ready.catch(() => {
         this.ready = null;
       });

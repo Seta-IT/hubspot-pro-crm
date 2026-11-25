@@ -17,6 +17,7 @@
 // Sem o marcador (ou sem Postgres) o comportamento e exatamente o anterior (JSON).
 // ============================================================================
 import { createHash } from 'node:crypto';
+import { runGuardedDdl } from './schema-guard';
 import type { ErpCommercialProposal } from './types';
 import { extractGcProposalNumber, formatProposalDisplayCode, GESTAOCLICK_LAST_IMPORTED_PROPOSAL_NUMBER } from '../app/lib/proposal-number';
 
@@ -66,7 +67,8 @@ CREATE INDEX IF NOT EXISTS idx_erp_proposals_updated_at ON erp_proposals (update
 `;
 
 export async function ensureProposalsTable(db: PgQ): Promise<void> {
-  await db.query(PROPOSALS_TABLE_DDL);
+  // Perf 25/11: confere o catalogo antes (CREATE INDEX IF NOT EXISTS pega SHARE lock mesmo se o indice existe).
+  await runGuardedDdl(db, PROPOSALS_TABLE_DDL);
 }
 
 /**
