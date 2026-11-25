@@ -19,6 +19,7 @@ import { scopesAboveUserAccess } from './use-cases/common';
 import type { IntegrationUser } from './data-port';
 import {
   INTEGRATION_SCOPES,
+  LOTE1_SCOPES as LOTE1_SCOPE_SET,
   isPortfolioScope,
   moduleForScope,
   narrowestPortfolio,
@@ -452,7 +453,7 @@ async function handleRegister(req: IntegrationHttpRequest, store: IntegrationSto
 interface LiveCeiling {
   user: IntegrationUser;
   portfolio: PortfolioScope;
-  moduleAccess: { crm: boolean; chamados: boolean };
+  moduleAccess: { crm: boolean; chamados: boolean; erp: boolean };
 }
 
 const CLEAR_SESSION_COOKIE = 'stihub_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax';
@@ -508,12 +509,32 @@ async function handleAuthorize(
     moduleAccess: {
       crm: claims.moduleAccess?.crm === true && user.moduleAccess.crm,
       chamados: claims.moduleAccess?.chamados === true && user.moduleAccess.chamados,
+      erp: (claims.moduleAccess as { erp?: boolean } | undefined)?.erp === true && user.moduleAccess.erp,
     },
   };
+  // Fase 2 / Lote 1: escopos NOVOS (LOTE1) acima do perfil do usuario NAO derrubam o
+  // consentimento; sao omitidos (nunca concedidos) e listados na tela como "nao concedidos".
+  // Escopos da Fase 1 mantem a regra original (invalid_scope).
+  const lote1Denied = (s: string) => {
+    if (!LOTE1_SCOPE_SET.has(s)) return false;
+    const mod = moduleForScope(s as never);
+    if ((mod === 'crm' && !live.moduleAccess.crm) || (mod === 'erp' && !live.moduleAccess.erp)) return true;
+    return scopesAboveUserAccess([s], user).length > 0;
+  };
+  const notGranted = v.scopes.filter(lote1Denied);
+  const requestedScopes = v.scopes;
+  v.scopes = v.scopes.filter((s) => !lote1Denied(s));
+  if (v.scopes.length === 0) {
+    return done(
+      redirectWith(a.redirectUri, { error: 'invalid_scope', error_description: 'Nenhum escopo dentro do perfil do usuario.', state: a.state, iss: req.origin }),
+      { clientId: v.client.clientId, userId: claims.uid, errorCode: 'scope_above_user_rbac' }
+    );
+  }
+  void requestedScopes;
   // RBAC no consentimento: escopos de modulo desabilitado ou acima da alcada do usuario => invalid_scope.
   const moduleDenied = v.scopes.filter((s) => {
     const mod = moduleForScope(s as never);
-    return (mod === 'crm' && !live.moduleAccess.crm) || (mod === 'chamados' && !live.moduleAccess.chamados);
+    return (mod === 'crm' && !live.moduleAccess.crm) || (mod === 'chamados' && !live.moduleAccess.chamados) || (mod === 'erp' && !live.moduleAccess.erp);
   });
   const aboveAccess = scopesAboveUserAccess(v.scopes, user);
   if (moduleDenied.length || aboveAccess.length) {
@@ -558,6 +579,9 @@ async function handleAuthorize(
         return isWrite ? `<li class="write">&#9888; ESCRITA: ${label}</li>` : `<li>${label}</li>`;
       })
       .join('');
+    const notGrantedHtml = notGranted.length
+      ? `<p>Nao concedidos (acima do seu perfil): ${notGranted.map((s) => `<code>${escapeHtml(s)}</code>`).join(', ')}</p>`
+      : '';
     let redirectHost = a.redirectUri;
     try {
       const u = new URL(a.redirectUri);
@@ -575,7 +599,8 @@ async function handleAuthorize(
 Os dados e o codigo de acesso serao enviados para:<div class="host">${escapeHtml(redirectHost)}</div>
 Autorize somente se voce reconhece este endereco.</div>
 <p>Conectado como <b>${escapeHtml(claims.email)}</b>. O aplicativo tera acesso, em seu nome, a:</p><ul>${scopesHtml}</ul>
-<p>Sem exclusao, merge, sequencias, fiscal/financeiro ou administracao.</p>
+${notGrantedHtml}
+<p>Somente leitura no ERP. Sem exclusao, merge, envio de e-mail, emissao/baixa fiscal ou financeira, sincronizacao ou administracao.</p>
 <form method="post" action="/api/oauth/authorize">${hidden}
 <p><label>Carteira: <select name="portfolio_scope">${portfolioOptions}</select></label></p>
 <button class="ok" type="submit" name="decision" value="approve">Autorizar</button><button type="submit" name="decision" value="deny">Negar</button></form>`,

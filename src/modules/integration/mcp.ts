@@ -18,7 +18,7 @@ import type { IntegrationStore } from './store';
 import { INTEGRATION_USE_CASES, findUseCaseByToolName, type UseCaseDefinition } from './use-cases';
 
 export const MCP_SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
-export const MCP_SERVER_INFO = { name: 'stihub-mcp', title: 'STI-hub (CRM e Chamados)', version: API_V1_VERSION };
+export const MCP_SERVER_INFO = { name: 'stihub-mcp', title: 'STI-hub (CRM, Chamados e ERP)', version: API_V1_VERSION };
 
 type JsonRpcId = string | number | null;
 interface JsonRpcRequest {
@@ -101,8 +101,10 @@ async function handleMessage(
         capabilities: { tools: { listChanged: false } },
         serverInfo: MCP_SERVER_INFO,
         instructions:
-          'Servidor MCP do STI-hub: CRM (contatos, empresas, negocios, atividades, pipelines) e Chamados SetaDesk (TEC-/FIN-). ' +
-          'Dados respeitam a carteira e os escopos da credencial; chamados sao mascarados. Sem exclusao, merge, sequencias ou fiscal.',
+          'Servidor MCP do STI-hub: CRM (contatos, empresas, negocios, atividades, pipelines, tarefas, automacao, marketing, insights, saude da base), ' +
+          'Chamados SetaDesk (TEC-/FIN-) e ERP somente leitura (painel, orcamentos, contratos, OS, vendas, compras, catalogo, cadastros, financeiro, bancos, fiscal). ' +
+          'Dados respeitam a carteira, os escopos e as alcadas do usuario; chamados mascarados; segredos fiscais nunca expostos. ' +
+          'Sem exclusao, merge, envio de e-mail/sequence, emissao/baixa fiscal ou financeira, sincronizacao ou administracao.',
       });
     }
     case 'ping':

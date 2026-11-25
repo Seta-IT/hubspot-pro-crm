@@ -26,12 +26,12 @@ export interface UseCaseDefinition<I extends z.ZodType = z.ZodType, O extends z.
   path: string;
   /** Parametros de caminho (presentes tambem no inputSchema). */
   pathParams: string[];
-  tag: 'CRM' | 'Chamados';
+  tag: 'CRM' | 'Chamados' | 'ERP';
   summary: string;
   description: string;
   requiredScope: IntegrationScope;
   requiredModule: IntegrationModule;
-  domain: 'crm' | 'tickets';
+  domain: 'crm' | 'tickets' | 'erp';
   /** true => repetir a mesma chamada nao muda o resultado (GET/PATCH). POST aceita Idempotency-Key. */
   idempotent: boolean;
   mutation: boolean;

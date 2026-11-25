@@ -332,11 +332,17 @@ describe('Travas CISO: escopos bloqueados fora da criacao, do OpenAPI e do MCP',
     const doc = buildOpenApiDocument();
     for (const [p, ops] of Object.entries(doc.paths as Record<string, Record<string, unknown>>)) {
       assert.ok(!('delete' in ops), p);
-      assert.ok(!/merge|sequence|fiscal|financ|gestaoclick|iam|admin/i.test(p), p);
+      assert.ok(!/merge|gestaoclick|iam|admin/i.test(p), p);
+      // Lote 1 (24/11/2026): sequences/fiscal/financeiro so como LEITURA (GET) allowlistada.
+      if (/sequence|fiscal|financ|invoice/i.test(p)) assert.deepEqual(Object.keys(ops), ['get'], p);
     }
     for (const uc of INTEGRATION_USE_CASES) {
-      assert.ok(!/delete|merge|sequence|fiscal|gestaoclick|iam/i.test(uc.toolName), uc.toolName);
+      assert.ok(!/delete|merge|gestaoclick|iam/i.test(uc.toolName), uc.toolName);
       assert.notEqual(uc.method as string, 'DELETE');
+      if (/sequence|fiscal|financ|invoice/i.test(uc.toolName) || uc.requiredModule === 'erp') {
+        assert.equal(uc.method, 'GET', uc.toolName);
+        assert.equal(uc.mutation, false, uc.toolName);
+      }
     }
     const env = makeEnv();
     const key = await keyFor(env, 'usr-api-admin', 'TODOS', ALL_CRM);
@@ -1260,11 +1266,12 @@ describe('Complemento #6: replay de idempotencia reautoriza; STI_HUB_PUBLIC_ORIG
   });
 
   it('impressao digital muda com escopo/carteira/modulo/usuario (cache isolado)', () => {
-    const base = { authType: 'oauth', keyId: null, oauthClientId: 'c', actorUserId: 'u1', scopes: new Set(['crm:contacts:write']), portfolioScope: 'TODOS', moduleAccess: { crm: true, chamados: true }, teamMemberIds: [] } as never as Parameters<typeof authFingerprint>[0];
+    const base = { authType: 'oauth', keyId: null, oauthClientId: 'c', actorUserId: 'u1', scopes: new Set(['crm:contacts:write']), portfolioScope: 'TODOS', moduleAccess: { crm: true, chamados: true, erp: false }, teamMemberIds: [] } as never as Parameters<typeof authFingerprint>[0];
     const f = authFingerprint(base);
     assert.notEqual(f, authFingerprint({ ...base, scopes: new Set(['crm:contacts:read']) }));
     assert.notEqual(f, authFingerprint({ ...base, portfolioScope: 'PROPRIOS' }));
-    assert.notEqual(f, authFingerprint({ ...base, moduleAccess: { crm: true, chamados: false } }));
+    assert.notEqual(f, authFingerprint({ ...base, moduleAccess: { crm: true, chamados: false, erp: false } }));
+    assert.notEqual(f, authFingerprint({ ...base, moduleAccess: { crm: true, chamados: true, erp: true } }));
     assert.notEqual(f, authFingerprint({ ...base, actorUserId: 'u2' }));
     assert.equal(f, authFingerprint({ ...base, scopes: new Set(['crm:contacts:write']) }));
   });

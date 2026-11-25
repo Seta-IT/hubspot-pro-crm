@@ -2750,6 +2750,8 @@ export class CrmApiRouter {
     const today = todayInSaoPaulo();
     const month = isValidMonthParam(query.mes) ? String(query.mes) : today.slice(0, 7);
     let includeFinance = !ctx.serviceAccount;
+    // API v1/MCP (Fase 2 / Lote 1): sem alcada financeira => painel sem financeiro (so interno).
+    if (ctx.trustedInternal && query._integrationIncludeFinance === '0') includeFinance = false;
     const isInternal = ctx.trustedInternal || ctx.serviceAccount || (query._fromHttpBridge !== '1' && !query._sessionToken);
     if (!isInternal) {
       const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
@@ -2820,7 +2822,10 @@ export class CrmApiRouter {
   ): Promise<ApiResponse> {
     const scope = this.proposalScope(query, ctx);
     if (scope.kind === 'denied') return { status: 200, body: { data: [], total: 0, limit: 0, offset: 0, counts: { TODOS: 0, PRODUTOS: 0, LOCACAO: 0, SERVICOS: 0 }, storage: 'table' } };
-    const owner = scope.kind === 'session' && scope.restricted ? { id: String(scope.access.user.id || ''), email: String(scope.access.user.email || '') } : null;
+    let owner = scope.kind === 'session' && scope.restricted ? { id: String(scope.access.user.id || ''), email: String(scope.access.user.email || '') } : null;
+    // API v1/MCP (Fase 2 / Lote 1): carteira restrita do conector, SO no contexto interno.
+    const integrationOwner = CrmApiRouter.integrationProposalOwner(query, ctx);
+    if (integrationOwner) owner = integrationOwner;
     const page = await listProposalsPage(this.proposalsDb(), {
       q: query.q ?? query.search,
       status: query.status,
@@ -4193,6 +4198,21 @@ export class CrmApiRouter {
   }
 
   /** Escopo restrito: PROPRIOS e EQUIPE valem como "so as proprias" (M2). */
+  /**
+   * API v1/MCP (Fase 2 / Lote 1): dono da carteira restrita do conector. Honrado SOMENTE no
+   * contexto interno confiavel (Symbol nao forjavel); vindo de HTTP e ignorado.
+   */
+  private static integrationProposalOwner(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean }
+  ): { id: string; email: string } | null {
+    if (!ctx.trustedInternal) return null;
+    const id = String(query._integrationOwnerId || '').trim();
+    const email = String(query._integrationOwnerEmail || '').trim().toLowerCase();
+    if (!id && !email) return null;
+    return { id: id || '\u0000sem-id', email: email || '\u0000sem-email' };
+  }
+
   private static isRestrictedProposalScope(scope: string): boolean {
     return scope !== 'TODOS';
   }
@@ -8648,7 +8668,9 @@ export class CrmApiRouter {
         if (method === 'GET') {
           if (this.proposalTableCtx) return await this.listProposalsFromTable(query, ctx);
           // (d) Lista filtrada no servidor pelo mesmo escopo do GET :id.
-          const list = this.filterProposalsByScope(this.repo.listProposals(), query, ctx);
+          let list = this.filterProposalsByScope(this.repo.listProposals(), query, ctx);
+          const integrationOwner = CrmApiRouter.integrationProposalOwner(query, ctx);
+          if (integrationOwner) list = list.filter((p) => CrmApiRouter.isProposalOwnedBy(p, integrationOwner));
           return { status: 200, body: { data: list, total: list.length } };
         }
         if (method === 'POST') {
