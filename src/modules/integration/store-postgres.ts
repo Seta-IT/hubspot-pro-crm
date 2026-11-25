@@ -6,6 +6,7 @@
 // ============================================================================
 import type {
   IdempotencyRecord,
+  RecordOwnerRecord,
   IntegrationApiKeyRecord,
   IntegrationAuditEntry,
   IntegrationStore,
@@ -54,6 +55,14 @@ CREATE TABLE IF NOT EXISTS api_idempotency_keys (
   PRIMARY KEY (actor_scope_key, idempotency_key)
 );
 CREATE INDEX IF NOT EXISTS idx_api_idempotency_expires ON api_idempotency_keys(expires_at);
+
+CREATE TABLE IF NOT EXISTS api_record_owners (
+  entity TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  owner_user_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (entity, record_id)
+);
 
 CREATE TABLE IF NOT EXISTS integration_audit_logs (
   id TEXT PRIMARY KEY,
@@ -320,6 +329,17 @@ export class PostgresIntegrationStore implements IntegrationStore {
   }
   async deleteIdempotency(actorScopeKey: string, key: string) {
     await this.q(`DELETE FROM api_idempotency_keys WHERE actor_scope_key = $1 AND idempotency_key = $2`, [actorScopeKey, key]);
+  }
+
+  async putRecordOwner(rec: RecordOwnerRecord) {
+    await this.q(
+      `INSERT INTO api_record_owners (entity, record_id, owner_user_id, created_at) VALUES ($1,$2,$3,$4) ON CONFLICT (entity, record_id) DO UPDATE SET owner_user_id = EXCLUDED.owner_user_id, created_at = EXCLUDED.created_at`,
+      [rec.entity, rec.recordId, rec.ownerUserId, rec.createdAt]
+    );
+  }
+  async getRecordOwner(entity: string, recordId: string) {
+    const r = await this.q(`SELECT owner_user_id FROM api_record_owners WHERE entity = $1 AND record_id = $2`, [entity, recordId]);
+    return r.rows[0] ? String((r.rows[0] as { owner_user_id: string }).owner_user_id) : null;
   }
 
   async insertAudit(e: IntegrationAuditEntry) {

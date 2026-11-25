@@ -22,9 +22,9 @@ import type {
   ErpRentalContract,
   ErpServiceOrder,
 } from '../../../db/types';
-import { isServiceCreatedProposal } from '../../../app/lib/proposal-client-view';
+import { serviceOrderVersion } from '../../erp/service-order-version';
 import type { ErpCollections } from '../data-port';
-import { includesText, isErpAdmin, requireAllPortfolio, requireOwnerScope, userHasErpAccess } from './common';
+import { erpFullControl, includesText, isErpAdmin, requireAllPortfolio, requireOwnerScope, userHasErpAccess } from './common';
 import {
   CursorSchema,
   defineUseCase,
@@ -82,9 +82,13 @@ export function erpOwner(ctx: UseCaseContext): ErpOwner | null {
   return { id: ctx.owner.id, email: ctx.owner.email.toLowerCase(), name: ctx.owner.name };
 }
 
-/** Mesma regra do router (isProposalOwnedBy): sellerUserId gravado pelo servidor; senao e-mail. */
+/**
+ * Mesma regra do router (isProposalOwnedBy): sellerUserId gravado pelo servidor; senao e-mail.
+ * Correcao CISO (Lote 2, 4): o MARCADOR em commercialNotes nao amplia mais a visibilidade no
+ * conector (so a flag createdByServiceAccount, que so o servidor grava).
+ */
 export function proposalOwnedBy(p: Pick<ErpCommercialProposal, 'sellerUserId' | 'sellerEmail' | 'createdByServiceAccount' | 'commercialNotes'>, o: ErpOwner): boolean {
-  if (isServiceCreatedProposal(p)) return true;
+  if (p.createdByServiceAccount === true) return true;
   if (p.sellerUserId) return norm(p.sellerUserId) !== '' && norm(p.sellerUserId) === norm(o.id);
   return norm(p.sellerEmail) !== '' && norm(p.sellerEmail) === norm(o.email);
 }
@@ -97,6 +101,28 @@ export async function companyIdsOwnedBy(ctx: UseCaseContext, o: ErpOwner): Promi
     if (owner && (owner === norm(o.name) || owner === norm(o.email))) ids.add(c.id);
   }
   return ids;
+}
+
+/**
+ * Correcao CISO (Lote 2, 2): POSSE POR ID na escrita. Carteira TODOS => livre. Senao o registro
+ * precisa ter ID de dono (campo do proprio registro ou metadado do conector) igual ao dono da
+ * credencial (diferente => 404 neutro). Sem ID de dono => so controle total do ERP; senao 403.
+ * Nome do vendedor/tecnico NUNCA da posse para escrever (homonimo).
+ */
+export async function requireWriteOwner(ctx: UseCaseContext, entity: string, recordId: string, nativeOwnerId: unknown, label: string): Promise<void> {
+  if (ctx.auth.portfolioScope === 'TODOS') return;
+  const native = typeof nativeOwnerId === 'string' ? nativeOwnerId.trim() : '';
+  const ownerId = native || (await ctx.owners.get(entity, recordId)) || '';
+  if (ownerId) {
+    if (ownerId === ctx.owner.id) return;
+    throw notFound(label);
+  }
+  if (erpFullControl(ctx.owner)) return;
+  throw new UseCaseError(
+    403,
+    'OWNER_ID_REQUIRED',
+    `${label} sem ID de usuario dono: a escrita pela integracao exige carteira TODOS ou controle total do ERP (posse por nome nao vale).`
+  );
 }
 
 export function contractInScope(c: ErpRentalContract, o: ErpOwner | null, ownedCompanies: Set<string>): boolean {
@@ -316,6 +342,8 @@ export const toContract = (c: ErpRentalContract): z.infer<typeof ContractDto> =>
 
 export const ServiceOrderDto = z.object({
   id: z.string(),
+  /** Correcao CISO (Lote 2, 7): versao para controle otimista (expectedVersion no update). */
+  version: z.string(),
   code: z.string(),
   status: z.string(),
   companyId: z.string().nullable(),
@@ -332,6 +360,7 @@ export const ServiceOrderDto = z.object({
 });
 export const toServiceOrder = (s: ErpServiceOrder): z.infer<typeof ServiceOrderDto> => ({
   id: str(s.id),
+  version: serviceOrderVersion(s as unknown as Record<string, unknown>),
   code: str(s.code),
   status: str(s.status),
   companyId: strOrNull(s.companyId),

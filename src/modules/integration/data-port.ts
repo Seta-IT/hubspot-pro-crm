@@ -62,6 +62,18 @@ export interface IntegrationUser {
   };
   /** Papel do IAM (SUPER_ADMIN/DIRETORIA = administrador para dados sensiveis do ERP). */
   roleId: string;
+  /**
+   * Fase 2 / Lote 3: permissoes de ACAO da tela (so `true` explicito no cadastro do usuario ou no
+   * preset do papel quando ausente). Os guards de papel (actionGuards) NAO liberam no conector:
+   * mais restrito que a tela (fail-closed).
+   */
+  guards: {
+    canDeleteCrmRecords: boolean;
+    canMergeCrmRecords: boolean;
+    canDeleteErpRecords: boolean;
+    canApproveProposals: boolean;
+    canIssueFiscalDocuments: boolean;
+  };
 }
 
 export interface CrmSnapshot {
@@ -118,7 +130,7 @@ export interface IntegrationDataPort {
   /** Usuarios (cadastro vivo do IAM) — teto de carteira/modulos/alcada no consentimento OAuth. */
   listUsers(): Promise<IntegrationUser[]>;
   /** Escrita via rota interna existente (POST/PATCH apenas). */
-  write(method: 'POST' | 'PATCH', path: string, body: Record<string, unknown>): Promise<DataWriteResult>;
+  write(method: 'POST' | 'PATCH', path: string, body: Record<string, unknown>, opts?: { actorUserId?: string }): Promise<DataWriteResult>;
 }
 
 export interface ErpCollections {
@@ -177,6 +189,13 @@ export function toIntegrationUser(u: StiHubUserRecord): IntegrationUser {
       })(),
     },
     roleId: String(u.roleId || ''),
+    guards: {
+      canDeleteCrmRecords: (u.crmPermissions ? u.crmPermissions.canDeleteCrmRecords : preset.canDeleteCrmRecords) === true,
+      canMergeCrmRecords: (u.crmPermissions ? u.crmPermissions.canMergeCrmRecords : preset.canMergeCrmRecords) === true,
+      canDeleteErpRecords: (ep ? ep.canDeleteErpRecords : erpPreset.canDeleteErpRecords) === true,
+      canApproveProposals: (ep ? ep.canApproveProposals : erpPreset.canApproveProposals) === true,
+      canIssueFiscalDocuments: (ep ? ep.canIssueFiscalDocuments : erpPreset.canIssueFiscalDocuments) === true,
+    },
   };
 }
 
@@ -238,6 +257,30 @@ function assertSafeWriteBody(method: 'POST' | 'PATCH', path: string, body: Recor
   if (path === '/api/marketing/campaigns' && body.status !== 'PAUSED') fail('campanha nao pausada');
   if (/^\/api\/erp\/financial/.test(path) && (body.status === 'PAGO' || (body.paidAt !== undefined && body.paidAt !== null))) fail('baixa financeira');
   if (/^\/api\/erp\/proposals/.test(path) && /^(APROVADA|CONVERTIDA_CONTRATO)$/.test(String(body.status ?? ''))) fail('aprovacao/conversao de proposta');
+  // Correcoes CISO (Lote 2): defesa em profundidade (o caso de uso ja recusa antes).
+  if (/^\/api\/erp\/records\/(salesOrders|purchaseOrders)/.test(path) && body.status !== undefined && isForbiddenOrderStatus(body.status)) fail('situacao de pedido faturada/paga/aprovada');
+  if (/^\/api\/erp\/proposals/.test(path) && Object.values(body).some((v) => typeof v === 'string' && hasServiceAccountMarker(v))) fail('marcador da conta de servico');
+  if (/^\/api\/erp\/rental-contracts$/.test(path) && method === 'POST' && !['EM_IMPLANTACAO', 'PENDENTE_ASSINATURA'].includes(String(body.status ?? ''))) fail('contrato nasce ATIVO/SUSPENSO');
+}
+
+/** Comparacao normalizada (sem caixa/acentos/pontuacao). */
+export function normalizeStatusText(v: unknown): string {
+  return String(v ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+/** Situacoes de pedido que a integracao nunca grava (faturado/pago/aprovado e equivalentes). */
+const FORBIDDEN_ORDER_STATUS_RE =
+  /\b(faturad[oa]s?|fatura|nf emitida|nota emitida|emitid[oa]|pag[oa]s?|pagamento|quitad[oa]|baixad[oa]|liquidad[oa]|recebid[oa]|aprovad[oa]s?|aprovacao|autorizad[oa]|concretizad[oa]|confirmad[oa]|conclui?d[oa]|finalizad[oa]|entregue|invoiced|paid|approved|billed|settled)\b/;
+export function isForbiddenOrderStatus(v: unknown): boolean {
+  return FORBIDDEN_ORDER_STATUS_RE.test(normalizeStatusText(v));
+}
+/** Marcador que o app usa para "criada pela conta de servico" (visivel/editavel por todos). */
+export function hasServiceAccountMarker(v: unknown): boolean {
+  return normalizeStatusText(v).includes('criada por assistente de vendas');
 }
 
 /**
@@ -379,13 +422,15 @@ export class RouterDataPort implements IntegrationDataPort {
     return Array.isArray(data) ? structuredClone(data) : [];
   }
 
-  async write(method: 'POST' | 'PATCH', path: string, body: Record<string, unknown>): Promise<DataWriteResult> {
+  async write(method: 'POST' | 'PATCH', path: string, body: Record<string, unknown>, opts: { actorUserId?: string } = {}): Promise<DataWriteResult> {
     if (!ALLOWED_WRITE_PATHS.some((re) => re.test(path))) {
       throw new Error('Escrita interna fora da allowlist da API v1.');
     }
     assertSafeWriteBody(method, path, body);
     this.cache = {};
-    const res = await this.trusted(method, path, {}, body);
+    // Correcao CISO (Lote 2, 3): dono da credencial como ator (so honrado no contexto interno).
+    const query: Record<string, string> = opts.actorUserId ? { _integrationActorId: opts.actorUserId } : {};
+    const res = await this.trusted(method, path, query, body);
     return { status: res.status, body: res.body };
   }
 }

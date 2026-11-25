@@ -4450,6 +4450,9 @@ export class CrmRepository {
       technicianName?: string;
       totalAmount?: number;
       description?: string;
+      /** API v1: vendedor = ator da integracao (sem isso, o padrao do app). */
+      sellerName?: string;
+      sellerUserId?: string;
     }
   ): { ticket: ServiceTicket; serviceOrder: ErpServiceOrder } | null {
     const ticket = this.getServiceTicketById(idOrKey);
@@ -4478,7 +4481,8 @@ export class CrmRepository {
       id: `os-${Date.now()}`,
       code: nextCode,
       companyName: company?.name || 'Cliente Seta Telecom',
-      sellerName: 'Marcelo Mira',
+      sellerName: options?.sellerName || 'Marcelo Mira',
+      ...(options?.sellerUserId ? { sellerUserId: options.sellerUserId } : {}),
       technicianName: options?.technicianName || ticket.assignee || 'NOC N2 - Voz SIP, PABX IP & SD-WAN',
       entryDate: nowDateBr,
       exitDate: '—',

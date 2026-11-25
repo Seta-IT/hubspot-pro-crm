@@ -5,6 +5,7 @@
 // ============================================================================
 import type {
   IdempotencyRecord,
+  RecordOwnerRecord,
   IntegrationApiKeyRecord,
   IntegrationAuditEntry,
   IntegrationStore,
@@ -19,6 +20,7 @@ export class TestOnlyMemoryIntegrationStore implements IntegrationStore {
   readonly kind = 'memory-test' as const;
   readonly keys = new Map<string, IntegrationApiKeyRecord>();
   readonly idem = new Map<string, IdempotencyRecord>();
+  readonly owners = new Map<string, RecordOwnerRecord>();
   readonly audit: IntegrationAuditEntry[] = [];
   readonly rate = new Map<string, number>();
   readonly clients = new Map<string, OAuthClientRecord>();
@@ -76,6 +78,13 @@ export class TestOnlyMemoryIntegrationStore implements IntegrationStore {
   }
   async deleteIdempotency(actor: string, key: string) {
     this.idem.delete(`${actor}\u0000${key}`);
+  }
+  async putRecordOwner(rec: RecordOwnerRecord) {
+    const id = `${rec.entity}\u0000${rec.recordId}`;
+    this.owners.set(id, clone(rec));
+  }
+  async getRecordOwner(entity: string, recordId: string) {
+    return this.owners.get(`${entity}\u0000${recordId}`)?.ownerUserId ?? null;
   }
   async insertAudit(entry: IntegrationAuditEntry) {
     this.audit.push(clone(entry));

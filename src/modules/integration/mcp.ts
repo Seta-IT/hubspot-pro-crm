@@ -10,7 +10,7 @@
 // ============================================================================
 import { z } from 'zod/v4';
 import { authenticateBearer, hasScope, type AuthContext } from './auth-context';
-import { audit, beginIdempotency, checkRateLimit, credentialBucket, executeUseCase, finishIdempotency, newRequestId, preauthorizeUseCase } from './executor';
+import { audit, beginIdempotency, checkRateLimit, credentialBucket, executeUseCase, finishIdempotency, IDEMPOTENCY_PREVIOUS_FAILED, newRequestId, preauthorizeUseCase } from './executor';
 import { json, postgresUnavailable, problem, type IntegrationHttpRequest, type IntegrationHttpResponse } from './http';
 import { API_V1_VERSION } from './openapi';
 import { resolveIntegrationDeps, type IntegrationDeps } from './runtime';
@@ -148,7 +148,12 @@ async function handleMessage(
       const result = r.ok
         ? { content: [{ type: 'text', text: JSON.stringify(r.body) }], structuredContent: r.body, isError: false }
         : { content: [{ type: 'text', text: JSON.stringify({ status: r.status, code: r.code, title: r.title, ...(r.extra || {}) }) }], isError: true };
-      if (uc.mutation) await finishIdempotency(store, idem, r.status, result);
+      if (uc.mutation) {
+        await finishIdempotency(store, idem, r.status, result, {
+          writeAttempted: r.writeAttempted === true,
+          failedBody: { isError: true, content: [{ type: 'text', text: JSON.stringify({ status: IDEMPOTENCY_PREVIOUS_FAILED.status, code: IDEMPOTENCY_PREVIOUS_FAILED.code, title: IDEMPOTENCY_PREVIOUS_FAILED.title }) }] },
+        });
+      }
       await audit(store, {
         requestId,
         channel: 'mcp',

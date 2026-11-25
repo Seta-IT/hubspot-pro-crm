@@ -12,9 +12,30 @@ import { UseCaseError, type UseCaseDefinition } from './use-cases';
 import type { WriteAuditTrail } from './use-cases/types';
 import { ownerMeetsScope } from './use-cases/common';
 
-export type ExecResult =
+export type ExecResult = (
   | { ok: true; status: number; body: unknown; audit?: WriteAuditTrail }
-  | { ok: false; status: number; code: string; title: string; extra?: Record<string, unknown> };
+  | { ok: false; status: number; code: string; title: string; extra?: Record<string, unknown> }
+) & {
+  /** Correcao CISO (Lote 2, 6): houve tentativa de escrita interna nesta execucao? */
+  writeAttempted?: boolean;
+};
+
+/** Conta as tentativas de escrita (o retry de uma falha 5xx so e liberado se nada foi escrito). */
+function trackWrites<T extends object>(port: T, onWrite: () => void): T {
+  return new Proxy(port, {
+    get(target, prop, receiver) {
+      const v = Reflect.get(target, prop, receiver);
+      if (typeof v !== 'function') return v;
+      if (prop === 'write' || prop === 'dangerous') {
+        return (...args: unknown[]) => {
+          onWrite();
+          return (v as (...a: unknown[]) => unknown).apply(target, args);
+        };
+      }
+      return (v as (...a: unknown[]) => unknown).bind(target);
+    },
+  });
+}
 
 /** Lista de campos com problema (sem ecoar valores enviados). */
 function issueFields(issues: Array<{ code: string; path: PropertyKey[]; keys?: string[] }>): string[] {
@@ -40,8 +61,12 @@ export async function executeUseCase(def: UseCaseDefinition, rawInput: unknown, 
       extra: { fields: issueFields(parsed.error.issues as never) },
     };
   }
+  let writeAttempted = false;
+  const withWrites = (r: ExecResult): ExecResult => (writeAttempted ? { ...r, writeAttempted: true } : r);
   try {
-    const data = deps.createDataPort();
+    const data = trackWrites(deps.createDataPort(), () => {
+      writeAttempted = true;
+    });
     const snap = await data.snapshot(def.domain);
     const ceiling = applyOwnerCeiling(auth, snap.users);
     if (!ceiling.ok) return { ok: false, status: ceiling.status, code: ceiling.code, title: ceiling.title };
@@ -50,19 +75,28 @@ export async function executeUseCase(def: UseCaseDefinition, rawInput: unknown, 
     }
     const portfolio = buildPortfolioView(auth, snap.users);
     const trail: WriteAuditTrail = {};
-    const out = await def.handler(parsed.data, { auth, data, owner: ceiling.owner, portfolio, allUsers: snap.users, audit: trail });
+    const ownerId = ceiling.owner.id;
+    const store = deps.store;
+    // Sem store (nunca em runtime: REST/MCP exigem o store) => sem posse gravada => fail-closed.
+    const owners = {
+      get: async (entity: string, recordId: string) => (store ? store.getRecordOwner(entity, recordId) : null),
+      set: async (entity: string, recordId: string, ownerUserId?: string) => {
+        if (store) await store.putRecordOwner({ entity, recordId, ownerUserId: ownerUserId || ownerId, createdAt: deps.now().toISOString() });
+      },
+    };
+    const out = await def.handler(parsed.data, { auth, data, owner: ceiling.owner, portfolio, allUsers: snap.users, audit: trail, owners });
     const checked = def.outputSchema.safeParse(out);
     if (!checked.success) {
-      return { ok: false, status: 500, code: 'OUTPUT_CONTRACT_VIOLATION', title: 'Resposta fora do contrato da API.' };
+      return withWrites({ ok: false, status: 500, code: 'OUTPUT_CONTRACT_VIOLATION', title: 'Resposta fora do contrato da API.' });
     }
-    return { ok: true, status: def.successStatus, body: checked.data, ...(trail.entity ? { audit: trail } : {}) };
+    return withWrites({ ok: true, status: def.successStatus, body: checked.data, ...(trail.entity ? { audit: trail } : {}) });
   } catch (err) {
-    if (err instanceof UseCaseError) return { ok: false, status: err.status, code: err.code, title: err.title, extra: err.extra };
+    if (err instanceof UseCaseError) return withWrites({ ok: false, status: err.status, code: err.code, title: err.title, extra: err.extra });
     if (isIntegrationStoreUnavailable(err)) {
-      return { ok: false, status: 503, code: 'INTEGRATION_STORE_UNAVAILABLE', title: 'Armazenamento indisponivel (Postgres). Tente novamente.' };
+      return withWrites({ ok: false, status: 503, code: 'INTEGRATION_STORE_UNAVAILABLE', title: 'Armazenamento indisponivel (Postgres). Tente novamente.' });
     }
     console.error('[integration] falha no caso de uso', def.operationId, (err as Error)?.name || 'Error');
-    return { ok: false, status: 500, code: 'INTERNAL_ERROR', title: 'Erro interno.' };
+    return withWrites({ ok: false, status: 500, code: 'INTERNAL_ERROR', title: 'Erro interno.' });
   }
 }
 
@@ -207,10 +241,36 @@ export async function beginIdempotency(
   return { kind: 'reserved', actor, key };
 }
 
-export async function finishIdempotency(store: IntegrationStore, start: IdempotencyStart, status: number, body: unknown): Promise<void> {
+/** Codigo devolvido ao repetir uma Idempotency-Key cuja tentativa anterior falhou DEPOIS de escrever. */
+export const IDEMPOTENCY_PREVIOUS_FAILED = {
+  status: 409,
+  code: 'IDEMPOTENCY_PREVIOUS_ATTEMPT_FAILED',
+  title:
+    'A tentativa anterior com esta Idempotency-Key falhou depois de iniciar a gravacao (resultado incerto). Nada foi refeito: confira o registro (list/get) e, se faltar, use uma nova Idempotency-Key.',
+} as const;
+
+/**
+ * Correcao CISO (Lote 2, 6): a chave e reservada ANTES de executar (status 0 = em andamento).
+ * - sucesso/4xx => guarda a resposta (replay);
+ * - 5xx SEM nenhuma escrita interna tentada => libera a chave (o retry retoma com seguranca);
+ * - 5xx DEPOIS de tentar escrever => guarda 409 IDEMPOTENCY_PREVIOUS_ATTEMPT_FAILED (`failedBody`):
+ *   o retry com a mesma chave nunca cria um segundo registro.
+ * Queda do processo no meio => a reserva fica "em andamento" (409) ate expirar.
+ */
+export async function finishIdempotency(
+  store: IntegrationStore,
+  start: IdempotencyStart,
+  status: number,
+  body: unknown,
+  opts: { writeAttempted?: boolean; failedBody?: unknown } = {}
+): Promise<void> {
   if (start.kind !== 'reserved') return;
-  if (status >= 500) await store.deleteIdempotency(start.actor, start.key).catch(() => undefined);
-  else await store.completeIdempotency(start.actor, start.key, status, body).catch(() => undefined);
+  if (status >= 500 && !opts.writeAttempted) await store.deleteIdempotency(start.actor, start.key).catch(() => undefined);
+  else if (status >= 500) {
+    await store
+      .completeIdempotency(start.actor, start.key, IDEMPOTENCY_PREVIOUS_FAILED.status, opts.failedBody ?? { code: IDEMPOTENCY_PREVIOUS_FAILED.code, title: IDEMPOTENCY_PREVIOUS_FAILED.title })
+      .catch(() => undefined);
+  } else await store.completeIdempotency(start.actor, start.key, status, body).catch(() => undefined);
 }
 
 // ---------------------------------------------------------------------------

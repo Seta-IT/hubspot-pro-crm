@@ -77,6 +77,16 @@ Regras:
 - **Consentimento**: escopos `:write` em vermelho ("⚠ ESCRITA"); acima do perfil → "Não concedidos". Clientes DCR antigos precisam reconectar para receber os escopos novos.
 - Efeitos do app a conhecer: o histórico interno registra o ator como `Sistema STI-hub`; `from-ticket` passa o chamado ABERTO → EM_ANDAMENTO e adiciona comentário interno (descrição padrão "Chamado <chave>", sem copiar o texto do cliente); o app permite inscrever contato em sequence inativa pela tela (o conector não inscreve).
 
+### Correções do CISO no Lote 2 (25/11/2026)
+
+1. **Situação de pedido de venda/compra**: lista fechada `Em aberto | Em andamento`, comparação sem caixa/acentos (canonicalizada). Faturado/Pago/Aprovado e equivalentes (concretizado, confirmado, concluído, recebido, quitado, emitido…) ⇒ `403 ORDER_STATUS_FORBIDDEN`; outro texto ⇒ `422 ORDER_STATUS_INVALID`; pedido que já saiu das situações iniciais ⇒ `409 ORDER_LOCKED`. A camada de dados recusa de novo (defesa em profundidade).
+2. **Posse por ID na escrita**: nome de vendedor/técnico/responsável nunca dá posse para escrever. Vale o ID do dono (campo do registro — `sellerUserId` da proposta/OS/pedido — ou o metadado do conector `api_record_owners`, gravado na criação e na troca de vendedor). ID diferente ⇒ 404 neutro; sem ID ⇒ só carteira TODOS ou controle total do ERP (`403 OWNER_ID_REQUIRED`). Vale para propostas, contratos, OS, pedidos de venda e tarefas do CRM (tarefas: só TODOS).
+3. **OS a partir de chamado**: o vendedor é o dono da credencial (ator da integração, `_integrationActorId` só no contexto interno), com `sellerUserId`; a tela continua com o padrão do app. OS já vinculada só é devolvida se estiver na carteira (senão 404).
+4. **Marcador da conta de serviço**: texto "Criada por Assistente de Vendas" em qualquer campo ⇒ `422 SERVICE_ACCOUNT_MARKER_FORBIDDEN` (criar/editar/restaurar versão); no conector o marcador em `commercialNotes` não amplia mais a visibilidade (só a flag `createdByServiceAccount`, gravada pelo servidor). Autoria: `sellerUserId` (carteira real) + `api_record_owners` + auditoria.
+5. **Contrato** nasce só `EM_IMPLANTACAO` (padrão) ou `PENDENTE_ASSINATURA`.
+6. **Idempotência**: a chave é reservada antes de executar (em andamento ⇒ 409). 5xx sem nenhuma escrita interna ⇒ chave liberada (retry retoma); 5xx depois de tentar escrever ⇒ a chave guarda `409 IDEMPOTENCY_PREVIOUS_ATTEMPT_FAILED` (o retry nunca cria um segundo registro).
+7. **Update de OS**: `expectedVersion` obrigatória (campo `version` da OS = hash dos campos editáveis); versão diferente ⇒ `409 VERSION_CONFLICT` com `currentVersion`. O corpo enviado ao app leva só os campos alterados.
+
 ### Correções do CISO no Lote 1 (25/11/2026)
 
 - `erp_dashboard_get`: sem `canViewBankBalances`, `summary.availableBalanceToday` e `summary.bankAccountsSummaryText` saem `null` (`bankBalancesVisible=false`); o restante do financeiro segue a alçada `financeBanksAccess`.
@@ -126,7 +136,7 @@ Uso: rotina diária (Nova) que sincroniza GestãoClick → STI-hub em produção
 - OpenAPI: a rota **não** entra no `openapi.json` (documento é para chaves IAM/OAuth de integração; esta é credencial interna de serviço).
 
 ## Tabelas (criadas por `ensurePostgresSchema` → `ensureIntegrationSchema`)
-`integration_api_keys`, `api_idempotency_keys`, `integration_audit_logs` (+ `target_user_id`, `details` via `ADD COLUMN IF NOT EXISTS`), `api_rate_limits`, `oauth_clients`, `oauth_auth_codes`, `oauth_tokens`. Todos os segredos/tokens/códigos somente como SHA-256.
+`integration_api_keys`, `api_idempotency_keys`, `integration_audit_logs` (+ `target_user_id`, `details` via `ADD COLUMN IF NOT EXISTS`), `api_rate_limits`, `oauth_clients`, `oauth_auth_codes`, `oauth_tokens`, `api_record_owners` (posse por ID dos registros criados pelo conector). Todos os segredos/tokens/códigos somente como SHA-256.
 
 ## Decisões do CISO (fechadas)
 1. OAuth não oferece `EQUIPE` (não há lista de equipe no cadastro): teto `TODOS` → `PROPRIOS` ou `TODOS`; teto `EQUIPE`/`PROPRIOS` → só `PROPRIOS`.

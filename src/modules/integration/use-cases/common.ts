@@ -56,7 +56,25 @@ export function isErpAdmin(user: Pick<IntegrationUser, 'roleId'>): boolean {
   return user.roleId === 'SUPER_ADMIN' || user.roleId === 'DIRETORIA';
 }
 
-type ScopeUser = Pick<IntegrationUser, 'crmAccess' | 'erpAccess' | 'roleId'>;
+type ScopeUser = Pick<IntegrationUser, 'crmAccess' | 'erpAccess' | 'roleId'> & Partial<Pick<IntegrationUser, 'guards'>>;
+
+/** Lote 3: permissao de ACAO da tela (ausente => NEGA). */
+export function userHasGuard(user: Partial<Pick<IntegrationUser, 'guards'>>, g: keyof IntegrationUser['guards']): boolean {
+  return user.guards?.[g] === true;
+}
+
+/**
+ * "Controle total do ERP" (mesma regra das listas auxiliares/configuracoes na tela): administrador
+ * (SUPER_ADMIN/DIRETORIA) ou todas as areas do ERP em FULL com as permissoes de acao.
+ */
+export function erpFullControl(user: ScopeUser): boolean {
+  if (isErpAdmin(user)) return true;
+  const e = user.erpAccess || ({} as IntegrationUser['erpAccess']);
+  return (
+    e.proposals === 'FULL' && e.contracts === 'FULL' && e.stockOsSales === 'FULL' && e.finance === 'FULL' && e.fiscal === 'FULL' &&
+    userHasGuard(user, 'canIssueFiscalDocuments') && userHasGuard(user, 'canApproveProposals') && userHasGuard(user, 'canDeleteErpRecords')
+  );
+}
 
 /**
  * O usuario dono atende a alcada exigida pelo escopo? (escopos sem regra => true).
