@@ -623,16 +623,16 @@ describe('t127u: envio Outlook nas fichas + feedback do Enviar', () => {
   it('fichas associam envio ao registro e pré-preenchem Para', () => {
     const contact = readSrc('src/app/components/ContactDetailDrawer.tsx');
     assert.match(contact, /contactId: contactDetail\.id, companyId: contactDetail\.companyId/);
-    assert.match(contact, /defaultTo=\{contactDetail\.email\}/);
+    assert.match(contact, /defaultTo=\{contactEmailForRead\(contactDetail\.email\)\}/);
 
     const company = readSrc('src/app/components/ContactsCompaniesTab.tsx');
     assert.match(company, /companyId: companyDetail\.id/);
     assert.match(company, /contactId: companyDetail\.contacts\?\.\[0\]\?\.id/);
-    assert.match(company, /defaultTo=\{companyDetail\.contacts\?\.\[0\]\?\.email/);
+    assert.match(company, /defaultTo=\{contactEmailForRead\(companyDetail\.contacts\?\.\[0\]\?\.email\)\}/);
 
     const deal = readSrc('src/app/components/DealRecordDrawer.tsx');
     assert.match(deal, /dealId: deal\.id/);
-    assert.match(deal, /defaultTo=\{deal\.contact\?\.email/);
+    assert.match(deal, /defaultTo=\{contactEmailForRead\(deal\.contact\?\.email\)\}/);
     assert.match(deal, /associatedContacts=\{associatedContacts\}/);
     assert.match(deal, /canSendEmail=\{canSendEmail\}/);
   });

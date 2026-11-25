@@ -1086,7 +1086,7 @@ describe('10. Persistência Multi-Camada, Criação de 2 Contatos Seguidos, Busc
     assert.equal(res2.status, 201);
     const contact2 = (res2.body as { data: { id: string; firstName: string; email: string } }).data;
     assert.equal(contact2.firstName, 'Cláudia');
-    assert.ok(contact2.email.includes('@contato.setatelecom.com.br'));
+    assert.equal(contact2.email, '', 'Sem e-mail real o campo fica vazio; o sistema não inventa endereço');
 
     // Verificar que ambos estão no TOPO de GET /api/contacts
     const listRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/contacts' });

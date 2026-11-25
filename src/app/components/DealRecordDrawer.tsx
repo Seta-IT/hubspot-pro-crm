@@ -1,5 +1,6 @@
 'use client';
 
+import { contactEmailForRead, displayContactEmail } from '../../modules/data-health/invented-contact-email';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { FollowupStatusView } from '../../modules/deals/proposal-followup-service';
 import { resolveDealLinkedProposal } from '../../modules/deals/proposal-deal-link';
@@ -1360,10 +1361,10 @@ export default function DealRecordDrawer({
                       {associatedContacts.slice(0, contactLimit).map((c) => (
                         <div key={c.id} className="text-xs space-y-0.5">
                           <div className="font-semibold text-slate-900">
-                            {`${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || '--'}
+                            {`${c.firstName || ''} ${c.lastName || ''}`.trim() || displayContactEmail(c.email)}
                           </div>
                           {c.jobTitle ? <div className="text-slate-500 font-semibold">{c.jobTitle}</div> : null}
-                          <div className="text-slate-600 font-semibold break-all">{c.email || '--'}</div>
+                          <div className="text-slate-600 font-semibold break-all">{displayContactEmail(c.email)}</div>
                           <div className="text-slate-500 font-semibold">{c.phone || c.normalizedPhone || '--'}</div>
                         </div>
                       ))}
@@ -1734,8 +1735,8 @@ export default function DealRecordDrawer({
         <CrmEmailComposerModal
           record={{ dealId: deal.id, contactId: deal.contactId, companyId: deal.companyId }}
           recordKind="deal"
-          defaultTo={deal.contact?.email || ''}
-          suggestions={associatedContacts.map((c) => c.email).filter(Boolean) as string[]}
+          defaultTo={contactEmailForRead(deal.contact?.email)}
+          suggestions={associatedContacts.map((c) => contactEmailForRead(c.email)).filter(Boolean)}
           recordLabel={deal.title}
           contact={deal.contact ? { id: deal.contact.id, email: deal.contact.email, firstName: deal.contact.firstName, lastName: deal.contact.lastName, companyId: deal.contact.companyId } : null}
           company={deal.company ? { id: deal.company.id, name: deal.company.name, domain: deal.company.domain } : companies.find((c) => c.id === deal.companyId) || null}
@@ -1799,7 +1800,7 @@ export default function DealRecordDrawer({
       {activityWin && (() => {
         const candidates: AssocCandidate[] = [
           { kind: 'deal', id: deal.id, label: deal.title },
-          ...associatedContacts.map((c) => ({ kind: 'contact' as const, id: c.id, label: `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.email || c.id })),
+          ...associatedContacts.map((c) => ({ kind: 'contact' as const, id: c.id, label: `${c.firstName || ''} ${c.lastName || ''}`.trim() || contactEmailForRead(c.email) || c.id })),
           ...associatedCompanies.map((c) => ({ kind: 'company' as const, id: c.id, label: c.name })),
         ];
         const initialAssoc: ActivityAssoc = { dealId: deal.id, contactId: null, companyId: null };
@@ -1824,7 +1825,7 @@ export default function DealRecordDrawer({
               agenda={agenda}
               hosts={owners}
               defaultTitle={deal.title}
-              defaultAttendees={associatedContacts.map((c) => c.email || '').filter(Boolean).slice(0, 1) as string[]}
+              defaultAttendees={associatedContacts.map((c) => contactEmailForRead(c.email)).filter(Boolean).slice(0, 1)}
               onSchedule={createTimelineActivity}
             />
           );

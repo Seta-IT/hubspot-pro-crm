@@ -17,6 +17,7 @@ import { CompletenessResult } from '../../modules/data-health/completeness';
 import { CrmTask } from '../../db/types';
 import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEmailAndTasksPanel';
 import CrmRecordEmailSection from './email/CrmRecordEmailSection';
+import { displayContactEmail, contactEmailForRead } from '../../modules/data-health/invented-contact-email';
 import {
   BUYING_ROLE_OPTIONS,
   SETA_OWNER_OPTIONS,
@@ -116,7 +117,7 @@ export default function ContactDetailDrawer({
     if (contactDetail) {
       setFirstName(contactDetail.firstName || '');
       setLastName(contactDetail.lastName || '');
-      setEmail(contactDetail.email || '');
+      setEmail(contactEmailForRead(contactDetail.email));
       setPhone(contactDetail.phone || '');
       setJobTitle(contactDetail.jobTitle || '');
       setCompanyId(contactDetail.companyId || '');
@@ -140,7 +141,7 @@ export default function ContactDetailDrawer({
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!contactDetail || !firstName.trim() || !email.trim()) return;
+    if (!contactDetail || !firstName.trim()) return;
     setSavingEdit(true);
     try {
       // Pacote I: campo vazio ou sem mudanca => ownerName omitido (o servidor mantem o atual).
@@ -336,11 +337,10 @@ export default function ContactDetailDrawer({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
                       <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
-                        E-mail Corporativo *
+                        E-mail Corporativo
                       </label>
                       <input
                         type="email"
-                        required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
@@ -658,7 +658,7 @@ export default function ContactDetailDrawer({
                   <div>
                     <span className="text-slate-400 block">E-mail</span>
                     <span className="font-semibold text-slate-800 break-all">
-                      {contactDetail.email}
+                      {displayContactEmail(contactDetail.email)}
                     </span>
                     <span
                       className={`inline-block mt-0.5 text-[10px] font-semibold ${
@@ -816,7 +816,7 @@ export default function ContactDetailDrawer({
               <CrmRecordEmailSection
                 record={{ contactId: contactDetail.id, companyId: contactDetail.companyId || null }}
                 recordKind="contact"
-                defaultTo={contactDetail.email}
+                defaultTo={contactEmailForRead(contactDetail.email)}
                 recordLabel={`${contactDetail.firstName || ''} ${contactDetail.lastName || ''}`.trim() || contactDetail.email}
                 suggestions={
                   contactDetail.companyId

@@ -20,6 +20,7 @@ import {
   FOLLOWUP_TRIGGER_STAGES,
   isProposalFollowupEnabled,
 } from './proposal-followup-config';
+import { isInventedContactEmail } from '../data-health/invented-contact-email';
 import { isFollowupContinueStage as isCanonicalFollowupContinueStage } from './sales-pipeline-stages';
 
 /** Passo enviado na resposta de status: sem destinatário nem outros dados pessoais. */
@@ -412,7 +413,9 @@ function buildVars(repo: CrmRepository, deal: Deal, contact: Contact | null, com
 }
 
 export function isContactEligibleForFollowup(repo: CrmRepository, contact: Contact | null): { ok: boolean; reason?: FollowupStopReason; detail?: string } {
-  if (!contact || !contact.email?.trim()) return { ok: false, reason: 'NO_VALID_EMAIL', detail: 'Negócio sem contato com e-mail.' };
+  if (!contact || !contact.email?.trim() || isInventedContactEmail(contact.email)) {
+    return { ok: false, reason: 'NO_VALID_EMAIL', detail: 'Negócio sem contato com e-mail.' };
+  }
   const check = repo.canSendMarketingEmailToContact(contact.id);
   if (!check.allowed) {
     const unsub = /inscri|lgpd|supress|unsub|consent/i.test(check.reason);

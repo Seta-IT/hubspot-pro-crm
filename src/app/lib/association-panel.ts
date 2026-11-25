@@ -6,6 +6,7 @@
  *   negocios  GET /api/deals?search=&sort=&limit=&offset=
  *   chamados  GET /api/tickets?search=&limit=&offset=
  */
+import { contactEmailForRead } from '../../modules/data-health/invented-contact-email';
 export type AssociationKind = 'contacts' | 'companies' | 'deals' | 'tickets';
 export type AssociationSort = 'recent' | 'oldest' | 'name_asc' | 'name_desc';
 
@@ -58,7 +59,7 @@ export function buildAssociationSearchUrl(
 /** "Nome (email)"; so o e-mail quando nao ha nome (padrao do painel). */
 export function contactRowLabel(c: { firstName?: string | null; lastName?: string | null; email?: string | null; id: string }): string {
   const name = `${c.firstName || ''} ${c.lastName || ''}`.trim();
-  const email = String(c.email || '').trim();
+  const email = contactEmailForRead(c.email);
   if (name && email) return `${name} (${email})`;
   return name || email || c.id;
 }

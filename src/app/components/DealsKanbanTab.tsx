@@ -51,6 +51,7 @@ import { copyInternalProposalLink } from '../lib/internal-proposal-summary';
 import { SalesHubProToolsStrip } from './MarketingAndSalesHubSuites';
 import PipelineSelect from './PipelineSelect';
 import { formatPipelineDisplayName } from '../lib/pipeline-display';
+import { displayContactEmail } from '../../modules/data-health/invented-contact-email';
 import {
   CloseDateRange,
   DealSortKey,
@@ -1908,7 +1909,7 @@ export default function DealsKanbanTab({
                     <option value="">Selecione um contato...</option>
                     {contacts.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.firstName} {c.lastName} ({c.email})
+                        {c.firstName} {c.lastName} ({displayContactEmail(c.email)})
                       </option>
                     ))}
                   </select>

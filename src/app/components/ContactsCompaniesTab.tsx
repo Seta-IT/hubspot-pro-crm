@@ -28,6 +28,7 @@ import GestaoClickCompanyModal, { GestaoClickCompanyFormPayload } from './Gestao
 import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEmailAndTasksPanel';
 import CrmRecordEmailSection from './email/CrmRecordEmailSection';
 import HubSpotTasksQueueView from './HubSpotTasksQueueView';
+import { displayContactEmail, contactEmailForRead } from '../../modules/data-health/invented-contact-email';
 import {
   BUYING_ROLE_OPTIONS,
   ICP_TIER_OPTIONS,
@@ -801,7 +802,7 @@ export default function ContactsCompaniesTab({
                         <div className="font-semibold text-slate-900 text-sm truncate">
                           {contact.firstName} {contact.lastName}
                         </div>
-                        <div className="text-xs text-slate-500 truncate">{contact.email}</div>
+                        <div className="text-xs text-slate-500 truncate">{displayContactEmail(contact.email)}</div>
                         <div className="text-xs font-semibold text-slate-700 truncate">
                           {contact.jobTitle || 'Sem cargo'} • {contact.company?.name || 'Sem empresa'}
                         </div>
@@ -901,7 +902,7 @@ export default function ContactsCompaniesTab({
                               )}
                             </div>
                             <div className="text-slate-500 flex items-center gap-2 mt-0.5">
-                              <span>{contact.email}</span>
+                              <span>{displayContactEmail(contact.email)}</span>
                               {contact.jobTitle && (
                                 <>
                                   <span>•</span>
@@ -1562,7 +1563,7 @@ export default function ContactsCompaniesTab({
                       contactId: companyDetail.contacts?.[0]?.id || null,
                     }}
                     recordKind="company"
-                    defaultTo={companyDetail.contacts?.[0]?.email || ''}
+                    defaultTo={contactEmailForRead(companyDetail.contacts?.[0]?.email)}
                     recordLabel={companyDetail.name}
                     suggestions={(companyDetail.contacts || []).map((c) => c.email)}
                     contact={companyDetail.contacts?.[0] ? {
@@ -1604,7 +1605,7 @@ export default function ContactsCompaniesTab({
                                 {c.firstName} {c.lastName}
                               </div>
                               <div className="text-slate-500">
-                                {c.jobTitle || 'Sem cargo'} • {c.email}
+                                {c.jobTitle || 'Sem cargo'} • {displayContactEmail(c.email)}
                               </div>
                             </div>
                             <button
