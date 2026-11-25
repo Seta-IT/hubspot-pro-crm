@@ -137,6 +137,6 @@ export function unwrapDangerous(res: { status: number; body: any }, what: string
   if (res.status === 429) throw new UseCaseError(429, code, msg);
   // Recurso desligado/indisponivel no app (ex.: caixa do Outlook, segredo de link): 503 com o codigo do app.
   if (res.status === 503) throw new UseCaseError(503, code, msg);
-  if (res.status >= 400 && res.status < 500) throw new UseCaseError(res.status === 422 ? 422 : 409, code, msg);
+  if (res.status >= 400 && res.status < 500) throw new UseCaseError(res.status === 422 || res.status === 400 ? 422 : 409, code, msg);
   throw new UseCaseError(502, 'UPSTREAM_ERROR', `Falha interna ao executar (${what}).`);
 }
