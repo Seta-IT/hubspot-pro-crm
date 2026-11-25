@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { RowKebabMenu } from './FixedPortalMenu';
 import { ServiceOrderDuplicateModal, ServiceOrderEditorModal } from './ServiceOrderModals';
 import {
@@ -110,6 +110,12 @@ import { buildProposalDisplayCodeMap, formatProposalDisplayCode, nextGcProposalN
 import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot, proposalSetupFeeLabel, resolveProposalAmountDisplay } from '../lib/proposal-share';
 import { displayProposalTitle } from '../lib/proposal-title';
 import { buildProposalCopyDraft, proposalCopyCreatedToast } from '../lib/proposal-copy';
+import {
+  applyProposalSaveToListPage,
+  emptyProposalListCounts,
+  reconcileProposalListPage,
+  type ProposalListSnapshot,
+} from '../lib/proposal-list-sync';
 import { buildDefaultTechnicalSupportClauses, displayProposalTechnicalClauses, isTechnicalSupportProposal } from '../lib/proposal-technical-clauses';
 import { isoToBrDate } from '../lib/br-date';
 import GestaoClickDashboard from './GestaoClickDashboard';
@@ -499,6 +505,27 @@ export default function ErpGestaoClickTab({
     counts: { TODOS: number; PRODUTOS: number; LOCACAO: number; SERVICOS: number };
   } | null>(null);
   const [proposalsPageLoading, setProposalsPageLoading] = useState<boolean>(false);
+  // Gravações ainda não vistas num GET da lista. O journal local não alimenta esta tabela.
+  const proposalListOverridesRef = useRef<ErpCommercialProposal[]>([]);
+  const [proposalListOverrides, setProposalListOverrides] = useState<ErpCommercialProposal[]>([]);
+  const proposalListEpochRef = useRef(0);
+  const rememberProposalOnList = (saved: ErpCommercialProposal, isNew: boolean) => {
+    proposalListEpochRef.current += 1;
+    const next = [saved, ...proposalListOverridesRef.current.filter((row) => row.id !== saved.id)];
+    proposalListOverridesRef.current = next;
+    setProposalListOverrides(next);
+    if (!proposalsTableMode) return;
+    const query = {
+      isNew,
+      status: proposalsStatusFilter,
+      type: proposalsTypeParam,
+      search: proposalsSearch,
+      offset: isNew ? 0 : proposalsOffset,
+      pageSize: PROPOSALS_PAGE_SIZE,
+    };
+    if (isNew && proposalsOffset !== 0) setProposalsOffset(0);
+    setProposalsPage((prev) => applyProposalSaveToListPage(prev, saved, query));
+  };
   const proposalsTypeParam =
     activeSubId === 'ORC_PRODUTOS' ? 'PRODUTOS' : activeSubId === 'ORC_LOCACAO' ? 'LOCACAO' : activeSubId === 'ORC_SERVICOS' ? 'SERVICOS' : activeSubId === 'ORC_SPARE_PARTS' ? 'SPARE_PARTS' : 'TODOS';
   React.useEffect(() => {
@@ -516,15 +543,28 @@ export default function ErpGestaoClickTab({
       });
       if (proposalsSearch.trim()) qs.set('q', proposalsSearch.trim());
       setProposalsPageLoading(true);
-      fetch(`/api/erp/proposals?${qs.toString()}`)
+      const epoch = proposalListEpochRef.current;
+      // cache: 'no-store': o GET é sempre a mesma URL; sem isso o navegador pode
+      // devolver a lista de antes do POST e a linha nova só aparece no refresh.
+      fetch(`/api/erp/proposals?${qs.toString()}`, { cache: 'no-store', credentials: 'same-origin' })
         .then((r) => (r.ok ? r.json() : null))
         .then((j) => {
-          if (!alive || !j) return;
-          setProposalsPage({
+          if (!alive || !j || epoch !== proposalListEpochRef.current) return;
+          const serverPage: ProposalListSnapshot = {
             data: Array.isArray(j.data) ? j.data : [],
             total: Number(j.total) || 0,
-            counts: j.counts || { TODOS: 0, PRODUTOS: 0, LOCACAO: 0, SERVICOS: 0 },
+            counts: j.counts || emptyProposalListCounts(),
+          };
+          const reconciled = reconcileProposalListPage(serverPage, proposalListOverridesRef.current, {
+            status: proposalsStatusFilter,
+            type: proposalsTypeParam,
+            search: proposalsSearch,
+            offset: proposalsOffset,
+            pageSize: PROPOSALS_PAGE_SIZE,
           });
+          proposalListOverridesRef.current = reconciled.pending;
+          setProposalListOverrides(reconciled.pending);
+          setProposalsPage(reconciled.page);
         })
         .catch(() => null)
         .finally(() => {
@@ -1010,7 +1050,19 @@ export default function ErpGestaoClickTab({
   } = erpData;
   const serviceOrders: ErpServiceOrder[] = mergeServiceOrderOverrides(serviceOrdersFromServer, osOverrides);
   // Modo tabela: a lista e a pagina vinda do servidor; senao, as do bootstrap (como antes).
-  const proposals: ErpCommercialProposal[] = proposalsTableMode ? proposalsPage?.data || [] : bootstrapProposals;
+  const proposals: ErpCommercialProposal[] = proposalsTableMode
+    ? proposalsPage?.data || []
+    : reconcileProposalListPage(
+        { data: bootstrapProposals, total: bootstrapProposals.length, counts: emptyProposalListCounts() },
+        proposalListOverrides,
+        {
+          status: proposalsStatusFilter,
+          type: proposalsTypeParam,
+          search: proposalsSearch,
+          offset: 0,
+          pageSize: Math.max(1, bootstrapProposals.length + proposalListOverrides.length),
+        }
+      ).page.data;
 
   const auxUsageSources = {
     contracts: rentalContracts,
@@ -1522,6 +1574,8 @@ export default function ErpGestaoClickTab({
         ? String((payload as { warning: string }).warning).trim()
         : '';
     recordUpsertedProposal(saved);
+    // A lista em modo tabela não lê o journal: sem isto o POST só aparece depois do refresh.
+    rememberProposalOnList(saved, isNew);
     if (crmDeal) recordUpsertedDeal(crmDeal);
     const publicUrl = buildInternalProposalUrl(saved);
     const printUrl = buildInternalProposalUrl(saved, { autoPrint: true });
