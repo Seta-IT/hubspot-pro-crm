@@ -560,3 +560,89 @@ describe('Lote 3: consentimento OAuth, IAM e MCP', () => {
     assert.equal(batch.status, 400);
   });
 });
+
+// ---------------------------------------------------------------------------
+describe('Lote 3b: envios e acoes com efeito externo', () => {
+  it('admin: follow-up, cadencia ativa, aceite, workflow (ativar/disparar), campanha, cobranca em lote', async () => {
+    const env = makeEnv();
+    const key = await dangerAdminKey(env);
+    const deal = env.repo.createDeal({ title: 'Negocio FU', companyId: env.ids.coAna, ownerName: 'Ana Vendas', amount: 10 } as never);
+    const fu = await twoStep(env, key, `/api/v1/crm/deals/${deal.id}/proposal-followup`, { action: 'pause' });
+    assert.equal(fu.c.status, 200, JSON.stringify(fu.c.body));
+    // cadencia: so ativa
+    const seqs = env.repo.listSequences() as any[];
+    const active = seqs.find((s) => s.isActive === true)!;
+    const enrollBefore = env.repo.listSequenceEnrollments().length;
+    const en = await twoStep(env, key, `/api/v1/crm/sequences/${active.id}/enroll`, { contactId: env.ids.cAna });
+    assert.equal(en.c.status, 200, JSON.stringify(en.c.body));
+    assert.equal(env.repo.listSequenceEnrollments().length, enrollBefore + 1);
+    const inactive = env.repo.createSequence({ name: 'Rascunho', isActive: false, steps: [] } as never) as any;
+    const ni = await prepare(env, key, `/api/v1/crm/sequences/${inactive.id}/enroll`, { contactId: env.ids.cAna });
+    assert.equal(ni.status, 409);
+    assert.equal(body(ni).code, 'SEQUENCE_NOT_ACTIVE');
+    // aceite da proposta
+    const ap = await twoStep(env, key, '/api/v1/erp/proposals/prop-ana/approve', { signerName: 'Fulano de Tal', signerCpf: '529.982.247-25', signerRole: 'Diretor', modality: 'GOV_BR_OURO', acceptedTerms: true });
+    assert.equal(ap.c.status, 200, JSON.stringify(ap.c.body));
+    assert.ok(['APROVADA', 'CONVERTIDA_CONTRATO'].includes(String(env.repo.getErpState().proposals.find((p) => p.id === 'prop-ana')!.status)));
+    const again = await prepare(env, key, '/api/v1/erp/proposals/prop-ana/approve', { signerName: 'Fulano de Tal', signerCpf: '529.982.247-25', signerRole: 'Diretor', modality: 'GOV_BR_OURO', acceptedTerms: true });
+    assert.equal(again.status, 409);
+    // workflow
+    const wf = env.repo.createWorkflow({ name: 'WF L3', triggerType: 'CONTACT_CREATED' as never, isActive: false, steps: [] } as never) as any;
+    const trNo = await prepare(env, key, `/api/v1/automation/workflows/${wf.id}/trigger`, { entityType: 'CONTACT', entityId: env.ids.cAna });
+    assert.equal(body(trNo).code, 'WORKFLOW_NOT_ACTIVE');
+    const act = await twoStep(env, key, `/api/v1/automation/workflows/${wf.id}/activate`);
+    assert.equal(act.c.status, 200, JSON.stringify(act.c.body));
+    assert.equal(body(act.c).data.result.isActive, true);
+    const tr = await twoStep(env, key, `/api/v1/automation/workflows/${wf.id}/trigger`, { entityType: 'CONTACT', entityId: env.ids.cAna });
+    assert.equal(tr.c.status, 200, JSON.stringify(tr.c.body));
+    // campanha (simulada sem envio real ligado)
+    const camp = (env.repo as any).listMarketingCampaigns?.()?.[0];
+    if (camp) {
+      const cd = await twoStep(env, key, `/api/v1/marketing/campaigns/${camp.id}/dispatch`, { templateId: 'tpl-1', contactIds: [env.ids.cAna] });
+      assert.equal(cd.c.status, 200, JSON.stringify(cd.c.body));
+    }
+    // cobranca em lote
+    const be = await twoStep(env, key, '/api/v1/erp/contracts/batch-email', { contractIds: ['ctr-ana'], competenceMonth: '11/2026' });
+    assert.equal(be.c.status, 200, JSON.stringify(be.c.body));
+  });
+
+  it('e-mail sai SO pela caixa do proprio dono; links publicos com o dono como ator', async () => {
+    const env = makeEnv();
+    const key = await dangerAdminKey(env);
+    const tooMany = await prepare(env, key, '/api/v1/comms/email/send', { to: ['a@x.com', 'b@x.com', 'c@x.com', 'd@x.com', 'e@x.com', 'f@x.com'], cc: ['g@x.com', 'h@x.com', 'i@x.com', 'j@x.com', 'k@x.com'], subject: 'Oi', body: 'texto' });
+    assert.equal(tooMany.status, 422);
+    const p = await prepare(env, key, '/api/v1/comms/email/send', { to: ['cliente@empresa.com'], subject: 'Proposta', body: 'Segue', contactId: env.ids.cAna });
+    assert.equal(p.status, 200, JSON.stringify(p.body));
+    assert.equal(body(p).data.preview.from, ADMIN.email);
+    const c = await commit(env, key, '/api/v1/comms/email/send', { to: ['cliente@empresa.com'], subject: 'Proposta', body: 'Segue', contactId: env.ids.cAna }, body(p).data.confirmationToken);
+    // sem caixa do Outlook conectada no teste: o app recusa, mas reconhece o dono como ator (nao "so usuarios")
+    assert.notEqual(body(c).code, 'MAILBOX_USER_ONLY', JSON.stringify(c.body));
+    assert.ok([200, 409, 503].includes(c.status), JSON.stringify(c.body));
+    // ficha fora da carteira => 404
+    grant(env, ANA.uid, {});
+    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['comms:send'], { crm: true, chamados: false, erp: true });
+    assert.equal((await prepare(env, ana, '/api/v1/comms/email/send', { to: ['x@y.com'], subject: 'a', body: 'b', contactId: (env.repo.listContacts().find((x: any) => x.ownerName === 'Carla Outra') as any).id })).status, 404);
+    // links publicos: o dono vira ator (sem sessao), segredo ausente => 503 fail-closed do app
+    const pl = await twoStep(env, key, '/api/v1/erp/proposals/prop-carla/public-link');
+    assert.notEqual(body(pl.c).code, 'MFA_AUTH_REQUIRED', JSON.stringify(pl.c.body));
+    assert.ok([200, 503].includes(pl.c.status), JSON.stringify(pl.c.body));
+    const il = await twoStep(env, key, '/api/v1/erp/invoices/inv-1/public-link');
+    assert.notEqual(body(il.c).code, 'MFA_AUTH_REQUIRED', JSON.stringify(il.c.body));
+    assert.ok([200, 404, 503].includes(il.c.status), JSON.stringify(il.c.body));
+  });
+
+  it('negacoes: aceite sem canApproveProposals, campanha/ativacao sem TODOS, contrato fora da carteira', async () => {
+    const env = makeEnv();
+    const k = await createKey(env, { name: 'x', scopes: ['erp:proposals:approve'], portfolioScope: 'PROPRIOS', moduleAccess: { crm: true, chamados: false, erp: true }, ownerUserId: BRUNO.uid, confirmDangerousScopes: true });
+    assert.equal(k.res.status, 422);
+    grant(env, ANA.uid, { canApproveProposals: true });
+    grantMarketing(env, ANA.uid);
+    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['erp:proposals:approve', 'crm:marketing:dispatch', 'crm:automation:activate', 'comms:send'], { crm: true, chamados: false, erp: true });
+    assert.equal((await prepare(env, ana, '/api/v1/erp/proposals/prop-carla/approve', { signerName: 'Fulano', signerCpf: '529.982.247-25', signerRole: 'Dir', modality: 'GOV_BR_OURO', acceptedTerms: true })).status, 404);
+    assert.equal((await prepare(env, ana, '/api/v1/marketing/campaigns/cmp-x/dispatch', { templateId: 't', segmentId: 's' })).status, 403);
+    const wf = env.repo.createWorkflow({ name: 'WF', triggerType: 'CONTACT_CREATED' as never, isActive: false, steps: [] } as never) as any;
+    assert.equal((await prepare(env, ana, `/api/v1/automation/workflows/${wf.id}/activate`)).status, 403);
+    // ANA so tem VIEW em contratos => cobranca em lote negada
+    assert.equal((await prepare(env, ana, '/api/v1/erp/contracts/batch-email', { contractIds: ['ctr-ana'] })).status, 403);
+  });
+});

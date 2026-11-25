@@ -209,6 +209,25 @@ export function canSeeRecordInScope(repo: CrmRepository, actor: MailboxActor, re
 }
 
 function resolveActor(repo: CrmRepository, query: Query, ctx: Ctx): MailboxActor | ApiResponse {
+  // API v1/MCP (Fase 2 / Lote 3): envio pela caixa do PROPRIO dono da credencial. So no contexto
+  // interno confiavel (Symbol nao forjavel), com _integrationActorId injetado pela porta de dados
+  // apos escopo comms:send + alcada + carteira + token de confirmacao. Leituras/admin da caixa seguem so para sessao.
+  if (ctx.trustedInternal && !ctx.serviceAccount && query._integrationActorId && query._integrationMailboxSend === '1') {
+    const u = repo.getRbacState().users.find((x) => x.id === String(query._integrationActorId));
+    if (!u || u.active === false) return { status: 403, body: { error: 'Usuário inativo.', code: 'MAILBOX_USER_ONLY' } };
+    if (!u.moduleAccess?.crm) return { status: 403, body: { error: 'Seu perfil não tem acesso ao CRM.', code: 'MAILBOX_CRM_FORBIDDEN' } };
+    const perm = (u.crmPermissions || {}) as unknown as Record<string, string>;
+    const lvl = (k: string) => String(perm[k] || 'NONE') !== 'NONE';
+    return {
+      email: String(u.email || '').toLowerCase(),
+      name: String(u.name || u.email || ''),
+      roleId: String(u.roleId || ''),
+      isAdmin: false,
+      access: { contact: lvl('contactsAccess'), company: lvl('companiesAccess'), deal: lvl('dealsFunnelAccess') },
+      id: String(u.id || ''),
+      scope: String(u.scope || 'PROPRIOS'),
+    };
+  }
   if (ctx.serviceAccount || ctx.trustedInternal) {
     return { status: 403, body: { error: 'Recurso disponível só para usuários.', code: 'MAILBOX_USER_ONLY' } };
   }
@@ -447,6 +466,10 @@ export async function handleMailboxRoute(
   ctx: Ctx
 ): Promise<ApiResponse> {
   const m = method.toUpperCase();
+  // Lote 3: o ator do conector so serve para POST /send (defesa em profundidade).
+  if (query._integrationMailboxSend === '1' && (m !== 'POST' || cleanPath.slice(MAILBOX_PATH_PREFIX.length) !== '/send')) {
+    return { status: 403, body: { error: 'Recurso disponível só para usuários.', code: 'MAILBOX_USER_ONLY' } };
+  }
   const actorOrErr = resolveActor(deps.repo, query, ctx);
   if ('status' in actorOrErr) return actorOrErr;
   const actor = actorOrErr;
