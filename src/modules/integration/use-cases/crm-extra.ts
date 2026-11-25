@@ -516,6 +516,103 @@ export const crmSegmentsList = defineUseCase({
 // ---------------------------------------------------------------------------
 // INSIGHTS E SAUDE DA BASE (empresa inteira => carteira TODOS)
 // ---------------------------------------------------------------------------
+// Correcao CISO (Lote 1, b): DTOs FECHADOS (allowlist de campos). Nada de e-mail/telefone de
+// contato; textos livres passam por maskPiiText (e-mail/telefone embutidos => marcador).
+const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+const PHONE_RE = /(?:\+?55[\s-]?)?\(?\b\d{2}\)?[\s-]?9?\d{4}[\s-]?\d{4}\b/g;
+export function maskPiiText(v: unknown, max = 500): string {
+  return str(v).replace(EMAIL_RE, '[e-mail omitido]').replace(PHONE_RE, '[telefone omitido]').slice(0, max);
+}
+const txt = (max = 500) => (v: unknown) => maskPiiText(v, max);
+const t500 = txt(500);
+const t200 = txt(200);
+const nul = (v: unknown) => (v === null || v === undefined || v === '' ? null : String(v).slice(0, 120));
+const LIST_MAX = 100;
+const arr = (v: unknown): any[] => (Array.isArray(v) ? v.slice(0, LIST_MAX) : []);
+
+const InsightsDto = z.object({
+  executiveSummary: z.object({
+    headline: z.string(),
+    aiConfidenceScore: z.number(),
+    revenueAtRisk: z.number(),
+    unlockableRevenue: z.number(),
+    keyTakeaways: z.array(z.string()),
+  }),
+  funnelBottlenecks: z.array(
+    z.object({
+      stageId: z.string(), stageName: z.string(), dealCount: z.number(), totalValue: z.number(), weightedValue: z.number(),
+      conversionRateToNext: z.number(), avgDaysInStage: z.number(), rottingDealCount: z.number(), stagnantValue: z.number(),
+      isBottleneck: z.boolean(), severity: z.string(), diagnosis: z.string(), recommendation: z.string(),
+    })
+  ),
+  atRiskDeals: z.array(
+    z.object({
+      dealId: z.string(), title: z.string(), value: z.number(), stageName: z.string(), probability: z.number(),
+      companyId: z.string().nullable(), companyName: z.string().nullable(), contactId: z.string().nullable(), contactName: z.string().nullable(),
+      daysSinceLastActivity: z.number(), riskScore: z.number(), riskLevel: z.string(), reasons: z.array(z.string()), recommendedAction: z.string(),
+    })
+  ),
+  revenueForecast: z.object({
+    currency: z.string(), totalOpenPipelineValue: z.number(), weightedPipelineValue: z.number(), closedWonValue: z.number(), closedLostValue: z.number(),
+    committedForecast: z.number(), optimisticForecast: z.number(), conservativeForecast: z.number(), winRate: z.number(), averageDealSize: z.number(),
+    byStage: z.array(z.object({ stageId: z.string(), stageName: z.string(), dealCount: z.number(), totalValue: z.number(), weightedValue: z.number() })),
+  }),
+  priorityFollowUps: z.array(
+    z.object({
+      id: z.string(), priorityScore: z.number(), urgency: z.string(), entityType: z.string(), dealId: z.string().nullable(), contactId: z.string().nullable(),
+      companyName: z.string().nullable(), contactName: z.string(), title: z.string(), value: z.number(), reason: z.string(), suggestedChannel: z.string(),
+    })
+  ),
+  hiddenOpportunities: z.array(
+    z.object({
+      id: z.string(), opportunityType: z.string(), entityType: z.string(), entityId: z.string(), name: z.string(), companyName: z.string().nullable(),
+      leadScore: z.number(), estimatedDealValue: z.number(), reason: z.string(), suggestedAction: z.string(),
+    })
+  ),
+  generatedAt: z.string(),
+});
+
+export function toInsightsDto(r: any): z.infer<typeof InsightsDto> {
+  const es = r?.executiveSummary || {};
+  const fc = r?.revenueForecast || {};
+  return {
+    executiveSummary: {
+      headline: t500(es.headline),
+      aiConfidenceScore: num(es.aiConfidenceScore),
+      revenueAtRisk: num(es.revenueAtRisk),
+      unlockableRevenue: num(es.unlockableRevenue),
+      keyTakeaways: arr(es.keyTakeaways).map((x) => t500(x)),
+    },
+    funnelBottlenecks: arr(r?.funnelBottlenecks).map((b) => ({
+      stageId: str(b.stageId), stageName: t200(b.stageName), dealCount: num(b.dealCount), totalValue: num(b.totalValue), weightedValue: num(b.weightedValue),
+      conversionRateToNext: num(b.conversionRateToNext), avgDaysInStage: num(b.avgDaysInStage), rottingDealCount: num(b.rottingDealCount), stagnantValue: num(b.stagnantValue),
+      isBottleneck: b.isBottleneck === true, severity: str(b.severity), diagnosis: t500(b.diagnosis), recommendation: t500(b.recommendation),
+    })),
+    // contactEmail removido; telefone/e-mail em texto livre mascarados
+    atRiskDeals: arr(r?.atRiskDeals).map((d) => ({
+      dealId: str(d.dealId), title: t200(d.title), value: num(d.value), stageName: t200(d.stageName), probability: num(d.probability),
+      companyId: nul(d.companyId), companyName: d.companyName ? t200(d.companyName) : null, contactId: nul(d.contactId), contactName: d.contactName ? t200(d.contactName) : null,
+      daysSinceLastActivity: num(d.daysSinceLastActivity), riskScore: num(d.riskScore), riskLevel: str(d.riskLevel), reasons: arr(d.reasons).slice(0, 10).map((x) => t200(x)), recommendedAction: t500(d.recommendedAction),
+    })),
+    revenueForecast: {
+      currency: str(fc.currency) || 'BRL', totalOpenPipelineValue: num(fc.totalOpenPipelineValue), weightedPipelineValue: num(fc.weightedPipelineValue), closedWonValue: num(fc.closedWonValue),
+      closedLostValue: num(fc.closedLostValue), committedForecast: num(fc.committedForecast), optimisticForecast: num(fc.optimisticForecast), conservativeForecast: num(fc.conservativeForecast),
+      winRate: num(fc.winRate), averageDealSize: num(fc.averageDealSize),
+      byStage: arr(fc.byStage).map((b) => ({ stageId: str(b.stageId), stageName: t200(b.stageName), dealCount: num(b.dealCount), totalValue: num(b.totalValue), weightedValue: num(b.weightedValue) })),
+    },
+    // suggestedMessage/contactRole removidos (texto pronto para o cliente pode conter contato)
+    priorityFollowUps: arr(r?.priorityFollowUps).map((f) => ({
+      id: str(f.id), priorityScore: num(f.priorityScore), urgency: str(f.urgency), entityType: str(f.entityType), dealId: nul(f.dealId), contactId: nul(f.contactId),
+      companyName: f.companyName ? t200(f.companyName) : null, contactName: t200(f.contactName), title: t200(f.title), value: num(f.value), reason: t500(f.reason), suggestedChannel: str(f.suggestedChannel),
+    })),
+    hiddenOpportunities: arr(r?.hiddenOpportunities).map((h) => ({
+      id: str(h.id), opportunityType: str(h.opportunityType), entityType: str(h.entityType), entityId: str(h.entityId), name: t200(h.name),
+      companyName: h.companyName ? t200(h.companyName) : null, leadScore: num(h.leadScore), estimatedDealValue: num(h.estimatedDealValue), reason: t500(h.reason), suggestedAction: t500(h.suggestedAction),
+    })),
+    generatedAt: str(r?.generatedAt),
+  };
+}
+
 export const crmInsightsGet = defineUseCase({
   ...base,
   operationId: 'analytics.insights.get',
@@ -523,19 +620,53 @@ export const crmInsightsGet = defineUseCase({
   path: '/api/v1/analytics/insights',
   pathParams: [],
   summary: 'Insights do funil e da base',
-  description: 'Relatorio analitico do funil e da base (agregado, empresa inteira). Exige carteira TODOS.',
+  description: 'Relatorio analitico do funil e da base (agregado, empresa inteira; sem e-mail/telefone de contato). Exige carteira TODOS.',
   requiredScope: 'crm:analytics:read',
   inputSchema: z.object({ question: z.string().trim().max(500).optional() }).strict(),
-  outputSchema: one(z.record(z.string(), z.unknown())),
+  outputSchema: one(InsightsDto),
   async handler(input, ctx) {
     requireOwnerScope(ctx, 'crm:analytics:read');
     requireAllPortfolio(ctx, 'Insights da base');
     const body = unwrapRead(await ctx.data.read('/api/ai-insights', {}), 'Insights');
     void input.question; // pergunta livre fica para o cliente MCP (nao repassada ao gerador interno)
-    const data = body?.data && typeof body.data === 'object' ? (body.data as Record<string, unknown>) : {};
-    return { data };
+    return { data: toInsightsDto(body?.data || {}) };
   },
 });
+
+const HealthDto = z.object({
+  globalHealthScore: z.number(),
+  statusLabel: z.string(),
+  breakdown: z.object({ completenessHealth: z.number(), validityHealth: z.number(), deduplicationHealth: z.number(), freshnessHealth: z.number() }),
+  counts: z.record(z.string(), z.number()),
+  rottingDeals: z.array(z.object({ dealId: z.string(), title: z.string(), value: z.number(), stageName: z.string(), daysSinceLastActivity: z.number(), daysOverdue: z.number(), contactId: z.string().nullable(), companyId: z.string().nullable() })),
+  staleRecords: z.array(z.object({ entityType: z.string(), entityId: z.string(), name: z.string(), daysInactive: z.number(), lastActivityAt: z.string().nullable() })),
+  issues: z.array(z.object({ id: z.string(), issueType: z.string(), severity: z.string(), entityType: z.string(), primaryEntityId: z.string(), duplicateEntityId: z.string().nullable(), confidenceScore: z.number(), title: z.string(), status: z.string(), detectedAt: z.string() })),
+  recommendations: z.array(z.string()),
+  generatedAt: z.string(),
+});
+const HEALTH_COUNT_KEYS = [
+  'totalContacts', 'totalCompanies', 'totalOpenDeals', 'duplicateContactsCount', 'duplicateCompaniesCount', 'incompleteContactsCount',
+  'incompleteCompaniesCount', 'invalidEmailsCount', 'invalidPhonesCount', 'staleRecordsCount', 'rottingDealsCount', 'totalOpenIssues',
+] as const;
+
+export function toHealthDto(r: any): z.infer<typeof HealthDto> {
+  const b = r?.breakdown || {};
+  const counts: Record<string, number> = {};
+  for (const k of HEALTH_COUNT_KEYS) counts[k] = num(r?.counts?.[k]);
+  return {
+    globalHealthScore: num(r?.globalHealthScore),
+    statusLabel: str(r?.statusLabel),
+    breakdown: { completenessHealth: num(b.completenessHealth), validityHealth: num(b.validityHealth), deduplicationHealth: num(b.deduplicationHealth), freshnessHealth: num(b.freshnessHealth) },
+    counts,
+    rottingDeals: arr(r?.rottingDeals).map((d) => ({ dealId: str(d.dealId), title: t200(d.title), value: num(d.value), stageName: t200(d.stageName), daysSinceLastActivity: num(d.daysSinceLastActivity), daysOverdue: num(d.daysOverdue), contactId: nul(d.contactId), companyId: nul(d.companyId) })),
+    // emailOrDomain removido
+    staleRecords: arr(r?.staleRecords).map((x) => ({ entityType: str(x.entityType), entityId: str(x.entityId), name: t200(x.name), daysInactive: num(x.daysInactive), lastActivityAt: nul(x.lastActivityAt) })),
+    // description/suggestedMerge removidos (trazem os valores dos campos, incluindo e-mail/telefone)
+    issues: arr(r?.issues).map((i) => ({ id: str(i.id), issueType: str(i.issueType), severity: str(i.severity), entityType: str(i.entityType), primaryEntityId: str(i.primaryEntityId), duplicateEntityId: nul(i.duplicateEntityId), confidenceScore: num(i.confidenceScore), title: t200(i.title), status: str(i.status), detectedAt: str(i.detectedAt) })),
+    recommendations: arr(r?.recommendations).map((x) => t500(x)),
+    generatedAt: str(r?.generatedAt),
+  };
+}
 
 export const crmDataHealthSummaryGet = defineUseCase({
   ...base,
@@ -544,16 +675,15 @@ export const crmDataHealthSummaryGet = defineUseCase({
   path: '/api/v1/data-health/summary',
   pathParams: [],
   summary: 'Resumo de saude da base',
-  description: 'Indicadores de qualidade da base (completude, duplicados, orfaos). Agregado; exige carteira TODOS. Sem limpeza automatica.',
+  description: 'Indicadores de qualidade da base (completude, duplicados, orfaos), sem e-mail/telefone. Agregado; exige carteira TODOS. Sem limpeza automatica.',
   requiredScope: 'crm:data_health:read',
   inputSchema: z.object({}).strict(),
-  outputSchema: one(z.record(z.string(), z.unknown())),
+  outputSchema: one(HealthDto),
   async handler(_input, ctx) {
     requireOwnerScope(ctx, 'crm:data_health:read');
     requireAllPortfolio(ctx, 'A saude da base');
     const body = unwrapRead(await ctx.data.read('/api/data-health/summary'), 'Saude da base');
-    const data = body?.data && typeof body.data === 'object' ? (body.data as Record<string, unknown>) : {};
-    return { data };
+    return { data: toHealthDto(body?.data || {}) };
   },
 });
 
@@ -566,8 +696,8 @@ const DuplicateDto = z.object({
   confidenceScore: z.number(),
   matchReasons: z.array(z.string()),
 });
-const labelOf = (r: any): string =>
-  str(r?.name || [r?.firstName, r?.lastName].filter(Boolean).join(' ') || r?.email || r?.id).slice(0, 200);
+// Sem fallback para e-mail (CISO Lote 1, b): nome ou id; texto mascarado.
+const labelOf = (r: any): string => maskPiiText(r?.name || [r?.firstName, r?.lastName].filter(Boolean).join(' ') || r?.id, 200);
 
 export const crmDataHealthDuplicatesList = defineUseCase({
   ...base,
@@ -597,7 +727,7 @@ export const crmDataHealthDuplicatesList = defineUseCase({
         duplicateId: str(d.duplicate?.id),
         duplicateLabel: labelOf(d.duplicate),
         confidenceScore: num(d.confidenceScore),
-        matchReasons: (Array.isArray(d.matchReasons) ? d.matchReasons : []).slice(0, 20).map((x: unknown) => str(x).slice(0, 200)),
+        matchReasons: (Array.isArray(d.matchReasons) ? d.matchReasons : []).slice(0, 20).map((x: unknown) => maskPiiText(x, 200)),
       })),
       page,
     };
