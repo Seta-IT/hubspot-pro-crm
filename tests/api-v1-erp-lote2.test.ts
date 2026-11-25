@@ -255,7 +255,7 @@ describe('Lote 2: catalogo de escritas, escopos e OpenAPI', () => {
       assert.equal(isBlockedScope(s), false, s);
       assert.equal(validateRequestedScopes(`crm:contacts:read ${s}`).ok, true, s);
     }
-    for (const s of ['erp:fiscal:write', 'erp:invoices:write', 'erp:banks:write', 'crm:sequences:write', 'erp:gestaoclick:write', 'crm:contacts:delete']) {
+    for (const s of ['erp:fiscal:write', 'erp:invoices:write', 'erp:banks:delete', 'crm:sequences:write', 'erp:gestaoclick:write', 'crm:contacts:delete']) {
       assert.equal(validateRequestedScopes(`crm:contacts:read ${s}`).ok, false, s);
     }
     const doc = buildOpenApiDocument() as any;

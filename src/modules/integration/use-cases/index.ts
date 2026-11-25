@@ -1,10 +1,12 @@
-// Catalogo unico de casos de uso expostos na API v1 e no MCP (Fase 1 + Fase 2 / Lotes 1 e 2).
+// Catalogo unico de casos de uso expostos na API v1 e no MCP (Fase 1 + Fase 2 / Lotes 1, 2 e 3).
 import type { UseCaseDefinition } from './types';
 import { CRM_USE_CASES } from './crm';
 import { CRM_EXTRA_USE_CASES } from './crm-extra';
 import { CRM_WRITE_USE_CASES } from './crm-write';
 import { ERP_USE_CASES } from './erp';
 import { ERP_WRITE_USE_CASES } from './erp-write';
+import { LOTE3_DANGEROUS_SCOPES } from '../scopes';
+import { lote3aUseCases } from './danger-3a';
 import { TICKET_USE_CASES } from './tickets';
 
 export const INTEGRATION_USE_CASES: UseCaseDefinition[] = [
@@ -14,6 +16,7 @@ export const INTEGRATION_USE_CASES: UseCaseDefinition[] = [
   ...ERP_USE_CASES,
   ...ERP_WRITE_USE_CASES,
   ...CRM_WRITE_USE_CASES,
+  ...lote3aUseCases,
 ] as unknown as UseCaseDefinition[];
 
 /**
@@ -69,9 +72,43 @@ export const LOTE2_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
   'automation.workflows.update_draft',
   'marketing.campaigns.create_draft',
 ]);
+/**
+ * Lote 3 (24/11/2026): allowlist FECHADA de operacoes PERIGOSAS. Cada uma so existe como par
+ * <op>.prepare (POST, mutation=false) + <op>.commit (POST, mutation=true, nao idempotente), com
+ * escopo da lista LOTE3_DANGEROUS_SCOPES. GestaoClick/IAM/Admin/RBAC continuam sempre proibidos.
+ */
+export const LOTE3_DANGEROUS_OPERATIONS: ReadonlySet<string> = new Set([
+  // 3a
+  'crm.contacts.delete',
+  'crm.companies.delete',
+  'crm.deals.delete',
+  'crm.tasks.delete',
+  'erp.proposals.delete',
+  'erp.contracts.delete',
+  'erp.financial_entries.delete',
+  'erp.catalog.delete',
+  'erp.aux_lists.delete',
+  'erp.records.delete',
+  'crm.records.merge',
+  'crm.data_health.auto_clean',
+  'crm.data_health.reassign_orphans',
+  'crm.enrichment.run',
+]);
+const NEVER = /(gestaoclick|iam|admin|rbac)/i;
+const lote3Base = (uc: UseCaseDefinition) => uc.operationId.replace(/\.(prepare|commit)$/, '');
+const isLote3Dangerous = (uc: UseCaseDefinition): boolean => {
+  if (!uc.dangerous || !LOTE3_DANGEROUS_OPERATIONS.has(lote3Base(uc)) || uc.method !== 'POST') return false;
+  if (!LOTE3_DANGEROUS_SCOPES.has(uc.requiredScope) || NEVER.test(uc.operationId) || NEVER.test(uc.path)) return false;
+  if (uc.dangerous === 'prepare') return uc.mutation === false && uc.operationId.endsWith('.prepare') && uc.toolName.endsWith('_prepare');
+  return uc.mutation === true && !uc.idempotent && uc.operationId.endsWith('.commit') && uc.toolName.endsWith('_commit');
+};
 const isLote2Write = (uc: UseCaseDefinition) =>
   LOTE2_WRITE_OPERATIONS.has(uc.operationId) && (uc.method === 'POST' || uc.method === 'PATCH') && uc.mutation === true;
 for (const uc of INTEGRATION_USE_CASES) {
+  if (uc.dangerous || LOTE3_DANGEROUS_SCOPES.has(uc.requiredScope)) {
+    if (!isLote3Dangerous(uc)) throw new Error(`Operacao perigosa fora da allowlist do Lote 3: ${uc.operationId}`);
+    continue;
+  }
   if ((uc.method as string) === 'DELETE' || ALWAYS_FORBIDDEN.test(uc.operationId) || ALWAYS_FORBIDDEN.test(uc.path)) {
     throw new Error(`Caso de uso bloqueado pela politica CISO: ${uc.operationId}`);
   }
@@ -87,6 +124,11 @@ for (const uc of INTEGRATION_USE_CASES) {
   if (isLote2Write(uc) && uc.method === 'POST' && !uc.idempotent && !uc.requireIdempotencyKey) {
     throw new Error(`Criacao do Lote 2 sem Idempotency-Key obrigatoria: ${uc.operationId}`);
   }
+}
+// Lote 3: todo prepare tem o commit correspondente (e vice-versa).
+for (const op of LOTE3_DANGEROUS_OPERATIONS) {
+  const has = (sfx: string) => INTEGRATION_USE_CASES.some((u) => u.operationId === `${op}.${sfx}` && u.dangerous === sfx);
+  if (!has('prepare') || !has('commit')) throw new Error(`Operacao perigosa do Lote 3 sem par prepare/commit: ${op}`);
 }
 function FORBIDDEN_OPERATION_HIT(uc: UseCaseDefinition): boolean {
   return FORBIDDEN_UNLESS_READ_ALLOWLISTED.test(uc.operationId) || FORBIDDEN_UNLESS_READ_ALLOWLISTED.test(uc.path);

@@ -23,6 +23,10 @@ export interface IntegrationLimits {
   refreshTokenTtlSeconds: number;
   authCodeTtlSeconds: number;
   idempotencyTtlSeconds: number;
+  /** Lote 3: requisicoes/min por credencial nas tools perigosas (*_prepare e *_commit somadas). */
+  dangerousPerMinute: number;
+  /** Lote 3: validade do token de confirmacao (prepare -> commit). */
+  confirmationTtlSeconds: number;
 }
 
 export interface IntegrationDeps {
@@ -39,6 +43,8 @@ const envInt = (name: string, def: number, min: number, max: number) => {
 
 export function defaultLimits(): IntegrationLimits {
   return {
+    dangerousPerMinute: envInt('INTEGRATION_DANGEROUS_RATE_LIMIT_PER_MINUTE', 10, 1, 120),
+    confirmationTtlSeconds: 300,
     perCredentialPerMinute: envInt('INTEGRATION_RATE_LIMIT_PER_MINUTE', 120, 1, 10_000),
     oauthPerIpPerMinute: envInt('INTEGRATION_OAUTH_RATE_LIMIT_PER_MINUTE', 30, 1, 1_000),
     accessTokenTtlSeconds: 3600,

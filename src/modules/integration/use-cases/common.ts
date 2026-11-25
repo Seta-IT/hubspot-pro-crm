@@ -56,7 +56,25 @@ export function isErpAdmin(user: Pick<IntegrationUser, 'roleId'>): boolean {
   return user.roleId === 'SUPER_ADMIN' || user.roleId === 'DIRETORIA';
 }
 
-type ScopeUser = Pick<IntegrationUser, 'crmAccess' | 'erpAccess' | 'roleId'>;
+type ScopeUser = Pick<IntegrationUser, 'crmAccess' | 'erpAccess' | 'roleId'> & Partial<Pick<IntegrationUser, 'guards'>>;
+
+/** Lote 3: permissao de ACAO da tela (ausente => NEGA). */
+export function userHasGuard(user: Partial<Pick<IntegrationUser, 'guards'>>, g: keyof IntegrationUser['guards']): boolean {
+  return user.guards?.[g] === true;
+}
+
+/**
+ * "Controle total do ERP" (mesma regra das listas auxiliares/configuracoes na tela): administrador
+ * (SUPER_ADMIN/DIRETORIA) ou todas as areas do ERP em FULL com as permissoes de acao.
+ */
+export function erpFullControl(user: ScopeUser): boolean {
+  if (isErpAdmin(user)) return true;
+  const e = user.erpAccess || ({} as IntegrationUser['erpAccess']);
+  return (
+    e.proposals === 'FULL' && e.contracts === 'FULL' && e.stockOsSales === 'FULL' && e.finance === 'FULL' && e.fiscal === 'FULL' &&
+    userHasGuard(user, 'canIssueFiscalDocuments') && userHasGuard(user, 'canApproveProposals') && userHasGuard(user, 'canDeleteErpRecords')
+  );
+}
 
 /**
  * O usuario dono atende a alcada exigida pelo escopo? (escopos sem regra => true).
@@ -111,6 +129,33 @@ export function ownerMeetsScope(user: ScopeUser, scope: string): boolean {
     case 'crm:automation:write':
     case 'crm:marketing:write':
       return userHasAccess(user, 'marketing', 'EDIT');
+    // --- Fase 2 / Lote 3: operacoes perigosas = alcada de EDICAO + permissao de ACAO da tela ---
+    case 'crm:delete':
+      return userHasGuard(user, 'canDeleteCrmRecords') && (['contacts', 'companies', 'deals'] as CrmArea[]).some((a) => userHasAccess(user, a, 'EDIT'));
+    case 'crm:merge':
+      return userHasGuard(user, 'canMergeCrmRecords') && (['contacts', 'companies'] as CrmArea[]).some((a) => userHasAccess(user, a, 'EDIT'));
+    case 'crm:data_health:write':
+      return userHasGuard(user, 'canMergeCrmRecords') && userHasAccess(user, 'contacts', 'EDIT');
+    case 'erp:records:delete':
+      return userHasGuard(user, 'canDeleteErpRecords') && (['proposals', 'contracts', 'stockOsSales', 'finance'] as ErpArea[]).some((a) => erpEdit(a));
+    case 'comms:send':
+      return (['contacts', 'companies', 'deals'] as CrmArea[]).some((a) => userHasAccess(user, a, 'EDIT'));
+    case 'crm:automation:activate':
+    case 'crm:marketing:dispatch':
+      return userHasAccess(user, 'marketing', 'EDIT');
+    case 'erp:proposals:approve':
+      return erpEdit('proposals') && userHasGuard(user, 'canApproveProposals');
+    case 'erp:public_links:write':
+      return erpEdit('proposals') || erpEdit('finance');
+    case 'erp:financial:settle':
+      return erpEdit('finance');
+    case 'erp:banks:write':
+      return erpEdit('finance') && user.erpAccess?.canViewBankBalances === true;
+    case 'erp:contracts:readjust':
+      return erpEdit('contracts');
+    case 'erp:fiscal:issue':
+    case 'erp:fiscal:cancel':
+      return erpEdit('fiscal') && userHasGuard(user, 'canIssueFiscalDocuments');
     default:
       return true;
   }

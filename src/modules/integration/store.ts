@@ -110,6 +110,21 @@ export interface RateLimitResult {
   windowStart: string;
 }
 
+/**
+ * Fase 2 / Lote 3: token de confirmacao (*_prepare -> *_commit). Guardado so o hash; uso unico,
+ * 5 min, preso a operacao + hash dos argumentos + credencial/usuario/autorizacao efetiva.
+ */
+export interface ConfirmationTokenRecord {
+  tokenHash: string;
+  operationId: string;
+  argsHash: string;
+  principalKey: string;
+  actorUserId: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+}
+
 export interface IntegrationStore {
   readonly kind: 'postgres' | 'memory-test';
   // --- chaves de integracao ---
@@ -145,4 +160,11 @@ export interface IntegrationStore {
   /** Revoga o token se ainda ativo; retorna true se esta chamada revogou (rotacao atomica). */
   revokeTokenIfActive(id: string, at: string): Promise<boolean>;
   revokeTokensForGrant(clientId: string, userId: string, at: string): Promise<number>;
+  // --- Lote 3: confirmacao em duas etapas ---
+  insertConfirmation(rec: ConfirmationTokenRecord): Promise<void>;
+  /**
+   * Consome de forma ATOMICA o token do MESMO principal (marca usedAt). Retorna o registro antes do
+   * uso; `alreadyUsed` quando ja consumido; null se nao existe ou e de outro principal (sem oraculo).
+   */
+  consumeConfirmation(tokenHash: string, principalKey: string, at: string): Promise<{ record: ConfirmationTokenRecord; alreadyUsed: boolean } | null>;
 }

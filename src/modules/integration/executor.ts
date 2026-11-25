@@ -6,10 +6,11 @@ import { applyOwnerCeiling, hasScope, type AuthContext } from './auth-context';
 import { buildPortfolioView } from './portfolio';
 import type { IntegrationDeps } from './runtime';
 import type { AuditChannel, AuditAuthType, IntegrationStore } from './store';
+import { randomBytes } from 'node:crypto';
 import { generateId, sha256Hex } from './tokens';
 import { isIntegrationStoreUnavailable } from './store-errors';
 import { UseCaseError, type UseCaseDefinition } from './use-cases';
-import type { WriteAuditTrail } from './use-cases/types';
+import type { ConfirmationPort, WriteAuditTrail } from './use-cases/types';
 import { ownerMeetsScope } from './use-cases/common';
 
 export type ExecResult =
@@ -48,9 +49,18 @@ export async function executeUseCase(def: UseCaseDefinition, rawInput: unknown, 
     if (!hasScope(auth, def.requiredScope)) {
       return { ok: false, status: 403, code: 'MODULE_FORBIDDEN', title: `Modulo ${def.requiredModule} nao habilitado para esta credencial ou para o usuario dono.` };
     }
+    if (def.dangerous) {
+      // Lote 3: rate-limit mais apertado nas tools perigosas (prepare + commit somados).
+      if (!deps.store) return { ok: false, status: 503, code: 'INTEGRATION_STORE_UNAVAILABLE', title: 'Armazenamento indisponivel (Postgres). Tente novamente.' };
+      const rate = await checkRateLimit(deps.store, `danger:${credentialBucket(auth)}`, deps.limits.dangerousPerMinute, deps.now());
+      if (!rate.allowed) {
+        return { ok: false, status: 429, code: 'DANGEROUS_RATE_LIMITED', title: 'Limite de operacoes sensiveis por minuto atingido.', extra: { retryAfterSeconds: rate.resetSeconds, limit: rate.limit } };
+      }
+    }
     const portfolio = buildPortfolioView(auth, snap.users);
     const trail: WriteAuditTrail = {};
-    const out = await def.handler(parsed.data, { auth, data, owner: ceiling.owner, portfolio, allUsers: snap.users, audit: trail });
+    const confirm = confirmationPort(auth, deps);
+    const out = await def.handler(parsed.data, { auth, data, owner: ceiling.owner, portfolio, allUsers: snap.users, audit: trail, confirm });
     const checked = def.outputSchema.safeParse(out);
     if (!checked.success) {
       return { ok: false, status: 500, code: 'OUTPUT_CONTRACT_VIOLATION', title: 'Resposta fora do contrato da API.' };
@@ -142,11 +152,60 @@ export function credentialBucket(auth: AuthContext): string {
 }
 
 // ---------------------------------------------------------------------------
+// Lote 3: confirmacao em duas etapas (token de uso unico, 5 min, hash dos argumentos)
+// ---------------------------------------------------------------------------
+/** Principal do token: credencial + usuario + autorizacao efetiva (mudou escopo/carteira => invalido). */
+export function confirmationPrincipal(auth: AuthContext): string {
+  return `${credentialBucket(auth)}|${auth.actorUserId}|${authFingerprint(auth)}`;
+}
+
+export function confirmationArgsHash(operationId: string, args: Record<string, unknown>): string {
+  const { confirmationToken: _t, ...rest } = args;
+  return sha256Hex(`${operationId}\n${canonicalJson(rest)}`);
+}
+
+export function confirmationPort(auth: AuthContext, deps: IntegrationDeps): ConfirmationPort {
+  const fail = (code: string, title: string) => new UseCaseError(409, code, title);
+  return {
+    async issue(operationId, args) {
+      if (!deps.store) throw new UseCaseError(503, 'INTEGRATION_STORE_UNAVAILABLE', 'Armazenamento indisponivel (Postgres). Tente novamente.');
+      const now = deps.now();
+      const token = `stc_${randomBytes(32).toString('base64url')}`;
+      const expiresAt = new Date(now.getTime() + deps.limits.confirmationTtlSeconds * 1000).toISOString();
+      await deps.store.insertConfirmation({
+        tokenHash: sha256Hex(token),
+        operationId,
+        argsHash: confirmationArgsHash(operationId, args),
+        principalKey: confirmationPrincipal(auth),
+        actorUserId: auth.actorUserId,
+        createdAt: now.toISOString(),
+        expiresAt,
+        usedAt: null,
+      });
+      return { token, expiresAt };
+    },
+    async consume(operationId, args, token) {
+      if (!deps.store) throw new UseCaseError(503, 'INTEGRATION_STORE_UNAVAILABLE', 'Armazenamento indisponivel (Postgres). Tente novamente.');
+      if (typeof token !== 'string' || !/^stc_[A-Za-z0-9_-]{40,60}$/.test(token)) throw fail('CONFIRMATION_INVALID', 'Token de confirmacao invalido. Rode o *_prepare de novo.');
+      const now = deps.now();
+      const res = await deps.store.consumeConfirmation(sha256Hex(token), confirmationPrincipal(auth), now.toISOString());
+      // Inexistente ou de outra credencial/usuario/autorizacao => mesmo erro (sem oraculo).
+      if (!res) throw fail('CONFIRMATION_INVALID', 'Token de confirmacao invalido. Rode o *_prepare de novo.');
+      if (res.alreadyUsed) throw fail('CONFIRMATION_USED', 'Token de confirmacao ja usado (uso unico). Rode o *_prepare de novo.');
+      if (Date.parse(res.record.expiresAt) <= now.getTime()) throw fail('CONFIRMATION_EXPIRED', 'Token de confirmacao expirado (5 min). Rode o *_prepare de novo.');
+      if (res.record.operationId !== operationId || res.record.argsHash !== confirmationArgsHash(operationId, args)) {
+        throw fail('CONFIRMATION_ARGS_MISMATCH', 'Argumentos diferentes dos confirmados no *_prepare (token invalidado). Rode o *_prepare de novo.');
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Idempotencia (Idempotency-Key em mutacoes; TTL 24h; 409 se payload diferente)
 // ---------------------------------------------------------------------------
 export const IDEMPOTENCY_KEY_REGEX = /^[A-Za-z0-9_.:-]{8,128}$/;
 
-function canonicalJson(v: unknown): string {
+export function canonicalJson(v: unknown): string {
   if (v === null || typeof v !== 'object') return JSON.stringify(v ?? null);
   if (Array.isArray(v)) return `[${v.map(canonicalJson).join(',')}]`;
   const o = v as Record<string, unknown>;

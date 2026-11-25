@@ -20,12 +20,21 @@ export interface UseCaseContext {
    * gravada pelo REST/MCP em integration_audit.details, ja sanitizada — sem segredos/PII de contato).
    */
   audit: WriteAuditTrail;
+  /** Fase 2 / Lote 3: emissao/consumo do token de confirmacao em duas etapas. */
+  confirm: ConfirmationPort;
+}
+
+export interface ConfirmationPort {
+  /** Emite token de uso unico preso a operacao + hash dos argumentos + credencial/usuario. */
+  issue(operationId: string, args: Record<string, unknown>): Promise<{ token: string; expiresAt: string }>;
+  /** Consome o token (uso unico) e confere operacao/argumentos/validade; senao lanca UseCaseError 409. */
+  consume(operationId: string, args: Record<string, unknown>, token: string): Promise<void>;
 }
 
 export interface WriteAuditTrail {
   entity?: string;
   entityId?: string;
-  op?: 'create' | 'update' | 'restore_version' | 'renew' | 'status_change' | 'duplicate' | 'complete' | 'create_from_ticket';
+  op?: string;
   changedFields?: string[];
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
@@ -51,6 +60,11 @@ export interface UseCaseDefinition<I extends z.ZodType = z.ZodType, O extends z.
   mutation: boolean;
   /** Fase 2 / Lote 2: criacao exige Idempotency-Key (REST) / _meta["stihub/idempotencyKey"] (MCP). */
   requireIdempotencyKey?: boolean;
+  /**
+   * Fase 2 / Lote 3: tool perigosa. 'prepare' = previa sem gravar + token; 'commit' = executa so
+   * com token valido. Rate-limit proprio (mais apertado) e escopo da allowlist LOTE3.
+   */
+  dangerous?: 'prepare' | 'commit';
   successStatus: 200 | 201;
   inputSchema: I;
   outputSchema: O;

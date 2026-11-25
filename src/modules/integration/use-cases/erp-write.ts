@@ -18,6 +18,7 @@ import type { ErpCommercialProposal, ErpRentalContract, ErpServiceOrder, Service
 import { nextServiceOrderCode, SERVICE_ORDER_STATUSES } from '../../erp/service-order-workflow';
 import { companyInScope, contactInScope, dealInScope, ticketInScope } from '../portfolio';
 import {
+  erpFullControl,
   recordWriteAudit,
   rejectMaskedValues,
   requireAllPortfolio,
@@ -1081,6 +1082,13 @@ export const erpCatalogUpdate = defineUseCase({
   },
 });
 
+/** Lote 3 (correcao CISO do Lote 2): listas auxiliares na tela exigem admin ERP ou controle total do ERP. */
+function requireErpFullControl(ctx: UseCaseContext): void {
+  if (!erpFullControl(ctx.owner)) {
+    throw new UseCaseError(403, 'ERP_FULL_CONTROL_REQUIRED', 'Listas auxiliares exigem administrador do ERP ou controle total do ERP (mesma regra da tela).');
+  }
+}
+
 const AuxItemDto = z.object({ id: z.string(), kind: z.string(), label: z.string(), sortOrder: z.number() });
 const toAuxItem = (i: Record<string, unknown>): z.infer<typeof AuxItemDto> => ({ id: str(i.id), kind: str(i.kind), label: str(i.label), sortOrder: num(i.sortOrder) });
 
@@ -1098,6 +1106,7 @@ export const erpAuxListItemsCreate = defineUseCase({
   async handler(input, ctx) {
     requireOwnerScope(ctx, 'erp:catalog:write');
     requireAllPortfolio(ctx, 'listas auxiliares');
+    requireErpFullControl(ctx);
     rejectMaskedValues(input);
     const created = unwrapWrite(await ctx.data.write('POST', '/api/erp/aux-lists', { kind: input.kind, label: input.label }), 'Lista auxiliar');
     const out = toAuxItem(created);
@@ -1120,6 +1129,7 @@ export const erpAuxListItemsUpdate = defineUseCase({
   async handler(input, ctx) {
     requireOwnerScope(ctx, 'erp:catalog:write');
     requireAllPortfolio(ctx, 'listas auxiliares');
+    requireErpFullControl(ctx);
     rejectMaskedValues(input);
     const updated = unwrapWrite(await ctx.data.write('PATCH', `/api/erp/aux-lists/${encodeURIComponent(input.id)}`, { label: input.label }), 'Item da lista');
     const out = toAuxItem(updated);
