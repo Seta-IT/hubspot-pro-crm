@@ -1,6 +1,8 @@
 'use client';
 
 import { CannotDeleteModal } from './CannotDeleteModal';
+import ContactFieldSelect from './ContactFieldSelect';
+import { CONTACT_DEPARTMENT_KIND, CONTACT_POSITION_KIND } from '../lib/contact-field-lists';
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -83,6 +85,7 @@ interface ContactsCompaniesTabProps {
     lastName?: string;
     phone?: string;
     jobTitle?: string;
+    department?: string;
     lifecycleStage?: LifecycleStage;
     buyingRole?: BuyingRoleType;
     ownerName?: string;
@@ -224,6 +227,7 @@ export default function ContactsCompaniesTab({
   const [cEmail, setCEmail] = useState('');
   const [cPhone, setCPhone] = useState('');
   const [cJobTitle, setCJobTitle] = useState('');
+  const [cDepartment, setCDepartment] = useState('');
   const [cStage, setCStage] = useState<LifecycleStage>('LEAD');
   const [cBuyingRole, setCBuyingRole] = useState<BuyingRoleType>('DECISOR');
   const [cOwnerName, setCOwnerName] = useState('Marcelo Lopes Mira');
@@ -441,6 +445,7 @@ export default function ContactsCompaniesTab({
         lastName: cLastName.trim() || undefined,
         phone: cPhone.trim() || undefined,
         jobTitle: cJobTitle.trim() || undefined,
+        department: cDepartment.trim() || undefined,
         lifecycleStage: cStage,
         buyingRole: cBuyingRole,
         ownerName: cOwnerName.trim() || 'Marcelo Lopes Mira',
@@ -1736,14 +1741,28 @@ export default function ContactsCompaniesTab({
                 </div>
                 <div>
                   <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
-                    Cargo Executivo
+                    Posição
                   </label>
-                  <input
-                    type="text"
+                  <ContactFieldSelect
+                    kind={CONTACT_POSITION_KIND}
                     value={cJobTitle}
-                    onChange={(e) => setCJobTitle(e.target.value)}
-                    placeholder="Ex: Diretora de Operações"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
+                    onChange={setCJobTitle}
+                    ariaLabel="Posição"
+                    testId="contact-create-position"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
+                    Área
+                  </label>
+                  <ContactFieldSelect
+                    kind={CONTACT_DEPARTMENT_KIND}
+                    value={cDepartment}
+                    onChange={setCDepartment}
+                    ariaLabel="Área"
+                    testId="contact-create-department"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm text-slate-900"
                   />
                 </div>
               </div>

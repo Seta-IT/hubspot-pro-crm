@@ -1,6 +1,8 @@
 'use client';
 
 import { CannotDeleteModal } from './CannotDeleteModal';
+import ContactFieldSelect from './ContactFieldSelect';
+import { CONTACT_DEPARTMENT_KIND, CONTACT_POSITION_KIND } from '../lib/contact-field-lists';
 
 import React, { useState, useEffect } from 'react';
 import { Sparkles, CheckCircle2, X, Zap, Pencil, Save, Trash2 } from 'lucide-react';
@@ -95,6 +97,7 @@ export default function ContactDetailDrawer({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [jobTitle, setJobTitle] = useState('');
+  const [department, setDepartment] = useState('');
   const [companyId, setCompanyId] = useState('');
   const [lifecycleStage, setLifecycleStage] = useState<LifecycleStage>('LEAD');
   const [leadStatus, setLeadStatus] = useState<LeadStatus>('NEW');
@@ -122,6 +125,7 @@ export default function ContactDetailDrawer({
       setEmail(contactEmailForRead(contactDetail.email));
       setPhone(contactDetail.phone || '');
       setJobTitle(contactDetail.jobTitle || '');
+      setDepartment(contactDetail.department || '');
       setCompanyId(contactDetail.companyId || '');
       setLifecycleStage(contactDetail.lifecycleStage || 'LEAD');
       setLeadStatus(contactDetail.leadStatus || 'NEW');
@@ -155,6 +159,7 @@ export default function ContactDetailDrawer({
         email: email.trim(),
         phone: phone.trim() || null,
         jobTitle: jobTitle.trim() || null,
+        department: department.trim() || null,
         companyId: companyId || null,
         lifecycleStage,
         leadStatus,
@@ -363,16 +368,33 @@ export default function ContactDetailDrawer({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
                       <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
-                        Cargo Executivo
+                        Posição
                       </label>
-                      <input
-                        type="text"
+                      <ContactFieldSelect
+                        kind={CONTACT_POSITION_KIND}
                         value={jobTitle}
-                        onChange={(e) => setJobTitle(e.target.value)}
-                        placeholder="Ex: Diretor de TI / CTO"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
+                        onChange={setJobTitle}
+                        ariaLabel="Posição"
+                        testId="contact-edit-position"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900"
                       />
                     </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
+                        Área
+                      </label>
+                      <ContactFieldSelect
+                        kind={CONTACT_DEPARTMENT_KIND}
+                        value={department}
+                        onChange={setDepartment}
+                        ariaLabel="Área"
+                        testId="contact-edit-department"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
                       <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Empresa Vinculada

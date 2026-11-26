@@ -248,6 +248,7 @@ import { emailCommentIsPublic, findInvalidTicketCreateEnums, parseTicketCommentS
 import { diffGestaoClickConfig, parseGestaoClickConfigPatch, toGestaoClickConfigView } from './gestaoclick-config-guard';
 import { pickRentalContractPatch } from './contract-patch-guard';
 import { handleAuxListsRoute, isAuxListsRoute } from './aux-lists-routes';
+import { handleContactFieldListsRoute, isContactFieldListsRoute } from './contact-field-lists-routes';
 import { handleProposalNoteDefaultsRoute, isProposalNoteDefaultsRoute } from './proposal-note-defaults-routes';
 import { applyProposalCommercialNotesDefault, proposalNoteDefaultTypeKey } from '../app/lib/proposal-note-defaults';
 import { loadProposalNoteDefaults } from '../modules/erp/proposal-note-defaults-store';
@@ -9527,6 +9528,31 @@ export class CrmApiRouter {
           }
         }
         return handleProposalNoteDefaultsRoute(method, body, this.sessionActorName(query));
+      }
+
+      if (isContactFieldListsRoute(cleanPath)) {
+        // GET: qualquer sessão autenticada (formulários de contato/usuário).
+        // Escrita: administrador com 2FA (ou controle total do ERP).
+        if (method !== 'GET') {
+          const listsPriv = this.gestaoClickPrivilege(query, ctx);
+          if (!listsPriv.allowed) {
+            return {
+              status: listsPriv.authenticated ? 403 : 401,
+              body: {
+                error: listsPriv.authenticated
+                  ? 'Só administradores podem configurar as listas de Posição e Área.'
+                  : 'Sessão obrigatória.',
+                code: listsPriv.authenticated ? 'CONTACT_FIELD_LISTS_FORBIDDEN' : 'MFA_AUTH_REQUIRED',
+              },
+            };
+          }
+        } else if (!ctx.trustedInternal) {
+          const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
+          if (!sess || !sess.authenticated) {
+            return { status: 401, body: { error: 'Sessão obrigatória.', code: 'MFA_AUTH_REQUIRED' } };
+          }
+        }
+        return handleContactFieldListsRoute(method, cleanPath, query, body, ctx);
       }
 
       if (isAuxListsRoute(cleanPath)) {

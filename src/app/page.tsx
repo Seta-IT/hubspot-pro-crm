@@ -542,6 +542,7 @@ export default function HubSpotProCrmApp() {
     lastName?: string;
     phone?: string;
     jobTitle?: string;
+    department?: string;
     lifecycleStage?: LifecycleStage;
     buyingRole?: string;
     ownerName?: string;
