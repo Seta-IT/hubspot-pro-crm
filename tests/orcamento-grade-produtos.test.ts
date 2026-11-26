@@ -192,7 +192,7 @@ describe('Grade de produtos do orçamento (padrão GestãoClick)', () => {
     assert.ok(grid.includes('Limpar produto'));
     assert.ok(grid.includes('formatPtBrDecimal'));
     assert.ok(grid.includes('bg-white'));
-    assert.ok(grid.includes('Digite para buscar'));
+    assert.ok(grid.includes('Digite ou cole o produto'));
     // A linha vazia acinzentada com campos desabilitados não volta.
     assert.equal(grid.includes('opacity-70'), false);
     assert.equal(grid.includes('disabled placeholder="Detalhes"'), false);
