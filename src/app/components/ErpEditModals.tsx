@@ -60,6 +60,7 @@ import {
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
 import { buildProposalInstallments, buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, proposalHidesFreight, proposalSetupFeeLabel, readablePaymentCondition, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
+import { proposalStatusChoices } from '../lib/proposal-status';
 import {
   applyProposalCommercialNotesDefault,
   commercialNoteFromDefaults,
@@ -1211,14 +1212,10 @@ export function ProposalEditModal({
                       updateDraft({ status: v as ErpCommercialProposal['status'] })
                     }
                     className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-slate-800"
-                    options={[
-                      { value: 'RASCUNHO', label: 'Em Aberto' },
-                      { value: 'ENVIADA', label: 'Enviado ao Cliente' },
-                      { value: 'EM_NEGOCIACAO', label: 'Em Negociação' },
-                      { value: 'APROVADA', label: 'Aprovado' },
-                      { value: 'CONVERTIDA_CONTRATO', label: 'Convertido em Contrato' },
-                      { value: 'RECUSADA', label: 'Cancelado / Recusado' },
-                    ]}
+                    options={proposalStatusChoices(draft.budgetType, draft.status).map((opt) => ({
+                      value: opt.value,
+                      label: opt.value === 'CONVERTIDA_CONTRATO' ? 'Convertida em contrato' : opt.label,
+                    }))}
                   />
                 </div>
 

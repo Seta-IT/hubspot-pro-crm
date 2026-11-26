@@ -323,6 +323,7 @@ function buildWhere(f: ProposalListFilters, params: unknown[], opts: { skipStatu
   }
   if (!opts.skipStatus && f.status && f.status !== 'TODOS') {
     if (f.status === 'CONVERTIDA_CONTRATO') where.push('is_converted');
+    else if (f.status === 'ENVIADA') where.push(`status IN ('ENVIADA', 'EM_NEGOCIACAO')`);
     else {
       params.push(f.status);
       where.push(`status = $${params.length}`);
