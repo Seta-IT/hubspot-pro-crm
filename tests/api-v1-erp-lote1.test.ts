@@ -24,7 +24,7 @@ import { buildOpenApiDocument } from '../src/modules/integration/openapi';
 import { INTEGRATION_USE_CASES } from '../src/modules/integration/use-cases';
 import { INTEGRATION_SCOPES, LOTE1_SCOPES, isBlockedScope, validateRequestedScopes } from '../src/modules/integration/scopes';
 import { ownerMeetsScope } from '../src/modules/integration/use-cases/common';
-import { maskPhone, OS_MAX_PAGES_PER_CALL } from '../src/modules/integration/use-cases/erp';
+import { ErpDashboardDto, maskPhone, OS_MAX_PAGES_PER_CALL, toDashboardDto } from '../src/modules/integration/use-cases/erp';
 import { maskPiiText } from '../src/modules/integration/use-cases/crm-extra';
 
 const ORIGIN = 'https://stihub.test';
@@ -600,5 +600,50 @@ describe('Lote 1 / CISO: correcoes de regressao', () => {
     assert.equal(reads, OS_MAX_PAGES_PER_CALL);
     const filtered = await get(env, ana, '/api/v1/erp/service-orders', { search: 'OS-1' });
     assert.equal(filtered.status, 200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Parecer do CISO de 26/11/2026 — regressao
+// ---------------------------------------------------------------------------
+describe('Lote 1 / CISO 26/11: painel em DTO fechado (allowlist)', () => {
+  it('campo novo/desconhecido do app nao vaza; financeiro e saldo seguem as alcadas', async () => {
+    const raw = {
+      month: '2026-11', monthLabel: 'nov', today: '2026-11-26', generatedAt: 'x', financeVisible: true, segredoNovo: 'NAO-VAZA-1',
+      proposals: { made: { count: 1, value: 2, bySource: { stihub: { count: 1, value: 2 }, gc: { count: 0, value: 0 } }, extra: 'NAO-VAZA-2' }, approved: { count: 0, value: 0 }, approvalRate: 0, approvalRateValue: null },
+      invoiced: { count: 3, value: 30 },
+      sales: { monthTotal: 5, fromProposals: 1, imported: 4, leak: 'NAO-VAZA-3' },
+      counts: { receivedMonth: 1, paidMonth: 2 },
+      summary: { availableBalanceToday: 999.5, bankAccountsSummaryText: 'Banco X', receivableToday: 10, salesPeriodTotal: 7, cashFlowMonthly: [{ month: 'nov', saldo: 1 }], novoCampo: 'NAO-VAZA-4' },
+      monthly: [{ month: '2026-11', label: 'nov', proposalsMade: { count: 1, value: 2 }, proposalsApproved: { count: 0, value: 0 }, invoiced: null, recebimentos: 1, pagamentos: 2, saldo: -1, vendas: 5, x: 'NAO-VAZA-5' }],
+    };
+    const full = toDashboardDto(raw, { finance: true, banks: true });
+    ErpDashboardDto.parse(full); // strict: qualquer chave fora da allowlist quebraria aqui
+    assert.ok(!JSON.stringify(full).includes('NAO-VAZA'));
+    assert.equal((full.summary as any).cashFlowMonthly, undefined);
+    assert.equal(full.summary.availableBalanceToday, 999.5);
+    const noBanks = toDashboardDto(raw, { finance: true, banks: false });
+    assert.equal(noBanks.summary.availableBalanceToday, null);
+    assert.equal(noBanks.summary.bankAccountsSummaryText, null);
+    assert.equal(noBanks.summary.receivableToday, 10);
+    const noFin = toDashboardDto(raw, { finance: false, banks: true });
+    assert.equal(noFin.financeVisible, false);
+    assert.equal(noFin.bankBalancesVisible, false);
+    assert.equal(noFin.invoiced, null);
+    assert.equal(noFin.summary.receivableToday, null);
+    assert.equal(noFin.summary.availableBalanceToday, null);
+    assert.equal(noFin.monthly[0].recebimentos, null);
+    assert.equal(noFin.summary.salesPeriodTotal, 7);
+  });
+
+  it('REST: o painel so devolve as chaves da allowlist', async () => {
+    const env = makeEnv();
+    const fin = await keyFor(env, FIN.uid, 'TODOS', ['erp:dashboard:read']);
+    const r = await get(env, fin, '/api/v1/erp/dashboard');
+    assert.equal(r.status, 200);
+    const d = body(r).data;
+    assert.deepEqual(Object.keys(d).sort(), Object.keys(ErpDashboardDto.shape).sort());
+    assert.deepEqual(Object.keys(d.summary).sort(), Object.keys(ErpDashboardDto.shape.summary.shape).sort());
+    assert.doesNotThrow(() => ErpDashboardDto.parse(d));
   });
 });

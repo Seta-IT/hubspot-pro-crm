@@ -150,6 +150,10 @@ Uso: rotina diária (Nova) que sincroniza GestãoClick → STI-hub em produção
 3. `/login?next=` é respeitado para retomar o `authorize`, com validação estrita de mesma origem.
 4. `STI_HUB_PUBLIC_ORIGIN` é obrigatória em produção (falha fechado com 503).
 
+### Parecer do CISO de 26/11 — Lote 1
+
+- `erp_dashboard_get` deixa de usar lista negra: a resposta é o DTO fechado `ErpDashboardDto` (allowlist estrita). Campo novo do painel do app não aparece no conector até ser incluído no DTO. Sem alçada Financeiro, faturado/recebido/pago/fluxo saem `null`; sem `canViewBankBalances`, saldo e texto das contas saem `null`. A série `cashFlowMonthly`/`salesMonthly` do resumo antigo não é exposta (a série mensal vem em `monthly`).
+
 ### Parecer do CISO de 26/11 — Lote 2
 1. **Contrato nunca chega a ATIVO/SUSPENSO pelo conector.** `status` aceito só `EM_IMPLANTACAO`/`PENDENTE_ASSINATURA`; PATCH de status em contrato fora de rascunho → 403 `CONTRACT_STATUS_FORBIDDEN` (também barrado no data-port); `restore_version` que mudaria o status para/de não-rascunho → 403; `renew` só em `ATIVO`/`RENOVACAO_PROXIMA` (não ativa `PENDENTE_ASSINATURA`) → 409 `CONTRACT_RENEW_WOULD_ACTIVATE`.
 2. **OS a partir de chamado (tela)** grava o usuário da sessão (`sellerName` + `sellerUserId`); sem sessão, `Sistema STI-hub`. Nome fixo removido do repositório.

@@ -567,6 +567,120 @@ const GcStatusDto = z.object({
 // ---------------------------------------------------------------------------
 // PAINEL / SINCRONIZACAO
 // ---------------------------------------------------------------------------
+/**
+ * Correcao CISO 26/11 (Lote 1): o painel sai por DTO FECHADO (allowlist). Campo novo do app NAO
+ * aparece no conector ate entrar aqui. Financeiro so com alcada Financeiro; saldo bancario so com
+ * canViewBankBalances (senao null, nunca o valor).
+ */
+const CountDto = z.object({ count: z.number(), value: z.number() });
+const CountWithSourceDto = CountDto.extend({ bySource: z.object({ stihub: CountDto, gc: CountDto }) });
+export const ErpDashboardDto = z
+  .object({
+    month: z.string(),
+    monthLabel: z.string(),
+    today: z.string(),
+    generatedAt: z.string(),
+    financeVisible: z.boolean(),
+    bankBalancesVisible: z.boolean(),
+    proposals: z.object({ made: CountWithSourceDto, approved: CountWithSourceDto, approvalRate: z.number().nullable(), approvalRateValue: z.number().nullable() }).strict(),
+    invoiced: CountDto.nullable(),
+    sales: z.object({ monthTotal: z.number(), fromProposals: z.number(), imported: z.number() }).strict(),
+    counts: z.object({ receivedMonth: z.number().nullable(), paidMonth: z.number().nullable() }).strict(),
+    summary: z
+      .object({
+        availableBalanceToday: z.number().nullable(),
+        bankAccountsSummaryText: z.string().nullable(),
+        receivableToday: z.number().nullable(),
+        payableToday: z.number().nullable(),
+        receivedMonth: z.number().nullable(),
+        receivedMonthPlanned: z.number().nullable(),
+        receivedMonthPercent: z.number().nullable(),
+        paidMonth: z.number().nullable(),
+        paidMonthPlanned: z.number().nullable(),
+        paidMonthPercent: z.number().nullable(),
+        cashFlowPeriodBalance: z.number().nullable(),
+        salesPeriodTotal: z.number(),
+        salesMonthlyAverage: z.number(),
+        salesCurrentMonthToDate: z.number(),
+      })
+      .strict(),
+    monthly: z.array(
+      z
+        .object({
+          month: z.string(),
+          label: z.string(),
+          proposalsMade: CountDto,
+          proposalsApproved: CountDto,
+          invoiced: CountDto.nullable(),
+          recebimentos: z.number().nullable(),
+          pagamentos: z.number().nullable(),
+          saldo: z.number().nullable(),
+          vendas: z.number(),
+        })
+        .strict()
+    ),
+  })
+  .strict();
+export type ErpDashboardDtoT = z.infer<typeof ErpDashboardDto>;
+
+const toCount = (v: any): { count: number; value: number } => ({ count: num(v?.count), value: num(v?.value) });
+const toCountOrNull = (v: any) => (v && typeof v === 'object' ? toCount(v) : null);
+const numOrNull = (v: unknown): number | null => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+
+/** Mapeia o painel do app para o DTO fechado. Nada fora da allowlist passa. */
+export function toDashboardDto(raw: any, opts: { finance: boolean; banks: boolean }): ErpDashboardDtoT {
+  const d = raw && typeof raw === 'object' ? raw : {};
+  const finance = opts.finance && d.financeVisible !== false;
+  const banks = finance && opts.banks;
+  const s = d.summary && typeof d.summary === 'object' ? d.summary : {};
+  const f = (v: unknown) => (finance ? numOrNull(v) : null);
+  const withSource = (v: any) => ({ ...toCount(v), bySource: { stihub: toCount(v?.bySource?.stihub), gc: toCount(v?.bySource?.gc) } });
+  return {
+    month: str(d.month),
+    monthLabel: str(d.monthLabel),
+    today: str(d.today),
+    generatedAt: str(d.generatedAt),
+    financeVisible: finance,
+    bankBalancesVisible: banks,
+    proposals: {
+      made: withSource(d.proposals?.made),
+      approved: withSource(d.proposals?.approved),
+      approvalRate: numOrNull(d.proposals?.approvalRate),
+      approvalRateValue: numOrNull(d.proposals?.approvalRateValue),
+    },
+    invoiced: finance ? toCountOrNull(d.invoiced) : null,
+    sales: { monthTotal: num(d.sales?.monthTotal), fromProposals: num(d.sales?.fromProposals), imported: num(d.sales?.imported) },
+    counts: { receivedMonth: f(d.counts?.receivedMonth), paidMonth: f(d.counts?.paidMonth) },
+    summary: {
+      availableBalanceToday: banks ? numOrNull(s.availableBalanceToday) : null,
+      bankAccountsSummaryText: banks ? strOrNull(s.bankAccountsSummaryText) : null,
+      receivableToday: f(s.receivableToday),
+      payableToday: f(s.payableToday),
+      receivedMonth: f(s.receivedMonth),
+      receivedMonthPlanned: f(s.receivedMonthPlanned),
+      receivedMonthPercent: f(s.receivedMonthPercent),
+      paidMonth: f(s.paidMonth),
+      paidMonthPlanned: f(s.paidMonthPlanned),
+      paidMonthPercent: f(s.paidMonthPercent),
+      cashFlowPeriodBalance: f(s.cashFlowPeriodBalance),
+      salesPeriodTotal: num(s.salesPeriodTotal),
+      salesMonthlyAverage: num(s.salesMonthlyAverage),
+      salesCurrentMonthToDate: num(s.salesCurrentMonthToDate),
+    },
+    monthly: (Array.isArray(d.monthly) ? d.monthly : []).slice(0, 24).map((m: any) => ({
+      month: str(m?.month),
+      label: str(m?.label),
+      proposalsMade: toCount(m?.proposalsMade),
+      proposalsApproved: toCount(m?.proposalsApproved),
+      invoiced: finance ? toCountOrNull(m?.invoiced) : null,
+      recebimentos: f(m?.recebimentos),
+      pagamentos: f(m?.pagamentos),
+      saldo: f(m?.saldo),
+      vendas: num(m?.vendas),
+    })),
+  };
+}
+
 export const erpDashboardGet = defineUseCase({
   ...base,
   operationId: 'erp.dashboard.get',
@@ -575,10 +689,10 @@ export const erpDashboardGet = defineUseCase({
   pathParams: [],
   summary: 'Painel do ERP',
   description:
-    'Painel do ERP (propostas feitas/aprovadas, vendas e, com alcada Financeiro, faturado/recebido/pago e saldos) dos ultimos 6 meses. Exige carteira TODOS.',
+    'Painel do ERP (propostas feitas/aprovadas, vendas e, com alcada Financeiro, faturado/recebido/pago; saldo bancario so com canViewBankBalances) dos ultimos 6 meses, em DTO fechado. Exige carteira TODOS.',
   requiredScope: 'erp:dashboard:read',
   inputSchema: z.object({ month: MonthSchema.optional() }).strict(),
-  outputSchema: one(AggregateSchema),
+  outputSchema: one(ErpDashboardDto),
   async handler(input, ctx) {
     requireOwnerScope(ctx, 'erp:dashboard:read');
     requireAllPortfolio(ctx, 'O painel do ERP');
@@ -587,15 +701,7 @@ export const erpDashboardGet = defineUseCase({
       await ctx.data.read('/api/erp/dashboard', { ...(input.month ? { mes: input.month } : {}), ...(finance ? {} : { _integrationIncludeFinance: '0' }) }),
       'Painel'
     );
-    const data = body?.data && typeof body.data === 'object' ? { ...(body.data as Record<string, unknown>) } : {};
-    // Correcao CISO (Lote 1, a): saldo bancario so com canViewBankBalances (mesma regra dos saldos
-    // em contas bancarias). Sem a permissao => campos de saldo null (nunca o valor).
-    const banks = ctx.owner.erpAccess.canViewBankBalances === true;
-    if (data.summary && typeof data.summary === 'object') {
-      data.summary = { ...(data.summary as Record<string, unknown>), ...(banks ? {} : { availableBalanceToday: null, bankAccountsSummaryText: null }) };
-    }
-    data.bankBalancesVisible = banks && data.financeVisible !== false;
-    return { data };
+    return { data: toDashboardDto(body?.data, { finance, banks: ctx.owner.erpAccess.canViewBankBalances === true }) };
   },
 });
 
