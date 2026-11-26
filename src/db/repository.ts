@@ -5019,6 +5019,17 @@ export class CrmRepository {
             ? 'LOCACAO'
             : 'PRODUTOS');
 
+    // Cópia/cliente não pode herdar o negócio de outra proposta.
+    const requestedDealId = String(input.dealId || '').trim();
+    let dealId: string | null = requestedDealId || null;
+    if (dealId) {
+      const existingDeal = this.getDealById(dealId);
+      const linked = existingDeal ? linkedProposalIdFromDeal(existingDeal) : null;
+      if (!existingDeal || (linked && linked !== newId)) {
+        dealId = null;
+      }
+    }
+
     const proposal: ErpCommercialProposal = {
       ...input,
       id: newId,
@@ -5070,7 +5081,7 @@ export class CrmRepository {
         input.contactName ||
         (contact ? `${contact.firstName} ${contact.lastName}`.trim() : 'Decisor Comercial'),
       contactEmail: input.contactEmail || contact?.email || undefined,
-      dealId: input.dealId || null,
+      dealId,
       sellerName: input.sellerName || 'Marcelo Lopes Mira',
       sellerEmail: input.sellerEmail || 'marcelo.mira@setatelecom.com.br',
       sellerPhone: input.sellerPhone || '(11) 99999-4929',
