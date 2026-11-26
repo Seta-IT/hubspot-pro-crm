@@ -1044,7 +1044,7 @@ describe('Lote 2 / CISO 26/11: correcoes de regressao', () => {
     assert.doesNotMatch(INTEGRATION_SCHEMA_SQL, /api_record_owners/);
     assert.doesNotMatch(fullSchemaDdl(), /api_record_owners/);
     assert.match(API_V1_MANUAL_MIGRATION_SQL, /CREATE TABLE IF NOT EXISTS api_record_owners/);
-    assert.deepEqual([...API_V1_MANUAL_TABLES], ['api_record_owners']);
+    assert.deepEqual([...API_V1_MANUAL_TABLES], ['api_record_owners', 'api_confirmation_tokens', 'api_deleted_records', 'api_dangerous_scope_confirmations']);
     const env = makeEnv();
     const key = await adminKey(env);
     env.store.manualMigrationApplied = false;
