@@ -125,7 +125,14 @@ import {
   validateServiceOrderCnpj,
 } from '../db/erp-service-orders-table';
 import { calculateCompanyCompleteness, calculateContactCompleteness } from '../modules/data-health/completeness';
-import { detectDuplicateCompanies, detectDuplicateContacts, haveConflictingCnpjs } from '../modules/data-health/deduplication';
+import { contactLabel, diffRecordFields, isOwnerChange, OWNER_FIELDS } from '../modules/crm-audit/record-audit';
+import type { CrmRecordAuditEntry } from '../db/types';
+import {
+  detectDuplicateCompanies,
+  detectDuplicateContacts,
+  getCompanyMergeBlock,
+  haveConflictingCnpjs,
+} from '../modules/data-health/deduplication';
 import { DataHealthService } from '../modules/data-health/health-service';
 import { EnrichmentService } from '../modules/enrichment/enrichment-service';
 import { WorkflowEngine } from '../modules/workflows/workflow-engine';
@@ -2750,6 +2757,8 @@ export class CrmApiRouter {
     const today = todayInSaoPaulo();
     const month = isValidMonthParam(query.mes) ? String(query.mes) : today.slice(0, 7);
     let includeFinance = !ctx.serviceAccount;
+    // API v1/MCP (Fase 2 / Lote 1): sem alcada financeira => painel sem financeiro (so interno).
+    if (ctx.trustedInternal && query._integrationIncludeFinance === '0') includeFinance = false;
     const isInternal = ctx.trustedInternal || ctx.serviceAccount || (query._fromHttpBridge !== '1' && !query._sessionToken);
     if (!isInternal) {
       const sess = query._sessionToken ? this.repo.resolveSessionFromToken(query._sessionToken) : null;
@@ -2820,7 +2829,10 @@ export class CrmApiRouter {
   ): Promise<ApiResponse> {
     const scope = this.proposalScope(query, ctx);
     if (scope.kind === 'denied') return { status: 200, body: { data: [], total: 0, limit: 0, offset: 0, counts: { TODOS: 0, PRODUTOS: 0, LOCACAO: 0, SERVICOS: 0 }, storage: 'table' } };
-    const owner = scope.kind === 'session' && scope.restricted ? { id: String(scope.access.user.id || ''), email: String(scope.access.user.email || '') } : null;
+    let owner = scope.kind === 'session' && scope.restricted ? { id: String(scope.access.user.id || ''), email: String(scope.access.user.email || '') } : null;
+    // API v1/MCP (Fase 2 / Lote 1): carteira restrita do conector, SO no contexto interno.
+    const integrationOwner = CrmApiRouter.integrationProposalOwner(query, ctx);
+    if (integrationOwner) owner = integrationOwner;
     const page = await listProposalsPage(this.proposalsDb(), {
       q: query.q ?? query.search,
       status: query.status,
@@ -3428,6 +3440,41 @@ export class CrmApiRouter {
    * Pacote F: autoria padrao = nome do usuario da SESSAO; sem sessao (contexto interno/cron)
    * => "Sistema STI-hub". Nunca um nome fixo de pessoa.
    */
+  /** Autor (nome + e-mail) da sessão, para a auditoria de registros do CRM. */
+  private sessionAuditActor(query: Record<string, string | undefined>): { name: string; email: string | null } {
+    const tok = query._sessionToken;
+    if (tok) {
+      const sess = this.repo.resolveSessionFromToken(tok);
+      if (sess.authenticated && sess.user) {
+        return { name: sess.user.name || sess.user.email || 'Usuário', email: sess.user.email || null };
+      }
+    }
+    return { name: 'Sistema STI-hub', email: null };
+  }
+
+  /** Registra uma ação do usuário em contato/empresa (nunca derruba a rota). */
+  private auditCrmRecord(
+    query: Record<string, string | undefined>,
+    entry: Omit<CrmRecordAuditEntry, 'id' | 'timestamp' | 'actorName' | 'actorEmail'>
+  ): void {
+    try {
+      const actor = this.sessionAuditActor(query);
+      this.repo.appendCrmRecordAudit({ ...entry, actorName: actor.name, actorEmail: actor.email });
+      if (entry.action === 'UPDATE' && entry.changes && isOwnerChange(entry.changes)) {
+        this.repo.appendCrmRecordAudit({
+          ...entry,
+          action: 'REASSIGN_OWNER',
+          changes: entry.changes.filter((c) => OWNER_FIELDS.includes(c.field)),
+          details: 'Responsável (dono) reatribuído.',
+          actorName: actor.name,
+          actorEmail: actor.email,
+        });
+      }
+    } catch {
+      // auditoria nunca derruba a rota
+    }
+  }
+
   private sessionActorName(query: Record<string, string | undefined>): string {
     const tok = query._sessionToken;
     if (tok) {
@@ -4193,6 +4240,21 @@ export class CrmApiRouter {
   }
 
   /** Escopo restrito: PROPRIOS e EQUIPE valem como "so as proprias" (M2). */
+  /**
+   * API v1/MCP (Fase 2 / Lote 1): dono da carteira restrita do conector. Honrado SOMENTE no
+   * contexto interno confiavel (Symbol nao forjavel); vindo de HTTP e ignorado.
+   */
+  private static integrationProposalOwner(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean }
+  ): { id: string; email: string } | null {
+    if (!ctx.trustedInternal) return null;
+    const id = String(query._integrationOwnerId || '').trim();
+    const email = String(query._integrationOwnerEmail || '').trim().toLowerCase();
+    if (!id && !email) return null;
+    return { id: id || '\u0000sem-id', email: email || '\u0000sem-email' };
+  }
+
   private static isRestrictedProposalScope(scope: string): boolean {
     return scope !== 'TODOS';
   }
@@ -6092,6 +6154,13 @@ export class CrmApiRouter {
           const linkedCompany = contact.companyId
             ? this.repo.getCompanyById(contact.companyId) || null
             : null;
+          this.auditCrmRecord(query, {
+            action: 'CREATE',
+            entityType: 'CONTACT',
+            entityId: contact.id,
+            entityLabel: contactLabel(contact),
+            changes: diffRecordFields({}, contact as unknown as Record<string, unknown>),
+          });
 
           return {
             status: 201,
@@ -6136,8 +6205,19 @@ export class CrmApiRouter {
           if (!before) {
             return { status: 404, body: { error: 'Contato não encontrado.' } };
           }
+          const beforeSnapshot = JSON.parse(JSON.stringify(before)) as Record<string, unknown>;
           let updated = this.repo.updateContact(id, body);
           if (updated) {
+            const changes = diffRecordFields(beforeSnapshot, updated as unknown as Record<string, unknown>);
+            if (changes.length > 0) {
+              this.auditCrmRecord(query, {
+                action: 'UPDATE',
+                entityType: 'CONTACT',
+                entityId: updated.id,
+                entityLabel: contactLabel(updated),
+                changes,
+              });
+            }
             this.repo.createTimelineEvent({
               type: 'NOTE',
               title: `Ficha do contato atualizada (${updated.firstName} ${updated.lastName})`,
@@ -6178,6 +6258,13 @@ export class CrmApiRouter {
           if (!deleted) {
             return { status: 404, body: { error: 'Contato não encontrado.' } };
           }
+          this.auditCrmRecord(query, {
+            action: 'DELETE',
+            entityType: 'CONTACT',
+            entityId: id,
+            entityLabel: contactLabel(existing),
+            changes: diffRecordFields(existing as unknown as Record<string, unknown>, {}),
+          });
           return { status: 200, body: { success: true, deletedId: id } };
         }
       }
@@ -6228,6 +6315,13 @@ export class CrmApiRouter {
             body.cnpj = check.formatted;
           }
           const company = this.repo.createCompany(body as { name: string; [k: string]: unknown });
+          this.auditCrmRecord(query, {
+            action: 'CREATE',
+            entityType: 'COMPANY',
+            entityId: company.id,
+            entityLabel: company.name,
+            changes: diffRecordFields({}, company as unknown as Record<string, unknown>),
+          });
           return { status: 201, body: { data: company } };
         }
       }
@@ -6277,9 +6371,25 @@ export class CrmApiRouter {
             }
             body.cnpj = check.formatted;
           }
+          const companyBefore = this.repo.getCompanyById(id);
+          const companyBeforeSnapshot = companyBefore
+            ? (JSON.parse(JSON.stringify(companyBefore)) as Record<string, unknown>)
+            : null;
           const updated = this.repo.updateCompany(id, body);
           if (!updated) {
             return { status: 404, body: { error: 'Empresa não encontrada.' } };
+          }
+          {
+            const changes = diffRecordFields(companyBeforeSnapshot, updated as unknown as Record<string, unknown>);
+            if (changes.length > 0) {
+              this.auditCrmRecord(query, {
+                action: 'UPDATE',
+                entityType: 'COMPANY',
+                entityId: updated.id,
+                entityLabel: updated.name,
+                changes,
+              });
+            }
           }
           this.repo.createTimelineEvent({
             type: 'NOTE',
@@ -6304,6 +6414,13 @@ export class CrmApiRouter {
           if (!deleted) {
             return { status: 404, body: { error: 'Empresa não encontrada.' } };
           }
+          this.auditCrmRecord(query, {
+            action: 'DELETE',
+            entityType: 'COMPANY',
+            entityId: id,
+            entityLabel: existing.name,
+            changes: diffRecordFields(existing as unknown as Record<string, unknown>, {}),
+          });
           return { status: 200, body: { success: true, deletedId: id } };
         }
       }
@@ -6958,6 +7075,21 @@ export class CrmApiRouter {
               },
             };
           }
+          // REGRA FISCAL: sem CNPJ em qualquer lado => registros ficam separados (422)
+          const missingBlock = compA && compB ? getCompanyMergeBlock(compA.cnpj, compB.cnpj) : null;
+          // Sem CNPJ em algum lado: merge MANUAL permitido só com confirmação explícita do usuário
+          if (compA && compB && missingBlock && body.confirmMissingCnpj !== true) {
+            return {
+              status: 422,
+              body: {
+                error: `Falta CNPJ: as empresas "${compA.name}" (CNPJ ${compA.cnpj || 'não cadastrado'}) e "${compB.name}" (CNPJ ${compB.cnpj || 'não cadastrado'}) não têm CNPJ nas duas. A unificação automática não é feita; para mesclar manualmente, confirme explicitamente (confirmMissingCnpj: true).`,
+                code: missingBlock.code,
+                requiresConfirmation: true,
+                primaryCnpj: compA.cnpj || null,
+                duplicateCnpj: compB.cnpj || null,
+              },
+            };
+          }
         }
 
         try {
@@ -6966,13 +7098,24 @@ export class CrmApiRouter {
             primaryId,
             duplicateId,
             fieldOverrides: (body.fieldOverrides as Record<string, unknown>) || undefined,
+            confirmMissingCnpj: body.confirmMissingCnpj === true,
+            actor: this.sessionAuditActor(query),
+            source: 'API',
           });
           return { status: 200, body: { data: result } };
         } catch (mergeErr) {
           const msg = mergeErr instanceof Error ? mergeErr.message : 'Erro ao mesclar registros.';
+          const fiscal = msg.includes('Bloqueio Fiscal');
           return {
-            status: msg.includes('Bloqueio Fiscal') ? 422 : 404,
-            body: { error: msg },
+            status: fiscal ? 422 : 404,
+            body: fiscal
+              ? {
+                  error: msg,
+                  code: /falta CNPJ|exige CNPJ/i.test(msg)
+                    ? 'MISSING_CNPJ_MERGE_BLOCKED'
+                    : 'CONFLICTING_CNPJ_MERGE_BLOCKED',
+                }
+              : { error: msg },
           };
         }
       }
@@ -6981,8 +7124,20 @@ export class CrmApiRouter {
         const result = this.healthService.autoCleanDatabase(this.repo, {
           minConfidence: typeof body.minConfidence === 'number' ? body.minConfidence : 80,
           autoEnrich: body.autoEnrich !== false,
+          actor: this.sessionAuditActor(query),
         });
         return { status: 200, body: { data: result } };
+      }
+
+      // Auditoria de registros do CRM: GET /api/data-health/audit?entityType=&entityId=&action=&limit=
+      if (cleanPath === '/api/data-health/audit' && method === 'GET') {
+        const list = this.repo.listCrmRecordAudit({
+          entityType: query.entityType ? String(query.entityType).toUpperCase() : undefined,
+          entityId: query.entityId ? String(query.entityId) : undefined,
+          action: query.action ? String(query.action).toUpperCase() : undefined,
+          limit: query.limit ? Number(query.limit) : 100,
+        });
+        return { status: 200, body: list };
       }
 
       // ======================================================================
@@ -6997,6 +7152,7 @@ export class CrmApiRouter {
           if (!contact) {
             return { status: 404, body: { error: 'Contato não encontrado para enriquecimento.' } };
           }
+          const contactAuditBefore = JSON.parse(JSON.stringify(contact)) as Record<string, unknown>;
           const res = this.enrichmentService.enrichContactRecord(
             contact,
             this.repo.listCompanies(),
@@ -7012,6 +7168,19 @@ export class CrmApiRouter {
           }
 
           const updatedContact = this.repo.updateContact(contact.id, res.contact);
+          if (updatedContact) {
+            const changes = diffRecordFields(contactAuditBefore, updatedContact as unknown as Record<string, unknown>);
+            if (changes.length > 0) {
+              this.auditCrmRecord(query, {
+                action: 'CLEANUP',
+                entityType: 'CONTACT',
+                entityId: updatedContact.id,
+                entityLabel: contactLabel(updatedContact),
+                changes,
+                details: 'Enriquecimento/higienização manual do contato.',
+              });
+            }
+          }
           const timelineEvent = this.repo.createTimelineEvent({
             type: 'ENRICHMENT',
             title: `Enriquecimento inteligente concluído (${res.domain || contact.email})`,
@@ -7099,7 +7268,24 @@ export class CrmApiRouter {
               res.source = rfb.source;
             }
           }
+          const companyAuditBefore = this.repo.getCompanyById(company.id);
+          const companyAuditSnapshot = companyAuditBefore
+            ? (JSON.parse(JSON.stringify(companyAuditBefore)) as Record<string, unknown>)
+            : null;
           const updatedCompany = this.repo.updateCompany(company.id, res.company);
+          if (updatedCompany) {
+            const changes = diffRecordFields(companyAuditSnapshot, updatedCompany as unknown as Record<string, unknown>);
+            if (changes.length > 0) {
+              this.auditCrmRecord(query, {
+                action: 'CLEANUP',
+                entityType: 'COMPANY',
+                entityId: updatedCompany.id,
+                entityLabel: updatedCompany.name,
+                changes,
+                details: 'Enriquecimento/higienização manual da empresa.',
+              });
+            }
+          }
           const timelineEvent = this.repo.createTimelineEvent({
             type: 'ENRICHMENT',
             title: `Empresa enriquecida automaticamente (${company.domain || company.name})`,
@@ -7144,8 +7330,22 @@ export class CrmApiRouter {
             this.repo.createCompany(res.matchedOrCreatedCompany);
           }
           if (res.fieldsUpdated.length > 0) {
-            this.repo.updateContact(c.id, res.contact);
+            const batchBefore = JSON.parse(JSON.stringify(c)) as Record<string, unknown>;
+            const batchAfter = this.repo.updateContact(c.id, res.contact);
             enrichedCount++;
+            if (batchAfter) {
+              const changes = diffRecordFields(batchBefore, batchAfter as unknown as Record<string, unknown>);
+              if (changes.length > 0) {
+                this.auditCrmRecord(query, {
+                  action: 'CLEANUP',
+                  entityType: 'CONTACT',
+                  entityId: c.id,
+                  entityLabel: contactLabel(batchAfter),
+                  changes,
+                  details: 'Enriquecimento em lote (higienização).',
+                });
+              }
+            }
           }
         }
         return {
@@ -8650,7 +8850,9 @@ export class CrmApiRouter {
         if (method === 'GET') {
           if (this.proposalTableCtx) return await this.listProposalsFromTable(query, ctx);
           // (d) Lista filtrada no servidor pelo mesmo escopo do GET :id.
-          const list = this.filterProposalsByScope(this.repo.listProposals(), query, ctx);
+          let list = this.filterProposalsByScope(this.repo.listProposals(), query, ctx);
+          const integrationOwner = CrmApiRouter.integrationProposalOwner(query, ctx);
+          if (integrationOwner) list = list.filter((p) => CrmApiRouter.isProposalOwnedBy(p, integrationOwner));
           return { status: 200, body: { data: list, total: list.length } };
         }
         if (method === 'POST') {

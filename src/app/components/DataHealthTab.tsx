@@ -21,6 +21,7 @@ import { ErpOverviewPayload } from './ErpGestaoClickTab';
 import {
   detectProtectedBranchCompanies,
   DuplicateCandidatePair,
+  getCompanyMergeBlock,
   haveConflictingCnpjs,
 } from '../../modules/data-health/deduplication';
 import { AutoCleanResult, DataHealthSummaryReport } from '../../modules/data-health/health-service';
@@ -43,6 +44,8 @@ interface DataHealthTabProps {
     entityType: 'CONTACT' | 'COMPANY';
     primaryId: string;
     duplicateId: string;
+    /** Merge manual de empresas sem CNPJ: exige confirmação explícita do usuário. */
+    confirmMissingCnpj?: boolean;
   }) => Promise<void>;
   onAutoClean: () => Promise<AutoCleanResult | null>;
   onEnrichEntity: (entityType: 'CONTACT' | 'COMPANY', entityId: string) => Promise<void>;
@@ -129,15 +132,30 @@ export default function DataHealthTab({
     primaryId: string,
     duplicateId: string
   ) => {
+    let confirmMissingCnpj = false;
     if (entityType === 'COMPANY') {
       const a = companies.find((c) => c.id === primaryId);
       const b = companies.find((c) => c.id === duplicateId);
-      if (a && b && haveConflictingCnpjs(a.cnpj, b.cnpj)) return; // Bloqueio Fiscal: CNPJs distintos
+      if (!a || !b) return;
+      const block = getCompanyMergeBlock(a.cnpj, b.cnpj);
+      // Bloqueio Fiscal: CNPJs diferentes nunca são mesclados (nem manualmente)
+      if (block?.code === 'CONFLICTING_CNPJ_MERGE_BLOCKED') return;
+      if (block?.code === 'MISSING_CNPJ_MERGE_BLOCKED') {
+        const ok =
+          typeof window !== 'undefined' &&
+          window.confirm(
+            `Atenção: ${!a.cnpj && !b.cnpj ? 'as duas empresas estão' : 'uma das empresas está'} sem CNPJ cadastrado.\n\n` +
+              `"${a.name}" (CNPJ ${a.cnpj || 'não cadastrado'})\n"${b.name}" (CNPJ ${b.cnpj || 'não cadastrado'})\n\n` +
+              'Confirma a mesclagem manual? A ação fica registrada no log de auditoria com o seu usuário.'
+          );
+        if (!ok) return;
+        confirmMissingCnpj = true;
+      }
     }
     const key = `${entityType}-${primaryId}-${duplicateId}`;
     setMergingKey(key);
     try {
-      await onMergeDuplicate({ entityType, primaryId, duplicateId });
+      await onMergeDuplicate({ entityType, primaryId, duplicateId, ...(confirmMissingCnpj ? { confirmMissingCnpj: true } : {}) });
     } finally {
       setMergingKey(null);
     }
@@ -1042,12 +1060,26 @@ export default function DataHealthTab({
                   {mergeableCompanyDuplicates.map((pair) => {
                     const key = `COMPANY-${pair.primary.id}-${pair.duplicate.id}`;
                     const isMerging = mergingKey === key;
+                    const mergeBlock = getCompanyMergeBlock(
+                      currentCompanyCnpj(pair.primary),
+                      currentCompanyCnpj(pair.duplicate)
+                    );
 
                     return (
                       <div
                         key={key}
                         className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
                       >
+                        {mergeBlock && (
+                          <div
+                            data-merge-block-code={mergeBlock.code}
+                            className="px-6 py-2 bg-amber-50 border-b border-amber-200 text-xs font-semibold text-amber-900"
+                          >
+                            {mergeBlock.code === 'MISSING_CNPJ_MERGE_BLOCKED'
+                              ? 'Aviso: falta CNPJ. Esta empresa nunca é unificada automaticamente; a mesclagem manual pede confirmação e fica no log de auditoria.'
+                              : `Mesclagem bloqueada: ${mergeBlock.reason}`}
+                          </div>
+                        )}
                         <div className="px-6 py-3.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
                           <div className="flex items-center gap-2.5">
                             <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-900 border border-amber-300">
@@ -1060,16 +1092,23 @@ export default function DataHealthTab({
 
                           <button
                             type="button"
-                            disabled={isMerging}
+                            disabled={isMerging || mergeBlock?.code === 'CONFLICTING_CNPJ_MERGE_BLOCKED'}
+                            title={mergeBlock ? mergeBlock.reason : undefined}
                             onClick={() =>
                               handleMerge('COMPANY', pair.primary.id, pair.duplicate.id)
                             }
                             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1e3a6e] hover:bg-[#162d57] text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
                           >
                             <GitMerge className="w-4 h-4" />
-                            {isMerging
-                              ? 'Unificando Empresas...'
-                              : 'Mesclar Empresas (Smart Merge)'}
+                            {mergeBlock?.code === 'CONFLICTING_CNPJ_MERGE_BLOCKED'
+                              ? 'Mesclagem bloqueada: CNPJs diferentes'
+                              : isMerging
+                                ? 'Unificando Empresas...'
+                                : mergeBlock?.code === 'MISSING_CNPJ_MERGE_BLOCKED'
+                                  ? 'Mesclar manualmente (sem CNPJ, pede confirmação)'
+                                  : isMerging
+                                ? 'Unificando Empresas...'
+                                : 'Mesclar Empresas (Smart Merge)'}
                           </button>
                         </div>
 

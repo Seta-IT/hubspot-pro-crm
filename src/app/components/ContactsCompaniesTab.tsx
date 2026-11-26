@@ -26,6 +26,7 @@ import { formatDocumentByPersonType, validateDocumentByPersonType } from '../../
 import ContactDetailDrawer, { DetailedContactResponse } from './ContactDetailDrawer';
 import GestaoClickCompanyModal, { GestaoClickCompanyFormPayload } from './GestaoClickCompanyModal';
 import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEmailAndTasksPanel';
+import CrmRecordAuditHistory from './CrmRecordAuditHistory';
 import CrmRecordEmailSection from './email/CrmRecordEmailSection';
 import HubSpotTasksQueueView from './HubSpotTasksQueueView';
 import {
@@ -1585,6 +1586,8 @@ export default function ContactsCompaniesTab({
                       if (selectedCompanyId) fetchCompanyDetail(selectedCompanyId);
                     }}
                   />
+
+                  <CrmRecordAuditHistory entityType="COMPANY" entityId={companyDetail.id} refreshKey={companyDetail} />
 
                   <div className="space-y-2">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">

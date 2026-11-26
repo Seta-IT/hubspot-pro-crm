@@ -122,6 +122,7 @@ export function applyOwnerCeiling(ctx: AuthContext, users: IntegrationUser[]): A
   ctx.moduleAccess = {
     crm: ctx.moduleAccess.crm && owner.moduleAccess.crm,
     chamados: ctx.moduleAccess.chamados && owner.moduleAccess.chamados,
+    erp: ctx.moduleAccess.erp && owner.moduleAccess.erp,
   };
   return { ok: true, owner };
 }
@@ -131,6 +132,7 @@ export function hasScope(ctx: AuthContext, scope: IntegrationScope): boolean {
   const mod = moduleForScope(scope);
   if (mod === 'crm' && !ctx.moduleAccess.crm) return false;
   if (mod === 'chamados' && !ctx.moduleAccess.chamados) return false;
+  if (mod === 'erp' && !ctx.moduleAccess.erp) return false;
   return true;
 }
 

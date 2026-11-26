@@ -9,7 +9,7 @@ import type { AuditChannel, AuditAuthType, IntegrationStore } from './store';
 import { generateId, sha256Hex } from './tokens';
 import { isIntegrationStoreUnavailable } from './store-errors';
 import { UseCaseError, type UseCaseDefinition } from './use-cases';
-import { areasForScope, userHasAccess } from './use-cases/common';
+import { ownerMeetsScope } from './use-cases/common';
 
 export type ExecResult =
   | { ok: true; status: number; body: unknown }
@@ -80,8 +80,7 @@ export async function preauthorizeUseCase(def: UseCaseDefinition, auth: AuthCont
     if (!hasScope(auth, def.requiredScope)) {
       return { ok: false, status: 403, code: 'MODULE_FORBIDDEN', title: `Modulo ${def.requiredModule} nao habilitado para esta credencial ou para o usuario dono.` };
     }
-    const need = areasForScope(def.requiredScope);
-    if (need && !need.areas.some((a) => userHasAccess(ceiling.owner, a, need.level))) {
+    if (!ownerMeetsScope(ceiling.owner, def.requiredScope)) {
       return { ok: false, status: 403, code: 'OWNER_ACCESS_INSUFFICIENT', title: 'O usuario dono desta credencial nao tem alcada para esta operacao.' };
     }
     return null;
@@ -103,7 +102,7 @@ export function authFingerprint(auth: AuthContext): string {
       auth.actorUserId,
       [...auth.scopes].sort().join(' '),
       auth.portfolioScope,
-      `crm=${auth.moduleAccess.crm ? 1 : 0};chamados=${auth.moduleAccess.chamados ? 1 : 0}`,
+      `crm=${auth.moduleAccess.crm ? 1 : 0};chamados=${auth.moduleAccess.chamados ? 1 : 0};erp=${auth.moduleAccess.erp ? 1 : 0}`,
       [...auth.teamMemberIds].sort().join(','),
     ].join('|')
   ).slice(0, 32);

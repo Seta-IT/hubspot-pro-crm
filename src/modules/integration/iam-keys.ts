@@ -24,7 +24,7 @@ const CreateKeySchema = z
     name: z.string().trim().min(1).max(120),
     scopes: z.array(z.string().max(80)).min(1).max(30),
     portfolioScope: z.enum(PORTFOLIO_SCOPES),
-    moduleAccess: z.object({ crm: z.boolean(), chamados: z.boolean() }).strict(),
+    moduleAccess: z.object({ crm: z.boolean(), chamados: z.boolean(), erp: z.boolean().default(false) }).strict(),
     ownerUserId: z.string().regex(/^[A-Za-z0-9._@-]{1,120}$/).optional(),
     teamMemberIds: z.array(z.string().regex(/^[A-Za-z0-9._@-]{1,120}$/)).max(200).optional(),
     expiresAt: z.string().datetime({ offset: true }).optional(),
@@ -118,12 +118,12 @@ export async function handleIamIntegrationKeys(req: IntegrationHttpRequest, deps
       if (!scopes.ok) {
         await log(400, 'iam.integration_keys.create', null, scopes.code);
         return problem(400, scopes.code, scopes.code === 'SCOPE_BLOCKED'
-          ? 'Escopo bloqueado pela politica CISO (IAM/Admin, DELETE, merge, Sequencias, Fiscal/Financeiro ou integracao com o ERP de origem).'
+          ? 'Escopo bloqueado pela politica CISO (IAM/Admin, DELETE, merge, escrita de Sequencias/Fiscal/Financeiro/ERP ou integracao com o ERP de origem).'
           : 'Escopo inexistente no catalogo.', { invalid: scopes.invalid });
       }
       const mismatch = scopes.scopes.filter((s) => {
         const mod = moduleForScope(s);
-        return (mod === 'crm' && !input.moduleAccess.crm) || (mod === 'chamados' && !input.moduleAccess.chamados);
+        return (mod === 'crm' && !input.moduleAccess.crm) || (mod === 'chamados' && !input.moduleAccess.chamados) || (mod === 'erp' && !input.moduleAccess.erp);
       });
       if (mismatch.length) {
         await log(422, 'iam.integration_keys.create', null, 'SCOPE_MODULE_MISMATCH');
@@ -140,7 +140,7 @@ export async function handleIamIntegrationKeys(req: IntegrationHttpRequest, deps
         await log(422, 'iam.integration_keys.create', null, 'PORTFOLIO_EXCEEDS_OWNER');
         return problem(422, 'PORTFOLIO_EXCEEDS_OWNER', 'A carteira da chave nao pode exceder a carteira do usuario dono.', { fields: ['portfolioScope'] });
       }
-      if ((input.moduleAccess.crm && !owner.moduleAccess.crm) || (input.moduleAccess.chamados && !owner.moduleAccess.chamados)) {
+      if ((input.moduleAccess.crm && !owner.moduleAccess.crm) || (input.moduleAccess.chamados && !owner.moduleAccess.chamados) || (input.moduleAccess.erp && !owner.moduleAccess.erp)) {
         await log(422, 'iam.integration_keys.create', null, 'MODULE_EXCEEDS_OWNER');
         return problem(422, 'MODULE_EXCEEDS_OWNER', 'moduleAccess da chave nao pode exceder o do usuario dono.', { fields: ['moduleAccess'] });
       }

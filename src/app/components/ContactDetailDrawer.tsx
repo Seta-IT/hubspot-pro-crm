@@ -16,6 +16,7 @@ import {
 import { CompletenessResult } from '../../modules/data-health/completeness';
 import { CrmTask } from '../../db/types';
 import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEmailAndTasksPanel';
+import CrmRecordAuditHistory from './CrmRecordAuditHistory';
 import CrmRecordEmailSection from './email/CrmRecordEmailSection';
 import {
   BUYING_ROLE_OPTIONS,
@@ -849,6 +850,8 @@ export default function ContactDetailDrawer({
                   onRefreshContact?.();
                 }}
               />
+
+              <CrmRecordAuditHistory entityType="CONTACT" entityId={contactDetail.id} refreshKey={contactDetail} />
 
               <form
                 onSubmit={handleAddActivitySubmit}

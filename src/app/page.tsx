@@ -777,6 +777,7 @@ export default function HubSpotProCrmApp() {
     entityType: 'CONTACT' | 'COMPANY';
     primaryId: string;
     duplicateId: string;
+    confirmMissingCnpj?: boolean;
   }) => {
     const res = await fetch('/api/data-health/merge', {
       method: 'POST',
@@ -786,6 +787,9 @@ export default function HubSpotProCrmApp() {
     if (res.ok) {
       showToast('Registros duplicados mesclados com sucesso sem perda de histórico!');
       await fetchAllCrmData();
+    } else {
+      const j = await res.json().catch(() => null);
+      if (j?.error) showToast(String(j.error));
     }
   };
 
