@@ -261,7 +261,7 @@ import { applyProposalCommercialNotesDefault, proposalNoteDefaultTypeKey } from 
 import { loadProposalNoteDefaults } from '../modules/erp/proposal-note-defaults-store';
 import { LoginIpFailureGuard } from './login-ip-guard';
 import { rateLimitIpKey } from './client-ip';
-import { resolveConfiguredPublicOrigin, parseHttpOrigin, useSecureCookies } from '../lib/platform';
+import { resolveConfiguredPublicOrigin, resolvePublicOriginForLinks, useSecureCookies } from '../lib/platform';
 import { sanitizeApiResponseBody } from '../db/iam-security';
 import { isProposalLinkPreviewAgent, isServiceCreatedProposal, nextClientProposalView } from '../app/lib/proposal-client-view';
 import {
@@ -5253,8 +5253,15 @@ export class CrmApiRouter {
     if (!found || !isIssuedInvoiceStatus(found.status) || !this.isInvoiceVisibleToSession(found, query, ctx)) {
       return { status: 404, body: { error: 'Fatura emitida não encontrada.' } };
     }
-    const signed = signInvoiceLinkToken({ invoiceId: found.id });
     const origin = resolveProposalLinkOrigin(query._origin);
+    if (!origin && process.env.NODE_ENV === 'production') {
+      this.invoiceLinkAudit('INVOICE_LINK_ISSUE', 'BLOCKED', ip, found.id, 'STI_HUB_PUBLIC_ORIGIN ausente (fail-closed)', actor);
+      return {
+        status: 503,
+        body: { error: 'Origem publica (STI_HUB_PUBLIC_ORIGIN) nao configurada.', code: 'PUBLIC_ORIGIN_NOT_CONFIGURED' },
+      };
+    }
+    const signed = signInvoiceLinkToken({ invoiceId: found.id });
     this.invoiceLinkAudit(
       'INVOICE_LINK_ISSUE',
       'SUCCESS',
@@ -5682,6 +5689,14 @@ export class CrmApiRouter {
         body: { error: 'A validade desta proposta já venceu. Atualize a data de validade antes de gerar o link para o cliente.', code: 'PROPOSAL_EXPIRED' },
       };
     }
+    const origin = resolveProposalLinkOrigin(query._origin);
+    if (!origin && process.env.NODE_ENV === 'production') {
+      this.proposalLinkAudit('PROPOSAL_LINK_ISSUE', 'BLOCKED', ip, found.id, 'STI_HUB_PUBLIC_ORIGIN ausente (fail-closed)', actor);
+      return {
+        status: 503,
+        body: { error: 'Origem publica (STI_HUB_PUBLIC_ORIGIN) nao configurada.', code: 'PUBLIC_ORIGIN_NOT_CONFIGURED' },
+      };
+    }
     let signed: ReturnType<typeof signProposalLinkToken>;
     let target = found;
     try {
@@ -5718,8 +5733,6 @@ export class CrmApiRouter {
       throw err;
     }
     const version = Math.max(1, Number(target.version || 1));
-    // Checagem final v4: STI_HUB_PUBLIC_ORIGIN (validado, so a origem) quando existir.
-    const origin = resolveProposalLinkOrigin(query._origin);
     this.proposalLinkAudit(
       'PROPOSAL_LINK_ISSUE',
       'SUCCESS',
@@ -12440,7 +12453,13 @@ export class CrmApiRouter {
         const target = userInviteMatch
           ? decodeURIComponent(userInviteMatch[1])
           : String(body.userId || body.email || '').trim();
-        const baseOrigin = resolveConfiguredPublicOrigin() || parseHttpOrigin(query._origin) || '';
+        const baseOrigin = resolvePublicOriginForLinks(query._origin) || '';
+        if (!baseOrigin && process.env.NODE_ENV === 'production') {
+          return {
+            status: 503,
+            body: { error: 'Origem publica (STI_HUB_PUBLIC_ORIGIN) nao configurada.', code: 'PUBLIC_ORIGIN_NOT_CONFIGURED' },
+          };
+        }
         const resetTotp = body.resetTotp !== false;
         const inviteRes = this.repo.createUserInvite(target, baseOrigin, resetTotp);
         if (!inviteRes.ok || !inviteRes.user || !inviteRes.inviteUrl) {
@@ -12875,7 +12894,13 @@ export class CrmApiRouter {
           return { status: 400, body: { error: pwCheckCreate.error, code: 'PASSWORD_TOO_SHORT' } };
         }
         const saved = this.repo.upsertRbacUser(stripClientTotpSecretFields(pwCheckCreate.body));
-        const baseOrigin = resolveConfiguredPublicOrigin() || parseHttpOrigin(query._origin) || '';
+        const baseOrigin = resolvePublicOriginForLinks(query._origin) || '';
+        if (!baseOrigin && process.env.NODE_ENV === 'production') {
+          return {
+            status: 503,
+            body: { error: 'Origem publica (STI_HUB_PUBLIC_ORIGIN) nao configurada.', code: 'PUBLIC_ORIGIN_NOT_CONFIGURED' },
+          };
+        }
         const inviteInfo = this.repo.createUserInvite(saved.id, baseOrigin, !body.totpConfigured);
         const roleDef = this.repo.getEffectiveUserAndRole(saved.id).role;
         const inviteDelivery = inviteInfo.inviteUrl

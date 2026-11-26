@@ -11,15 +11,20 @@ import { buildClearSessionCookie, buildSessionCookie } from '../src/api/router';
 import {
   allowedCorsOrigins,
   corsAllowOrigin,
+  isCloudRunRuntime,
   isProductionRuntime,
   isSecretProductionRuntime,
   parseHttpOrigin,
   resolveConfiguredPublicOrigin,
+  resolvePublicOriginForLinks,
   resolveTrustedProxyHops,
   resolveTrustedProxyMode,
   useSecureCookies,
   usesEphemeralFilesystem,
 } from '../src/lib/platform';
+import { isCronOidcConfigured, looksLikeBearerJwt } from '../src/app/lib/cron-oidc-config';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 function headers(map: Record<string, string>): { get(name: string): string | null } {
   const lower = Object.fromEntries(Object.entries(map).map(([k, v]) => [k.toLowerCase(), v]));
@@ -31,7 +36,7 @@ function env(partial: Record<string, string | undefined>): NodeJS.ProcessEnv {
 }
 
 describe('Flags neutras de plataforma', () => {
-  it('producao: NODE_ENV, VERCEL=1, VERCEL_ENV e Cloud Run (K_SERVICE / TRUSTED_PROXY_MODE)', () => {
+  it('producao: NODE_ENV, VERCEL=1, VERCEL_ENV e Cloud Run (K_SERVICE / CLOUD_RUN_JOB / TRUSTED_PROXY_MODE)', () => {
     assert.equal(isProductionRuntime(env({})), false);
     assert.equal(isProductionRuntime(env({ NODE_ENV: 'test' })), false);
     assert.equal(isProductionRuntime(env({ NODE_ENV: 'production' })), true);
@@ -39,7 +44,11 @@ describe('Flags neutras de plataforma', () => {
     assert.equal(isProductionRuntime(env({ VERCEL_ENV: 'preview' })), true);
     assert.equal(isProductionRuntime(env({ VERCEL_ENV: 'production' })), true);
     assert.equal(isProductionRuntime(env({ K_SERVICE: 'sti-hub' })), true);
+    assert.equal(isProductionRuntime(env({ CLOUD_RUN_JOB: 'sti-hub-migrate' })), true);
     assert.equal(isProductionRuntime(env({ TRUSTED_PROXY_MODE: 'cloudrun' })), true);
+    assert.equal(isCloudRunRuntime(env({ K_SERVICE: 'sti-hub' })), true);
+    assert.equal(isCloudRunRuntime(env({ CLOUD_RUN_JOB: 'sti-hub-migrate' })), true);
+    assert.equal(isCloudRunRuntime(env({})), false);
   });
 
   it('SECURE_COOKIES: default seguro em producao; VERCEL=1 compativel; override explicito', () => {
@@ -49,8 +58,12 @@ describe('Flags neutras de plataforma', () => {
     assert.equal(useSecureCookies(env({ VERCEL: '1' })), true);
     assert.equal(useSecureCookies(env({ K_SERVICE: 'sti-hub' })), true);
     assert.equal(useSecureCookies(env({ SECURE_COOKIES: '1', NODE_ENV: 'test' })), true);
-    assert.equal(useSecureCookies(env({ SECURE_COOKIES: '0', NODE_ENV: 'production' })), false);
-    assert.equal(useSecureCookies(env({ SECURE_COOKIES: 'false', VERCEL: '1' })), false);
+    // CISO: em producao o Secure fica sempre ligado; SECURE_COOKIES=0 e ignorado.
+    assert.equal(useSecureCookies(env({ SECURE_COOKIES: '0', NODE_ENV: 'production' })), true);
+    assert.equal(useSecureCookies(env({ SECURE_COOKIES: 'false', VERCEL: '1' })), true);
+    assert.equal(useSecureCookies(env({ SECURE_COOKIES: '0', K_SERVICE: 'sti-hub' })), true);
+    assert.equal(useSecureCookies(env({ SECURE_COOKIES: '0', CLOUD_RUN_JOB: 'sti-hub-migrate' })), true);
+    assert.equal(useSecureCookies(env({ SECURE_COOKIES: '0', NODE_ENV: 'test' })), false);
   });
 
   it('cookie de sessao respeita SECURE_COOKIES e permanece compativel com VERCEL=1', () => {
@@ -67,6 +80,8 @@ describe('Flags neutras de plataforma', () => {
       delete process.env.SECURE_COOKIES;
       process.env.VERCEL = '1';
       assert.match(buildSessionCookie('tok'), /;\s*Secure/);
+      process.env.SECURE_COOKIES = '0';
+      assert.match(buildSessionCookie('tok'), /;\s*Secure/, 'SECURE_COOKIES=0 em producao (VERCEL=1) e ignorado');
     } finally {
       if (prev.v === undefined) delete process.env.VERCEL; else process.env.VERCEL = prev.v;
       if (prev.s === undefined) delete process.env.SECURE_COOKIES; else process.env.SECURE_COOKIES = prev.s;
@@ -79,6 +94,7 @@ describe('Flags neutras de plataforma', () => {
     assert.equal(resolveTrustedProxyMode(env({})), 'none');
     assert.equal(resolveTrustedProxyMode(env({ VERCEL: '1' })), 'vercel');
     assert.equal(resolveTrustedProxyMode(env({ K_SERVICE: 'sti-hub' })), 'cloudrun');
+    assert.equal(resolveTrustedProxyMode(env({ CLOUD_RUN_JOB: 'sti-hub-migrate' })), 'cloudrun');
     assert.equal(resolveTrustedProxyMode(env({ TRUSTED_PROXY_MODE: 'none', VERCEL: '1' })), 'none');
     assert.equal(resolveTrustedProxyMode(env({ TRUSTED_PROXY_MODE: 'cloudrun' })), 'cloudrun');
     assert.equal(resolveTrustedProxyHops(env({})), 1);
@@ -91,9 +107,11 @@ describe('Flags neutras de plataforma', () => {
     assert.equal(usesEphemeralFilesystem(env({})), false);
     assert.equal(usesEphemeralFilesystem(env({ VERCEL: '1' })), true);
     assert.equal(usesEphemeralFilesystem(env({ K_SERVICE: 'sti-hub' })), true);
+    assert.equal(usesEphemeralFilesystem(env({ CLOUD_RUN_JOB: 'sti-hub-migrate' })), true);
     assert.equal(isSecretProductionRuntime(env({ NODE_ENV: 'production', STI_HUB_ALLOW_DEV_SECRET: 'true' })), false);
     assert.equal(isSecretProductionRuntime(env({ VERCEL_ENV: 'preview', STI_HUB_ALLOW_DEV_SECRET: 'true' })), true);
     assert.equal(isSecretProductionRuntime(env({ K_SERVICE: 'sti-hub', STI_HUB_ALLOW_DEV_SECRET: 'true' })), true);
+    assert.equal(isSecretProductionRuntime(env({ CLOUD_RUN_JOB: 'sti-hub-migrate', STI_HUB_ALLOW_DEV_SECRET: 'true' })), true);
   });
 });
 
@@ -233,3 +251,93 @@ describe('Autenticacao dos crons (Bearer CRON_SECRET)', () => {
   });
 });
 
+
+
+describe('CISO: recusa TRUSTED_PROXY_MODE=vercel no Cloud Run (X-Real-IP forjavel)', () => {
+  it('K_SERVICE ou CLOUD_RUN_JOB forcam cloudrun e ignoram X-Real-IP, mesmo com vercel explicito', () => {
+    const forged = headers({
+      'x-real-ip': '8.8.8.8',
+      'x-vercel-forwarded-for': '8.8.8.8',
+      'x-forwarded-for': '8.8.8.8, 203.0.113.10',
+    });
+    const onService = env({ K_SERVICE: 'sti-hub', TRUSTED_PROXY_MODE: 'vercel', TRUSTED_PROXY_HOPS: '1' });
+    const onJob = env({ CLOUD_RUN_JOB: 'sti-hub-migrate', TRUSTED_PROXY_MODE: 'vercel', TRUSTED_PROXY_HOPS: '1' });
+    assert.equal(resolveTrustedProxyMode(onService), 'cloudrun');
+    assert.equal(resolveTrustedProxyMode(onJob), 'cloudrun');
+    assert.equal(resolveTrustedClientIp(forged, undefined, onService), '203.0.113.10');
+    assert.equal(resolveTrustedClientIp(forged, 'vercel', onService), '203.0.113.10');
+    assert.equal(resolveTrustedClientIp(forged, 'vercel', onJob), '203.0.113.10');
+    assert.equal(resolveTrustedProxyMode(env({ K_SERVICE: 'sti-hub', TRUSTED_PROXY_MODE: 'none' })), 'none');
+  });
+
+  it('hops=2 seleciona o cliente quando ha load balancer externo + GFE', () => {
+    // XFF: forjado, cliente, IP do LB (anexado pelo GFE). hops=1 devolveria o LB.
+    const xff = '8.8.8.8, 198.51.100.4, 203.0.113.10';
+    assert.equal(clientIpFromForwardedFor(xff, 1), '203.0.113.10');
+    assert.equal(clientIpFromForwardedFor(xff, 2), '198.51.100.4');
+  });
+});
+
+describe('CISO: em producao, sem STI_HUB_PUBLIC_ORIGIN falha fechado (sem Host)', () => {
+  it('ignora a origem da requisicao / Host quando NODE_ENV=production', () => {
+    const forged = 'https://forged-host.example';
+    assert.equal(resolvePublicOriginForLinks(forged, env({ NODE_ENV: 'production' })), null);
+    assert.equal(
+      resolvePublicOriginForLinks(forged, env({ NODE_ENV: 'production', VERCEL: '1', K_SERVICE: 'sti-hub', CLOUD_RUN_JOB: 'sti-hub-migrate' })),
+      null
+    );
+    assert.equal(
+      resolvePublicOriginForLinks(forged, env({ NODE_ENV: 'production', STI_HUB_PUBLIC_ORIGIN: 'https://sti-hub.setatelecom.com.br' })),
+      'https://sti-hub.setatelecom.com.br'
+    );
+    // Fora de NODE_ENV=production o fallback da requisicao permanece (testes paralelos
+    // podem ligar VERCEL/K_SERVICE para cookies/IP).
+    assert.equal(resolvePublicOriginForLinks(forged, env({ NODE_ENV: 'test' })), forged);
+    assert.equal(resolvePublicOriginForLinks(forged, env({ VERCEL: '1' })), forged);
+  });
+});
+
+describe('CISO: Dockerfile e .dockerignore endurecidos', () => {
+  const root = resolve(process.cwd());
+  const dockerignore = readFileSync(resolve(root, '.dockerignore'), 'utf8');
+  const dockerfile = readFileSync(resolve(root, 'Dockerfile'), 'utf8');
+
+  it('dockerignore exclui .env, .git, testes, worktrees, chaves e .vercel', () => {
+    for (const needle of ['.env.*', '.git', 'tests', 'worktrees', 'wt-*', '.vercel', '*.pem', '*.key', '*.p12', '*.pfx', '.secrets']) {
+      assert.match(dockerignore, new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, (ch) => `\\${ch}`)), needle);
+    }
+  });
+
+  it('chown so em /tmp e /app/.data; codigo somente leitura para o usuario node', () => {
+    assert.doesNotMatch(dockerfile, /chown\s+-R\s+node:node\s+\/app\s/);
+    assert.match(dockerfile, /chown\s+-R\s+node:node\s+\/tmp\s+\/app\/\.data/);
+    assert.match(dockerfile, /chmod\s+-R\s+a\+rX,a-w\s+\/app/);
+    assert.match(dockerfile, /USER node/);
+  });
+});
+
+describe('CISO: apply.sh usa OIDC e nao passa CRON_SECRET na linha de comando', () => {
+  it('flags OIDC presentes; CRON_SECRET nao e interpolado nem enviado como Bearer', () => {
+    const sh = readFileSync(resolve(process.cwd(), 'deploy/cloud-scheduler/apply.sh'), 'utf8');
+    const yaml = readFileSync(resolve(process.cwd(), 'deploy/cloud-scheduler/jobs.yaml'), 'utf8');
+    assert.match(sh, /--oidc-service-account-email=/);
+    assert.match(sh, /--oidc-token-audience=/);
+    assert.match(sh, /CRON_OIDC_SERVICE_ACCOUNT/);
+    assert.doesNotMatch(sh, /\$\{CRON_SECRET\}/);
+    assert.doesNotMatch(sh, /\$CRON_SECRET\b/);
+    assert.doesNotMatch(sh, /Authorization=Bearer/);
+    assert.doesNotMatch(yaml, /Authorization:\s*Bearer\s*\$\{CRON_SECRET\}/);
+    assert.match(yaml, /oidc:/);
+    assert.equal(isCronOidcConfigured(env({})), false);
+    assert.equal(isCronOidcConfigured(env({ CRON_OIDC_SERVICE_ACCOUNT: 'sa@x.iam.gserviceaccount.com' })), false);
+    assert.equal(
+      isCronOidcConfigured(env({
+        CRON_OIDC_SERVICE_ACCOUNT: 'sa@x.iam.gserviceaccount.com',
+        STI_HUB_PUBLIC_ORIGIN: 'https://sti-hub.setatelecom.com.br',
+      })),
+      true
+    );
+    assert.equal(looksLikeBearerJwt('Bearer aaa.bbb.ccc'), true);
+    assert.equal(looksLikeBearerJwt('Bearer cron-secret-de-teste-com-32-caracteres-xyz'), false);
+  });
+});

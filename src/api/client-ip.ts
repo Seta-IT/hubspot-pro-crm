@@ -12,7 +12,7 @@
 //   none     — nenhum cabecalho de proxy e confiavel (fail-closed => undefined;
 //              o chamador usa o balde 'sem-ip').
 // ============================================================================
-import { resolveTrustedProxyHops, resolveTrustedProxyMode, type TrustedProxyMode } from '../lib/platform';
+import { isCloudRunRuntime, resolveTrustedProxyHops, resolveTrustedProxyMode, type TrustedProxyMode } from '../lib/platform';
 
 type HeaderGetter = { get(name: string): string | null };
 
@@ -40,11 +40,11 @@ export function clientIpFromForwardedFor(xff: string | null | undefined, hops: n
   return ip && IP_RE.test(ip) ? ip : undefined;
 }
 
-function normalizeMode(mode?: TrustedProxyMode | boolean): TrustedProxyMode {
+function normalizeMode(mode?: TrustedProxyMode | boolean, env: NodeJS.ProcessEnv = process.env): TrustedProxyMode {
   if (mode === true) return 'vercel';
   if (mode === false) return 'none';
   if (mode === 'vercel' || mode === 'cloudrun' || mode === 'none') return mode;
-  return resolveTrustedProxyMode();
+  return resolveTrustedProxyMode(env);
 }
 
 /**
@@ -55,14 +55,17 @@ function normalizeMode(mode?: TrustedProxyMode | boolean): TrustedProxyMode {
  */
 export function resolveTrustedClientIp(
   headers: HeaderGetter,
-  mode?: TrustedProxyMode | boolean
+  mode?: TrustedProxyMode | boolean,
+  env: NodeJS.ProcessEnv = process.env
 ): string | undefined {
-  const resolved = normalizeMode(mode);
+  let resolved = normalizeMode(mode, env);
+  // Com K_SERVICE/CLOUD_RUN_JOB, recusa o modo vercel (X-Real-IP forjavel).
+  if (isCloudRunRuntime(env) && resolved === 'vercel') resolved = 'cloudrun';
   if (resolved === 'vercel') {
     return firstIp(headers.get('x-vercel-forwarded-for')) || firstIp(headers.get('x-real-ip'));
   }
   if (resolved === 'cloudrun') {
-    return clientIpFromForwardedFor(headers.get('x-forwarded-for'), resolveTrustedProxyHops());
+    return clientIpFromForwardedFor(headers.get('x-forwarded-for'), resolveTrustedProxyHops(env));
   }
   return undefined;
 }

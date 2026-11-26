@@ -19,15 +19,18 @@ function envFlag(raw: string | undefined): boolean | undefined {
   return undefined;
 }
 
-/** Cloud Run define K_SERVICE (e K_REVISION / K_CONFIGURATION) em todo servico. */
+/**
+ * Cloud Run service: K_SERVICE. Cloud Run Job: CLOUD_RUN_JOB
+ * (o Job de migracao nao define K_SERVICE).
+ */
 export function isCloudRunRuntime(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(env.K_SERVICE && String(env.K_SERVICE).trim());
+  return Boolean(String(env.K_SERVICE || '').trim() || String(env.CLOUD_RUN_JOB || '').trim());
 }
 
 /**
  * Runtime de producao para OAuth, origem publica e cookies.
  * Sinais: NODE_ENV=production, VERCEL=1, VERCEL_ENV=production|preview,
- * TRUSTED_PROXY_MODE=cloudrun ou K_SERVICE (Cloud Run).
+ * TRUSTED_PROXY_MODE=cloudrun, K_SERVICE ou CLOUD_RUN_JOB.
  */
 export function isProductionRuntime(env: NodeJS.ProcessEnv = process.env): boolean {
   if (env.VERCEL === '1') return true;
@@ -47,37 +50,48 @@ export function isSecretProductionRuntime(env: NodeJS.ProcessEnv = process.env):
   if (typeof process === 'undefined' || !env) return false;
   const vercelEnv = String(env.VERCEL_ENV || '').toLowerCase();
   if (vercelEnv === 'production' || vercelEnv === 'preview') return true;
-  // Cloud Run nunca aceita o segredo de desenvolvimento, mesmo com STI_HUB_ALLOW_DEV_SECRET.
+  // Cloud Run (servico ou Job) nunca aceita o segredo de desenvolvimento.
   if (isCloudRunRuntime(env) || String(env.TRUSTED_PROXY_MODE || '').trim().toLowerCase() === 'cloudrun') return true;
   return env.NODE_ENV === 'production' && env.STI_HUB_ALLOW_DEV_SECRET !== 'true';
 }
 
 /**
  * Cookie Secure.
- * SECURE_COOKIES=1/true/on liga; 0/false/off desliga.
- * Sem a variavel: ligado em producao ou com VERCEL=1 (default seguro).
+ * Em producao o atributo Secure fica SEMPRE ligado: SECURE_COOKIES=0/false/off e ignorado.
+ * Fora de producao: SECURE_COOKIES=1/true/on liga; 0/false/off desliga; sem a variavel, desligado.
  */
 export function useSecureCookies(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (isProductionRuntime(env)) return true;
   const explicit = envFlag(env.SECURE_COOKIES);
   if (explicit !== undefined) return explicit;
-  return isProductionRuntime(env);
+  return false;
 }
 
 /**
  * TRUSTED_PROXY_MODE=vercel|cloudrun|none.
- * Sem a variavel: vercel se VERCEL=1; cloudrun se K_SERVICE; senao none (fail-closed).
+ * Sem a variavel: vercel se VERCEL=1; cloudrun se K_SERVICE ou CLOUD_RUN_JOB; senao none.
+ * Com K_SERVICE ou CLOUD_RUN_JOB, o modo vercel e recusado (ele confia em X-Real-IP,
+ * forjavel no Cloud Run) e o modo e forçado para cloudrun. none explicito permanece
+ * fail-closed.
  */
 export function resolveTrustedProxyMode(env: NodeJS.ProcessEnv = process.env): TrustedProxyMode {
   const raw = String(env.TRUSTED_PROXY_MODE || '').trim().toLowerCase();
+  if (isCloudRunRuntime(env)) {
+    if (raw === 'none') return 'none';
+    return 'cloudrun';
+  }
   if (raw === 'vercel' || raw === 'cloudrun' || raw === 'none') return raw;
   if (env.VERCEL === '1') return 'vercel';
-  if (isCloudRunRuntime(env)) return 'cloudrun';
   return 'none';
 }
 
 /**
  * Quantos proxies confiaveis contar a partir da direita no X-Forwarded-For.
- * TRUSTED_PROXY_HOPS (1–10), padrao 1 (Google Front End no Cloud Run).
+ * TRUSTED_PROXY_HOPS (1–10).
+ *  - Padrao 1: so o Google Front End (URL run.app do Cloud Run).
+ *  - 2: load balancer HTTPS externo na frente do Cloud Run (o LB acrescenta o
+ *    IP do cliente; o GFE acrescenta o IP do LB). A entrada correta e a
+ *    segunda a partir da direita. hops=1 nesse caso devolveria o IP do LB.
  */
 export function resolveTrustedProxyHops(env: NodeJS.ProcessEnv = process.env): number {
   const n = Number(env.TRUSTED_PROXY_HOPS);
@@ -85,7 +99,7 @@ export function resolveTrustedProxyHops(env: NodeJS.ProcessEnv = process.env): n
   return 1;
 }
 
-/** Filesystem efemero (Vercel / Cloud Run): o JSON store, se usado, vai para /tmp. */
+/** Filesystem efemero (Vercel / Cloud Run service ou Job): o JSON store, se usado, vai para /tmp. */
 export function usesEphemeralFilesystem(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.VERCEL === '1' || resolveTrustedProxyMode(env) === 'cloudrun' || isCloudRunRuntime(env);
 }
@@ -113,6 +127,21 @@ export function resolveConfiguredPublicOrigin(env: NodeJS.ProcessEnv = process.e
   if (!origin) return null;
   if (isProductionRuntime(env) && !origin.startsWith('https:')) return null;
   return origin;
+}
+
+/**
+ * Origem para links (proposta, convite). Com NODE_ENV=production: SOMENTE
+ * STI_HUB_PUBLIC_ORIGIN. Sem ela, null (fail-closed) — ignora o Host / origem
+ * da requisicao. A regra usa so NODE_ENV=production (nao VERCEL=1 / K_SERVICE):
+ * o container e a Vercel de producao ja definem essa variavel, e os testes
+ * paralelos ligam os outros sinais para cookies/IP.
+ * Fora de producao: env, depois a origem da requisicao.
+ */
+export function resolvePublicOriginForLinks(requestOrigin?: string | null, env: NodeJS.ProcessEnv = process.env): string | null {
+  const configured = resolveConfiguredPublicOrigin(env);
+  if (configured) return configured;
+  if (env.NODE_ENV === 'production') return null;
+  return parseHttpOrigin(requestOrigin);
 }
 
 const DEV_CORS_ORIGINS = [

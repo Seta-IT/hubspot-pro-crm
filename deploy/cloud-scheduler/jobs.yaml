@@ -4,18 +4,23 @@
 #
 # Nao aplicar automaticamente. Uso:
 #   STI_HUB_PUBLIC_ORIGIN=https://sti-hub.setatelecom.com.br \
-#   CRON_SECRET=... \
+#   CRON_OIDC_SERVICE_ACCOUNT=sti-hub-scheduler@PROJECT.iam.gserviceaccount.com \
+#   CRON_OIDC_AUDIENCE=https://sti-hub.setatelecom.com.br \
 #   GCP_PROJECT=... \
 #   GCP_REGION=southamerica-east1 \
 #   bash deploy/cloud-scheduler/apply.sh
 #
-# Autenticacao: Authorization: Bearer ${CRON_SECRET} (o mesmo segredo que as
-# rotas /api/cron/* e o daily-sync validam em tempo constante, fail-closed).
+# Autenticacao: OIDC do Cloud Scheduler (service account + audience).
+# O script apply.sh NAO passa CRON_SECRET na linha de comando.
+# Bearer CRON_SECRET permanece so como compatibilidade da migracao Vercel
+# (variavel de ambiente no servico, nunca neste YAML). Ver
+# docs/CLOUD_RUN_MIGRATION.md.
 
 timeZone: UTC
 httpMethod: GET
-headers:
-  Authorization: Bearer ${CRON_SECRET}
+oidc:
+  serviceAccountEmail: ${CRON_OIDC_SERVICE_ACCOUNT}
+  audience: ${CRON_OIDC_AUDIENCE:-${STI_HUB_PUBLIC_ORIGIN}}
 
 jobs:
   - name: sti-hub-erp-daily-sync

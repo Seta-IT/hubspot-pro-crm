@@ -108,4 +108,14 @@ describe('Checagem final v4: STI_HUB_PUBLIC_ORIGIN no link assinado', () => {
     assert.equal(r.status, 200);
     assert.match((r.body as { data: { url: string } }).data.url, /^https:\/\/preview-xyz\.vercel\.app\/proposta\/prop-fixture-002#t=/);
   });
+
+  it('em producao, sem STI_HUB_PUBLIC_ORIGIN falha fechado e ignora o Host da requisicao', () => {
+    assert.equal(resolveProposalLinkOrigin('https://forged-host.example', { NODE_ENV: 'production' } as NodeJS.ProcessEnv), '');
+    assert.equal(
+      resolveProposalLinkOrigin('https://forged-host.example', { NODE_ENV: 'production', STI_HUB_PUBLIC_ORIGIN: 'https://sti-hub.setatelecom.com.br' } as NodeJS.ProcessEnv),
+      'https://sti-hub.setatelecom.com.br'
+    );
+    // NODE_ENV=test (esta suíte): o fallback da requisicao permanece — ver o teste anterior.
+    assert.equal(resolveProposalLinkOrigin('https://forged-host.example', { NODE_ENV: 'test' } as NodeJS.ProcessEnv), 'https://forged-host.example');
+  });
 });

@@ -8,6 +8,7 @@ import type { StiHubMacroModule } from './db/types';
 import { evaluateServiceBearerAtEdge, parseServiceBearer } from './app/lib/service-account';
 import { claimsMayManageIam, isIamAdminRoute, isSelfProfileRoute } from './app/lib/iam-admin-routes';
 import { isSensitiveProposalPath, SENSITIVE_PROPOSAL_HEADERS } from './app/lib/sensitive-paths';
+import { isCronOidcConfigured, looksLikeBearerJwt } from './app/lib/cron-oidc-config';
 
 const PUBLIC_PATH_PREFIXES = [
   '/login',
@@ -428,22 +429,25 @@ export function middleware(req: NextRequest) {
 
   const isLoggedOutCookie = req.cookies.get('stihub_logged_out')?.value === '1';
 
-  // Cron da Vercel (GET exactos /api/erp/daily-sync, /api/crm/proposal-followup e /api/tickets/email-intake/poll):
-  // autorizado somente com Authorization: Bearer <CRON_SECRET> quando configurado.
+  // Cron (Cloud Scheduler OIDC ou compatibilidade CRON_SECRET): GET exactos nas rotas
+  // de cron. O Edge so compara o Bearer CRON_SECRET em tempo constante, ou deixa passar
+  // um Bearer em forma de JWT quando o OIDC esta configurado; a assinatura e conferida
+  // no bridge (Node) antes de _cronAuthorized.
   const cronSecret = process.env.CRON_SECRET?.trim();
-  if (
-    cronSecret &&
-    cronSecret.length >= 16 &&
+  const isCronGetPath =
+    req.method === 'GET' &&
     (pathname === '/api/erp/daily-sync' ||
       pathname === '/api/crm/proposal-followup' ||
       pathname === '/api/tickets/email-intake/poll' ||
       pathname === '/api/cron/sequences' ||
       pathname === '/api/cron/marketing' ||
-      pathname === '/api/cron/workflows') &&
-    req.method === 'GET' &&
-    constantTimeEqual(req.headers.get('authorization') || '', `Bearer ${cronSecret}`)
-  ) {
-    return applySecurityHeaders(NextResponse.next(), 'cron-secret-allowed');
+      pathname === '/api/cron/workflows');
+  const authz = req.headers.get('authorization') || '';
+  const cronSecretOk =
+    Boolean(cronSecret && cronSecret.length >= 16 && constantTimeEqual(authz, `Bearer ${cronSecret}`));
+  const cronOidcLooksOk = isCronOidcConfigured() && looksLikeBearerJwt(authz);
+  if (isCronGetPath && (cronSecretOk || cronOidcLooksOk)) {
+    return applySecurityHeaders(NextResponse.next(), cronSecretOk ? 'cron-secret-allowed' : 'cron-oidc-allowed');
   }
 
   // Bloqueio estrito em todas as paginas e em todas as rotas /api nao publicas:

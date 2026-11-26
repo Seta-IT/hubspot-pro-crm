@@ -12,6 +12,7 @@ import {
   readBodyWithCap,
 } from '../lib/bridge-body-limit';
 import { isValidCronBearer, resolveCronSecret } from '../lib/cron-auth';
+import { isValidCronOidcBearer } from '../lib/cron-oidc';
 import { hashServiceToken, parseServiceBearer, SERVICE_MAX_BODY_BYTES } from '../lib/service-account';
 import { isSessionTokenRevoked } from '../lib/session-revocation';
 
@@ -113,24 +114,24 @@ export async function forwardToCrmRouter(
   query._fromHttpBridge = '1';
   query._origin = url.origin;
 
-  // Vercel Cron: GET exactos /api/erp/daily-sync, /api/crm/proposal-followup, /api/tickets/email-intake/poll
-  // e /api/cron/sequences (Fase 2, executor das cadencias; sem SEQUENCES_LIVE_SEND nao envia nada)
-  // e /api/cron/marketing (Fase 3, fila das campanhas; sem MARKETING_LIVE_SEND nao envia nada)
-  // e /api/cron/workflows (Fase 4, automacoes; sem WORKFLOWS_LIVE nao executa nada)
-  // com Authorization: Bearer <CRON_SECRET>.
-  // CISO 15/11: SHA-256 + timingSafeEqual; fail-closed sem CRON_SECRET (nunca roda sem auth).
+  // Cloud Scheduler (OIDC) ou compatibilidade Vercel: GET exactos nas rotas de cron
+  // com Authorization: Bearer <JWT OIDC> ou Bearer <CRON_SECRET>.
+  // CISO 26/11: preferir OIDC (assinatura RS256 + JWKS Google); CRON_SECRET so como
+  // compatibilidade da migracao. Fail-closed se nenhum dos dois passar.
   const cronPath = path.replace(/\/+$/, '');
-  if (
+  const isCronGet =
     req.method === 'GET' &&
     (cronPath === '/api/erp/daily-sync' ||
       cronPath === '/api/crm/proposal-followup' ||
       cronPath === '/api/tickets/email-intake/poll' ||
       cronPath === '/api/cron/sequences' ||
       cronPath === '/api/cron/marketing' ||
-      cronPath === '/api/cron/workflows') &&
-    isValidCronBearer(req.headers.get('authorization'), resolveCronSecret())
-  ) {
-    query._cronAuthorized = '1';
+      cronPath === '/api/cron/workflows');
+  if (isCronGet) {
+    const authorization = req.headers.get('authorization');
+    const secretOk = isValidCronBearer(authorization, resolveCronSecret());
+    const oidcOk = secretOk ? false : await isValidCronOidcBearer(authorization);
+    if (secretOk || oidcOk) query._cronAuthorized = '1';
   }
 
   let body: unknown = undefined;

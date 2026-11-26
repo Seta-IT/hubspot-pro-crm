@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
-# Cria ou atualiza os 6 jobs do Cloud Scheduler. NAO executar no ciclo de
-# preparacao do codigo (sem gcloud apply neste repositorio ate o CISO e o
-# Marcéllo autorizarem a publicacao).
+# Cria ou atualiza os 6 jobs do Cloud Scheduler com autenticacao OIDC.
+# NAO executar no ciclo de preparacao do codigo (sem gcloud apply neste
+# repositorio ate o CISO e o Marcéllo autorizarem a publicacao).
+#
+# O script NAO recebe e NAO interpola CRON_SECRET na linha de comando.
+# O Cloud Scheduler assina um token OIDC com a service account e a audience
+# configuradas; a rota de cron valida o JWT (iss Google, aud, email, exp, RS256).
+#
+# Bearer CRON_SECRET permanece so como compatibilidade da migracao Vercel
+# (variavel de ambiente no servico, nunca neste script). Ver
+# docs/CLOUD_RUN_MIGRATION.md.
 set -euo pipefail
 
 : "${STI_HUB_PUBLIC_ORIGIN:?defina STI_HUB_PUBLIC_ORIGIN (https)}"
-: "${CRON_SECRET:?defina CRON_SECRET (>= 16 caracteres)}"
 : "${GCP_PROJECT:?defina GCP_PROJECT}"
+: "${CRON_OIDC_SERVICE_ACCOUNT:?defina CRON_OIDC_SERVICE_ACCOUNT (email da SA)}"
 GCP_REGION="${GCP_REGION:-southamerica-east1}"
 TIME_ZONE="${TIME_ZONE:-UTC}"
 
 ORIGIN="${STI_HUB_PUBLIC_ORIGIN%/}"
-AUTH_HEADER="Authorization=Bearer ${CRON_SECRET}"
+AUDIENCE="${CRON_OIDC_AUDIENCE:-$ORIGIN}"
 
 create_or_update() {
   local name="$1" schedule="$2" path="$3" description="$4"
@@ -24,7 +32,8 @@ create_or_update() {
       --time-zone="${TIME_ZONE}" \
       --uri="${uri}" \
       --http-method=GET \
-      --update-headers="${AUTH_HEADER}" \
+      --oidc-service-account-email="${CRON_OIDC_SERVICE_ACCOUNT}" \
+      --oidc-token-audience="${AUDIENCE}" \
       --description="${description}"
   else
     gcloud scheduler jobs create http "${name}" \
@@ -34,7 +43,8 @@ create_or_update() {
       --time-zone="${TIME_ZONE}" \
       --uri="${uri}" \
       --http-method=GET \
-      --headers="${AUTH_HEADER}" \
+      --oidc-service-account-email="${CRON_OIDC_SERVICE_ACCOUNT}" \
+      --oidc-token-audience="${AUDIENCE}" \
       --description="${description}"
   fi
 }

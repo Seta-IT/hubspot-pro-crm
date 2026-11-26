@@ -86,7 +86,7 @@ async function approve(router: CrmApiRouter, id: string, token: string | undefin
 
 const savedEnv = { ...process.env };
 afterEach(() => {
-  for (const k of ['STI_HUB_PROPOSAL_LINK_SECRET', 'STI_HUB_PROPOSAL_LINK_TTL_DAYS', 'STI_HUB_PROPOSAL_PUBLIC_APPROVE', 'VERCEL_ENV', 'STI_HUB_SESSION_SECRET']) {
+  for (const k of ['STI_HUB_PROPOSAL_LINK_SECRET', 'STI_HUB_PROPOSAL_LINK_TTL_DAYS', 'STI_HUB_PROPOSAL_PUBLIC_APPROVE', 'VERCEL_ENV', 'STI_HUB_SESSION_SECRET', 'STI_HUB_PUBLIC_ORIGIN']) {
     if (savedEnv[k] === undefined) delete process.env[k];
     else process.env[k] = savedEnv[k];
   }
@@ -1806,6 +1806,13 @@ describe('D3: status no aceite publico e na emissao do link', () => {
     assert.equal((await issue(router, mine.id, mariaSess)).status, 503);
     process.env.STI_HUB_PROPOSAL_LINK_SECRET = 'c'.repeat(48);
     assert.equal(cur(repo, mine.id).status, 'RASCUNHO');
+    // CISO: em producao, sem STI_HUB_PUBLIC_ORIGIN falha fechado (nao usa Host) e permanece RASCUNHO.
+    delete process.env.STI_HUB_PUBLIC_ORIGIN;
+    const noOrigin = await issue(router, mine.id, mariaSess);
+    assert.equal(noOrigin.status, 503);
+    assert.equal((noOrigin.body as { code?: string }).code, 'PUBLIC_ORIGIN_NOT_CONFIGURED');
+    assert.equal(cur(repo, mine.id).status, 'RASCUNHO');
+    process.env.STI_HUB_PUBLIC_ORIGIN = 'https://sti-hub.setatelecom.com.br';
     // Dona da proposta, com tudo certo => 200 e ENVIADA.
     assert.equal((await issue(router, mine.id, mariaSess)).status, 200);
     assert.equal(cur(repo, mine.id).status, 'ENVIADA');

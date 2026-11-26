@@ -16,7 +16,7 @@
 //    pelo link (o link continua valendo para leitura).
 // ============================================================================
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
-import { isSecretProductionRuntime, parseHttpOrigin, resolveConfiguredPublicOrigin } from '../../lib/platform';
+import { isSecretProductionRuntime, resolvePublicOriginForLinks } from '../../lib/platform';
 import { z } from 'zod';
 import { SlidingWindowRateLimiter } from '../../api/password-reset';
 export { proposalValidUntilEndMs, isProposalValidityExpired, isProposalEffectiveValidityExpired, effectiveProposalValidUntil, proposalLinkNotAfterMs, proposalExpiredRevalidationMessage, PROPOSAL_EXPIRED_REVALIDATION_MESSAGE, formatProposalValidUntilPtBr } from './proposal-validity';
@@ -231,13 +231,12 @@ export { redactProposalLinkTokens, deepRedactProposalLinkTokens, PROPOSAL_LINK_T
 
 /** URL para o cliente: o token vai no FRAGMENTO (#t=), que nao e enviado ao servidor nem ao Referer. */
 /**
- * Origem do link assinado (checagem final v4, 01/11/2026): STI_HUB_PUBLIC_ORIGIN quando
- * configurado e valido (http/https absoluto; so a origem, sem caminho/consulta/fragmento), para
- * o link nao depender do host da requisicao (Preview, alias, Host forjado). Sem o env (ou
- * invalido) => origem da requisicao; sem ela => string vazia (sem dominio fixo de fallback).
+ * Origem do link assinado: STI_HUB_PUBLIC_ORIGIN quando configurado e valido.
+ * Em producao, sem o env (ou invalido) falha fechado (string vazia) e ignora o Host
+ * da requisicao. Fora de producao, cai para a origem da requisicao.
  */
-export function resolveProposalLinkOrigin(requestOrigin?: string | null): string {
-  return resolveConfiguredPublicOrigin() || parseHttpOrigin(requestOrigin) || '';
+export function resolveProposalLinkOrigin(requestOrigin?: string | null, env: NodeJS.ProcessEnv = process.env): string {
+  return resolvePublicOriginForLinks(requestOrigin, env) || '';
 }
 
 /**

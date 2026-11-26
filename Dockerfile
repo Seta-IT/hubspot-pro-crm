@@ -41,7 +41,12 @@ COPY --from=builder /app/next.config.mjs ./next.config.mjs
 # (necessario para o Cloud Run Job `node dist/src/db/cli-migrate.js`).
 COPY --from=deps /app/node_modules ./node_modules
 
-RUN mkdir -p /app/.data /tmp && chown -R node:node /app /tmp
+# Codigo e node_modules permanecem do root, so leitura para o usuario node.
+# Somente /tmp e /app/.data (filesystem efemero) sao gravaveis.
+RUN mkdir -p /app/.data /tmp \
+ && chmod -R a+rX,a-w /app \
+ && chown -R node:node /tmp /app/.data \
+ && chmod 0770 /tmp /app/.data
 USER node
 
 EXPOSE 8080
