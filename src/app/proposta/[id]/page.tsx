@@ -67,6 +67,7 @@ import {
   resolveProposalCommercialPresentation,
 } from '../../lib/proposal-share';
 import { displayProposalTitle } from '../../lib/proposal-title';
+import { displayProposalVersionSummary } from '../../lib/proposal-version-summary';
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
 import { copySignedProposalVersionLink } from '../../lib/proposal-link-client';
@@ -1439,9 +1440,11 @@ function PublicProposalPrintContent() {
                                     ? `${formatBRL(amount.amount)} (pagamento único) • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"}`
                                     : `${formatBRL(amount.amount)}${amount.suffix}${amount.showSetup && !amount.oneTime ? ` • ${proposalSetupFeeLabel(snapProp)}: ${formatBRL(amount.setupAmount)}` : ''} • ${itemsCount} ${itemsCount === 1 ? "item" : "itens"} • ${snapProp.contractMonths ?? proposal.contractMonths} meses`}
                                 </div>
+                                {displayProposalVersionSummary(ver.changeSummary) ? (
                                 <div className="text-[11px] text-slate-600 mt-0.5">
-                                  {ver.changeSummary}
+                                  {displayProposalVersionSummary(ver.changeSummary)}
                                 </div>
+                                ) : null}
                               </td>
 
                               <td className="py-3 px-4 text-right whitespace-nowrap">

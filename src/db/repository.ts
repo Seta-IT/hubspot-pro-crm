@@ -577,7 +577,7 @@ export function ensureProposalInitializedWithVersion(p: ErpCommercialProposal): 
         savedAt: p.createdAt || p.updatedAt || new Date().toISOString(),
         savedBy: p.sellerName || "Marcelo Lopes Mira",
         changedFields: ["Emissão Inicial da Proposta"],
-        changeSummary: `Versão inicial da Proposta Comercial #${p.code} (v${initialVer}.0)`,
+        changeSummary: '',
         snapshot: snap,
       },
     ];
