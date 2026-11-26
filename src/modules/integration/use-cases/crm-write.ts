@@ -131,9 +131,14 @@ export const crmTasksUpdate = defineUseCase({
     await taskLinks(ctx, patch);
     const body: Record<string, unknown> = { ...patch };
     const who = assignedUserId ? assigneeUser(ctx, assignedUserId) : null;
+    // CISO 26/11 (Lote 2, 4): reatribuir troca o dono => so carteira TODOS (antes de gravar).
+    const reassign = who && (await ctx.owners.get('crm.task', current.id)) !== who.id ? who : null;
+    if (reassign && ctx.auth.portfolioScope !== 'TODOS') {
+      throw new UseCaseError(403, 'OWNER_TRANSFER_FORBIDDEN', 'Reatribuir a tarefa troca o dono do registro: exige carteira TODOS.', { fields: ['assignedUserId'] });
+    }
     if (who) body.assignedTo = who.name;
     const updated = unwrapWrite(await ctx.data.write('PATCH', `/api/tasks/${encodeURIComponent(current.id)}`, body), 'Tarefa') as CrmTask;
-    if (who) await ctx.owners.set('crm.task', current.id, who.id);
+    if (reassign) await ctx.owners.transfer('crm.task', current.id, reassign.id);
     const out = toTask(updated);
     recordWriteAudit(ctx, 'crm.task', 'update', out.id, toTask(current), out);
     return { data: out };

@@ -81,10 +81,32 @@ export async function executeUseCase(def: UseCaseDefinition, rawInput: unknown, 
     const ownerId = ceiling.owner.id;
     const store = deps.store;
     // Sem store (nunca em runtime: REST/MCP exigem o store) => sem posse gravada => fail-closed.
+    // CISO 26/11 (Lote 2, 5): as tabelas da migracao manual nao sao criadas no boot. Sem elas, nenhuma
+    // escrita comeca (fail-closed ANTES de tocar no app).
+    if (def.method !== 'GET' && (!store || !(await store.manualMigrationReady()))) {
+      return { ok: false, status: 503, code: 'MIGRATION_REQUIRED', title: 'Escritas do conector desligadas: falta a migracao manual da API v1 (db:migrate:api-v1).' };
+    }
     const owners = {
       get: async (entity: string, recordId: string) => (store ? store.getRecordOwner(entity, recordId) : null),
+      // CISO 26/11 (Lote 2, 4): so insere; dono existente nunca e sobrescrito.
       set: async (entity: string, recordId: string, ownerUserId?: string) => {
-        if (store) await store.putRecordOwner({ entity, recordId, ownerUserId: ownerUserId || ownerId, createdAt: deps.now().toISOString() });
+        if (!store) throw new UseCaseError(503, 'OWNER_REGISTRY_UNAVAILABLE', 'Registro de dono indisponivel.');
+        const inserted = await store.insertRecordOwner({ entity, recordId, ownerUserId: ownerUserId || ownerId, createdAt: deps.now().toISOString() });
+        if (!inserted) throw new UseCaseError(409, 'OWNER_ALREADY_SET', 'O registro ja tem dono; a troca so acontece pela mudanca de responsavel.');
+      },
+      // Troca de dono: so pela mudanca de responsavel, com carteira TODOS, CAS pelo dono atual.
+      transfer: async (entity: string, recordId: string, toOwnerUserId: string) => {
+        if (!store) throw new UseCaseError(503, 'OWNER_REGISTRY_UNAVAILABLE', 'Registro de dono indisponivel.');
+        const current = await store.getRecordOwner(entity, recordId);
+        if (current === toOwnerUserId) return;
+        if (auth.portfolioScope !== 'TODOS') {
+          // PROPRIOS/EQUIPE so "reatribui" para si mesmo um registro que ja era seu (sem dono no registro) => nada a trocar.
+          if (current === null && toOwnerUserId === ownerId) return;
+          throw new UseCaseError(403, 'OWNER_TRANSFER_FORBIDDEN', 'Trocar o dono do registro exige carteira TODOS (mudanca de responsavel).');
+        }
+        const ok = await store.transferRecordOwner(entity, recordId, current, toOwnerUserId, deps.now().toISOString());
+        if (!ok) throw new UseCaseError(409, 'OWNER_CHANGED_CONCURRENTLY', 'O dono do registro mudou durante a operacao; releia e tente de novo.');
+        trail.ownerTransfer = { entity, recordId, from: current, to: toOwnerUserId };
       },
     };
     const out = await def.handler(parsed.data, { auth, data, owner: ceiling.owner, portfolio, allUsers: snap.users, audit: trail, owners });

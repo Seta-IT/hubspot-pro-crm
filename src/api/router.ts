@@ -44,10 +44,12 @@ import {
   checkPostgresHealth,
   getPostgresPool,
   isPostgresEnabled,
+  KvRecordVersionConflictError,
   kvPersistFingerprint,
   loadStateFromPostgres,
   syncStateToPostgres,
 } from '../db/postgres';
+import { erpRecordVersion, type VersionedErpCollection } from '../modules/erp/service-order-version';
 import { currentStateRequestContext, runWithStateRequestContext } from '../db/state-request-context';
 import type { CrmDatabaseState } from '../db/types';
 import {
@@ -2469,6 +2471,48 @@ export class CrmApiRouter {
     return { erpTables: isEmptyErpDiff(diff) ? [] : [{ spec: SERVICE_ORDERS_SPEC, diff, strictInserts: true }] };
   }
 
+  /**
+   * CISO 26/11 (Lote 2, 3): compare-and-swap de OS / pedido de venda. Confere a versao no registro
+   * carregado NESTA requisicao e, com Postgres, registra a pre-condicao para a gravacao conferir de
+   * novo dentro da transacao (linha do crm_kv_store travada; OS em modo tabela: UPDATE ... WHERE
+   * row_version = hidratada). Sem como garantir o CAS => 503 (fail-closed). null = pode gravar.
+   */
+  private erpRecordCompareAndSwap(collection: VersionedErpCollection, recordId: string, expectedVersion: string): ApiResponse | null {
+    const list = ((this.repo.getErpState() as unknown as Record<string, unknown>)[collection] || []) as Array<Record<string, unknown>>;
+    const rec = list.find((r) => r && String(r.id) === recordId) || null;
+    if (!rec) return { status: 404, body: { error: 'Registro não encontrado.' } };
+    const currentVersion = erpRecordVersion(collection, rec);
+    if (currentVersion !== expectedVersion) {
+      return {
+        status: 409,
+        body: { error: 'Este registro foi alterado depois da leitura (versão diferente). Recarregue e tente de novo (nada foi gravado).', code: 'RECORD_VERSION_CONFLICT', currentVersion },
+      };
+    }
+    if (this.canPersistToPostgres()) {
+      const tableRowVersion = collection === 'serviceOrders' && this.serviceOrdersCtx?.mode === 'table';
+      if (!tableRowVersion) {
+        const sctx = currentStateRequestContext();
+        if (!sctx) return { status: 503, body: { error: 'Não foi possível garantir a gravação sem perda agora (nada foi gravado).', code: 'RECORD_CAS_UNAVAILABLE' } };
+        sctx.recordPreconditions = [...(sctx.recordPreconditions || []), { collection, id: recordId, expectedVersion }];
+      }
+    }
+    return null;
+  }
+
+  /** CAS de registro do JSON: conflito no banco => 409; outra falha com CAS pendente => 503 (nunca "ok"). */
+  private recordCasPersistError(err: unknown, hadPreconditions: boolean): ApiResponse | null {
+    if (err instanceof KvRecordVersionConflictError) {
+      return {
+        status: 409,
+        body: { error: 'Este registro foi alterado por outra pessoa ou aba depois da leitura. Recarregue e tente de novo (nada foi gravado).', code: 'RECORD_VERSION_CONFLICT', currentVersion: err.currentVersion },
+      };
+    }
+    if (hadPreconditions && !(err instanceof ErpTableWriteConflictError) && !(err instanceof ErpTableCnpjError) && !(err instanceof ProposalWriteConflictError)) {
+      return { status: 503, body: { error: 'Não foi possível gravar agora (nada foi gravado). Tente de novo.', code: 'RECORD_STORE_UNAVAILABLE' } };
+    }
+    return null;
+  }
+
   /** Erro das tabelas do ERP na gravacao => 409 (conflito), 422 (CNPJ) ou 503 (com diff). */
   private erpTablePersistError(err: unknown, erpTables: Array<{ diff: ErpTableDiff }>): ApiResponse | null {
     if (err instanceof ErpTableWriteConflictError) {
@@ -2620,15 +2664,20 @@ export class CrmApiRouter {
     const erpTables = osPlan.erpTables;
     const sctx = currentStateRequestContext();
     const baseline = sctx?.kvBaselineFingerprint;
+    // CISO 26/11 (Lote 2, 3): pre-condicoes de versao desta requisicao (CAS dentro da transacao).
+    const recordPreconditions = sctx?.recordPreconditions?.length ? [...sctx.recordPreconditions] : undefined;
+    const casOpts = recordPreconditions ? { recordPreconditions } : {};
     if (!ctx) {
-      if (baseline && !erpTables.length && kvPersistFingerprint(this.repo.getState(), false) === baseline) {
+      if (!recordPreconditions && baseline && !erpTables.length && kvPersistFingerprint(this.repo.getState(), false) === baseline) {
         unchangedStateSkips++;
         return { response: null, ok: true };
       }
       try {
-        await this.writeStateToStore(this.repo.getState(), erpTables.length ? { erpTables } : undefined);
+        await this.writeStateToStore(this.repo.getState(), erpTables.length || recordPreconditions ? { ...(erpTables.length ? { erpTables } : {}), ...casOpts } : undefined);
         return { response: null, ok: true };
       } catch (err) {
+        const casErr = this.recordCasPersistError(err, Boolean(recordPreconditions));
+        if (casErr) return { response: casErr, ok: false };
         // Sem OS alteradas: falha temporaria do PostgreSQL e ignorada (comportamento anterior).
         return { response: this.erpTablePersistError(err, erpTables), ok: false };
       }
@@ -2636,6 +2685,7 @@ export class CrmApiRouter {
     const diff = diffHydratedProposals(ctx.hydrated, this.repo.listProposals());
     const gcInserts = this.repo.takePendingGcProposalInserts();
     if (
+      !recordPreconditions &&
       baseline &&
       !erpTables.length &&
       isEmptyDiff(diff) &&
@@ -2647,9 +2697,11 @@ export class CrmApiRouter {
       return { response: null, ok: true };
     }
     try {
-      await this.writeStateToStore(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts, gcInserts }, ...(erpTables.length ? { erpTables } : {}) });
+      await this.writeStateToStore(this.repo.getState(), { proposals: { diff, strictInserts: ctx.strictInserts, gcInserts }, ...(erpTables.length ? { erpTables } : {}), ...casOpts });
       return { response: null, ok: true };
     } catch (err) {
+      const casErr = this.recordCasPersistError(err, Boolean(recordPreconditions));
+      if (casErr) return { response: casErr, ok: false };
       if (err instanceof ErpTableWriteConflictError || err instanceof ErpTableCnpjError) {
         return { response: this.erpTablePersistError(err, erpTables), ok: false };
       }
@@ -4229,6 +4281,32 @@ export class CrmApiRouter {
     const u = this.repo.getRbacState().users.find((x) => x.id === id);
     if (!u || u.active === false) return null;
     return { id: u.id, email: String(u.email || ''), name: String(u.name || u.email || ''), roleId: String(u.roleId || ''), scope: String(u.scope || 'PROPRIOS') };
+  }
+
+  /**
+   * CISO 26/11 (Lote 2, 2): vendedor da OS aberta a partir de chamado. Pelo conector => ator da
+   * integracao (contexto interno); pela tela => usuario da SESSAO. Nunca um nome fixo de pessoa.
+   */
+  private serviceOrderSellerActor(
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): { sellerName: string; sellerUserId?: string } {
+    const actor = this.integrationActor(query, ctx);
+    if (actor) return { sellerName: actor.name, sellerUserId: actor.id };
+    const tok = query._sessionToken;
+    if (tok) {
+      try {
+        const sess = this.repo.resolveSessionFromToken(tok);
+        if (sess.authenticated && sess.user) {
+          const id = String(sess.user.id || '').trim();
+          const name = String(sess.user.name || sess.user.email || '').trim();
+          if (name) return { sellerName: name, ...(id ? { sellerUserId: id } : {}) };
+        }
+      } catch {
+        /* sessao invalida => cai no padrao neutro */
+      }
+    }
+    return { sellerName: 'Sistema STI-hub' };
   }
 
   private static isRestrictedProposalScope(scope: string): boolean {
@@ -7995,12 +8073,12 @@ export class CrmApiRouter {
         const idOrKey = decodeURIComponent(ticketCreateOsMatch[1]);
         // API v1 (correcao CISO Lote 2, 3): pelo conector o vendedor da OS e o dono da credencial
         // (ator da integracao, so no contexto interno), nunca o vendedor fixo do app.
-        const osActor = this.integrationActor(query, ctx);
+        // CISO 26/11 (2): pela tela, o usuario da sessao.
         const result = this.repo.createServiceOrderFromTicket(idOrKey, {
           technicianName: body.technicianName ? String(body.technicianName) : undefined,
           totalAmount: body.totalAmount !== undefined ? Number(body.totalAmount) : undefined,
           description: body.description ? String(body.description) : undefined,
-          ...(osActor ? { sellerName: osActor.name, sellerUserId: osActor.id } : {}),
+          ...this.serviceOrderSellerActor(query, ctx),
         });
         if (!result) {
           return { status: 404, body: { error: 'Chamado não encontrado.' } };
@@ -8114,6 +8192,7 @@ export class CrmApiRouter {
               technicianName: body.technicianName ? String(body.technicianName) : undefined,
               totalAmount: body.totalAmount !== undefined ? Number(body.totalAmount) : undefined,
               description: body.description ? String(body.description) : undefined,
+              ...this.serviceOrderSellerActor(query, ctx), // CISO 26/11 (2)
             });
             if (!resOs) return { status: 404, body: { error: 'Chamado não encontrado.' } };
             return { status: 200, body: { data: resOs.ticket, serviceOrder: resOs.serviceOrder } };
@@ -10133,6 +10212,15 @@ export class CrmApiRouter {
             );
             if (osCnpjError) return { status: 400, body: { error: osCnpjError, code: 'SERVICE_ORDER_CNPJ_INVALID' } };
           }
+          // CISO 26/11 (Lote 2, 3): versao esperada => checa e grava no MESMO passo (sem await no meio).
+          const expectedRecordVersion = typeof query._expectedVersion === 'string' ? query._expectedVersion.trim() : '';
+          if (expectedRecordVersion) {
+            if ((col !== 'salesOrders' && col !== 'serviceOrders') || !recId) {
+              return { status: 400, body: { error: 'Versão esperada só vale para editar OS ou pedido de venda existente.', code: 'RECORD_VERSION_UNSUPPORTED' } };
+            }
+            const cas = this.erpRecordCompareAndSwap(col, recId, expectedRecordVersion);
+            if (cas) return cas;
+          }
           const saved = this.repo.upsertErpCollectionRecord(col, {
             ...body,
             ...(recId ? { id: recId } : {}),
@@ -10176,6 +10264,13 @@ export class CrmApiRouter {
         );
         if (osCnpjError) return { status: 400, body: { error: osCnpjError, code: 'SERVICE_ORDER_CNPJ_INVALID' } };
         rec.status = normalizeServiceOrderStatus(rec.status);
+        // CISO 26/11 (Lote 2, 3): versao esperada => checa e grava no MESMO passo (sem await no meio).
+        const expectedOsVersion = typeof query._expectedVersion === 'string' ? query._expectedVersion.trim() : '';
+        if (expectedOsVersion) {
+          if (typeof rec.id !== 'string' || !rec.id) return { status: 400, body: { error: 'Versão esperada só vale para OS existente.', code: 'RECORD_VERSION_UNSUPPORTED' } };
+          const cas = this.erpRecordCompareAndSwap('serviceOrders', rec.id, expectedOsVersion);
+          if (cas) return cas;
+        }
         const savedOs = this.repo.upsertErpCollectionRecord('serviceOrders', rec, this.sessionActorName(query));
         return { status: 200, body: { data: savedOs } };
       }

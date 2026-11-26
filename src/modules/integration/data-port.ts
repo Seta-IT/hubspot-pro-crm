@@ -130,7 +130,7 @@ export interface IntegrationDataPort {
   /** Usuarios (cadastro vivo do IAM) — teto de carteira/modulos/alcada no consentimento OAuth. */
   listUsers(): Promise<IntegrationUser[]>;
   /** Escrita via rota interna existente (POST/PATCH apenas). */
-  write(method: 'POST' | 'PATCH', path: string, body: Record<string, unknown>, opts?: { actorUserId?: string }): Promise<DataWriteResult>;
+  write(method: 'POST' | 'PATCH', path: string, body: Record<string, unknown>, opts?: { actorUserId?: string; expectedVersion?: string }): Promise<DataWriteResult>;
 }
 
 export interface ErpCollections {
@@ -261,6 +261,7 @@ function assertSafeWriteBody(method: 'POST' | 'PATCH', path: string, body: Recor
   if (/^\/api\/erp\/records\/(salesOrders|purchaseOrders)/.test(path) && body.status !== undefined && isForbiddenOrderStatus(body.status)) fail('situacao de pedido faturada/paga/aprovada');
   if (/^\/api\/erp\/proposals/.test(path) && Object.values(body).some((v) => typeof v === 'string' && hasServiceAccountMarker(v))) fail('marcador da conta de servico');
   if (/^\/api\/erp\/rental-contracts$/.test(path) && method === 'POST' && !['EM_IMPLANTACAO', 'PENDENTE_ASSINATURA'].includes(String(body.status ?? ''))) fail('contrato nasce ATIVO/SUSPENSO');
+  if (/^\/api\/erp\/rental-contracts\/[^/]+$/.test(path) && method === 'PATCH' && body.status !== undefined && !['EM_IMPLANTACAO', 'PENDENTE_ASSINATURA'].includes(String(body.status ?? ''))) fail('contrato ativado/suspenso por edicao');
 }
 
 /** Comparacao normalizada (sem caixa/acentos/pontuacao). */
@@ -422,7 +423,7 @@ export class RouterDataPort implements IntegrationDataPort {
     return Array.isArray(data) ? structuredClone(data) : [];
   }
 
-  async write(method: 'POST' | 'PATCH', path: string, body: Record<string, unknown>, opts: { actorUserId?: string } = {}): Promise<DataWriteResult> {
+  async write(method: 'POST' | 'PATCH', path: string, body: Record<string, unknown>, opts: { actorUserId?: string; expectedVersion?: string } = {}): Promise<DataWriteResult> {
     if (!ALLOWED_WRITE_PATHS.some((re) => re.test(path))) {
       throw new Error('Escrita interna fora da allowlist da API v1.');
     }
@@ -430,6 +431,8 @@ export class RouterDataPort implements IntegrationDataPort {
     this.cache = {};
     // Correcao CISO (Lote 2, 3): dono da credencial como ator (so honrado no contexto interno).
     const query: Record<string, string> = opts.actorUserId ? { _integrationActorId: opts.actorUserId } : {};
+    // CISO 26/11 (Lote 2, 3): a rota confere a versao e grava no mesmo passo (CAS; 409 se mudou).
+    if (opts.expectedVersion) query._expectedVersion = opts.expectedVersion;
     const res = await this.trusted(method, path, query, body);
     return { status: res.status, body: res.body };
   }

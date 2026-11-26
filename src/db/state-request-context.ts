@@ -12,6 +12,18 @@ export interface StateRequestContext {
    * requisicao. So e preenchida nas rotas de abertura/login; zerada depois de qualquer gravacao.
    */
   kvBaselineFingerprint?: string;
+  /**
+   * CISO 26/11 (Lote 2, 3): compare-and-swap de registro do ERP no JSON. A rota confere a versao e
+   * registra aqui; a gravacao confere de novo DENTRO da transacao, com a linha do crm_kv_store travada
+   * (SELECT ... FOR UPDATE). Versao diferente no banco => KvRecordVersionConflictError (409), nada gravado.
+   */
+  recordPreconditions?: KvRecordPrecondition[];
+}
+
+export interface KvRecordPrecondition {
+  collection: 'serviceOrders' | 'salesOrders';
+  id: string;
+  expectedVersion: string;
 }
 
 const storage = new AsyncLocalStorage<StateRequestContext>();

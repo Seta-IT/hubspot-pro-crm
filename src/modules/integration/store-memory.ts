@@ -79,11 +79,31 @@ export class TestOnlyMemoryIntegrationStore implements IntegrationStore {
   async deleteIdempotency(actor: string, key: string) {
     this.idem.delete(`${actor}\u0000${key}`);
   }
-  async putRecordOwner(rec: RecordOwnerRecord) {
+  /** Teste: simula banco sem a migracao manual da API v1 (tabelas ausentes). */
+  manualMigrationApplied = true;
+  async manualMigrationReady() {
+    return this.manualMigrationApplied;
+  }
+  private requireOwnersTable() {
+    if (!this.manualMigrationApplied) throw new Error('relation "api_record_owners" does not exist');
+  }
+  async insertRecordOwner(rec: RecordOwnerRecord) {
+    this.requireOwnersTable();
     const id = `${rec.entity}\u0000${rec.recordId}`;
+    if (this.owners.has(id)) return false;
     this.owners.set(id, clone(rec));
+    return true;
+  }
+  async transferRecordOwner(entity: string, recordId: string, fromOwnerUserId: string | null, toOwnerUserId: string, at: string) {
+    this.requireOwnersTable();
+    const id = `${entity}\u0000${recordId}`;
+    const cur = this.owners.get(id);
+    if ((cur?.ownerUserId ?? null) !== fromOwnerUserId) return false;
+    this.owners.set(id, { entity, recordId, ownerUserId: toOwnerUserId, createdAt: cur?.createdAt || at });
+    return true;
   }
   async getRecordOwner(entity: string, recordId: string) {
+    this.requireOwnersTable();
     return this.owners.get(`${entity}\u0000${recordId}`)?.ownerUserId ?? null;
   }
   async insertAudit(entry: IntegrationAuditEntry) {

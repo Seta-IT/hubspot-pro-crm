@@ -139,8 +139,22 @@ export interface IntegrationStore {
   /** Libera a reserva quando a operacao falhou (5xx/excecao), para permitir nova tentativa. */
   deleteIdempotency(actorScopeKey: string, key: string): Promise<void>;
   // --- posse por ID dos registros criados pelo conector (troca de vendedor sobrescreve) ---
-  putRecordOwner(rec: RecordOwnerRecord): Promise<void>;
+  /**
+   * CISO 26/11 (Lote 2, 4): grava o dono SO se ainda nao houver (nunca sobrescreve).
+   * true = gravou; false = ja havia dono (o existente fica intacto).
+   */
+  insertRecordOwner(rec: RecordOwnerRecord): Promise<boolean>;
+  /**
+   * Troca de dono (so pelo fluxo de mudanca de responsavel, ja autorizado pelo chamador): compare-and-
+   * swap pelo dono atual (`fromOwnerUserId`; null = sem dono). true = trocou; false = dono mudou antes.
+   */
+  transferRecordOwner(entity: string, recordId: string, fromOwnerUserId: string | null, toOwnerUserId: string, at: string): Promise<boolean>;
   getRecordOwner(entity: string, recordId: string): Promise<string | null>;
+  /**
+   * CISO 26/11 (Lote 2, 5): tabelas da migracao manual da API v1 presentes? (nao sao criadas no boot).
+   * false => escritas do conector falham fechadas (503 MIGRATION_REQUIRED).
+   */
+  manualMigrationReady(): Promise<boolean>;
   // --- auditoria ---
   insertAudit(entry: IntegrationAuditEntry): Promise<void>;
   // --- rate-limit (janela fixa, incremento atomico) ---

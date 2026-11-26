@@ -18,6 +18,7 @@ import type {
 import { normalizeModuleAccess, sanitizeRuntimeScopes, isPortfolioScope } from './scopes';
 import { IntegrationStoreUnavailableError, isPostgresConnectivityError } from './store-errors';
 import { runGuardedDdl } from '../../db/schema-guard';
+import { API_V1_MANUAL_TABLES } from './migrations/api-v1-manual-migration';
 
 export interface IntegrationPgQueryable {
   query: (text: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }>;
@@ -55,14 +56,6 @@ CREATE TABLE IF NOT EXISTS api_idempotency_keys (
   PRIMARY KEY (actor_scope_key, idempotency_key)
 );
 CREATE INDEX IF NOT EXISTS idx_api_idempotency_expires ON api_idempotency_keys(expires_at);
-
-CREATE TABLE IF NOT EXISTS api_record_owners (
-  entity TEXT NOT NULL,
-  record_id TEXT NOT NULL,
-  owner_user_id TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (entity, record_id)
-);
 
 CREATE TABLE IF NOT EXISTS integration_audit_logs (
   id TEXT PRIMARY KEY,
@@ -331,11 +324,34 @@ export class PostgresIntegrationStore implements IntegrationStore {
     await this.q(`DELETE FROM api_idempotency_keys WHERE actor_scope_key = $1 AND idempotency_key = $2`, [actorScopeKey, key]);
   }
 
-  async putRecordOwner(rec: RecordOwnerRecord) {
-    await this.q(
-      `INSERT INTO api_record_owners (entity, record_id, owner_user_id, created_at) VALUES ($1,$2,$3,$4) ON CONFLICT (entity, record_id) DO UPDATE SET owner_user_id = EXCLUDED.owner_user_id, created_at = EXCLUDED.created_at`,
+  // CISO 26/11 (Lote 2, 5): api_record_owners vem da migracao MANUAL (nao do boot). Sem a tabela,
+  // a consulta falha (relation does not exist) e a escrita do conector nao segue (fail-closed).
+  private migrationReady = false;
+  async manualMigrationReady() {
+    if (this.migrationReady) return true;
+    const r = await this.q(`SELECT ${API_V1_MANUAL_TABLES.map((t, i) => `to_regclass('public.${t}') IS NOT NULL AS t${i}`).join(', ')}`);
+    const row = (r.rows[0] || {}) as Record<string, unknown>;
+    this.migrationReady = API_V1_MANUAL_TABLES.every((_t, i) => row[`t${i}`] === true);
+    return this.migrationReady;
+  }
+  /** CISO 26/11 (Lote 2, 4): so grava se nao houver dono (nunca sobrescreve). */
+  async insertRecordOwner(rec: RecordOwnerRecord) {
+    const r = await this.q(
+      `INSERT INTO api_record_owners (entity, record_id, owner_user_id, created_at) VALUES ($1,$2,$3,$4) ON CONFLICT (entity, record_id) DO NOTHING RETURNING record_id`,
       [rec.entity, rec.recordId, rec.ownerUserId, rec.createdAt]
     );
+    return (r.rowCount ?? r.rows.length) > 0;
+  }
+  /** Troca de dono com compare-and-swap pelo dono atual (null = sem dono => insere se ausente). */
+  async transferRecordOwner(entity: string, recordId: string, fromOwnerUserId: string | null, toOwnerUserId: string, at: string) {
+    if (fromOwnerUserId === null) {
+      return this.insertRecordOwner({ entity, recordId, ownerUserId: toOwnerUserId, createdAt: at });
+    }
+    const r = await this.q(
+      `UPDATE api_record_owners SET owner_user_id = $4 WHERE entity = $1 AND record_id = $2 AND owner_user_id = $3 RETURNING record_id`,
+      [entity, recordId, fromOwnerUserId, toOwnerUserId]
+    );
+    return (r.rowCount ?? r.rows.length) > 0;
   }
   async getRecordOwner(entity: string, recordId: string) {
     const r = await this.q(`SELECT owner_user_id FROM api_record_owners WHERE entity = $1 AND record_id = $2`, [entity, recordId]);

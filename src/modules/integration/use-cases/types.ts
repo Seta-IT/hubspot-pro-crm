@@ -29,8 +29,16 @@ export interface UseCaseContext {
 
 export interface RecordOwnerPort {
   get(entity: string, recordId: string): Promise<string | null>;
-  /** Grava o dono (padrao: dono da credencial; troca de vendedor com TODOS: o novo vendedor). */
+  /**
+   * Grava o dono de registro NOVO (padrao: dono da credencial). CISO 26/11 (Lote 2, 4): nunca
+   * sobrescreve — ja havendo dono => 409 OWNER_ALREADY_SET (o existente fica intacto).
+   */
   set(entity: string, recordId: string, ownerUserId?: string): Promise<void>;
+  /**
+   * Troca de dono, SO pelo fluxo de mudanca de responsavel: exige carteira TODOS (a mesma regra que
+   * autoriza trocar o vendedor/responsavel) e faz compare-and-swap pelo dono atual (409 se mudou).
+   */
+  transfer(entity: string, recordId: string, toOwnerUserId: string): Promise<void>;
 }
 
 export interface WriteAuditTrail {
@@ -40,6 +48,8 @@ export interface WriteAuditTrail {
   changedFields?: string[];
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
+  /** CISO 26/11 (Lote 2, 4): troca de dono registrada (de -> para), so pelo fluxo de responsavel. */
+  ownerTransfer?: { entity: string; recordId: string; from: string | null; to: string };
 }
 
 export interface UseCaseDefinition<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodType> {

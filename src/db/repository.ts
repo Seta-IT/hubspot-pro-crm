@@ -4450,7 +4450,7 @@ export class CrmRepository {
       technicianName?: string;
       totalAmount?: number;
       description?: string;
-      /** API v1: vendedor = ator da integracao (sem isso, o padrao do app). */
+      /** Vendedor = usuario da sessao (tela) ou ator da integracao (API v1); sem isso, 'Sistema STI-hub'. */
       sellerName?: string;
       sellerUserId?: string;
     }
@@ -4481,7 +4481,8 @@ export class CrmRepository {
       id: `os-${Date.now()}`,
       code: nextCode,
       companyName: company?.name || 'Cliente Seta Telecom',
-      sellerName: options?.sellerName || 'Marcelo Mira',
+      // CISO 26/11 (Lote 2, 2): vendedor = quem abriu (sessao/ator); sem isso, autoria neutra.
+      sellerName: options?.sellerName || 'Sistema STI-hub',
       ...(options?.sellerUserId ? { sellerUserId: options.sellerUserId } : {}),
       technicianName: options?.technicianName || ticket.assignee || 'NOC N2 - Voz SIP, PABX IP & SD-WAN',
       entryDate: nowDateBr,

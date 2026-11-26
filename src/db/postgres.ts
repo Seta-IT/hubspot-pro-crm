@@ -6,7 +6,8 @@ import { createHash } from 'node:crypto';
 import { Pool, PoolClient } from 'pg';
 import { CrmDatabaseState, ErpCommercialProposal } from './types';
 import { createInitialSeedState } from './seed';
-import { assertStateWriteAllowed, CrmStateMissingError } from './state-request-context';
+import { assertStateWriteAllowed, CrmStateMissingError, type KvRecordPrecondition } from './state-request-context';
+import { erpRecordVersion } from '../modules/erp/service-order-version';
 import { applyProposalDiff, KV_PROPOSALS_GUARD_TRIGGER_DDL, PROPOSALS_TABLE_DDL, insertGcProposalsIfAbsent, isEmptyDiff, PROPOSALS_STORAGE_MARKER, type ProposalDiff } from './proposal-store';
 import {
   applyErpTableDiff,
@@ -706,10 +707,45 @@ function erpDualTargets(state: CrmDatabaseState): Array<{ spec: ErpTableSpec; re
   return out;
 }
 
+/** CISO 26/11 (Lote 2, 3): a versao do registro no banco nao e a esperada (alguem gravou antes). */
+export class KvRecordVersionConflictError extends Error {
+  constructor(
+    readonly collection: string,
+    readonly recordId: string,
+    readonly currentVersion: string
+  ) {
+    super(`RECORD_VERSION_CONFLICT: ${collection}/${recordId}`);
+    this.name = 'KvRecordVersionConflictError';
+  }
+}
+
+export const KV_RECORD_PRECONDITION_SQL = `SELECT payload->'erp'->$1 AS arr FROM crm_kv_store WHERE key = 'crm_state_v1' FOR UPDATE`;
+
+/**
+ * Compare-and-swap transacional no JSON: trava a linha do crm_kv_store (FOR UPDATE: escritores
+ * concorrentes esperam o COMMIT/ROLLBACK desta transacao), le o registro como esta NO BANCO e confere
+ * a versao. Diferente/ausente => lanca (o chamador faz ROLLBACK; nada e gravado).
+ */
+export async function assertKvRecordPreconditions(client: { query: PgQueryable['query'] }, preconditions: KvRecordPrecondition[]): Promise<void> {
+  const byCollection = new Map<string, KvRecordPrecondition[]>();
+  for (const p of preconditions) byCollection.set(p.collection, [...(byCollection.get(p.collection) || []), p]);
+  for (const [collection, list] of byCollection) {
+    const res = (await client.query(KV_RECORD_PRECONDITION_SQL, [collection])) as { rows?: Array<{ arr?: unknown }> };
+    const arr = Array.isArray(res?.rows?.[0]?.arr) ? (res.rows![0].arr as Array<Record<string, unknown>>) : [];
+    for (const p of list) {
+      const rec = arr.find((r) => r && typeof r === 'object' && String(r.id) === p.id) || null;
+      const current = rec ? erpRecordVersion(p.collection, rec) : '';
+      if (current !== p.expectedVersion) throw new KvRecordVersionConflictError(p.collection, p.id, current);
+    }
+  }
+}
+
 export async function syncStateToPostgres(
   state: CrmDatabaseState,
   options?: {
     pool?: PgPoolLike;
+    /** CISO 26/11 (Lote 2, 3): versao esperada de registros do JSON, conferida com a linha travada. */
+    recordPreconditions?: KvRecordPrecondition[];
     /** Modo tabela: diff das propostas hidratadas, aplicado na MESMA transacao do JSON. */
     proposals?: { diff: ProposalDiff; strictInserts?: boolean; gcInserts?: ErpCommercialProposal[] };
     /** Recursos do ERP em modo 'table' (ex.: OS): diff por linha na MESMA transacao do JSON. */
@@ -730,6 +766,11 @@ export async function syncStateToPostgres(
 
   try {
     await client.query('BEGIN');
+
+    // 00. CISO 26/11: compare-and-swap dos registros do JSON (linha travada ate o COMMIT).
+    if (options?.recordPreconditions?.length) {
+      await assertKvRecordPreconditions(client as unknown as { query: PgQueryable['query'] }, options.recordPreconditions);
+    }
 
     // 0. Modo tabela: propostas por linha (controle otimista); conflito => ROLLBACK de tudo.
     if (options?.proposals && !isEmptyDiff(options.proposals.diff)) {

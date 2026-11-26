@@ -142,10 +142,21 @@ Uso: rotina diária (Nova) que sincroniza GestãoClick → STI-hub em produção
 - OpenAPI: a rota **não** entra no `openapi.json` (documento é para chaves IAM/OAuth de integração; esta é credencial interna de serviço).
 
 ## Tabelas (criadas por `ensurePostgresSchema` → `ensureIntegrationSchema`)
-`integration_api_keys`, `api_idempotency_keys`, `integration_audit_logs` (+ `target_user_id`, `details` via `ADD COLUMN IF NOT EXISTS`), `api_rate_limits`, `oauth_clients`, `oauth_auth_codes`, `oauth_tokens`, `api_record_owners` (posse por ID dos registros criados pelo conector). Todos os segredos/tokens/códigos somente como SHA-256.
+`integration_api_keys`, `api_idempotency_keys`, `integration_audit_logs` (+ `target_user_id`, `details` via `ADD COLUMN IF NOT EXISTS`), `api_rate_limits`, `oauth_clients`, `oauth_auth_codes`, `oauth_tokens`. **Fora do boot (migração manual, ver abaixo):** `api_record_owners`. Todos os segredos/tokens/códigos somente como SHA-256.
 
 ## Decisões do CISO (fechadas)
 1. OAuth não oferece `EQUIPE` (não há lista de equipe no cadastro): teto `TODOS` → `PROPRIOS` ou `TODOS`; teto `EQUIPE`/`PROPRIOS` → só `PROPRIOS`.
 2. `Idempotency-Key` permanece **opcional** em POST/PATCH (recomendado para retries).
 3. `/login?next=` é respeitado para retomar o `authorize`, com validação estrita de mesma origem.
 4. `STI_HUB_PUBLIC_ORIGIN` é obrigatória em produção (falha fechado com 503).
+
+### Parecer do CISO de 26/11 — Lote 2
+1. **Contrato nunca chega a ATIVO/SUSPENSO pelo conector.** `status` aceito só `EM_IMPLANTACAO`/`PENDENTE_ASSINATURA`; PATCH de status em contrato fora de rascunho → 403 `CONTRACT_STATUS_FORBIDDEN` (também barrado no data-port); `restore_version` que mudaria o status para/de não-rascunho → 403; `renew` só em `ATIVO`/`RENOVACAO_PROXIMA` (não ativa `PENDENTE_ASSINATURA`) → 409 `CONTRACT_RENEW_WOULD_ACTIVATE`.
+2. **OS a partir de chamado (tela)** grava o usuário da sessão (`sellerName` + `sellerUserId`); sem sessão, `Sistema STI-hub`. Nome fixo removido do repositório.
+3. **CAS atômico.** OS em tabela: `UPDATE … WHERE row_version = $n`. Modo JSON (OS e pedido de venda): a rota confere `_expectedVersion` e grava no mesmo passo síncrono e registra uma pré-condição; dentro da transação do persist, `SELECT payload->'erp'->… FOR UPDATE` reconfere a versão — diferente → ROLLBACK e 409 (`VERSION_CONFLICT` no conector). Pedido de venda: `expectedVersion` obrigatória e `version` exposta na leitura.
+4. **Dono imutável.** O gravador de dono só insere (`ON CONFLICT DO NOTHING`; já existe → 409 `OWNER_ALREADY_SET`). Troca só pela mudança de responsável (`owners.transfer`, CAS no dono atual) e exige carteira `TODOS` (senão 403 `OWNER_TRANSFER_FORBIDDEN`).
+5. **Tabelas fora do boot.** `api_record_owners` saiu do `INTEGRATION_SCHEMA_SQL`; vive em `src/modules/integration/migrations/api-v1-manual-migration.ts`. Sem a tabela, toda escrita do conector → 503 `MIGRATION_REQUIRED` (falha fechada; leituras seguem).
+   - Migração (manual): `npm run db:migrate:api-v1` (dry-run, mostra o que falta) → `npm run db:migrate:api-v1 -- --apply` (transação).
+   - Carga inicial de donos: `npm run api-v1:backfill-owners` (dry-run; relatórios em `./backups/api-v1-owners-<data>/`: `plano.json`, `ambiguos-homonimos.json`, `resumo.json`) → revisar → `npm run api-v1:backfill-owners -- --apply`. Idempotente (`DO NOTHING`, pula quem já tem dono). Resolve por ID (sellerUserId/assignedTo) e, na falta, por e-mail/nome **único**; homônimos e não resolvidos vão para o relatório e **não** são atribuídos. Exige a migração aplicada e recusa produção sem `--allow-production` — **não rodar em produção** sem o ok do CISO.
+6. **Ponto (9)** segue atrás de `INTEGRATION_ENABLE_PLAN_EXPANSION_OPS` (desligada). Para quando ligar: versão no pedido de venda; OS `Concluída`/`Cancelada` (e finalizada/encerrada/faturada) → 409 `SERVICE_ORDER_LOCKED`; técnico por `technicianUserId`, só usuário ativo, na carteira, com módulo ERP e permissão de OS (422 `TECHNICIAN_INVALID`/`TECHNICIAN_NOT_AUTHORIZED`/`TECHNICIAN_AMBIGUOUS`).
+- Risco residual: a troca de dono no registro acontece depois da gravação no app; se a gravação falhar por CAS, o registro não muda (o app também não).

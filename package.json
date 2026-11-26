@@ -11,6 +11,8 @@
     "dev": "next dev -p 3000",
     "db:migrate": "tsc -p tsconfig.build.json && node dist/src/db/cli-migrate.js",
     "db:migrate:setadesk": "tsc -p tsconfig.build.json && node dist/src/db/setadesk-migrate.js",
+    "db:migrate:api-v1": "tsc -p tsconfig.build.json && node dist/src/modules/integration/migrations/cli-api-v1-migrate.js",
+    "api-v1:backfill-owners": "tsc -p tsconfig.build.json && node dist/src/modules/integration/migrations/cli-record-owners-backfill.js",
     "setadesk:import-jira": "tsc -p tsconfig.build.json && node dist/src/db/cli-import-jira.js",
     "setadesk:purge-tickets": "tsc -p tsconfig.build.json && node dist/src/db/cli-purge-tickets.js",
     "db:seed": "tsc -p tsconfig.build.json && node dist/src/db/cli-migrate.js --seed",

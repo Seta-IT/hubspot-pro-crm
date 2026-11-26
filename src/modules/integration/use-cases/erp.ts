@@ -22,7 +22,7 @@ import type {
   ErpRentalContract,
   ErpServiceOrder,
 } from '../../../db/types';
-import { serviceOrderVersion } from '../../erp/service-order-version';
+import { salesOrderVersion, serviceOrderVersion } from '../../erp/service-order-version';
 import type { ErpCollections } from '../data-port';
 import { erpFullControl, includesText, isErpAdmin, requireAllPortfolio, requireOwnerScope, userHasErpAccess } from './common';
 import {
@@ -378,6 +378,8 @@ export const toServiceOrder = (s: ErpServiceOrder): z.infer<typeof ServiceOrderD
 
 export const SaleOrderDto = z.object({
   id: z.string(),
+  /** CISO 26/11 (Lote 2, 3/6): versao para controle otimista (expectedVersion no update). */
+  version: z.string(),
   code: z.string(),
   companyName: z.string(),
   sellerName: z.string(),
@@ -1024,6 +1026,7 @@ export const erpSalesOrdersList = defineUseCase({
     return {
       data: data.map((s) => ({
         id: str(s.id),
+        version: salesOrderVersion(s as unknown as Record<string, unknown>),
         code: str(s.code),
         companyName: str(s.companyName),
         sellerName: str(s.sellerName),

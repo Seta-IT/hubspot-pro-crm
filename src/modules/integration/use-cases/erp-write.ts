@@ -16,9 +16,9 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod/v4';
 import type { ErpCommercialProposal, ErpRentalContract, ErpServiceOrder, ServiceTicket } from '../../../db/types';
 import { nextServiceOrderCode, SERVICE_ORDER_STATUSES } from '../../erp/service-order-workflow';
-import { serviceOrderVersion } from '../../erp/service-order-version';
+import { salesOrderVersion, serviceOrderVersion } from '../../erp/service-order-version';
 import { hasServiceAccountMarker, isForbiddenOrderStatus, normalizeStatusText } from '../data-port';
-import { companyInScope, contactInScope, dealInScope, ticketInScope } from '../portfolio';
+import { companyInScope, contactInScope, dealInScope, resolveAssignableOwner, ticketInScope } from '../portfolio';
 import {
   recordWriteAudit,
   rejectMaskedValues,
@@ -300,7 +300,8 @@ export const erpProposalsUpdate = defineUseCase({
     }
     if (expectedUpdatedAt) body.expectedUpdatedAt = expectedUpdatedAt;
     const updated = unwrapWrite(await ctx.data.write('PATCH', `/api/erp/proposals/${encodeURIComponent(current.id)}`, body), 'Proposta') as ErpCommercialProposal;
-    if (newSeller) await ctx.owners.set('erp.proposal', current.id, newSeller);
+    // CISO 26/11 (4): troca de dono so pela mudanca de responsavel (TODOS; CAS pelo dono atual).
+    if (newSeller) await ctx.owners.transfer('erp.proposal', current.id, newSeller);
     const out = toProposal(updated);
     recordWriteAudit(ctx, 'erp.proposal', 'update', out.id, toProposal(current), out);
     return { data: out };
@@ -354,9 +355,22 @@ export const erpProposalRestoreVersion = defineUseCase({
 // ---------------------------------------------------------------------------
 // CONTRATOS DE LOCACAO (nunca fatura/remessa/NF: generateNextInvoiceOnSave sempre false)
 // ---------------------------------------------------------------------------
-const ContractStatusInput = z.enum(['ATIVO', 'EM_IMPLANTACAO', 'RENOVACAO_PROXIMA', 'PENDENTE_ASSINATURA', 'SUSPENSO']);
+/**
+ * Correcao CISO 26/11 (Lote 2, 1): pela integracao o contrato so circula entre rascunho
+ * (EM_IMPLANTACAO) e PENDENTE_ASSINATURA. Ativar (ATIVO/RENOVACAO_PROXIMA) ou suspender (SUSPENSO)
+ * fica so na tela — por PATCH, renovacao ou restauracao de versao.
+ */
+export const CONTRACT_DRAFT_STATUSES = ['EM_IMPLANTACAO', 'PENDENTE_ASSINATURA'] as const;
+const CONTRACT_DRAFT_SET = new Set<string>(CONTRACT_DRAFT_STATUSES);
+/** Contrato ja ativo (so estes podem ser renovados; a renovacao mantem ATIVO). */
+const CONTRACT_ACTIVE_SET = new Set<string>(['ATIVO', 'RENOVACAO_PROXIMA']);
+const ContractStatusInput = z.enum(CONTRACT_DRAFT_STATUSES);
 /** Correcao CISO (Lote 2, 5): contrato nasce so em implantacao (rascunho) ou pendente de assinatura. */
-const ContractCreateStatusInput = z.enum(['EM_IMPLANTACAO', 'PENDENTE_ASSINATURA']);
+const ContractCreateStatusInput = z.enum(CONTRACT_DRAFT_STATUSES);
+const contractStatusOf = (v: unknown) => str(v).trim().toUpperCase();
+function contractStatusForbidden(what: string): UseCaseError {
+  return new UseCaseError(403, 'CONTRACT_STATUS_FORBIDDEN', `${what}: ativar ou suspender contrato nao e feito pela integracao (use a tela).`, { fields: ['status'] });
+}
 const EquipmentInput = z
   .object({
     id: IdSchema.optional(),
@@ -472,7 +486,7 @@ export const erpContractsUpdate = defineUseCase({
   path: '/api/v1/erp/contracts/{id}',
   pathParams: ['id'],
   summary: 'Editar contrato de locacao',
-  description: 'Edita campos permitidos (PATCH strict) de um contrato da carteira. Nunca gera fatura/remessa/NF. Contrato ENCERRADO nao e editado (409).',
+  description: 'Edita campos permitidos (PATCH strict) de um contrato da carteira. Nunca gera fatura/remessa/NF nem ativa/suspende (status so EM_IMPLANTACAO/PENDENTE_ASSINATURA). Contrato ENCERRADO nao e editado (409).',
   requiredScope: 'erp:contracts:write',
   inputSchema: z.object({ id: IdSchema, title: text(200).min(1).optional(), equipments: Equipments.optional(), ...contractFields() }).strict(),
   outputSchema: one(ContractDto),
@@ -484,9 +498,14 @@ export const erpContractsUpdate = defineUseCase({
     const current = await findContract(ctx, id);
     await requireWriteOwner(ctx, 'erp.contract', current.id, null, 'Contrato');
     if (current.status === 'ENCERRADO') throw new UseCaseError(409, 'CONTRACT_CLOSED', 'Contrato encerrado nao e editado pela integracao.');
+    // CISO 26/11 (1): status so entre rascunho/pendente, e so a partir de rascunho/pendente
+    // (tirar um ATIVO/SUSPENSO do lugar tambem e decisao da tela).
+    if (patch.status !== undefined && patch.status !== contractStatusOf(current.status) && !CONTRACT_DRAFT_SET.has(contractStatusOf(current.status))) {
+      throw contractStatusForbidden('Mudar a situacao de um contrato ativo/suspenso');
+    }
     const body = await contractBody(ctx, patch, current);
     const updated = unwrapWrite(await ctx.data.write('PATCH', `/api/erp/rental-contracts/${encodeURIComponent(current.id)}`, body), 'Contrato') as ErpRentalContract;
-    if (patch.sellerUserId) await ctx.owners.set('erp.contract', current.id, resolveSeller(ctx, patch.sellerUserId).id);
+    if (patch.sellerUserId) await ctx.owners.transfer('erp.contract', current.id, resolveSeller(ctx, patch.sellerUserId).id);
     const out = toContract(updated);
     recordWriteAudit(ctx, 'erp.contract', 'update', out.id, toContract(current), out);
     return { data: out };
@@ -516,6 +535,14 @@ export const erpContractRestoreVersion = defineUseCase({
     if (snap.generateNextInvoiceOnSave === true) {
       throw new UseCaseError(409, 'CONTRACT_RESTORE_WOULD_BILL', 'Esta revisao tem faturamento ao salvar ligado; restaure pela tela.');
     }
+    // CISO 26/11 (1): a restauracao copia o status da revisao => so se nao ativar/suspender.
+    const snapStatus = snap.status === undefined || snap.status === null || snap.status === '' ? '' : contractStatusOf(snap.status);
+    if (snapStatus && snapStatus !== contractStatusOf(current.status) && !CONTRACT_DRAFT_SET.has(snapStatus)) {
+      throw contractStatusForbidden('Esta revisao ativaria ou suspenderia o contrato');
+    }
+    if (snapStatus && snapStatus !== contractStatusOf(current.status) && !CONTRACT_DRAFT_SET.has(contractStatusOf(current.status))) {
+      throw contractStatusForbidden('Esta revisao tiraria o contrato da situacao ativa/suspensa');
+    }
     if (ctx.auth.portfolioScope !== 'TODOS' && snap.sellerName !== undefined && norm(snap.sellerName) !== norm(current.sellerName)) {
       throw new UseCaseError(403, 'CONTRACT_OWNER_IMMUTABLE', 'A revisao trocaria o vendedor (so carteira TODOS).', { fields: ['sellerName'] });
     }
@@ -540,7 +567,7 @@ export const erpContractRenew = defineUseCase({
   path: '/api/v1/erp/contracts/{id}/renew',
   pathParams: ['id'],
   summary: 'Renovar vigencia do contrato',
-  description: 'Estende a vigencia em N meses (1-60) e marca ATIVO. Nao fatura. Idempotency-Key obrigatoria (cada chamada soma meses).',
+  description: 'Estende a vigencia em N meses (1-60) de um contrato JA ATIVO (pendente/suspenso => 409; nunca ativa). Nao fatura. Idempotency-Key obrigatoria (cada chamada soma meses).',
   requiredScope: 'erp:contracts:write',
   inputSchema: z.object({ id: IdSchema, months: z.number().int().min(1).max(60) }).strict(),
   outputSchema: one(ContractDto),
@@ -549,6 +576,10 @@ export const erpContractRenew = defineUseCase({
     const current = await findContract(ctx, input.id);
     await requireWriteOwner(ctx, 'erp.contract', current.id, null, 'Contrato');
     if (current.status === 'ENCERRADO') throw new UseCaseError(409, 'CONTRACT_CLOSED', 'Contrato encerrado nao e renovado pela integracao.');
+    // CISO 26/11 (1): a renovacao marca ATIVO => so para contrato que ja esta ativo.
+    if (!CONTRACT_ACTIVE_SET.has(contractStatusOf(current.status))) {
+      throw new UseCaseError(409, 'CONTRACT_RENEW_WOULD_ACTIVATE', 'So contrato ATIVO (ou em renovacao proxima) e renovado pela integracao; ativar um pendente/suspenso e pela tela.');
+    }
     const renewed = unwrapWrite(
       await ctx.data.write('POST', `/api/erp/rental-contracts/${encodeURIComponent(current.id)}/renew`, { months: input.months }),
       'Contrato'
@@ -567,7 +598,11 @@ const osFields = () =>
   ({
     companyId: IdSchema.optional(),
     companyName: text(200).min(1).optional(),
-    technicianName: text(120).optional(),
+    /**
+     * CISO 26/11 (Lote 2, 6): tecnico por ID de usuario valido e autorizado (ativo, com ERP e OS/vendas
+     * VIEW+, dentro da carteira da credencial; nome sem homonimo). Texto livre nao e aceito.
+     */
+    technicianUserId: IdSchema.optional(),
     entryDate: DateText.optional(),
     exitDate: DateText.optional(),
     totalAmount: money.optional(),
@@ -579,6 +614,39 @@ const osFields = () =>
     technicalReport: text(8000).optional(),
     priority: z.enum(['BAIXA', 'NORMAL', 'ALTA', 'CRITICA']).optional(),
   }) as const;
+
+/**
+ * CISO 26/11 (Lote 2, 6): o tecnico tambem da leitura da OS por nome (carteira), entao a troca so
+ * vale para usuario valido e autorizado: ativo, modulo ERP, OS/vendas VIEW+, dentro da carteira da
+ * credencial (PROPRIOS: so ele mesmo) e com nome unico entre os ativos (homonimo => 422).
+ */
+function resolveTechnician(ctx: UseCaseContext, technicianUserId: string): { id: string; name: string } {
+  const u = resolveAssignableOwner(ctx.portfolio, ctx.allUsers, technicianUserId, technicianUserId);
+  if (!u) throw new UseCaseError(422, 'TECHNICIAN_INVALID', 'Tecnico inexistente, inativo ou fora da carteira da credencial.', { fields: ['technicianUserId'] });
+  if (!u.moduleAccess?.erp || !userHasErpAccess(u, 'stockOsSales', 'VIEW')) {
+    throw new UseCaseError(422, 'TECHNICIAN_NOT_AUTHORIZED', 'O usuario informado nao tem acesso a OS no ERP.', { fields: ['technicianUserId'] });
+  }
+  if (ctx.allUsers.filter((x) => x.active && norm(x.name) === norm(u.name)).length > 1) {
+    throw new UseCaseError(422, 'TECHNICIAN_AMBIGUOUS', 'Ha mais de um usuario ativo com este nome; ajuste o cadastro antes de atribuir pela integracao.', { fields: ['technicianUserId'] });
+  }
+  return { id: u.id, name: u.name };
+}
+
+/** CISO 26/11 (Lote 2, 6): OS Concluida/Cancelada nao e editada pela integracao. */
+const LOCKED_SERVICE_ORDER_STATUS_RE = /\b(conclui?d[oa]s?|cancelad[oa]s?|finalizad[oa]s?|encerrad[oa]s?|faturad[oa]s?)\b/;
+function assertServiceOrderEditable(s: ErpServiceOrder): void {
+  if (LOCKED_SERVICE_ORDER_STATUS_RE.test(normalizeStatusText(s.status))) {
+    throw new UseCaseError(409, 'SERVICE_ORDER_LOCKED', 'OS concluida ou cancelada nao e editada pela integracao (use a tela).');
+  }
+}
+
+/** Resposta 409 de versao da rota (CAS no app/banco) => VERSION_CONFLICT do conector. */
+function rethrowVersionConflict(err: unknown): never {
+  if (err instanceof UseCaseError && err.status === 409 && (err.code === 'RECORD_VERSION_CONFLICT' || err.code === 'SERVICE_ORDER_VERSION_CONFLICT')) {
+    throw new UseCaseError(409, 'VERSION_CONFLICT', 'O registro mudou desde a leitura (versao diferente). Releia e reaplique a alteracao.');
+  }
+  throw err;
+}
 
 /** OS da carteira (leitura, como a tela) + POSSE POR ID para escrever (correcao CISO Lote 2, 2). */
 async function findOwnedServiceOrder(ctx: UseCaseContext, id: string): Promise<ErpServiceOrder> {
@@ -604,11 +672,12 @@ export const erpServiceOrdersCreate = defineUseCase({
   async handler(input, ctx) {
     requireOwnerScope(ctx, 'erp:orders:write');
     rejectMaskedValues(input);
-    const { sellerUserId, ...rest } = input;
+    const { sellerUserId, technicianUserId, ...rest } = input;
     const links = await crmLinks(ctx, { companyId: rest.companyId });
     const companyName = links.company?.name || rest.companyName;
     if (!companyName) throw new UseCaseError(422, 'COMPANY_REQUIRED', 'Informe companyId (empresa do CRM) ou companyName.', { fields: ['companyId', 'companyName'] });
     const seller = resolveSeller(ctx, sellerUserId);
+    const tech = technicianUserId ? resolveTechnician(ctx, technicianUserId) : null;
     const existing = await allServiceOrders(ctx, {});
     const body: Record<string, unknown> = {
       ...rest,
@@ -618,7 +687,8 @@ export const erpServiceOrdersCreate = defineUseCase({
       ...(links.company ? { companyCnpj: str(links.company.cnpj) } : {}),
       sellerName: seller.name,
       sellerUserId: seller.id,
-      technicianName: rest.technicianName ?? '',
+      technicianName: tech?.name ?? '',
+      ...(tech ? { technicianUserId: tech.id } : {}),
       entryDate: rest.entryDate ?? '',
       exitDate: rest.exitDate ?? '',
       totalAmount: rest.totalAmount ?? 0,
@@ -641,29 +711,43 @@ export const erpServiceOrdersUpdate = defineUseCase({
   summary: 'Editar ordem de servico',
   description:
     'Edita campos permitidos (PATCH strict) de uma OS da carteira (posse por ID). Situacao muda so por erp_service_order_status_change. ' +
-    'Controle otimista OBRIGATORIO: expectedVersion = campo version lido da OS; versao diferente => 409 VERSION_CONFLICT.',
+    'Controle otimista OBRIGATORIO (compare-and-swap atomico na gravacao): expectedVersion = campo version lido da OS; versao diferente => 409 VERSION_CONFLICT. ' +
+    'OS Concluida/Cancelada => 409 SERVICE_ORDER_LOCKED. Tecnico por technicianUserId (usuario valido e autorizado).',
   requiredScope: 'erp:orders:write',
   inputSchema: z.object({ id: IdSchema, expectedVersion: z.string().trim().min(4).max(64), ...osFields() }).strict(),
   outputSchema: one(ServiceOrderDto),
   async handler(input, ctx) {
     requireOwnerScope(ctx, 'erp:orders:write');
-    const { id, expectedVersion, ...patch } = input;
-    nonEmpty(patch);
+    const { id, expectedVersion, technicianUserId, ...patch } = input;
+    nonEmpty({ ...patch, ...(technicianUserId ? { technicianUserId } : {}) });
     rejectMaskedValues(patch);
     const current = await findOwnedServiceOrder(ctx, id);
+    assertServiceOrderEditable(current);
     // Correcao CISO (Lote 2, 7): lost update => 409 (a versao e o hash dos campos editaveis).
     const currentVersion = serviceOrderVersion(current as unknown as Record<string, unknown>);
     if (expectedVersion !== currentVersion) {
       throw new UseCaseError(409, 'VERSION_CONFLICT', 'A OS mudou desde a leitura (versao diferente). Releia e reaplique a alteracao.', { currentVersion });
     }
+    const tech = technicianUserId ? resolveTechnician(ctx, technicianUserId) : null;
     const links = await crmLinks(ctx, { companyId: patch.companyId });
     // So os campos alterados (+ chaves obrigatorias da rota): o upsert do app faz merge com o registro vivo.
     const body: Record<string, unknown> = { ...patch, id: current.id, code: current.code, status: current.status, companyName: patch.companyName ?? current.companyName };
+    if (tech) {
+      body.technicianName = tech.name;
+      body.technicianUserId = tech.id;
+    }
     if (links.company) {
       body.companyName = links.company.name;
       body.companyCnpj = str(links.company.cnpj);
     }
-    const updated = unwrapWrite(await ctx.data.write('POST', '/api/erp/service-orders', body), 'Ordem de servico') as ErpServiceOrder;
+    // CISO 26/11 (Lote 2, 3): compare-and-swap NA ROTA (checa a versao e grava no mesmo passo; com
+    // Postgres, de novo na transacao com a linha travada / row_version). Mudou no meio => 409.
+    let updated: ErpServiceOrder;
+    try {
+      updated = unwrapWrite(await ctx.data.write('POST', '/api/erp/service-orders', body, { expectedVersion }), 'Ordem de servico') as ErpServiceOrder;
+    } catch (err) {
+      rethrowVersionConflict(err);
+    }
     const out = toServiceOrder(updated);
     recordWriteAudit(ctx, 'erp.service_order', 'update', out.id, toServiceOrder(current), out);
     return { data: out };
@@ -737,7 +821,7 @@ export const erpServiceOrderFromTicket = defineUseCase({
     'Efeito colateral do app: chamado ABERTO passa a EM_ANDAMENTO e recebe comentario interno. Descricao padrao "Chamado <chave>" (nao copia o texto do cliente). Idempotency-Key obrigatoria.',
   requiredScope: 'erp:orders:write',
   inputSchema: z
-    .object({ ticketId: z.string().trim().min(1).max(80), technicianName: text(120).optional(), totalAmount: money.optional(), description: text(8000).optional() })
+    .object({ ticketId: z.string().trim().min(1).max(80), technicianUserId: IdSchema.optional(), totalAmount: money.optional(), description: text(8000).optional() })
     .strict(),
   outputSchema: one(ServiceOrderDto.extend({ ticketId: z.string(), ticketKey: z.string() })),
   async handler(input, ctx) {
@@ -768,7 +852,7 @@ export const erpServiceOrderFromTicket = defineUseCase({
         'POST',
         `/api/tickets/${encodeURIComponent(t.id)}/create-os`,
         {
-          ...(input.technicianName ? { technicianName: input.technicianName } : {}),
+          ...(input.technicianUserId ? { technicianName: resolveTechnician(ctx, input.technicianUserId).name } : {}),
           ...(input.totalAmount !== undefined ? { totalAmount: input.totalAmount } : {}),
           description: input.description || `Chamado ${str(t.key) || t.id}`,
         },
@@ -790,6 +874,7 @@ export const erpServiceOrderFromTicket = defineUseCase({
 // ---------------------------------------------------------------------------
 const toSaleOrder = (s: Record<string, unknown>): z.infer<typeof SaleOrderDto> => ({
   id: str(s.id),
+  version: salesOrderVersion(s),
   code: str(s.code),
   companyName: str(s.companyName),
   sellerName: str(s.sellerName),
@@ -888,13 +973,15 @@ export const erpSalesOrdersUpdate = defineUseCase({
   path: '/api/v1/erp/sales-orders/{id}',
   pathParams: ['id'],
   summary: 'Editar pedido de venda',
-  description: 'Edita um pedido de venda da carteira (PATCH strict). Troca de vendedor so com TODOS.',
+  description:
+    'Edita um pedido de venda da carteira (PATCH strict). Troca de vendedor so com TODOS. ' +
+    'Controle otimista OBRIGATORIO (compare-and-swap atomico na gravacao): expectedVersion = campo version lido do pedido; versao diferente => 409 VERSION_CONFLICT.',
   requiredScope: 'erp:orders:write',
-  inputSchema: z.object({ id: IdSchema, ...saleFields() }).strict(),
+  inputSchema: z.object({ id: IdSchema, expectedVersion: z.string().trim().min(4).max(64), ...saleFields() }).strict(),
   outputSchema: one(SaleOrderDto),
   async handler(input, ctx) {
     requireOwnerScope(ctx, 'erp:orders:write');
-    const { id, sellerUserId, companyId, ...patch } = input;
+    const { id, expectedVersion, sellerUserId, companyId, ...patch } = input;
     nonEmpty({ ...patch, ...(sellerUserId ? { sellerUserId } : {}), ...(companyId ? { companyId } : {}) });
     rejectMaskedValues(patch);
     const o = erpOwner(ctx);
@@ -902,6 +989,11 @@ export const erpSalesOrdersUpdate = defineUseCase({
     if (!current || (o && norm(current.sellerName) !== norm(o.name))) throw notFound('Pedido de venda');
     await requireWriteOwner(ctx, 'erp.sales_order', current.id, (current as { sellerUserId?: unknown }).sellerUserId, 'Pedido de venda');
     assertOrderEditable(current, SALES_ORDER_STATUSES, 'Pedido de venda');
+    // CISO 26/11 (Lote 2, 3/6): controle de versao tambem no pedido de venda.
+    const currentVersion = salesOrderVersion(current as unknown as Record<string, unknown>);
+    if (expectedVersion !== currentVersion) {
+      throw new UseCaseError(409, 'VERSION_CONFLICT', 'O pedido mudou desde a leitura (versao diferente). Releia e reaplique a alteracao.', { currentVersion });
+    }
     if (patch.status !== undefined) patch.status = canonicalOrderStatus(patch.status, SALES_ORDER_STATUSES);
     const links = await crmLinks(ctx, { companyId });
     const body: Record<string, unknown> = { ...patch };
@@ -913,8 +1005,13 @@ export const erpSalesOrdersUpdate = defineUseCase({
       body.sellerUserId = sel.id;
       newSeller = sel.id;
     }
-    const saved = unwrapWrite(await ctx.data.write('PATCH', `/api/erp/records/salesOrders/${encodeURIComponent(current.id)}`, body), 'Pedido de venda');
-    if (newSeller) await ctx.owners.set('erp.sales_order', current.id, newSeller);
+    let saved: any;
+    try {
+      saved = unwrapWrite(await ctx.data.write('PATCH', `/api/erp/records/salesOrders/${encodeURIComponent(current.id)}`, body, { expectedVersion }), 'Pedido de venda');
+    } catch (err) {
+      rethrowVersionConflict(err);
+    }
+    if (newSeller) await ctx.owners.transfer('erp.sales_order', current.id, newSeller);
     const out = toSaleOrder(saved);
     recordWriteAudit(ctx, 'erp.sales_order', 'update', out.id, toSaleOrder(current as unknown as Record<string, unknown>), out);
     return { data: out };
