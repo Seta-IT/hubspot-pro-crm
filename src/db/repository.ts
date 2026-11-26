@@ -165,7 +165,7 @@ import { applySalesPipelineStageMigration } from '../modules/deals/sales-pipelin
 import { deriveServerTotpSecret, isTotpPairingPinnedByServer, unsealIamRecord } from './iam-security';
 import { SALES_AGENT_SERVICE_ID } from '../app/lib/service-account';
 import type { StiHubServiceAccountRecord } from './types';
-import type { FiscalDocumentSettings, FiscalEnvironment } from './types';
+import type { ErpProductNfeSefazState, FiscalDocumentSettings, FiscalEnvironment } from './types';
 import { FISCAL_PRODUCTION_SEED, normalizeFiscalDocumentSettings } from '../modules/erp/fiscal-settings';
 import {
   computeProductNfeTotals,
@@ -1710,6 +1710,15 @@ export class CrmRepository {
       for (const ref of deletedInvoices) if (existingRefs.has(ref)) fiscalDropped++;
       deletedInvoices.clear();
     }
+    // SEFAZ (homologação): NF-e de produtos já transmitida (autorizada, denegada, cancelada ou em
+    // processamento) nunca é excluída pelo journal do navegador.
+    for (const inv of erp.invoices) {
+      if (isSefazLockedInvoice(inv) && (deletedInvoices.has(inv.id) || deletedInvoices.has(inv.documentNumber))) {
+        deletedInvoices.delete(inv.id);
+        deletedInvoices.delete(inv.documentNumber);
+        fiscalDropped++;
+      }
+    }
     if (deletedInvoices.size > 0) {
       const before = erp.invoices.length;
       erp.invoices = erp.invoices.filter(
@@ -1797,6 +1806,10 @@ export class CrmRepository {
           }
         }
         incomingInvoices = [];
+      }
+      if (Array.isArray(incomingInvoices) && incomingInvoices.length) {
+        const byIdAll = new Map(erp.invoices.map((i) => [i.id, i] as const));
+        incomingInvoices = incomingInvoices.map((inc) => protectServerSefazState(inc && typeof inc === 'object' ? byIdAll.get(inc.id) : undefined, inc));
       }
       upsertCollection(erp.invoices, incomingInvoices, deletedInvoices);
     }
@@ -7433,10 +7446,39 @@ export class CrmRepository {
     const erp = this.ensureErp();
     const inv = erp.invoices.find((i) => i.id === id);
     if (!inv || !inv.productNfe) return { ok: false, code: 'NOT_FOUND' };
-    if (inv.status !== 'RASCUNHO') return { ok: false, code: 'NOT_DRAFT' };
+    if (inv.status !== 'RASCUNHO' || isSefazLockedInvoice(inv)) return { ok: false, code: 'NOT_DRAFT' };
     erp.invoices = erp.invoices.filter((i) => i.id !== id);
     this.save();
     return { ok: true };
+  }
+
+  /** NF-e de produtos por id (cópia), para a transmissão à SEFAZ. */
+  getProductNfeInvoice(id: string): ErpFiscalInvoice | null {
+    const inv = this.ensureErp().invoices.find((i) => i.id === id);
+    return inv && inv.productNfe ? (JSON.parse(JSON.stringify(inv)) as ErpFiscalInvoice) : null;
+  }
+
+  /**
+   * Grava o estado SEFAZ (homologação) da NF-e de produtos. AUTORIZADA => status EMITIDA e chave
+   * de acesso da transmissão; CANCELADA => status CANCELADA. Não gera financeiro.
+   */
+  setProductNfeSefazState(id: string, state: ErpProductNfeSefazState): ErpFiscalInvoice | null {
+    const erp = this.ensureErp();
+    const inv = erp.invoices.find((i) => i.id === id);
+    if (!inv || !inv.productNfe) return null;
+    inv.productNfe.sefaz = JSON.parse(JSON.stringify(state)) as ErpProductNfeSefazState;
+    if (state.status === 'AUTORIZADA' || state.status === 'DENEGADA' || state.status === 'CANCELADA' || state.status === 'EM_PROCESSAMENTO') {
+      inv.productNfe.accessKey = state.accessKey;
+      inv.productNfe.cNF = state.cNF;
+      inv.productNfe.cDV = state.cDV;
+      inv.productNfe.dhEmi = state.dhEmi;
+      inv.verificationCodeOrKey = state.accessKey;
+    }
+    if (state.status === 'AUTORIZADA') inv.status = 'EMITIDA';
+    if (state.status === 'CANCELADA') inv.status = 'CANCELADA';
+    inv.updatedAt = new Date().toISOString();
+    this.save();
+    return JSON.parse(JSON.stringify(inv)) as ErpFiscalInvoice;
   }
 
   createInvoice(
@@ -11413,6 +11455,30 @@ export function getRepository(): CrmRepository {
     singletonRepo = new CrmRepository({ persistPath: storePath, autoSeed: true });
   }
   return singletonRepo;
+}
+
+/** NF-e de produtos já transmitida à SEFAZ (estado final ou em processamento): bloqueada no journal e na exclusão. */
+function isSefazLockedInvoice(inv: ErpFiscalInvoice | undefined | null): boolean {
+  const st = inv?.productNfe?.sefaz?.status;
+  return st === 'AUTORIZADA' || st === 'DENEGADA' || st === 'CANCELADA' || st === 'EM_PROCESSAMENTO';
+}
+
+/**
+ * O estado SEFAZ é do servidor: o journal do navegador não cria, altera nem apaga productNfe.sefaz
+ * (nem o status/chave de uma nota transmitida). Cópia antiga do navegador não sobrescreve.
+ */
+function protectServerSefazState(cur: ErpFiscalInvoice | undefined, inc: ErpFiscalInvoice): ErpFiscalInvoice {
+  if (!inc || typeof inc !== 'object') return inc;
+  const serverSefaz = cur?.productNfe?.sefaz;
+  if (cur && serverSefaz) {
+    return { ...inc, status: cur.status, verificationCodeOrKey: cur.verificationCodeOrKey, productNfe: JSON.parse(JSON.stringify(cur.productNfe)) };
+  }
+  if (inc.productNfe && (inc.productNfe as { sefaz?: unknown }).sefaz !== undefined) {
+    const { sefaz: _drop, ...rest } = inc.productNfe;
+    void _drop;
+    return { ...inc, productNfe: rest as ErpFiscalInvoice['productNfe'] };
+  }
+  return inc;
 }
 
 export function createInMemoryRepository(initialState?: CrmDatabaseState): CrmRepository {

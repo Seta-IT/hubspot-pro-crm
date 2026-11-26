@@ -1499,6 +1499,49 @@ export interface ErpProductNfeMetadata {
   /** XML NF-e 4.00 de rascunho (sem assinatura, sem protocolo). */
   xmlContent: string;
   createdBy: string;
+  /** Transmissão à SEFAZ-SP (somente HOMOLOGAÇÃO). Ausente = nunca transmitida. */
+  sefaz?: ErpProductNfeSefazState;
+}
+
+export type ErpProductNfeSefazStatus = 'AUTORIZADA' | 'DENEGADA' | 'REJEITADA' | 'EM_PROCESSAMENTO' | 'ERRO' | 'CANCELADA';
+
+export interface ErpProductNfeSefazEvent {
+  kind: 'CANCELAMENTO' | 'CCE';
+  tpEvento: string;
+  nSeqEvento: number;
+  cStat: string;
+  xMotivo: string;
+  nProt: string;
+  dhRegEvento: string;
+  registered: boolean;
+  /** procEventoNFe (evento assinado + retEvento), só quando registrado. */
+  procXml: string;
+  at: string;
+  by: string;
+}
+
+/** Estado da NF-e na SEFAZ (homologação). XML assinado e nfeProc ficam aqui; nunca a chave privada. */
+export interface ErpProductNfeSefazState {
+  environment: 'HOMOLOGACAO';
+  status: ErpProductNfeSefazStatus;
+  accessKey: string;
+  cNF: string;
+  cDV: string;
+  dhEmi: string;
+  cStat: string;
+  xMotivo: string;
+  message: string;
+  nRec: string;
+  nProt: string;
+  dhRecbto: string;
+  /** NF-e assinada enviada (sem protocolo). */
+  signedXml: string;
+  /** nfeProc (NF-e + protNFe) quando autorizada/denegada. */
+  nfeProcXml: string;
+  attempts: number;
+  lastAttemptAt: string;
+  lastAttemptBy: string;
+  events: ErpProductNfeSefazEvent[];
 }
 
 export interface ErpFiscalInvoice {
