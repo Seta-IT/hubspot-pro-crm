@@ -259,6 +259,9 @@ export function buildProposalVersionSnapshot(p: ErpCommercialProposal): ErpPropo
     contractMonths: Number(p.contractMonths || 24),
     readjustmentIndex: p.readjustmentIndex || 'IPCA',
     paymentCondition: p.paymentCondition || '',
+    billingDueRule: p.billingDueRule,
+    billingDueDay: p.billingDueDay,
+    billingFirstDueDate: p.billingFirstDueDate,
     validUntil: p.validUntil || '',
     deliveryLeadTime: p.deliveryLeadTime ?? p.deliveryForecast ?? '',
     deliveryForecast: p.deliveryForecast ?? p.deliveryLeadTime ?? '',
@@ -357,7 +360,17 @@ export function computeProposalChangedFields(
 
   const prevInst = JSON.stringify(prev.installments || []);
   const nextInst = JSON.stringify(next.installments || []);
-  if ((prev.paymentCondition || '').trim() !== (next.paymentCondition || '').trim() || prevInst !== nextInst) {
+  const prevBilling = JSON.stringify({
+    rule: prev.billingDueRule || '',
+    day: prev.billingDueDay || '',
+    first: prev.billingFirstDueDate || '',
+  });
+  const nextBilling = JSON.stringify({
+    rule: next.billingDueRule || '',
+    day: next.billingDueDay || '',
+    first: next.billingFirstDueDate || '',
+  });
+  if ((prev.paymentCondition || '').trim() !== (next.paymentCondition || '').trim() || prevInst !== nextInst || prevBilling !== nextBilling) {
     changed.push(`Forma de Pagamento (${next.paymentCondition || 'Atualizada'})`);
   }
 
