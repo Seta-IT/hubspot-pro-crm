@@ -547,14 +547,46 @@ const toInvoice = (i: any): z.infer<typeof InvoiceDto> => ({
 });
 
 /** Configuracoes fiscais: allowlist SEM CSC, token do CSC, CNPJ do certificado ou autXML. */
-export const FiscalSettingsDto = z.object({
-  nfe: z.object({ environment: z.string(), serie: z.string(), simplifiedDanfe: z.boolean() }),
-  nfce: z.object({ environment: z.string(), serie: z.string(), cscConfigured: z.boolean() }),
-  nfse: z.object({ environment: z.string(), standard: z.string(), rpsSerie: z.string() }),
-  xmlDownloadAuthorizationsCount: z.number(),
-  certificate: z.object({ status: z.string(), validUntil: z.string().nullable() }),
-  updatedAt: z.string().nullable(),
-});
+/**
+ * CISO 26/11 (2a rodada): configuracoes fiscais em DTO FECHADO (allowlist, .strict()).
+ * NUNCA saem: certificado A1 (conteudo/PFX/base64/senha/CNPJ do certificado), CSC e ID do token
+ * do CSC (SEFAZ), serie/numeracao (serie NF-e/NFC-e, serie RPS, proximo numero, seed de producao)
+ * e credenciais de qualquer tipo. Do certificado sai so a situacao e a data de validade (AAAA-MM-DD).
+ */
+const FiscalEnvDto = z.enum(['HOMOLOGACAO', 'PRODUCAO']);
+export const FiscalSettingsDto = z
+  .object({
+    nfe: z.object({ environment: FiscalEnvDto, simplifiedDanfe: z.boolean() }).strict(),
+    nfce: z.object({ environment: FiscalEnvDto, cscConfigured: z.boolean() }).strict(),
+    nfse: z.object({ environment: FiscalEnvDto, standard: z.enum(['INTEGRADORA', 'NACIONAL', 'OUTRO']) }).strict(),
+    xmlDownloadAuthorizationsCount: z.number(),
+    certificate: z.object({ status: z.enum(['NAO_CONFIGURADO', 'VALIDO', 'VENCIDO', 'DESCONHECIDO']), validUntil: z.string().nullable() }).strict(),
+    updatedAt: z.string().nullable(),
+  })
+  .strict();
+
+const fiscalEnv = (v: unknown): 'HOMOLOGACAO' | 'PRODUCAO' => (v === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO');
+const isoDateOnly = (v: unknown): string | null => {
+  const m = typeof v === 'string' ? /^(\d{4}-\d{2}-\d{2})/.exec(v) : null;
+  return m ? m[1] : null;
+};
+
+/** Monta o DTO fiscal so com as chaves da allowlist (campo novo/desconhecido do app nunca sai). */
+export function toFiscalSettingsDto(raw: unknown): z.infer<typeof FiscalSettingsDto> {
+  const s: any = raw && typeof raw === 'object' ? raw : {};
+  const certStatus = s.certificate?.status;
+  return FiscalSettingsDto.parse({
+    nfe: { environment: fiscalEnv(s.nfe?.environment), simplifiedDanfe: s.nfe?.simplifiedDanfe === true },
+    nfce: { environment: fiscalEnv(s.nfce?.environment), cscConfigured: typeof s.nfce?.csc === 'string' && s.nfce.csc.length > 0 },
+    nfse: { environment: fiscalEnv(s.nfse?.environment), standard: s.nfse?.standard === 'INTEGRADORA' || s.nfse?.standard === 'NACIONAL' ? s.nfse.standard : 'OUTRO' },
+    xmlDownloadAuthorizationsCount: Array.isArray(s.xmlDownloadAuthorizations) ? s.xmlDownloadAuthorizations.length : 0,
+    certificate: {
+      status: certStatus === undefined || certStatus === null ? 'NAO_CONFIGURADO' : ['NAO_CONFIGURADO', 'VALIDO', 'VENCIDO'].includes(certStatus) ? certStatus : 'DESCONHECIDO',
+      validUntil: isoDateOnly(s.certificate?.validUntil),
+    },
+    updatedAt: typeof s.updatedAt === 'string' ? s.updatedAt : null,
+  });
+}
 
 const GcStatusDto = z.object({
   connected: z.boolean(),
@@ -1486,25 +1518,15 @@ export const erpFiscalSettingsGet = defineUseCase({
   toolName: 'erp_fiscal_settings_get',
   path: '/api/v1/erp/fiscal-settings',
   pathParams: [],
-  summary: 'Configuracoes fiscais (mascaradas)',
-  description: 'Ambiente e serie de NF-e/NFC-e/NFS-e e situacao do certificado. Segredos (CSC, token do CSC) NUNCA saem. Exige carteira TODOS + alcada Fiscal.',
+  summary: 'Configuracoes fiscais (DTO fechado)',
+  description: 'Ambiente de NF-e/NFC-e/NFS-e e situacao/validade do certificado. Certificado A1, CSC/token da SEFAZ, serie/numeracao e credenciais NUNCA saem. Exige carteira TODOS + alcada Fiscal (VIEW+).',
   requiredScope: 'erp:fiscal:read',
   inputSchema: z.object({}).strict(),
   outputSchema: one(FiscalSettingsDto),
   async handler(_input, ctx) {
     requireOwnerScope(ctx, 'erp:fiscal:read');
     requireAllPortfolio(ctx, 'O fiscal');
-    const s: any = (await collections(ctx)).fiscalDocumentSettings || {};
-    return {
-      data: {
-        nfe: { environment: str(s.nfe?.environment || 'HOMOLOGACAO'), serie: str(s.nfe?.serie), simplifiedDanfe: s.nfe?.simplifiedDanfe === true },
-        nfce: { environment: str(s.nfce?.environment || 'HOMOLOGACAO'), serie: str(s.nfce?.serie), cscConfigured: Boolean(s.nfce?.csc) },
-        nfse: { environment: str(s.nfse?.environment || 'HOMOLOGACAO'), standard: str(s.nfse?.standard), rpsSerie: str(s.nfse?.rpsSerie) },
-        xmlDownloadAuthorizationsCount: Array.isArray(s.xmlDownloadAuthorizations) ? s.xmlDownloadAuthorizations.length : 0,
-        certificate: { status: str(s.certificate?.status || 'NAO_CONFIGURADO'), validUntil: strOrNull(s.certificate?.validUntil) },
-        updatedAt: strOrNull(s.updatedAt),
-      },
-    };
+    return { data: toFiscalSettingsDto((await collections(ctx)).fiscalDocumentSettings) };
   },
 });
 

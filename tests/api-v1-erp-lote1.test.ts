@@ -24,7 +24,7 @@ import { buildOpenApiDocument } from '../src/modules/integration/openapi';
 import { INTEGRATION_USE_CASES } from '../src/modules/integration/use-cases';
 import { INTEGRATION_SCOPES, LOTE1_SCOPES, isBlockedScope, validateRequestedScopes } from '../src/modules/integration/scopes';
 import { ownerMeetsScope } from '../src/modules/integration/use-cases/common';
-import { ErpDashboardDto, maskPhone, OS_MAX_PAGES_PER_CALL, toDashboardDto } from '../src/modules/integration/use-cases/erp';
+import { ErpDashboardDto, FiscalSettingsDto, maskPhone, OS_MAX_PAGES_PER_CALL, toDashboardDto, toFiscalSettingsDto } from '../src/modules/integration/use-cases/erp';
 import { maskPiiText } from '../src/modules/integration/use-cases/crm-extra';
 
 const ORIGIN = 'https://stihub.test';
@@ -645,5 +645,92 @@ describe('Lote 1 / CISO 26/11: painel em DTO fechado (allowlist)', () => {
     assert.deepEqual(Object.keys(d).sort(), Object.keys(ErpDashboardDto.shape).sort());
     assert.deepEqual(Object.keys(d.summary).sort(), Object.keys(ErpDashboardDto.shape.summary.shape).sort());
     assert.doesNotThrow(() => ErpDashboardDto.parse(d));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Parecer do CISO de 26/11/2026 (2a rodada) — leituras fiscais
+// ---------------------------------------------------------------------------
+describe('Lote 1 / CISO 26/11: leituras fiscais (alcada Fiscal + TODOS; DTO fechado)', () => {
+  const FISCAL_READS = ['/api/v1/erp/invoices', '/api/v1/erp/invoices/inv-1', '/api/v1/erp/fiscal-settings'];
+
+  it('1. sem alcada Fiscal (NONE, valor desconhecido) ou sem carteira TODOS => 403, REST e MCP (fail-closed)', async () => {
+    const env = makeEnv();
+    const fin = await keyFor(env, FIN.uid, 'TODOS', ['erp:fiscal:read']);
+    for (const p of FISCAL_READS) assert.equal((await get(env, fin, p)).status, 200, p);
+    const rec: any = userRec(env, FIN.uid);
+    for (const bad of ['NONE', 'SUPERUSER']) {
+      rec.erpPermissions = { ...rec.erpPermissions, fiscalIssuanceAccess: bad };
+      for (const p of FISCAL_READS) {
+        const r = await get(env, fin, p);
+        assert.equal(r.status, 403, `${bad} ${p}`);
+        assert.ok(['OWNER_ACCESS_INSUFFICIENT', 'SCOPE_INSUFFICIENT'].includes(body(r).code), body(r).code);
+      }
+      for (const name of ['erp_invoices_list', 'erp_fiscal_settings_get']) {
+        const call = await handleMcp(rpc(fin, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: {} } }), env.deps);
+        const txt = JSON.stringify(body(call));
+        assert.ok(/isError|"error"/.test(txt) && !txt.includes('cscConfigured') && !txt.includes('NF-777'), `${bad} ${name}`);
+      }
+    }
+    // alcada Fiscal sem carteira TODOS => 403 PORTFOLIO_ALL_REQUIRED
+    rec.erpPermissions = { ...rec.erpPermissions, fiscalIssuanceAccess: 'VIEW' };
+    const ana: any = userRec(env, ANA.uid);
+    ana.erpPermissions = { ...ana.erpPermissions, fiscalIssuanceAccess: 'FULL' };
+    const anaKey = await keyFor(env, ANA.uid, 'PROPRIOS', ['erp:fiscal:read']);
+    for (const p of FISCAL_READS) {
+      const r = await get(env, anaKey, p);
+      assert.equal(r.status, 403, p);
+      assert.equal(body(r).code, 'PORTFOLIO_ALL_REQUIRED', p);
+    }
+    // VIEW basta para ler (com TODOS)
+    for (const p of FISCAL_READS) assert.equal((await get(env, fin, p)).status, 200, p);
+    // sem alcada Fiscal nao cria chave com o escopo
+    const bruno = await createKey(env, { name: 'b', scopes: ['erp:fiscal:read'], portfolioScope: 'PROPRIOS', moduleAccess: { crm: true, chamados: false, erp: true }, ownerUserId: BRUNO.uid });
+    assert.notEqual(bruno.res.status, 201);
+  });
+
+  it('2. erp_fiscal_settings_get: DTO fechado, sem certificado A1, CSC/token, serie/numeracao nem credenciais', async () => {
+    const env = makeEnv();
+    const erp: any = env.repo.getErpState();
+    erp.fiscalDocumentSettings = {
+      ...erp.fiscalDocumentSettings,
+      nfe: { ...erp.fiscalDocumentSettings.nfe, serie: 'SERIE-NFE-7', nextNumber: 98765, additionalInfo: 'INFO-NAO-VAZA' },
+      nfce: { ...erp.fiscalDocumentSettings.nfce, serie: 'SERIE-NFCE-8', tokenId: 'TOKENID-424242', sefazToken: 'SEFAZTOK-NAO-VAZA' },
+      nfse: { ...erp.fiscalDocumentSettings.nfse, rpsSerie: 'RPS-SERIE-9', nextRpsNumber: 55501, municipalPassword: 'SENHA-PREF-NAO-VAZA', standard: 'NACIONAL' },
+      certificate: {
+        status: 'VALIDO', validUntil: '2027-01-01T23:59:59.000Z', certificateCnpj: '99999999000199', uploadEnabled: false,
+        pfxBase64: 'UEZYLUJBU0U2NC1OQU8tVkFaQQ==', pfx: 'PFX-BIN-NAO-VAZA', password: 'SENHA-A1-NAO-VAZA', content: 'CERT-CONTEUDO-NAO-VAZA', serialNumber: 'SERIAL-NAO-VAZA',
+      },
+      credentials: { apiKey: 'APIKEY-NAO-VAZA', clientSecret: 'CLIENTSECRET-NAO-VAZA' },
+      numbering: { nfe: { serie: '1', lastIssued: { PRODUCAO: 2176 } } },
+      productionSeedApplied: true,
+      campoNovo: 'CAMPO-NOVO-NAO-VAZA',
+    };
+    const key = await keyFor(env, ADMIN.uid, 'TODOS', ['erp:fiscal:read']);
+    const r = await get(env, key, '/api/v1/erp/fiscal-settings');
+    assert.equal(r.status, 200);
+    const d = body(r).data;
+    assert.doesNotThrow(() => FiscalSettingsDto.parse(d)); // strict: chave fora da allowlist quebraria aqui
+    assert.deepEqual(Object.keys(d).sort(), ['certificate', 'nfce', 'nfe', 'nfse', 'updatedAt', 'xmlDownloadAuthorizationsCount']);
+    assert.deepEqual(Object.keys(d.nfe).sort(), ['environment', 'simplifiedDanfe']);
+    assert.deepEqual(Object.keys(d.nfce).sort(), ['cscConfigured', 'environment']);
+    assert.deepEqual(Object.keys(d.nfse).sort(), ['environment', 'standard']);
+    assert.deepEqual(d.certificate, { status: 'VALIDO', validUntil: '2027-01-01' });
+    assert.equal(d.nfse.standard, 'NACIONAL');
+    const call = await handleMcp(rpc(key, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'erp_fiscal_settings_get', arguments: {} } }), env.deps);
+    const all = JSON.stringify([r.body, body(call)]);
+    for (const secret of [
+      CSC_SECRET, 'TOKENID-424242', '000001', 'SEFAZTOK', 'SERIE-NFE-7', 'SERIE-NFCE-8', 'RPS-SERIE-9', '10001', '98765', '55501', '2176',
+      'UEZYLUJBU0U2NC', 'PFX-BIN', 'SENHA-A1', 'CERT-CONTEUDO', 'SERIAL-NAO', '99999999000199', 'APIKEY', 'CLIENTSECRET', 'SENHA-PREF', 'INFO-NAO-VAZA', 'CAMPO-NOVO',
+      '"serie"', 'rpsSerie', 'nextNumber', 'tokenId', 'password', 'pfx', 'credentials', 'productionSeedApplied', '11144477735',
+    ]) {
+      assert.ok(!all.includes(secret), secret);
+    }
+    // valores fora do esperado viram o padrao seguro (nunca ecoam o texto do app)
+    const odd = toFiscalSettingsDto({ nfe: { environment: 'SEGREDO-ENV' }, nfse: { standard: 'X-NAO-VAZA' }, certificate: { status: 'S3NHA', validUntil: 'abc' } });
+    assert.equal(odd.nfe.environment, 'HOMOLOGACAO');
+    assert.equal(odd.nfse.standard, 'OUTRO');
+    assert.deepEqual(odd.certificate, { status: 'DESCONHECIDO', validUntil: null });
+    assert.deepEqual(toFiscalSettingsDto(undefined).certificate, { status: 'NAO_CONFIGURADO', validUntil: null });
   });
 });

@@ -153,6 +153,8 @@ Uso: rotina diária (Nova) que sincroniza GestãoClick → STI-hub em produção
 ### Parecer do CISO de 26/11 — Lote 1
 
 - `erp_dashboard_get` deixa de usar lista negra: a resposta é o DTO fechado `ErpDashboardDto` (allowlist estrita). Campo novo do painel do app não aparece no conector até ser incluído no DTO. Sem alçada Financeiro, faturado/recebido/pago/fluxo saem `null`; sem `canViewBankBalances`, saldo e texto das contas saem `null`. A série `cashFlowMonthly`/`salesMonthly` do resumo antigo não é exposta (a série mensal vem em `monthly`).
+- Leituras fiscais (`erp_invoices_list`, `erp_invoices_get`, `erp_fiscal_settings_get`): exigem alçada Fiscal (VIEW+) do dono **e** carteira TODOS, conferidas a cada chamada (alçada ausente/desconhecida → 403 `OWNER_ACCESS_INSUFFICIENT`; carteira → 403 `PORTFOLIO_ALL_REQUIRED`).
+- `erp_fiscal_settings_get` em DTO fechado (`FiscalSettingsDto`, `.strict()`): só ambiente, DANFE simplificado, `cscConfigured` (booleano), padrão NFS-e, quantidade de autorizados do XML, situação do certificado e validade (AAAA-MM-DD). Saíram as séries (NF-e, NFC-e, RPS). Nunca saem certificado A1 (conteúdo/PFX/base64/senha/CNPJ), CSC/ID do token, numeração/próximo número nem credenciais.
 
 ### Parecer do CISO de 26/11 — Lote 2
 1. **Contrato nunca chega a ATIVO/SUSPENSO pelo conector.** `status` aceito só `EM_IMPLANTACAO`/`PENDENTE_ASSINATURA`; PATCH de status em contrato fora de rascunho → 403 `CONTRACT_STATUS_FORBIDDEN` (também barrado no data-port); `restore_version` que mudaria o status para/de não-rascunho → 403; `renew` só em `ATIVO`/`RENOVACAO_PROXIMA` (não ativa `PENDENTE_ASSINATURA`) → 409 `CONTRACT_RENEW_WOULD_ACTIVATE`.
