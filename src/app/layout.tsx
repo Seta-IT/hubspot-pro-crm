@@ -1,6 +1,11 @@
 import React from 'react';
 import './globals.css';
 
+/** HTML da SPA não pode ficar um ano no cache (s-maxage padrão do Next estático). */
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
 export const metadata = {
   title: 'STI-hub | Seta Telecom CRM & ERP',
   description:

@@ -4,12 +4,13 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import type { ErpCatalogItem } from '../../db/types';
 import { formatBRL } from './ui-helpers';
-import { filterCatalogProducts } from '../lib/catalog-search';
+import { filterCatalogProducts, findExactCatalogMatch } from '../lib/catalog-search';
 
 export {
   catalogPriceFor,
   catalogRentalPrice,
   filterCatalogProducts,
+  findExactCatalogMatch,
   isServiceCatalogItem,
 } from '../lib/catalog-search';
 
@@ -63,14 +64,22 @@ export function CatalogItemPicker({
     return filterCatalogProducts(pool, q, maxResults);
   }, [catalog, query, maxResults]);
 
-  const add = (found: ErpCatalogItem | null) => {
-    const text = query.trim();
+  const add = (found: ErpCatalogItem | null, rawText?: string) => {
+    const text = (rawText ?? query).trim();
     if (!found && !text) return;
     onAdd(found, text);
     setQuery('');
     setOpen(false);
     setHighlight(0);
     setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  /** Colar ou concluir um texto que casa exatamente com o catálogo já inclui a linha. */
+  const autoSelectIfExact = (text: string): boolean => {
+    const found = findExactCatalogMatch(catalog, text);
+    if (!found) return false;
+    add(found, text);
+    return true;
   };
 
   return (
@@ -87,10 +96,35 @@ export function CatalogItemPicker({
         aria-expanded={open}
         aria-autocomplete="list"
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onChange={(e) => {
-          setQuery(e.target.value);
+        onBlur={() => {
+          const text = inputRef.current?.value || query;
+          setTimeout(() => {
+            if (autoSelectIfExact(text)) return;
+            setOpen(false);
+          }, 150);
+        }}
+        onPaste={(e) => {
+          const pasted = e.clipboardData?.getData('text') ?? '';
+          if (!pasted) return;
+          const input = e.currentTarget;
+          const start = input.selectionStart ?? query.length;
+          const end = input.selectionEnd ?? query.length;
+          const next = `${query.slice(0, start)}${pasted}${query.slice(end)}`;
+          if (findExactCatalogMatch(catalog, next)) {
+            e.preventDefault();
+            autoSelectIfExact(next);
+            return;
+          }
+          setQuery(next);
           setHighlight(0);
+          setOpen(true);
+          e.preventDefault();
+        }}
+        onChange={(e) => {
+          const text = e.target.value;
+          setQuery(text);
+          setHighlight(0);
+          if (autoSelectIfExact(text)) return;
           setOpen(true);
         }}
         onKeyDown={(e) => {

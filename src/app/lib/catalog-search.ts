@@ -70,6 +70,61 @@ export function filterCatalogProducts(
     .map((h) => h.item);
 }
 
+/** Rótulo exibido na grade: "CODIGO - Nome", como no GestãoClick. */
+export function catalogItemLabel(item: Pick<ErpCatalogItem, 'gestaoClickCode' | 'name'>): string {
+  const code = String(item.gestaoClickCode || '').trim();
+  const name = String(item.name || '').trim();
+  if (code && name && !name.startsWith(code)) return `${code} - ${name}`;
+  return name || code;
+}
+
+/**
+ * Casa um texto colado ou digitado com um item do catálogo (código ou nome).
+ * Aceita "90943156", "90943156 - Dell PowerEdge..." e nome exato, ignorando
+ * acento, maiúsculas, separadores no código e reticências no final.
+ */
+export function findExactCatalogMatch(
+  catalog: ErpCatalogItem[],
+  rawQuery: string
+): ErpCatalogItem | null {
+  const raw = String(rawQuery || '').trim().replace(/[.…]+$/g, '').trim();
+  if (!raw) return null;
+  const pool = (catalog || []).filter((c) => c && c.isActive !== false);
+  if (pool.length === 0) return null;
+  const folded = foldQuery(raw);
+  const compact = compactQuery(raw);
+
+  const codeEq = (c: ErpCatalogItem) => {
+    const code = compactQuery(c.gestaoClickCode || '');
+    return code.length > 0 && code === compact;
+  };
+
+  const dashed = raw.match(/^(.{1,80}?)\s+[-–—]\s+(.+)$/);
+  if (dashed) {
+    const codePart = compactQuery(dashed[1]);
+    const namePart = foldQuery(dashed[2].replace(/[.…]+$/g, '').trim());
+    const both = pool.find((c) => {
+      const code = compactQuery(c.gestaoClickCode || '');
+      const name = foldQuery(c.name);
+      return (codePart && code === codePart) && (name === namePart || (namePart.length >= 8 && name.startsWith(namePart)));
+    });
+    if (both) return both;
+    const byCode = pool.filter((c) => compactQuery(c.gestaoClickCode || '') === codePart && codePart.length > 0);
+    if (byCode.length === 1) return byCode[0];
+  }
+
+  const exactCode = pool.filter(codeEq);
+  if (exactCode.length === 1 && compact.length >= 3) return exactCode[0];
+
+  const exactLabel = pool.filter((c) => foldQuery(catalogItemLabel(c)) === folded);
+  if (exactLabel.length === 1) return exactLabel[0];
+
+  const exactName = pool.filter((c) => foldQuery(c.name) === folded);
+  if (exactName.length === 1) return exactName[0];
+
+  return null;
+}
+
 export type CatalogGridKind = 'PRODUCT' | 'SERVICE';
 
 /** Preço do catálogo do mesmo jeito do orçamento: locação/serviço usa o mensal, venda usa o de venda. */

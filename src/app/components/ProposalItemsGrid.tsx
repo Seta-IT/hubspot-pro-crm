@@ -225,6 +225,9 @@ export function ProposalItemsGrid({
 }: ProposalItemsGridProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingRemoveIdx, setPendingRemoveIdx] = useState<number | null>(null);
+  const [addingRow, setAddingRow] = useState(false);
+  const [draftDetails, setDraftDetails] = useState('');
+  const [draftQty, setDraftQty] = useState(1);
   const addPickerWrapRef = useRef<HTMLDivElement | null>(null);
 
   const isProduct = kind === 'PRODUCT';
@@ -305,7 +308,18 @@ export function ProposalItemsGrid({
 
   const appendItem = (found: ErpCatalogItem | null, text: string) => {
     if (!found && !text) return;
-    onItemsChange([...items, buildItem(found, text)]);
+    const created = buildItem(found, text);
+    if (draftDetails.trim()) created.details = draftDetails.trim();
+    if (draftQty > 1) {
+      created.quantity = draftQty;
+      const net = lineNetAmount({ ...created, quantity: draftQty });
+      created.subtotal = net;
+      created.totalMonthly = net;
+    }
+    onItemsChange([...items, created]);
+    setDraftDetails('');
+    setDraftQty(1);
+    setAddingRow(true);
   };
 
   const removeRow = (idx: number) => onItemsChange(items.filter((_, i) => i !== idx));
@@ -342,6 +356,11 @@ export function ProposalItemsGrid({
       input.focus();
       input.click();
     }
+  };
+
+  const startAddRow = () => {
+    setAddingRow(true);
+    setTimeout(() => focusAddPicker(), 0);
   };
 
   const th = 'py-1.5 px-1.5 text-left text-[12px] font-semibold text-slate-700 whitespace-nowrap';
@@ -552,30 +571,88 @@ export function ProposalItemsGrid({
                 </React.Fragment>
               );
             })}
+            {addingRow && (
+              <tr className="border-b border-slate-100" data-testid={`proposal-grid-${noun}-draft`}>
+                <td className={td}>
+                  <div ref={addPickerWrapRef}>
+                    <CatalogItemPicker
+                      catalog={pool}
+                      testIdPrefix={`proposal-grid-${noun}`}
+                      priceFor={(c) => catalogPriceForTable(c, PRICE_TABLE_VAREJO, kind, isProduct ? defaultRental : true)}
+                      onAdd={appendItem}
+                      placeholder="Digite ou cole o produto"
+                      inputClassName={inputBase}
+                    />
+                  </div>
+                </td>
+                <td className={td}>
+                  <input
+                    type="text"
+                    value={draftDetails}
+                    onChange={(e) => setDraftDetails(e.target.value)}
+                    aria-label="Detalhes"
+                    className={inputBase}
+                    data-testid={`proposal-grid-${noun}-draft-details`}
+                  />
+                </td>
+                <td className={td}>
+                  <DecimalInput
+                    value={draftQty}
+                    min={1}
+                    ariaLabel="Quantidade"
+                    textAlign="center"
+                    onCommit={(n) => setDraftQty(n)}
+                  />
+                </td>
+                <td className={td}>
+                  <select aria-label="Tipo (tabela de preço)" defaultValue="VAREJO" className={inputBase} disabled={false}>
+                    {catalogPriceTables(null, false).map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </td>
+                <td className={td}>
+                  <input type="text" value="" placeholder="0,00" readOnly={false} aria-label="Valor" className={`${inputBase} text-right`} />
+                </td>
+                <td className={td}>
+                  <div className="flex items-stretch">
+                    <input type="text" placeholder="0,00" aria-label="Desconto" className={`${inputBase} rounded-r-none text-right`} />
+                    <div className="inline-flex rounded-r-[3px] border border-l-0 border-[#ced4da] overflow-hidden shrink-0">
+                      <span className="px-1.5 min-w-[28px] text-[11px] font-semibold text-slate-700 bg-white">%</span>
+                      <span className="px-1.5 min-w-[28px] text-[11px] font-semibold text-white bg-[#1e3a6e] border-l border-[#ced4da]">R$</span>
+                    </div>
+                  </div>
+                </td>
+                <td className={td}>
+                  <input type="text" readOnly tabIndex={-1} value="0,00" aria-label="Subtotal" className={`${inputBase} text-right bg-slate-50 text-slate-700 cursor-default`} />
+                </td>
+                <td className={`${td} text-center`}>
+                  <button
+                    type="button"
+                    title="Cancelar"
+                    aria-label="Cancelar"
+                    onClick={() => { setAddingRow(false); setDraftDetails(''); setDraftQty(1); }}
+                    className="inline-flex items-center justify-center w-7 h-7 rounded border border-rose-300 bg-white text-rose-600 hover:bg-rose-50 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
 
         <div className="flex flex-wrap items-center justify-between gap-3 pt-3 mt-1 border-t border-slate-200">
-          <div className="flex items-center gap-2 min-w-[240px] flex-1" ref={addPickerWrapRef}>
+          <div className="flex items-center gap-2 min-w-[240px] flex-1">
             <button
               type="button"
-              onClick={focusAddPicker}
+              onClick={startAddRow}
               data-testid={`proposal-grid-${noun}-add`}
               className="inline-flex items-center gap-1 px-2.5 h-8 rounded-[3px] border border-[#1e3a6e] text-[#1e3a6e] bg-white hover:bg-slate-50 text-[12px] font-semibold cursor-pointer shrink-0"
             >
               <Plus className="w-3.5 h-3.5" />
               Adicionar {nounSingular}
             </button>
-            <div className="flex-1 min-w-[180px] max-w-sm">
-              <CatalogItemPicker
-                catalog={pool}
-                testIdPrefix={`proposal-grid-${noun}`}
-                priceFor={(c) => catalogPriceForTable(c, PRICE_TABLE_VAREJO, kind, isProduct ? defaultRental : true)}
-                onAdd={appendItem}
-                placeholder="Digite para buscar"
-                inputClassName="w-full h-8 px-2 rounded-[3px] border border-[#ced4da] bg-white text-[12px] text-slate-800 focus:outline-none focus:border-[#1e3a6e] focus:ring-1 focus:ring-[#1e3a6e]/20"
-              />
-            </div>
           </div>
           <div
             className="text-right text-[13px] font-semibold text-[#1e3a6e]"
