@@ -1,7 +1,9 @@
 import type { ErpCommercialProposal } from '../../db/types';
 import { DEFAULT_COMPANY_EMITTER_SETTINGS } from '../../modules/erp/daily-sync-service';
 import { formatIssuerAddress, type IssuerAddressInput } from './company-issuer-address';
-import { cleanProposalTechnicalClauses, readablePaymentCondition, resolveProposalCommercialFigures, resolveProposalCommercialPresentation, resolveProposalDocumentHeadings } from './proposal-share';
+import { displayProposalPaymentCondition } from './proposal-monthly-billing';
+import { cleanProposalTechnicalClauses, resolveProposalCommercialFigures, resolveProposalCommercialPresentation, resolveProposalDocumentHeadings } from './proposal-share';
+
 import {
   buildDefaultTechnicalSupportClauseParts,
   displayProposalTechnicalClauses,
@@ -362,9 +364,7 @@ export function buildInternalProposalSheet(
     subtotal: amount(Number(item.totalMonthly ?? item.subtotal ?? 0)),
   }));
   const qtyTotal = amount((proposal.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0));
-  const payment = oneTime
-    ? readablePaymentCondition(proposal.paymentCondition)
-    : String(proposal.paymentCondition || '').trim();
+  const payment = displayProposalPaymentCondition(proposal);
   const subject = service ? 'serviço' : 'locação';
   const paymentRows = partsBudget
     ? [

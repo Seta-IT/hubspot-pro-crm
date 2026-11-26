@@ -983,6 +983,9 @@ export interface ErpProposalVersionSnapshot {
   contractMonths: number;
   readjustmentIndex?: 'IPCA' | 'IGP-M' | 'FIXO' | 'IST_ANATEL';
   paymentCondition: string;
+  billingDueRule?: 'EVERY_30_DAYS' | 'FIXED_DAY';
+  billingDueDay?: number;
+  billingFirstDueDate?: string;
   validUntil: string;
   deliveryLeadTime?: string;
   deliveryForecast?: string;
@@ -1092,6 +1095,9 @@ export interface ErpCommercialProposal {
   discountAmount?: number;
   contractMonths: number;
   paymentCondition: string;
+  billingDueRule?: 'EVERY_30_DAYS' | 'FIXED_DAY';
+  billingDueDay?: number;
+  billingFirstDueDate?: string;
   validUntil: string;
   items: ErpProposalItem[];
   monthlyRecurringTotal: number;

@@ -11,7 +11,9 @@
  */
 import type { ErpCommercialProposal, ErpProposalItem } from '../../db/types';
 import { formatProposalDisplayCode } from './proposal-number';
+import { displayProposalPaymentCondition } from './proposal-monthly-billing';
 import { isAvulsoServiceProposal, proposalHidesFreight, proposalSetupFeeLabel, resolveEffectiveProposalBudgetType, resolveProposalSlaOption } from './proposal-share';
+
 import { displayProposalTitle } from './proposal-title';
 import { buildInternalProposalSheet, type InternalProposalIssuerInput, type InternalProposalSheet } from './internal-proposal-sheet';
 import { formatClientProposalViews } from './proposal-client-view';
@@ -412,7 +414,7 @@ export function toInternalProposalSummary(
         : [{ label: copy.slaLabel, value: slaValue(proposal), testId: 'internal-proposal-sla' }]),
       // A proposta não tem data de início (startDate é do contrato). Não usar prazo de entrega no lugar.
       { label: 'Início previsto', value: INTERNAL_FIELD_MISSING, testId: 'internal-proposal-start' },
-      { label: 'Condição de pagamento', value: textOrMissing(proposal.paymentCondition), testId: 'internal-proposal-payment' },
+      { label: 'Condição de pagamento', value: textOrMissing(displayProposalPaymentCondition(proposal)), testId: 'internal-proposal-payment' },
       { label: 'Validade', value: formatIsoDatePt(proposal.validUntil), testId: 'internal-proposal-validity' },
     ],
     internalNotes: String(proposal.internalNotes || '').trim(),
