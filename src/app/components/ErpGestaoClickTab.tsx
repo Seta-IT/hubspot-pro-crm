@@ -113,6 +113,13 @@ import { displayProposalTitle } from '../lib/proposal-title';
 import { displayProposalVersionSummary } from '../lib/proposal-version-summary';
 import { buildProposalCopyDraft, proposalCopyCreatedToast } from '../lib/proposal-copy';
 import {
+  proposalMatchesStatusFilter,
+  proposalStatusBadge,
+  proposalStatusChoices,
+  proposalStatusFamilyForListTab,
+  proposalStatusOptions,
+} from '../lib/proposal-status';
+import {
   applyProposalSaveToListPage,
   emptyProposalListCounts,
   reconcileProposalListPage,
@@ -534,6 +541,11 @@ export default function ErpGestaoClickTab({
   React.useEffect(() => {
     setProposalsOffset(0);
   }, [proposalsSearch, proposalsStatusFilter, proposalsTypeParam]);
+  React.useEffect(() => {
+    if (proposalsStatusFilter === 'TODOS') return;
+    const allowed = proposalStatusOptions(proposalStatusFamilyForListTab(activeSubId)).map((o) => o.value as string);
+    if (!allowed.includes(proposalsStatusFilter)) setProposalsStatusFilter('TODOS');
+  }, [activeSubId, proposalsStatusFilter]);
   React.useEffect(() => {
     if (!proposalsTableMode) return;
     let alive = true;
@@ -1621,21 +1633,8 @@ export default function ErpGestaoClickTab({
   };
 
   const getGestaoClickSituationSpec = (status: ErpCommercialProposal["status"]) => {
-    switch (status) {
-      case "RASCUNHO":
-        return { label: "Em aberto", dotClass: "bg-amber-600", badgeClass: "bg-amber-50 text-amber-900 border border-amber-200" };
-      case "EM_NEGOCIACAO":
-        return { label: "Em andamento", dotClass: "bg-blue-600", badgeClass: "bg-blue-50 text-blue-900 border border-blue-200" };
-      case "ENVIADA":
-        return { label: "Enviado", dotClass: "bg-sky-600", badgeClass: "bg-sky-50 text-sky-900 border border-sky-200" };
-      case "APROVADA":
-      case "CONVERTIDA_CONTRATO":
-        return { label: "Concretizado", dotClass: "bg-emerald-600", badgeClass: "bg-emerald-50 text-emerald-900 border border-emerald-200" };
-      case "RECUSADA":
-        return { label: "Cancelado", dotClass: "bg-rose-600", badgeClass: "bg-rose-50 text-rose-900 border border-rose-200" };
-      default:
-        return { label: "Em aberto", dotClass: "bg-slate-500", badgeClass: "bg-slate-100 text-slate-800 border border-slate-200" };
-    }
+    const badge = proposalStatusBadge(status);
+    return { label: badge.label, dotClass: "bg-slate-500", badgeClass: badge.cls };
   };
 
   const isRentalProposal = (prop: ErpCommercialProposal): boolean => {
@@ -2820,15 +2819,9 @@ export default function ErpGestaoClickTab({
         .toLowerCase()
         .trim();
 
+    const statusFilterOptions = proposalStatusOptions(proposalStatusFamilyForListTab(effectiveOrcTab));
     const filteredProposals = tabFiltered.filter((p) => {
-      if (proposalsStatusFilter !== 'TODOS') {
-        const isConv = p.status === 'CONVERTIDA_CONTRATO' || Boolean(p.convertedContractId);
-        if (proposalsStatusFilter === 'CONVERTIDA_CONTRATO') {
-          if (!isConv) return false;
-        } else if (p.status !== proposalsStatusFilter) {
-          return false;
-        }
-      }
+      if (!proposalMatchesStatusFilter(p, proposalsStatusFilter)) return false;
       if (!proposalsSearch.trim()) return true;
       const q = normErp(proposalsSearch);
       const qDigits = proposalsSearch.replace(/\D+/g, '');
@@ -2839,27 +2832,7 @@ export default function ErpGestaoClickTab({
       return hay.includes(q) || (qDigits.length >= 2 && digitsHay.includes(qDigits));
     });
 
-    const getStatusBadge = (p: ErpCommercialProposal) => {
-      const isConverted = p.status === 'CONVERTIDA_CONTRATO' || Boolean(p.convertedContractId);
-      if (isConverted) {
-        return {
-          label: 'CONVERTIDO EM CONTRATO',
-          cls: 'bg-emerald-100 text-emerald-800 border border-emerald-300',
-        };
-      }
-      switch (p.status) {
-        case 'APROVADA':
-          return { label: 'APROVADO', cls: 'bg-emerald-50 text-emerald-800 border border-emerald-200' };
-        case 'EM_NEGOCIACAO':
-          return { label: 'EM NEGOCIAÇÃO', cls: 'bg-amber-100 text-amber-800 border border-amber-200' };
-        case 'RASCUNHO':
-          return { label: 'EM ABERTO', cls: 'bg-slate-100 text-slate-700 border border-slate-300' };
-        case 'RECUSADA':
-          return { label: 'CANCELADO', cls: 'bg-rose-100 text-rose-800 border border-rose-200' };
-        default:
-          return { label: 'ENVIADO AO CLIENTE', cls: 'bg-blue-100 text-blue-800 border border-blue-200' };
-      }
-    };
+    const getStatusBadge = (p: ErpCommercialProposal) => proposalStatusBadge(p.status);
 
     const getBudgetTypeLabel = (p: ErpCommercialProposal) => {
       if (p.budgetType === 'SPARE_PARTS') return 'Spare Parts / Hard Parts';
@@ -2961,12 +2934,12 @@ export default function ErpGestaoClickTab({
                   className="px-2.5 py-1.5 rounded border border-slate-300 bg-white text-xs text-slate-700"
                 >
                   <option value="TODOS">Situação: Todas{proposalsTableMode ? '' : ` (${tabFiltered.length})`}</option>
-                  <option value="RASCUNHO">Em Aberto{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'RASCUNHO').length})`}</option>
-                  <option value="ENVIADA">Enviado{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'ENVIADA').length})`}</option>
-                  <option value="EM_NEGOCIACAO">Em Negociação{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'EM_NEGOCIACAO').length})`}</option>
-                  <option value="APROVADA">Aprovado{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'APROVADA').length})`}</option>
-                  <option value="CONVERTIDA_CONTRATO">Convertido em Contrato{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'CONVERTIDA_CONTRATO' || Boolean(p.convertedContractId)).length})`}</option>
-                  <option value="RECUSADA">Cancelado / Recusado{proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => p.status === 'RECUSADA').length})`}</option>
+                  {statusFilterOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                      {proposalsTableMode ? '' : ` (${tabFiltered.filter((p) => proposalMatchesStatusFilter(p, opt.value)).length})`}
+                    </option>
+                  ))}
                 </select>
                 {(proposalsSearch.trim() !== '' || proposalsStatusFilter !== 'TODOS' || effectiveOrcTab !== 'TODOS') && (
                   <button
@@ -3021,17 +2994,11 @@ export default function ErpGestaoClickTab({
                 Situações e canais de venda
               </h3>
               <div className="text-xs">
-                {[
-                  { code: 'RASCUNHO', name: 'Em Aberto (Rascunho Comercial)', color: 'bg-slate-200 text-slate-800' },
-                  { code: 'ENVIADA', name: 'Enviado ao Cliente (Link Assinado)', color: 'bg-blue-100 text-blue-800' },
-                  { code: 'EM_NEGOCIACAO', name: 'Em Negociação / Revisão de Escopo', color: 'bg-amber-100 text-amber-800' },
-                  { code: 'APROVADA', name: 'Aprovado pelo Decisor', color: 'bg-emerald-100 text-emerald-800' },
-                  { code: 'CONVERTIDA_CONTRATO', name: 'Concretizado / Convertido em Contrato + Fatura', color: 'bg-emerald-100 text-emerald-900' },
-                ].map((st) => (
-                  <div key={st.code} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
-                    <span className="text-slate-800">{st.name}</span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${st.color}`}>
-                      {proposals.filter((p) => p.status === st.code).length} orçamento(s)
+                {proposalStatusOptions('locacao_servico').map((st) => (
+                  <div key={st.value} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
+                    <span className="text-slate-800">{st.label}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${proposalStatusBadge(st.value).cls}`}>
+                      {proposals.filter((p) => proposalMatchesStatusFilter(p, st.value)).length} orçamento(s)
                     </span>
                   </div>
                 ))}
@@ -8147,21 +8114,19 @@ export default function ErpGestaoClickTab({
                     }}
                     className="w-full px-3 py-2 rounded-md border border-slate-300 bg-white text-slate-900 focus:outline-none focus:border-slate-200"
                   >
-                    <option value="RASCUNHO">Em aberto</option>
-                    <option value="EM_NEGOCIACAO">Em andamento</option>
-                    <option value="ENVIADA">Enviado</option>
-                    <option value="APROVADA">
-                      {statusModalProposal.status === "APROVADA"
-                        ? "Concretizado (aprovado)"
-                        : "Aprovado manualmente (exige justificativa)"}
-                    </option>
-                    <option
-                      value="CONVERTIDA_CONTRATO"
-                      disabled={statusModalProposal.status !== "CONVERTIDA_CONTRATO"}
-                    >
-                      Em Contrato / Faturamento (só pelo aceite do cliente)
-                    </option>
-                    <option value="RECUSADA">Cancelado</option>
+                    {proposalStatusChoices(statusModalProposal.budgetType, statusModalSelectedStatus).map((opt) => (
+                      <option
+                        key={opt.value}
+                        value={opt.value}
+                        disabled={opt.value === 'CONVERTIDA_CONTRATO' && statusModalProposal.status !== 'CONVERTIDA_CONTRATO'}
+                      >
+                        {opt.value === 'CONVERTIDA_CONTRATO'
+                          ? 'Convertida em contrato (só pelo aceite do cliente)'
+                          : opt.value === 'APROVADA' && statusModalProposal.status !== 'APROVADA'
+                            ? 'Aprovada (exige justificativa)'
+                            : opt.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 

@@ -923,7 +923,9 @@ export type ErpProposalStatus =
   | 'EM_NEGOCIACAO'
   | 'APROVADA'
   | 'CONVERTIDA_CONTRATO'
-  | 'RECUSADA';
+  | 'RECUSADA'
+  | 'FATURAMENTO'
+  | 'CONCRETIZADA';
 
 export interface ErpProposalItem {
   id: string;

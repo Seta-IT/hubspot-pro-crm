@@ -4363,6 +4363,8 @@ export class CrmApiRouter {
     'APROVADA',
     'CONVERTIDA_CONTRATO',
     'RECUSADA',
+    'FATURAMENTO',
+    'CONCRETIZADA',
   ];
   /** Invisiveis: \p{Cf} (ZWSP, ZWNJ, ZWJ, BOM, word joiner, soft hyphen...), CGJ e fillers Hangul. */
   private static readonly INVISIBLE_CHARS_RE = /[\p{Cf}\u034F\u115F\u1160\u3164\uFFA0]/gu;

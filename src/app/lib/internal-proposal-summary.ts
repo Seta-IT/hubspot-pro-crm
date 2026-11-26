@@ -17,6 +17,7 @@ import { isAvulsoServiceProposal, proposalHidesFreight, proposalSetupFeeLabel, r
 import { displayProposalTitle } from './proposal-title';
 import { buildInternalProposalSheet, type InternalProposalIssuerInput, type InternalProposalSheet } from './internal-proposal-sheet';
 import { formatClientProposalViews } from './proposal-client-view';
+import { proposalStatusLabel } from './proposal-status';
 
 export const INTERNAL_PROPOSAL_PATH_PREFIX = '/interno/proposta';
 export const INTERNAL_FIELD_MISSING = 'não definido';
@@ -77,15 +78,6 @@ export interface InternalProposalSummaryModel {
   clientViewLine: string | null;
   sheet: InternalProposalSheet;
 }
-
-const STATUS_LABEL: Record<string, string> = {
-  RASCUNHO: 'Rascunho',
-  ENVIADA: 'Enviada',
-  EM_NEGOCIACAO: 'Em negociação',
-  APROVADA: 'Aprovada',
-  CONVERTIDA_CONTRATO: 'Convertida em contrato',
-  RECUSADA: 'Recusada',
-};
 
 const READJUSTMENT_LABEL: Record<string, string> = {
   'IGP-M': 'IGP-M',
@@ -374,7 +366,7 @@ export function toInternalProposalSummary(
     versionLabel: versionNumber === null ? INTERNAL_FIELD_MISSING : `Versão ${versionNumber}`,
     versionNumber,
     status: proposal.status || '',
-    statusLabel: STATUS_LABEL[proposal.status] || textOrMissing(proposal.status),
+    statusLabel: proposal.status ? proposalStatusLabel(proposal.status) : INTERNAL_FIELD_MISSING,
     title: textOrMissing(displayProposalTitle(proposal)),
     companyName: textOrMissing(proposal.companyName),
     companyCnpj: textOrMissing(proposal.companyCnpj),
