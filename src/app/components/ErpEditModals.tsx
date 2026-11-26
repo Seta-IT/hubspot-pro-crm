@@ -60,6 +60,7 @@ import {
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
 import { buildProposalInstallments, buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, proposalHidesFreight, proposalSetupFeeLabel, readablePaymentCondition, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
+import { PROPOSAL_SHIPPING_CARRIER_OPTIONS, shippingCarrierSelectValue } from '../lib/proposal-shipping-carrier';
 import {
   applyProposalCommercialNotesDefault,
   commercialNoteFromDefaults,
@@ -1335,15 +1336,10 @@ export function ProposalEditModal({
                 </label>
                 <AppSelect
                   ariaLabel="Transportadora"
-                  value={draft.shippingCarrier || 'Frota Própria Seta Telecom'}
+                  value={shippingCarrierSelectValue(draft.shippingCarrier)}
                   onChange={(v) => updateDraft({ shippingCarrier: v })}
                   className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
-                  options={[
-                    { value: 'Frota Própria Seta Telecom', label: 'Frota Própria Seta Telecom (Técnico)' },
-                    { value: 'Correios / SEDEX', label: 'Correios / SEDEX Empresarial' },
-                    { value: 'Transportadora Braspress', label: 'Transportadora Braspress' },
-                    { value: 'Sem Frete (Digital/Remoto)', label: 'Sem Frete (Ativação Remota / Cloud)' },
-                  ]}
+                  options={[...PROPOSAL_SHIPPING_CARRIER_OPTIONS]}
                 />
               </div>
               <div className="sm:col-span-2">
