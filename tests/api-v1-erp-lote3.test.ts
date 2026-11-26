@@ -1127,3 +1127,46 @@ describe('Lote 3 / CISO 26/11: correcoes de regressao', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Parecer do CISO de 26/11/2026 (2a rodada) — reajuste exige a alcada financeira da baixa
+// ---------------------------------------------------------------------------
+describe('Lote 3 / CISO 26/11: reajuste de contrato no commit exige a alcada de settle', () => {
+  it('3. sem Financeiro EDICAO (a alcada de erp:financial:settle) o commit do reajuste da 403 e nada muda; com ela, executa', async () => {
+    const env = makeEnv();
+    const key = await dangerAdminKey(env);
+    const erp = env.repo.getErpState();
+    const value = () => Number((erp.rentalContracts.find((c: any) => c.id === 'ctr-ana') as any).monthlyValue);
+    const path = '/api/v1/erp/contracts/ctr-ana/readjust';
+    const args = { percentage: 5, index: 'IPCA' };
+    const rec: any = userRec(env, ADMIN.uid);
+    for (const fin of ['VIEW', 'NONE', 'DESCONHECIDO']) {
+      rec.erpPermissions = { ...rec.erpPermissions, financeBanksAccess: 'FULL' };
+      const p = await prepare(env, key, path, args);
+      assert.equal(p.status, 200, JSON.stringify(p.body));
+      rec.erpPermissions = { ...rec.erpPermissions, financeBanksAccess: fin }; // alcada cai entre prepare e commit
+      const c = await commit(env, key, path, args, body(p).data.confirmationToken);
+      assert.equal(c.status, 403, `${fin} ${JSON.stringify(c.body)}`);
+      assert.equal(body(c).code, 'OWNER_ACCESS_INSUFFICIENT');
+      assert.equal(body(c).details?.scope ?? 'erp:financial:settle', 'erp:financial:settle');
+      assert.equal(value(), 500, 'contrato nao reajustado');
+      // token de uso unico: consumido mesmo na recusa
+      rec.erpPermissions = { ...rec.erpPermissions, financeBanksAccess: 'FULL' };
+      const again = await commit(env, key, path, args, body(p).data.confirmationToken);
+      assert.notEqual(again.status, 200);
+      assert.equal(value(), 500);
+    }
+    // MCP: mesma recusa
+    rec.erpPermissions = { ...rec.erpPermissions, financeBanksAccess: 'FULL' };
+    const p = await prepare(env, key, path, args);
+    rec.erpPermissions = { ...rec.erpPermissions, financeBanksAccess: 'VIEW' };
+    const mc = await handleMcp(rpc(key, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'erp_contracts_readjust_commit', arguments: { id: 'ctr-ana', ...args, confirmationToken: body(p).data.confirmationToken } } }), env.deps);
+    assert.match(JSON.stringify(body(mc)), /OWNER_ACCESS_INSUFFICIENT/);
+    assert.equal(value(), 500);
+    // com Financeiro EDICAO (EDIT basta) o reajuste executa
+    rec.erpPermissions = { ...rec.erpPermissions, financeBanksAccess: 'EDIT' };
+    const ok = await twoStep(env, key, path, args);
+    assert.equal(ok.c.status, 200, JSON.stringify(ok.c.body));
+    assert.equal(value(), 525);
+  });
+});

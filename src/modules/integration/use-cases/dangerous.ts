@@ -9,7 +9,7 @@
 // ============================================================================
 import { z } from 'zod/v4';
 import type { IntegrationModule, IntegrationScope } from '../scopes';
-import { recordWriteAudit, requireOwnerScope } from './common';
+import { ownerMeetsScope, recordWriteAudit, requireOwnerScope } from './common';
 import { defineUseCase, UseCaseError, type UseCaseContext, type UseCaseDefinition } from './types';
 
 export interface DangerousPlan {
@@ -47,6 +47,12 @@ export interface DangerousSpec<I extends z.ZodObject<z.ZodRawShape>> {
   summary: string;
   description: string;
   inputSchema: I;
+  /**
+   * CISO 26/11 (2a rodada): alcadas EXTRAS do dono exigidas so no commit (alem do requiredScope),
+   * conferidas com o estado vivo a cada commit. Ex.: reajuste de contrato exige a mesma alcada
+   * financeira da baixa ('erp:financial:settle' => Financeiro EDICAO). Falta => 403, nada executa.
+   */
+  commitOwnerScopes?: readonly IntegrationScope[];
   plan: (input: z.infer<I>, ctx: UseCaseContext) => Promise<DangerousPlan>;
 }
 
@@ -128,6 +134,14 @@ export function defineDangerous<I extends z.ZodObject<z.ZodRawShape>>(spec: Dang
       const { confirmationToken, ...args } = input as Record<string, unknown> & { confirmationToken: string };
       // Consome ANTES de reconferir: token de uso unico mesmo se a reconferencia falhar.
       await ctx.confirm.consume(spec.operationId, args, confirmationToken);
+      for (const extra of spec.commitOwnerScopes ?? []) {
+        if (!ownerMeetsScope(ctx.owner, extra)) {
+          throw new UseCaseError(403, 'OWNER_ACCESS_INSUFFICIENT', 'O usuario dono desta credencial nao tem a alcada exigida para executar esta operacao.', {
+            scope: extra,
+            stage: 'commit',
+          });
+        }
+      }
       const plan = await spec.plan(args as z.infer<I>, ctx);
       if (TRASH_REQUIRED_OPS.has(spec.op)) {
         if (!plan.trash?.length) throw new UseCaseError(500, 'TRASH_SNAPSHOT_MISSING', 'Exclusao sem copia para a lixeira (recusada).');

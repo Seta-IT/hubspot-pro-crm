@@ -233,8 +233,10 @@ const erpContractsReadjust = defineDangerous({
   path: '/api/v1/erp/contracts/{id}/readjust',
   pathParams: ['id'],
   op: 'readjust',
+  // CISO 26/11 (2a rodada): executar o reajuste exige a mesma alcada financeira da baixa (Financeiro EDICAO).
+  commitOwnerScopes: ['erp:financial:settle'],
   summary: 'Aplicar reajuste ao contrato',
-  description: 'Aplica reajuste percentual (indice) ao valor mensal do contrato. Carteira TODOS + Contratos EDIT.',
+  description: 'Aplica reajuste percentual (indice) ao valor mensal do contrato. Carteira TODOS + Contratos EDIT; o commit exige tambem a alcada financeira da baixa (Financeiro EDIT).',
   inputSchema: z.object({ id: IdSchema, percentage: z.number().finite().min(-50).max(100), index: z.enum(['IPCA', 'IGP-M', 'FIXO', 'IST_ANATEL']), note: text(500).optional() }).strict(),
   async plan(input, ctx) {
     requireAllPortfolio(ctx, 'Reajuste de contrato');
