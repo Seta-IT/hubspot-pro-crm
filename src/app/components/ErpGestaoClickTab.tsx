@@ -54,6 +54,7 @@ import {
   AlertTriangle,
   History,
   Pencil,
+  Briefcase,
 } from 'lucide-react';
 import {
   Company,
@@ -620,6 +621,7 @@ export default function ErpGestaoClickTab({
   const [defaultProposalTemplateStyle, setDefaultProposalTemplateStyle] = useState<NonNullable<ErpCommercialProposal["templateStyle"]>>("CLEAN_CORPORATE_LIGHT");
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [openProposalMenuId, setOpenProposalMenuId] = useState<string | null>(null);
+  const [creatingCrmDealProposalId, setCreatingCrmDealProposalId] = useState<string | null>(null);
   const [expandedProposalSubmenu, setExpandedProposalSubmenu] = useState<"IMPRIMIR" | "COMPARTILHAR" | "GERAR" | null>(null);
   const [statusModalProposal, setStatusModalProposal] = useState<ErpCommercialProposal | null>(null);
   const [statusModalSelectedStatus, setStatusModalSelectedStatus] = useState<ErpCommercialProposal["status"]>("RASCUNHO");
@@ -1849,7 +1851,63 @@ export default function ErpGestaoClickTab({
       onOpenLinkedDeal(linkedDealId);
       return;
     }
-    onShowToast('Este orçamento ainda não tem negócio no CRM. Edite e marque "Criar negócio no CRM".');
+    onShowToast('Este orçamento ainda não tem negócio no CRM. Use "Gerar negócio no CRM".');
+  };
+
+  const generateProposalCrmDeal = async (prop: ErpCommercialProposal) => {
+    setOpenProposalMenuId(null);
+    if (!canAccessCrm) {
+      onShowToast('Sem acesso ao CRM.');
+      return;
+    }
+    const existingDealId =
+      prop.dealId ||
+      deals.find((d) => d.proposalId === prop.id || d.proposalId === prop.code)?.id ||
+      null;
+    if (existingDealId) {
+      onShowToast(`Já existe um negócio vinculado ao orçamento ${showCode(prop)}.`);
+      if (onOpenLinkedDeal) onOpenLinkedDeal(existingDealId);
+      return;
+    }
+    if (creatingCrmDealProposalId) return;
+    setCreatingCrmDealProposalId(prop.id);
+    try {
+      const res = await fetch(`/api/erp/proposals/${encodeURIComponent(prop.id)}/create-crm-deal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }).catch(() => null);
+      const payload = res ? await res.json().catch(() => null) : null;
+      if (!res || !res.ok) {
+        const msg =
+          (payload && typeof payload.error === 'string' && payload.error) ||
+          (!res ? 'Falha de conexão.' : `Erro ${res.status} ao gerar o negócio.`);
+        onShowToast(`Negócio não gerado: ${msg}`);
+        return;
+      }
+      const saved = ((payload && payload.data) || prop) as ErpCommercialProposal;
+      const crmDeal = (payload && payload.crmDeal ? payload.crmDeal : null) as Deal | null;
+      const created = Boolean(payload && payload.crmDealCreated);
+      const warning =
+        payload && typeof payload.warning === 'string' ? String(payload.warning).trim() : '';
+      recordUpsertedProposal(saved);
+      if (crmDeal) recordUpsertedDeal(crmDeal);
+      if (!created) {
+        onShowToast(
+          warning || `Já existe um negócio vinculado ao orçamento ${showCode(saved)}.`
+        );
+        const dealId = saved.dealId || crmDeal?.id || null;
+        if (dealId && onOpenLinkedDeal) onOpenLinkedDeal(dealId);
+        return;
+      }
+      onShowToast(
+        warning
+          ? `Negócio gerado no CRM para o orçamento ${showCode(saved)}. ${warning}`
+          : `Negócio gerado no CRM para o orçamento ${showCode(saved)}.`
+      );
+    } finally {
+      setCreatingCrmDealProposalId(null);
+    }
   };
 
   const renderProposalGestaoClickActions = (
@@ -1897,7 +1955,7 @@ export default function ErpGestaoClickTab({
             }
           }}
           width={280}
-          estimatedHeight={460}
+          estimatedHeight={500}
           className="max-h-[70vh]"
           testId="proposal-gestao-click-menu"
           title="Mais opções do orçamento (STI HUB ERP)"
@@ -1990,6 +2048,26 @@ export default function ErpGestaoClickTab({
               >
                 <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                 <span>Abrir no CRM</span>
+              </button>
+            )}
+
+            {canAccessCrm && (
+              <button
+                type="button"
+                data-testid="menu-gerar-negocio-crm"
+                title={
+                  prop.dealId || creatingCrmDealProposalId === prop.id
+                    ? prop.dealId
+                      ? "Já existe um negócio vinculado; abre o existente no CRM"
+                      : "Gerando negócio no CRM"
+                    : "Gera um negócio no CRM interno ligado a este orçamento"
+                }
+                disabled={creatingCrmDealProposalId === prop.id}
+                onClick={() => void generateProposalCrmDeal(prop)}
+                className="w-full px-3.5 py-2 hover:bg-slate-50 flex items-center gap-2.5 text-[#1e3a6e] font-semibold cursor-pointer text-left text-xs disabled:opacity-60 disabled:cursor-wait"
+              >
+                <Briefcase className="w-3.5 h-3.5 shrink-0" />
+                <span>Gerar negócio no CRM</span>
               </button>
             )}
 

@@ -4073,6 +4073,35 @@ export class CrmApiRouter {
   }
 
   /**
+   * POST /api/erp/proposals/:id/create-crm-deal
+   * Gera (ou reaproveita) o negócio do CRM interno sem editar os demais campos da proposta.
+   */
+  private createCrmDealFromExistingProposal(
+    propId: string,
+    query: Record<string, string | undefined>,
+    ctx: { trustedInternal: boolean; serviceAccount?: boolean }
+  ): ApiResponse {
+    if (!this.sessionHasCrmModule(query, ctx)) {
+      return this.forbidCreateCrmDealWithoutCrm(query, ctx);
+    }
+    const scope = this.proposalScope(query, ctx);
+    if (scope.kind === 'denied') return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+    const current = this.findProposalByRef(propId);
+    if (!current) return { status: 404, body: { error: 'Proposta comercial não encontrada.' } };
+    if (!CrmApiRouter.proposalVisibleIn(scope, current)) return this.proposalScopeForbidden('PROPOSAL_SCOPE_FORBIDDEN');
+    const linked = this.applyCreateCrmDeal(query, current, ctx);
+    return {
+      status: 200,
+      body: {
+        data: linked.proposal,
+        crmDeal: linked.crmDeal,
+        crmDealCreated: linked.crmDealCreated,
+        ...(linked.warning ? { warning: linked.warning } : {}),
+      },
+    };
+  }
+
+  /**
    * Mesmo escopo das rotas de empresa, contato e negócio (canSeeRecordInScope):
    * admin ou escopo TODOS veem tudo; PROPRIOS/EQUIPE só o que é do usuário (ownerId).
    * Contexto interno ou conta de serviço não restringe.
@@ -8704,6 +8733,14 @@ export class CrmApiRouter {
       const proposalLinkIssueMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/public-link$/);
       if (proposalLinkIssueMatch && method === 'POST') {
         return this.issueProposalPublicLink(decodeURIComponent(proposalLinkIssueMatch[1]).trim(), query, ctx);
+      }
+      const createCrmDealMatch = cleanPath.match(/^\/api\/erp\/proposals\/([^/]+)\/create-crm-deal$/);
+      if (createCrmDealMatch && method === 'POST') {
+        return this.createCrmDealFromExistingProposal(
+          decodeURIComponent(createCrmDealMatch[1]).trim(),
+          query,
+          ctx
+        );
       }
       const invoiceLinkIssueMatch = cleanPath.match(/^\/api\/erp\/invoices\/([^/]+)\/public-link$/);
       if (invoiceLinkIssueMatch && method === 'POST') {

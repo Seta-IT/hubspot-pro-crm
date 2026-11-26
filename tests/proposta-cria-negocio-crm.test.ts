@@ -250,6 +250,103 @@ describe('t226u proposta cria negócio no CRM', () => {
   });
 });
 
+describe('POST /api/erp/proposals/:id/create-crm-deal', () => {
+  it('gera o negócio de um orçamento já existente, sem criar versão nova', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const cnpj = uniqueCnpj(505);
+    const created = repo.createProposal({
+      title: 'Orçamento #4728 — Cliente Menu',
+      companyName: 'Cliente Menu LTDA',
+      companyCnpj: cnpj,
+      contactName: 'Paulo Menu',
+      contactEmail: 'paulo.menu@teste.example',
+      sellerName: 'Marcelo Lopes Mira',
+      totalContractValue: 18000,
+      monthlyRecurringTotal: 750,
+      contractMonths: 24,
+    });
+    const versionBefore = created.version || 1;
+    const historyBefore = Array.isArray(created.versionHistory) ? created.versionHistory.length : 0;
+    const dealsBefore = repo.listDeals().length;
+
+    const res = await router.dispatch({
+      method: 'POST',
+      path: `/api/erp/proposals/${encodeURIComponent(created.id)}/create-crm-deal`,
+      query: session(repo),
+      body: {},
+    });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const body = res.body as {
+      data: ErpCommercialProposal;
+      crmDeal: { id: string; title: string; value: number; proposalId?: string; companyId?: string | null };
+      crmDealCreated: boolean;
+    };
+    assert.equal(body.crmDealCreated, true);
+    assert.equal(body.data.dealId, body.crmDeal.id);
+    assert.equal(body.crmDeal.title, 'Orçamento #4728 — Cliente Menu');
+    assert.equal(body.crmDeal.value, 18000);
+    assert.equal(body.crmDeal.proposalId, created.id);
+    assert.equal(body.data.version || 1, versionBefore);
+    assert.equal(Array.isArray(body.data.versionHistory) ? body.data.versionHistory.length : 0, historyBefore);
+    assert.equal(repo.listDeals().length, dealsBefore + 1);
+
+    const again = await router.dispatch({
+      method: 'POST',
+      path: `/api/erp/proposals/${encodeURIComponent(created.id)}/create-crm-deal`,
+      query: session(repo),
+      body: {},
+    });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    const againBody = again.body as { crmDeal: { id: string }; crmDealCreated: boolean; data: ErpCommercialProposal };
+    assert.equal(againBody.crmDealCreated, false);
+    assert.equal(againBody.crmDeal.id, body.crmDeal.id);
+    assert.equal(againBody.data.dealId, body.crmDeal.id);
+    assert.equal(repo.listDeals().length, dealsBefore + 1);
+  });
+
+  it('sem módulo CRM devolve 403 e não cria o negócio', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const proposal = repo.createProposal({
+      title: 'Orçamento sem CRM no menu',
+      companyName: 'Cliente Sem CRM Menu',
+      companyCnpj: uniqueCnpj(606),
+      sellerName: 'Maria Luiza',
+      sellerEmail: 'marialuiza@setatelecom.com.br',
+    });
+    const dealsBefore = repo.listDeals().length;
+    const res = await router.dispatch({
+      method: 'POST',
+      path: `/api/erp/proposals/${encodeURIComponent(proposal.id)}/create-crm-deal`,
+      query: session(repo, 'usr-seta-03', {
+        enabledModules: ['ERP'],
+        moduleAccess: { crm: false, erp: true, chamados: false },
+        erpRole: 'ERP_COMMERCIAL',
+      }),
+      body: {},
+    });
+    assert.equal(res.status, 403, JSON.stringify(res.body));
+    const err = res.body as { code?: string; requiredModule?: string };
+    assert.equal(err.code, 'MODULE_CRM_FORBIDDEN');
+    assert.equal(err.requiredModule, 'CRM');
+    assert.equal(repo.listDeals().length, dealsBefore);
+    assert.equal(repo.listProposals().find((p) => p.id === proposal.id)?.dealId ?? null, null);
+  });
+
+  it('orçamento inexistente devolve 404', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const res = await router.dispatch({
+      method: 'POST',
+      path: '/api/erp/proposals/prop-nao-existe/create-crm-deal',
+      query: session(repo),
+      body: {},
+    });
+    assert.equal(res.status, 404, JSON.stringify(res.body));
+  });
+});
+
 describe('t226u funil do negócio conforme o tipo da proposta', () => {
   const sale = { pipelineId: 'pipe-enterprise-b2b', stageId: 'stage-proposal', pipelineName: 'Pipeline 2: Venda de Equipamentos' };
   const rental = { pipelineId: 'pipeline-locacao-equipamentos', stageId: 'stage-loc-simulacao', pipelineName: 'Pipeline 1: Locação & Serviços' };
