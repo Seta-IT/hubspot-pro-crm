@@ -90,3 +90,17 @@ export function dealTitleFromProposal(input: {
   const stored = String(input.title ?? '').trim();
   return stored || defaultProposalTitle(input);
 }
+
+/** Parágrafo padrão gravado na proposta; não aparece na folha/PDF do cliente. */
+export const DEFAULT_PROPOSAL_INTRODUCTION =
+  'Apresentamos a seguir nossa proposta técnico-comercial personalizada com equipamentos homologados Seta Telecom e garantia de alta disponibilidade.';
+
+/** Texto de introdução visível ao cliente: omite o parágrafo fixo padrão, sem apagar o dado. */
+export function clientProposalIntroduction(text: unknown): string {
+  return String(text || '')
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => line && line !== DEFAULT_PROPOSAL_INTRODUCTION)
+    .join('\n')
+    .trim();
+}

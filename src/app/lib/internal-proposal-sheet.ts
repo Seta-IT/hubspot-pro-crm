@@ -18,6 +18,7 @@ import {
   isForbiddenTemplateCnpj,
 } from './internal-proposal-copy';
 import type { InternalProposalKind } from './internal-proposal-summary';
+import { proposalItemDetails } from './proposal-item-grid';
 
 function formatBrl(value: number): string {
   const n = Number.isFinite(value) ? value : 0;
@@ -355,7 +356,12 @@ export function buildInternalProposalSheet(
     index: index + 1,
     sku: String(item.sku || '').trim() || '—',
     name: String(item.description || '').trim() || INTERNAL_FIELD_BLANK,
-    detail: String(item.ncmOrServiceCode || '').trim(),
+    detail: (() => {
+      const details = proposalItemDetails(item).trim();
+      const ncm = String(item.ncmOrServiceCode || '').trim();
+      const ncmIsDetails = Boolean(details && ncm && details === ncm);
+      return [details, ncm && !ncmIsDetails ? ncm : ''].filter(Boolean).join(' · ');
+    })(),
     unit: String(item.unit || 'UN').trim() || 'UN',
     qty: amount(Number(item.quantity || 0)),
     unitPrice: amount(Number(item.unitPrice || 0)),

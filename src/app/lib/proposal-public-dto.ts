@@ -14,6 +14,7 @@ import type {
   ErpProposalStatus,
 } from '../../db/types';
 import { displayPaymentConditionText, proposalPaymentMethodLabel } from './proposal-payment-method';
+import { proposalItemDetails } from './proposal-item-grid';
 
 export interface PublicProposalItemDto {
   description: string;
@@ -28,6 +29,8 @@ export interface PublicProposalItemDto {
   subtotal: number;
   totalMonthly: number;
   isRecurring: boolean;
+  /** Texto livre do campo Detalhes (nunca NCM/SKU). */
+  details: string | null;
 }
 
 export interface PublicProposalInstallmentDto {
@@ -160,6 +163,7 @@ export function toPublicProposalDto(p: ErpCommercialProposal): PublicProposalDto
       subtotal: num(it.subtotal ?? it.totalMonthly),
       totalMonthly: num(it.totalMonthly),
       isRecurring: it.isRecurring !== false,
+      details: optStr(proposalItemDetails(it)),
     })),
     installments: (p.installments || []).map((i) => ({
       number: num(i.number),
@@ -267,6 +271,7 @@ export function publicDtoToRenderableProposal(dto: PublicProposalDto, routeId: s
       subtotal: it.subtotal,
       isRecurring: it.isRecurring,
       totalMonthly: it.totalMonthly,
+      details: it.details ?? undefined,
     })),
     monthlyRecurringTotal: dto.monthlyRecurringTotal,
     oneTimeSetupTotal: dto.oneTimeSetupTotal,
