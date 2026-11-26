@@ -32,6 +32,8 @@ import { isoToBrDate } from '../../lib/br-date';
 import { formatClientProposalViews } from '../../lib/proposal-client-view';
 import { publicDtoToRenderableProposal, type PublicProposalDto } from '../../lib/proposal-public-dto';
 import { displayPaymentConditionText, proposalPaymentMethodLabel } from '../../lib/proposal-payment-method';
+import { displayProposalPaymentCondition, isMonthlyBillingBudgetType } from '../../lib/proposal-monthly-billing';
+
 import { buildOpenCrmHref } from '../../lib/home-screen';
 import { SETA_PROPOSAL_HEADER_ADDRESS } from '../../lib/company-issuer-address';
 import {
@@ -43,9 +45,7 @@ import {
   resolveProposalCommercialFigures,
   decodeProposalFromQueryParam,
   inferProposalItemType,
-  cleanProposalPaymentCondition,
   proposalHidesFreight,
-  readablePaymentCondition,
   cleanProposalTechnicalClauses,
   PROPOSAL_SLA_OPTIONS,
   resolveProposalSellerContact,
@@ -956,11 +956,7 @@ function PublicProposalPrintContent() {
     !avulsoService && !saleLike && (isRental || proposal.items.some((i) => i.isRecurring !== false));
   const sellerContact = resolveProposalSellerContact(proposal);
   const displayPaymentCondition =
-    displayPaymentConditionText(
-      avulsoService
-        ? readablePaymentCondition(proposal.paymentCondition)
-        : cleanProposalPaymentCondition(proposal.paymentCondition)
-    ) || "Conforme condições acordadas";
+    displayProposalPaymentCondition(proposal) || "Conforme condições acordadas";
   const commercialTotalAmount = commercialView.commercialTotalAmount;
   const displaySetupAmount = commercialView.displaySetupAmount;
   const setupFeeLabel = commercialView.setupFeeLabel;
@@ -2233,7 +2229,7 @@ function PublicProposalPrintContent() {
           </div>
 
           {/* BLOCO 7: CRONOGRAMA DE PARCELAS (QUANDO PRESENTE) */}
-          {Array.isArray(proposal.installments) && proposal.installments.length > 0 && (
+          {!isMonthlyBillingBudgetType(proposal.budgetType) && Array.isArray(proposal.installments) && proposal.installments.length > 0 && (
             <div className={`print-avoid-break border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
               <div className={`${tableHeaderBgClass} px-4 py-2 flex items-center justify-between text-xs font-semibold`}>
                 <span className="inline-flex items-center gap-1.5">

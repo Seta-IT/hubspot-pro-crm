@@ -69,6 +69,15 @@ import {
 } from '../lib/proposal-note-defaults';
 import { resolveTechnicalClausesOnEdit } from '../lib/proposal-technical-clauses';
 import { displayPaymentConditionText, proposalPaymentMethodLabel, proposalPaymentMethodOptions, selectableContractPaymentMethods } from '../lib/proposal-payment-method';
+import {
+  clampBillingDueDay,
+  displayProposalPaymentCondition,
+  formatMonthlyPaymentCondition,
+  inferMonthlyPaymentMethod,
+  isMonthlyBillingBudgetType,
+  type ProposalBillingDueRule,
+} from '../lib/proposal-monthly-billing';
+
 import { useContractAuxiliaryOptions } from '../lib/use-contract-aux-options';
 import {
   computeCustomDueDateClient,
@@ -531,17 +540,21 @@ export function ProposalEditModal({
       : 1
   );
   const [firstDueDate, setFirstDueDate] = useState<string>(() => {
+    if (proposal.billingFirstDueDate && /^\d{4}-\d{2}-\d{2}/.test(proposal.billingFirstDueDate)) {
+      return proposal.billingFirstDueDate.slice(0, 10);
+    }
     if (Array.isArray(proposal.installments) && proposal.installments[0]?.dueDate) {
       return proposal.installments[0].dueDate;
     }
     return new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10);
   });
-  const [defaultPaymentMethod, setDefaultPaymentMethod] = useState<string>(() => {
-    if (Array.isArray(proposal.installments) && proposal.installments[0]?.paymentMethod) {
-      return proposal.installments[0].paymentMethod;
-    }
-    return 'BOLETO';
-  });
+  const [defaultPaymentMethod, setDefaultPaymentMethod] = useState<string>(() =>
+    inferMonthlyPaymentMethod(proposal)
+  );
+  const [billingDueRule, setBillingDueRule] = useState<ProposalBillingDueRule>(() =>
+    proposal.billingDueRule === 'FIXED_DAY' ? 'FIXED_DAY' : 'EVERY_30_DAYS'
+  );
+  const [billingDueDay, setBillingDueDay] = useState<number>(() => clampBillingDueDay(proposal.billingDueDay));
 
   const updateDraft = (patch: Partial<ErpCommercialProposal>) => {
     setDraft((prev) => {
@@ -601,6 +614,35 @@ export function ProposalEditModal({
     });
   };
 
+  const applyMonthlyBilling = (patch: {
+    method?: string;
+    firstDue?: string;
+    rule?: ProposalBillingDueRule;
+    day?: number;
+    months?: number;
+  }) => {
+    const method = patch.method ?? defaultPaymentMethod;
+    const firstDue = patch.firstDue ?? firstDueDate;
+    const rule = patch.rule ?? billingDueRule;
+    const day = clampBillingDueDay(patch.day ?? billingDueDay);
+    const months = Math.max(1, Number(patch.months ?? draft.contractMonths ?? 1));
+    if (patch.method !== undefined) setDefaultPaymentMethod(method);
+    if (patch.firstDue !== undefined) setFirstDueDate(firstDue);
+    if (patch.rule !== undefined) setBillingDueRule(rule);
+    if (patch.day !== undefined) setBillingDueDay(day);
+    updateDraft({
+      billingDueRule: rule,
+      billingDueDay: day,
+      billingFirstDueDate: firstDue,
+      paymentCondition: formatMonthlyPaymentCondition({
+        contractMonths: months,
+        paymentMethod: method,
+        billingDueRule: rule,
+        billingDueDay: day,
+      }),
+    });
+  };
+
   const itemDiscountsTotal = draft.items.reduce((acc, it) => {
     const gross = Math.max(1, Number(it.quantity || 1)) * Number(it.unitPrice || 0);
     const net = Number(it.subtotal ?? it.totalMonthly ?? gross);
@@ -627,7 +669,27 @@ export function ProposalEditModal({
           : {}),
         updatedAt: new Date().toISOString(),
       });
-      await onSave(computed, { createCrmDeal: Boolean(createCrmDeal && !draft.dealId) });
+      const monthlyPayload = isMonthlyBillingBudgetType(computed.budgetType)
+        ? {
+            ...computed,
+            billingDueRule,
+            billingDueDay,
+            billingFirstDueDate: firstDueDate,
+            paymentCondition:
+              displayProposalPaymentCondition({
+                ...computed,
+                billingDueRule,
+                billingDueDay,
+              }) ||
+              formatMonthlyPaymentCondition({
+                contractMonths: computed.contractMonths,
+                paymentMethod: defaultPaymentMethod,
+                billingDueRule,
+                billingDueDay,
+              }),
+          }
+        : computed;
+      await onSave(monthlyPayload, { createCrmDeal: Boolean(createCrmDeal && !draft.dealId) });
     } finally {
       setSaving(false);
     }
@@ -726,6 +788,7 @@ export function ProposalEditModal({
                     value={draft.budgetType || 'LOCACAO'}
                     onChange={(v) => {
                       const budgetType = v as ErpCommercialProposal['budgetType'];
+                      const months = budgetType === 'SPARE_PARTS' ? 1 : draft.contractMonths;
                       updateDraft(notesPatchFor({
                         budgetType,
                         ...(budgetType === 'SPARE_PARTS'
@@ -733,6 +796,19 @@ export function ProposalEditModal({
                               contractMonths: 1,
                               setupFee: 0,
                               slaTier: 'SEM_SLA_ESPECIFICO',
+                            }
+                          : {}),
+                        ...(isMonthlyBillingBudgetType(budgetType)
+                          ? {
+                              billingDueRule,
+                              billingDueDay,
+                              billingFirstDueDate: firstDueDate,
+                              paymentCondition: formatMonthlyPaymentCondition({
+                                contractMonths: months,
+                                paymentMethod: defaultPaymentMethod,
+                                billingDueRule,
+                                billingDueDay,
+                              }),
                             }
                           : {}),
                       }));
@@ -764,11 +840,24 @@ export function ProposalEditModal({
                       if (turningAvulso) setInstallmentCount(1);
                       const rawCondition = String(draft.paymentCondition || "").trim();
                       const conditionIsSlug = /^a[_ ]?vista$/i.test(rawCondition) || /^pagamento_unico$/i.test(rawCondition);
+                      const monthly = isMonthlyBillingBudgetType(draft.budgetType);
                       updateDraft(notesPatchFor({
                         contractMonths,
-                        ...(turningAvulso && (!rawCondition || conditionIsSlug)
-                          ? { paymentCondition: "À vista — Pagamento único" }
-                          : {}),
+                        ...(monthly
+                          ? {
+                              billingDueRule,
+                              billingDueDay,
+                              billingFirstDueDate: firstDueDate,
+                              paymentCondition: formatMonthlyPaymentCondition({
+                                contractMonths,
+                                paymentMethod: defaultPaymentMethod,
+                                billingDueRule,
+                                billingDueDay,
+                              }),
+                            }
+                          : turningAvulso && (!rawCondition || conditionIsSlug)
+                            ? { paymentCondition: "À vista — Pagamento único" }
+                            : {}),
                       }));
                     }}
                     className="w-full px-3 py-2 rounded border border-slate-300 text-[#1e3a6e]"
@@ -1502,7 +1591,107 @@ export function ProposalEditModal({
                 </div>
               </div>
 
-              {/* GERADOR AUTOMÁTICO DE PARCELAS */}
+              {/* COBRANÇA MENSAL (LOCAÇÃO, SERVIÇO E SPARE PARTS) OU PARCELAS (PRODUTOS/CONJUNTO) */}
+              {isMonthlyBillingBudgetType(draft.budgetType) ? (
+              <div className="border border-slate-200 rounded-lg p-3.5 space-y-3" data-testid="proposal-monthly-billing">
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4 text-[#1e3a6e]" />
+                  <span className="font-semibold text-slate-800">
+                    Cobrança mensal
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                  <div className="sm:col-span-3">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Forma de Pagamento
+                    </label>
+                    <AppSelect
+                      ariaLabel="Forma de Pagamento"
+                      testId="proposal-payment-method"
+                      value={defaultPaymentMethod}
+                      onChange={(v) => applyMonthlyBilling({ method: v })}
+                      className="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white"
+                      options={proposalPaymentMethodOptions({
+                        currentValue: defaultPaymentMethod,
+                      })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      1º Vencimento
+                    </label>
+                    <BrDateInput
+                      ariaLabel="1º vencimento"
+                      testId="proposal-first-due"
+                      value={firstDueDate}
+                      onChange={(iso) => applyMonthlyBilling({ firstDue: iso })}
+                      className="w-full px-2.5 py-1.5 rounded border border-slate-300"
+                    />
+                  </div>
+                  <div className="sm:col-span-4">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Vencimento das mensalidades
+                    </label>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        data-testid="proposal-due-every-30"
+                        onClick={() => applyMonthlyBilling({ rule: 'EVERY_30_DAYS' })}
+                        className={`px-2.5 py-1 rounded text-[11px] font-semibold cursor-pointer border ${
+                          billingDueRule === 'EVERY_30_DAYS'
+                            ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        A cada 30 dias
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="proposal-due-fixed-day"
+                        onClick={() => applyMonthlyBilling({ rule: 'FIXED_DAY' })}
+                        className={`px-2.5 py-1 rounded text-[11px] font-semibold cursor-pointer border ${
+                          billingDueRule === 'FIXED_DAY'
+                            ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        Dia fixo
+                      </button>
+                      {billingDueRule === 'FIXED_DAY' && (
+                        <input
+                          type="number"
+                          min={1}
+                          max={31}
+                          aria-label="Dia do mês"
+                          data-testid="proposal-billing-due-day"
+                          value={billingDueDay}
+                          onChange={(e) => applyMonthlyBilling({ day: clampBillingDueDay(e.target.value) })}
+                          className="w-16 px-2.5 py-1 rounded border border-slate-300"
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Resumo da Condição de Pagamento
+                    </label>
+                    <input
+                      type="text"
+                      data-testid="proposal-payment-condition"
+                      value={displayProposalPaymentCondition(draft) || formatMonthlyPaymentCondition({
+                        contractMonths: draft.contractMonths,
+                        paymentMethod: defaultPaymentMethod,
+                        billingDueRule,
+                        billingDueDay,
+                      })}
+                      onChange={(e) => updateDraft({ paymentCondition: e.target.value })}
+                      className="w-full px-2.5 py-1.5 rounded border border-slate-300"
+                    />
+                  </div>
+                </div>
+              </div>
+              ) : (
               <div className="border border-slate-200 rounded-lg p-3.5 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5">
@@ -1697,6 +1886,7 @@ export function ProposalEditModal({
                   </div>
                 )}
               </div>
+              )}
             </div>
           </div>
 

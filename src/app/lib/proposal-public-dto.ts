@@ -14,6 +14,8 @@ import type {
   ErpProposalStatus,
 } from '../../db/types';
 import { displayPaymentConditionText, proposalPaymentMethodLabel } from './proposal-payment-method';
+import { displayProposalPaymentCondition, isMonthlyBillingBudgetType } from './proposal-monthly-billing';
+
 
 export interface PublicProposalItemDto {
   description: string;
@@ -161,7 +163,9 @@ export function toPublicProposalDto(p: ErpCommercialProposal): PublicProposalDto
       totalMonthly: num(it.totalMonthly),
       isRecurring: it.isRecurring !== false,
     })),
-    installments: (p.installments || []).map((i) => ({
+    installments: isMonthlyBillingBudgetType(p.budgetType)
+      ? []
+      : (p.installments || []).map((i) => ({
       number: num(i.number),
       dueDate: String(i.dueDate || ''),
       amount: num(i.amount),
@@ -178,7 +182,7 @@ export function toPublicProposalDto(p: ErpCommercialProposal): PublicProposalDto
     oneTimeSetupTotal: num(p.oneTimeSetupTotal),
     totalContractValue: num(p.totalContractValue),
     contractMonths: Math.max(1, num(p.contractMonths, 1)),
-    paymentCondition: displayPaymentConditionText(p.paymentCondition || ''),
+    paymentCondition: displayProposalPaymentCondition(p),
     readjustmentIndex: p.readjustmentIndex ?? null,
     deliveryLeadTime: optStr(p.deliveryLeadTime),
     deliveryForecast: optStr(p.deliveryForecast),

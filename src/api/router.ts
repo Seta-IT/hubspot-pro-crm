@@ -4565,7 +4565,7 @@ export class CrmApiRouter {
     'contactName', 'contactEmail', 'dealId', 'sellerName', 'sellerEmail', 'sellerPhone', 'status',
     'modality', 'templateStyle', 'setupFee', 'slaTier', 'slaResponseHours', 'slaAvailabilityPercent',
     'deliveryDays', 'warrantyTerms', 'technicalScopeNotes', 'readjustmentIndex', 'discountAmount',
-    'contractMonths', 'paymentCondition', 'validUntil', 'items', 'monthlyRecurringTotal',
+    'contractMonths', 'paymentCondition', 'billingDueRule', 'billingDueDay', 'billingFirstDueDate', 'validUntil', 'items', 'monthlyRecurringTotal',
     'oneTimeSetupTotal', 'totalContractValue', 'commercialNotes', 'technicalClauses',
   ]);
   /** Entradas de controle (nao sao colunas): observacao do historico e resumo da versao. */
