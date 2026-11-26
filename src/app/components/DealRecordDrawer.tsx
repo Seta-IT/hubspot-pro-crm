@@ -36,6 +36,7 @@ import {
   TimelineEvent,
 } from '../../db/types';
 import AssociationSidePanel from './AssociationSidePanel';
+import AssociatedRecordsListPanel, { type AssociatedListItem } from './AssociatedRecordsListPanel';
 import {
   LogActivityWindow,
   MeetingSchedulerModal,
@@ -325,7 +326,9 @@ export default function DealRecordDrawer({
   const [collapsedCards, setCollapsedCards] = useState<Record<string, boolean>>({});
   const [emailOpen, setEmailOpen] = useState(false);
   const [showAllAbout, setShowAllAbout] = useState(false);
-  const [showAllAssoc, setShowAllAssoc] = useState<Record<string, boolean>>({});
+  const [viewAllKind, setViewAllKind] = useState<
+    'contacts' | 'companies' | 'tickets' | 'deals' | 'proposals' | 'contracts' | 'payments' | null
+  >(null);
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsRef = useRef<HTMLDivElement | null>(null);
   const [assocPicker, setAssocPicker] = useState<'contacts' | 'companies' | 'tickets' | 'deals' | null>(null);
@@ -744,6 +747,238 @@ export default function DealRecordDrawer({
       onClick: () => setMoreMenuOpen((v) => !v),
     },
   ];
+
+  const viewAllPanel = useMemo(() => {
+    if (!viewAllKind) return null;
+    const meta: Record<
+      NonNullable<typeof viewAllKind>,
+      { title: string; placeholder: string; countLabel: (n: number) => string }
+    > = {
+      contacts: {
+        title: 'Contatos associados',
+        placeholder: 'Buscar contato',
+        countLabel: (n) => `${n} ${n === 1 ? 'contato associado' : 'contatos associados'}`,
+      },
+      companies: {
+        title: 'Empresas associadas',
+        placeholder: 'Buscar empresa',
+        countLabel: (n) => `${n} ${n === 1 ? 'empresa associada' : 'empresas associadas'}`,
+      },
+      tickets: {
+        title: 'Tickets/Chamados associados',
+        placeholder: 'Buscar ticket',
+        countLabel: (n) => `${n} ${n === 1 ? 'ticket associado' : 'tickets associados'}`,
+      },
+      deals: {
+        title: 'Negócios associados',
+        placeholder: 'Buscar negócio',
+        countLabel: (n) => `${n} ${n === 1 ? 'negócio associado' : 'negócios associados'}`,
+      },
+      proposals: {
+        title: 'Propostas associadas',
+        placeholder: 'Buscar proposta',
+        countLabel: (n) => `${n} ${n === 1 ? 'proposta associada' : 'propostas associadas'}`,
+      },
+      contracts: {
+        title: 'Contratos associados',
+        placeholder: 'Buscar contrato',
+        countLabel: (n) => `${n} ${n === 1 ? 'contrato associado' : 'contratos associados'}`,
+      },
+      payments: {
+        title: 'Pagamentos associados',
+        placeholder: 'Buscar pagamento',
+        countLabel: (n) => `${n} ${n === 1 ? 'pagamento associado' : 'pagamentos associados'}`,
+      },
+    };
+    const m = meta[viewAllKind];
+    let items: AssociatedListItem[] = [];
+    if (viewAllKind === 'contacts') {
+      items = associatedContacts.map((c) => {
+        const name = `${c.firstName || ''} ${c.lastName || ''}`.trim() || displayContactEmail(c.email);
+        const email = displayContactEmail(c.email);
+        const phone = c.phone || c.normalizedPhone || '--';
+        return {
+          id: c.id,
+          searchText: [name, email, c.jobTitle, phone].filter(Boolean).join(' '),
+          content: (
+            <div className="text-xs space-y-0.5">
+              <div className="font-semibold text-slate-900">{name}</div>
+              {c.jobTitle ? <div className="text-slate-500 font-semibold">{c.jobTitle}</div> : null}
+              <div className="text-slate-600 font-semibold break-all">{email}</div>
+              <div className="text-slate-500 font-semibold">{phone}</div>
+            </div>
+          ),
+        };
+      });
+    } else if (viewAllKind === 'companies') {
+      items = associatedCompanies.map((co, idx) => {
+        const domain = (co.domain || '').trim();
+        const domainHref = companyDomainUrl(co);
+        const phone = companyPhone(co);
+        return {
+          id: co.id,
+          searchText: [co.name, domain, phone].join(' '),
+          content: (
+            <div className="text-xs space-y-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-semibold text-slate-900">{co.name}</span>
+                {idx === 0 || co.id === deal.companyId ? (
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[9px] font-semibold">
+                    Principal
+                  </span>
+                ) : null}
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold text-slate-400">Nome de domínio</div>
+                {domainHref ? (
+                  <a href={domainHref} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sky-700 font-semibold hover:underline break-all">
+                    {domain} <ExternalLink className="w-3 h-3 shrink-0" />
+                  </a>
+                ) : (
+                  <div className="font-semibold text-slate-500">--</div>
+                )}
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold text-slate-400">Telefone</div>
+                <div className="font-semibold text-slate-700">{phone}</div>
+              </div>
+            </div>
+          ),
+        };
+      });
+    } else if (viewAllKind === 'tickets') {
+      items = associatedTickets.map((tk) => ({
+        id: tk.id,
+        searchText: [tk.key, tk.subject, tk.status, tk.priority, tk.assignee].join(' '),
+        content: (
+          <div className="text-xs space-y-0.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[10px] font-semibold text-slate-500">{tk.key}</span>
+              <span className="text-[9px] font-semibold text-slate-500">{tk.status}</span>
+            </div>
+            <div className="font-semibold text-slate-900">{tk.subject}</div>
+            <div className="text-[10px] text-slate-500 font-semibold">
+              {tk.priority} · {tk.assignee}
+            </div>
+          </div>
+        ),
+      }));
+    } else if (viewAllKind === 'deals') {
+      items = relatedDeals.map((d) => ({
+        id: d.id,
+        searchText: [d.title, d.stageName].join(' '),
+        content: (
+          <div className="text-xs space-y-0.5">
+            <div className="font-semibold text-slate-900">{d.title}</div>
+            <div className="text-slate-500 font-semibold">
+              {d.stageName || '--'} · {formatBRL(d.value)}
+            </div>
+          </div>
+        ),
+      }));
+    } else if (viewAllKind === 'proposals') {
+      items = proposals.map((prop) => ({
+        id: prop.id,
+        searchText: [prop.code, prop.title, prop.status].join(' '),
+        content: (
+          <div className="text-xs space-y-1">
+            <div className="flex items-center justify-between gap-1">
+              <span className="font-mono text-[11px] font-semibold text-accent">{prop.code}</span>
+              <span className="text-[9px] font-semibold text-slate-500">{prop.status}</span>
+            </div>
+            <div className="font-semibold text-slate-800">{prop.title}</div>
+            <div className="text-[10px] text-slate-500 font-semibold flex justify-between gap-2">
+              <span>Mensal: {formatBRL(prop.monthlyRecurringTotal)}</span>
+              <span>Total: {formatBRL(prop.totalContractValue)}</span>
+            </div>
+            <div className="flex gap-1 pt-1">
+              <a
+                href={buildInternalProposalUrl(prop)}
+                target="_blank"
+                rel="noreferrer"
+                className="flex-1 py-1 rounded bg-slate-100 text-[10px] font-semibold text-center inline-flex items-center justify-center gap-1"
+              >
+                <ExternalLink className="w-3 h-3" /> Abrir
+              </a>
+              <button
+                type="button"
+                onClick={async () => {
+                  const r = await copySignedProposalLink(prop.id);
+                  onShowToast?.(r.ok ? `Link da proposta ${prop.code} copiado.` : r.error);
+                }}
+                className="p-1 rounded border border-slate-200 cursor-pointer"
+                title="Copiar link"
+              >
+                <Copy className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        ),
+      }));
+    } else if (viewAllKind === 'contracts') {
+      items = contracts.map((ctr) => ({
+        id: ctr.id,
+        searchText: [ctr.contractNumber, ctr.title, ctr.status].join(' '),
+        content: (
+          <div className="text-xs space-y-0.5">
+            <div className="font-semibold text-slate-900">{ctr.contractNumber}</div>
+            <div className="text-slate-500 font-semibold">{ctr.title}</div>
+            <div className="text-[10px] text-slate-500">
+              {formatBRL(ctr.monthlyValue)}/mês · {ctr.status}
+            </div>
+          </div>
+        ),
+      }));
+    } else if (viewAllKind === 'payments') {
+      items = [
+        ...associatedFinance.invoices.map((inv) => ({
+          id: inv.id,
+          searchText: [inv.documentNumber, inv.status, inv.documentType].join(' '),
+          content: (
+            <div className="text-xs space-y-0.5">
+              <div className="flex justify-between gap-2">
+                <span className="font-semibold text-slate-900">{inv.documentNumber}</span>
+                <span className="text-[9px] font-semibold text-slate-500">{inv.status}</span>
+              </div>
+              <div className="text-slate-500 font-semibold">{inv.documentType}</div>
+              <div className="text-[10px] text-slate-500 font-semibold">
+                {formatBRL(inv.netAmount)} · venc. {formatPropDateTime(inv.dueDate).slice(0, 10)}
+              </div>
+            </div>
+          ),
+        })),
+        ...associatedFinance.entries.map((en) => ({
+          id: en.id,
+          searchText: [en.type, en.status, en.description].join(' '),
+          content: (
+            <div className="text-xs space-y-0.5">
+              <div className="flex justify-between gap-2">
+                <span className="font-semibold text-slate-900">{en.type === 'RECEBER' ? 'Receber' : 'Pagar'}</span>
+                <span className="text-[9px] font-semibold text-slate-500">{en.status}</span>
+              </div>
+              <div className="text-slate-600 font-semibold">{en.description}</div>
+              <div className="text-[10px] text-slate-500 font-semibold">
+                {formatBRL(en.amount)} · venc. {formatPropDateTime(en.dueDate).slice(0, 10)}
+              </div>
+            </div>
+          ),
+        })),
+      ];
+    }
+    return { ...m, countLabel: m.countLabel(items.length), items, testId: `deal-assoc-view-all-panel-${viewAllKind}` };
+  }, [
+    viewAllKind,
+    associatedContacts,
+    associatedCompanies,
+    associatedTickets,
+    relatedDeals,
+    proposals,
+    contracts,
+    associatedFinance,
+    deal.companyId,
+    onShowToast,
+  ]);
+
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/50 flex justify-end">
@@ -1341,10 +1576,12 @@ export default function DealRecordDrawer({
                 onAdd?: () => void;
                 /** Sem fluxo real: botão + Adicionar desabilitado com tooltip Em breve */
                 addSoon?: boolean;
+                onViewAll?: () => void;
+                viewAllLabel?: string;
               };
 
-              const contactLimit = showAllAssoc.contacts ? associatedContacts.length : 3;
-              const companyLimit = showAllAssoc.companies ? associatedCompanies.length : 3;
+              const contactLimit = 3;
+              const companyLimit = 3;
               const financeCount = associatedFinance.invoices.length + associatedFinance.entries.length;
 
               const cards: CardDef[] = [
@@ -1356,6 +1593,8 @@ export default function DealRecordDrawer({
                   emptyHint: 'Veja as pessoas associadas a este registro.',
                   addSoon: !canEdit || !onUpdateDeal,
                   onAdd: canEdit && onUpdateDeal ? () => openAssocPicker('contacts') : undefined,
+                  onViewAll: associatedContacts.length > 0 ? () => setViewAllKind('contacts') : undefined,
+                  viewAllLabel: 'Exibir todos os contatos associados',
                   body: associatedContacts.length === 0 ? null : (
                     <div className="space-y-3">
                       {associatedContacts.slice(0, contactLimit).map((c) => (
@@ -1368,23 +1607,6 @@ export default function DealRecordDrawer({
                           <div className="text-slate-500 font-semibold">{c.phone || c.normalizedPhone || '--'}</div>
                         </div>
                       ))}
-                      {associatedContacts.length > 3 && !showAllAssoc.contacts ? (
-                        <button
-                          type="button"
-                          onClick={() => setShowAllAssoc((p) => ({ ...p, contacts: true }))}
-                          className="text-[11px] font-semibold text-sky-700 hover:underline cursor-pointer"
-                        >
-                          Exibir todos os contatos associados
-                        </button>
-                      ) : associatedContacts.length > 0 ? (
-                        <button
-                          type="button"
-                          className="text-[11px] font-semibold text-sky-700 hover:underline cursor-pointer"
-                          onClick={() => setShowAllAssoc((p) => ({ ...p, contacts: true }))}
-                        >
-                          Exibir todos os contatos associados
-                        </button>
-                      ) : null}
                     </div>
                   ),
                 },
@@ -1396,6 +1618,8 @@ export default function DealRecordDrawer({
                   emptyHint: 'Veja as empresas associadas a este registro.',
                   addSoon: !canEdit || !onUpdateDeal,
                   onAdd: canEdit && onUpdateDeal ? () => openAssocPicker('companies') : undefined,
+                  onViewAll: associatedCompanies.length > 0 ? () => setViewAllKind('companies') : undefined,
+                  viewAllLabel: 'Exibir todas as empresas associadas',
                   body: associatedCompanies.length === 0 ? null : (
                     <div className="space-y-3">
                       {associatedCompanies.slice(0, companyLimit).map((co, idx) => {
@@ -1457,15 +1681,6 @@ export default function DealRecordDrawer({
                           </div>
                         );
                       })}
-                      {associatedCompanies.length > 0 ? (
-                        <button
-                          type="button"
-                          className="text-[11px] font-semibold text-sky-700 hover:underline cursor-pointer"
-                          onClick={() => setShowAllAssoc((p) => ({ ...p, companies: true }))}
-                        >
-                          Exibir todas as empresas associadas
-                        </button>
-                      ) : null}
                     </div>
                   ),
                 },
@@ -1477,10 +1692,12 @@ export default function DealRecordDrawer({
                   emptyHint: 'Acompanhe as solicitações dos clientes associadas a este registro.',
                   addSoon: !canViewChamados,
                   onAdd: canViewChamados ? () => openAssocPicker('tickets') : undefined,
+                  onViewAll: canViewChamados && associatedTickets.length > 0 ? () => setViewAllKind('tickets') : undefined,
+                  viewAllLabel: 'Exibir todos os tickets associados',
                   body:
                     !canViewChamados || associatedTickets.length === 0 ? null : (
                       <div className="space-y-2">
-                        {associatedTickets.slice(0, showAllAssoc.tickets ? associatedTickets.length : 5).map((tk) => (
+                        {associatedTickets.slice(0, 5).map((tk) => (
                           <div key={tk.id} className="rounded-md border border-slate-200 p-2 text-xs space-y-0.5">
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-mono text-[10px] font-semibold text-slate-500">{tk.key}</span>
@@ -1503,6 +1720,8 @@ export default function DealRecordDrawer({
                   emptyHint: 'Acompanhe as oportunidades de receita associadas a este registro.',
                   addSoon: !onCreateRelatedDeal,
                   onAdd: onCreateRelatedDeal ? () => openAssocPicker('deals') : undefined,
+                  onViewAll: relatedDeals.length > 0 ? () => setViewAllKind('deals') : undefined,
+                  viewAllLabel: 'Exibir todos os negócios associados',
                   body: relatedDeals.length === 0 ? null : (
                     <div className="space-y-2">
                       {relatedDeals.slice(0, 6).map((d) => (
@@ -1523,10 +1742,12 @@ export default function DealRecordDrawer({
                   visible: true,
                   emptyHint: 'Nenhuma proposta vinculada a este negócio.',
                   onAdd: onGenerateProposal,
+                  onViewAll: proposals.length > 0 ? () => setViewAllKind('proposals') : undefined,
+                  viewAllLabel: 'Exibir todas as propostas associadas',
                   body: (
                     <div className="space-y-2">
                       {proposals.length === 0 ? null : (
-                        proposals.map((prop) => (
+                        proposals.slice(0, 3).map((prop) => (
                           <div key={prop.id} className="rounded-md border border-slate-200 p-2 space-y-1">
                             <div className="flex items-center justify-between gap-1">
                               <span className="font-mono text-[11px] font-semibold text-accent">{prop.code}</span>
@@ -1580,9 +1801,11 @@ export default function DealRecordDrawer({
                   emptyHint: 'Nenhum contrato associado a esta empresa.',
                   addSoon: !onNavigateToErp,
                   onAdd: onNavigateToErp,
+                  onViewAll: contracts.length > 0 ? () => setViewAllKind('contracts') : undefined,
+                  viewAllLabel: 'Exibir todos os contratos associados',
                   body: contracts.length === 0 ? null : (
                     <div className="space-y-2">
-                      {contracts.map((ctr) => (
+                      {contracts.slice(0, 3).map((ctr) => (
                         <div key={ctr.id} className="rounded-md border border-slate-200 p-2 text-xs space-y-0.5">
                           <div className="font-semibold text-slate-900">{ctr.contractNumber}</div>
                           <div className="text-slate-500 font-semibold truncate">{ctr.title}</div>
@@ -1629,6 +1852,8 @@ export default function DealRecordDrawer({
                   visible: canViewFinance,
                   emptyHint: 'Acompanhe os pagamentos associados a este registro.',
                   addSoon: true,
+                  onViewAll: canViewFinance && financeCount > 0 ? () => setViewAllKind('payments') : undefined,
+                  viewAllLabel: 'Exibir todos os pagamentos associados',
                   body:
                     !canViewFinance || financeCount === 0 ? null : (
                       <div className="space-y-2">
@@ -1716,12 +1941,22 @@ export default function DealRecordDrawer({
                         </button>
                       </div>
                       {open && (
-                        <div className="p-3">
+                        <div className="p-3 space-y-3">
                           {card.body ? (
                             card.body
                           ) : (
                             <p className="text-xs font-semibold text-slate-400">{card.emptyHint}</p>
                           )}
+                          {card.onViewAll && card.count > 0 ? (
+                            <button
+                              type="button"
+                              data-testid={`deal-assoc-view-all-${card.id}`}
+                              onClick={card.onViewAll}
+                              className="text-[11px] font-semibold text-sky-700 hover:underline cursor-pointer"
+                            >
+                              {card.viewAllLabel}
+                            </button>
+                          ) : null}
                         </div>
                       )}
                     </div>
@@ -1831,6 +2066,16 @@ export default function DealRecordDrawer({
           );
         return <LogActivityWindow key={activityWin.seq} {...common} optionId={activityWin.option || 'CALL'} onCreateLog={createTimelineActivity} />;
       })()}
+      {viewAllPanel ? (
+        <AssociatedRecordsListPanel
+          title={viewAllPanel.title}
+          countLabel={viewAllPanel.countLabel}
+          testId={viewAllPanel.testId}
+          items={viewAllPanel.items}
+          searchPlaceholder={viewAllPanel.placeholder}
+          onClose={() => setViewAllKind(null)}
+        />
+      ) : null}
     </div>
   );
 }
