@@ -255,18 +255,20 @@ describe('Autenticacao dos crons (Bearer CRON_SECRET)', () => {
 
 describe('CISO: recusa TRUSTED_PROXY_MODE=vercel no Cloud Run (X-Real-IP forjavel)', () => {
   it('K_SERVICE ou CLOUD_RUN_JOB forcam cloudrun e ignoram X-Real-IP, mesmo com vercel explicito', () => {
+    // Com a trava ativa hops=2 (forjado, cliente, IP do proxy/LB anexado pelo GFE).
     const forged = headers({
       'x-real-ip': '8.8.8.8',
       'x-vercel-forwarded-for': '8.8.8.8',
-      'x-forwarded-for': '8.8.8.8, 203.0.113.10',
+      'x-forwarded-for': '8.8.8.8, 198.51.100.4, 203.0.113.10',
     });
     const onService = env({ K_SERVICE: 'sti-hub', TRUSTED_PROXY_MODE: 'vercel', TRUSTED_PROXY_HOPS: '1' });
     const onJob = env({ CLOUD_RUN_JOB: 'sti-hub-migrate', TRUSTED_PROXY_MODE: 'vercel', TRUSTED_PROXY_HOPS: '1' });
     assert.equal(resolveTrustedProxyMode(onService), 'cloudrun');
     assert.equal(resolveTrustedProxyMode(onJob), 'cloudrun');
-    assert.equal(resolveTrustedClientIp(forged, undefined, onService), '203.0.113.10');
-    assert.equal(resolveTrustedClientIp(forged, 'vercel', onService), '203.0.113.10');
-    assert.equal(resolveTrustedClientIp(forged, 'vercel', onJob), '203.0.113.10');
+    assert.equal(resolveTrustedProxyHops(onService), 2);
+    assert.equal(resolveTrustedClientIp(forged, undefined, onService), '198.51.100.4');
+    assert.equal(resolveTrustedClientIp(forged, 'vercel', onService), '198.51.100.4');
+    assert.equal(resolveTrustedClientIp(forged, 'vercel', onJob), '198.51.100.4');
     assert.equal(resolveTrustedProxyMode(env({ K_SERVICE: 'sti-hub', TRUSTED_PROXY_MODE: 'none' })), 'none');
   });
 

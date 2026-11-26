@@ -89,11 +89,14 @@ export function resolveTrustedProxyMode(env: NodeJS.ProcessEnv = process.env): T
  * Quantos proxies confiaveis contar a partir da direita no X-Forwarded-For.
  * TRUSTED_PROXY_HOPS (1–10).
  *  - Padrao 1: so o Google Front End (URL run.app do Cloud Run).
- *  - 2: load balancer HTTPS externo na frente do Cloud Run (o LB acrescenta o
- *    IP do cliente; o GFE acrescenta o IP do LB). A entrada correta e a
- *    segunda a partir da direita. hops=1 nesse caso devolveria o IP do LB.
+ *  - 2: load balancer HTTPS externo ou o Worker sti-hub-proxy na frente do
+ *    Cloud Run (o proxy/LB acrescenta o IP do cliente; o GFE acrescenta o IP
+ *    do proxy). A entrada correta e a segunda a partir da direita.
+ * Com a trava de origem ativa (K_SERVICE ou CLOUD_RUN_JOB), hops fica
+ * forcado em 2 — o TRUSTED_PROXY_HOPS do ambiente e ignorado.
  */
 export function resolveTrustedProxyHops(env: NodeJS.ProcessEnv = process.env): number {
+  if (isCloudRunRuntime(env)) return 2;
   const n = Number(env.TRUSTED_PROXY_HOPS);
   if (Number.isFinite(n) && n >= 1 && n <= 10) return Math.floor(n);
   return 1;

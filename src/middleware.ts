@@ -9,6 +9,7 @@ import { evaluateServiceBearerAtEdge, parseServiceBearer } from './app/lib/servi
 import { claimsMayManageIam, isIamAdminRoute, isSelfProfileRoute } from './app/lib/iam-admin-routes';
 import { isSensitiveProposalPath, SENSITIVE_PROPOSAL_HEADERS } from './app/lib/sensitive-paths';
 import { isCronOidcConfigured, looksLikeBearerJwt } from './app/lib/cron-oidc-config';
+import { evaluateOriginLock } from './app/lib/origin-lock';
 
 const PUBLIC_PATH_PREFIXES = [
   '/login',
@@ -342,6 +343,7 @@ export function applyBaseSecurityHeaders(res: NextResponse, guardReason: string,
   res.headers.set('X-Frame-Options', 'SAMEORIGIN');
   res.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.headers.set('X-XSS-Protection', '1; mode=block');
+  res.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
   if (isSensitiveProposalPath(pathname)) {
     // Pacote G: /proposta/* e /api/erp/proposals/* => no-referrer, no-store, noindex.
     for (const [k, v] of Object.entries(SENSITIVE_PROPOSAL_HEADERS)) res.headers.set(k, v);
@@ -355,6 +357,25 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const applySecurityHeaders = (res: NextResponse, guardReason: string) =>
     applyBaseSecurityHeaders(res, guardReason, pathname);
+
+  // Trava de origem (Cloud Run): recusa tudo sem X-STI-Origin-Auth valido.
+  // Excecao: GET das rotas de cron com Bearer OIDC (forma de JWT); a assinatura
+  // e conferida no bridge. Sem o secret no Cloud Run, falha fechado.
+  const originLock = evaluateOriginLock({
+    pathname,
+    method: req.method,
+    authorization: req.headers.get('authorization'),
+    headers: req.headers,
+  });
+  if (!originLock.allowed) {
+    return applySecurityHeaders(
+      NextResponse.json(
+        { error: 'Origem da requisicao nao autorizada.', code: originLock.code },
+        { status: 403 }
+      ),
+      originLock.code
+    );
+  }
 
   // Conta de servico (Assistente de Vendas): Bearer stihub_svc_... SEM cookie/header de sessao.
   // Avaliada antes das rotas publicas: com Bearer de servico nada e "publico" (nem /api/auth/*).

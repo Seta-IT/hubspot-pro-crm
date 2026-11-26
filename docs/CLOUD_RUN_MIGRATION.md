@@ -17,6 +17,9 @@ Região alvo: Cloud Run `southamerica-east1`. Neon: `aws-sa-east-1`.
 | `CRON_OIDC_SERVICE_ACCOUNT` | **Sim** no Cloud Scheduler | E-mail da service account com que o Scheduler assina o token OIDC. Também é o `email` que a rota de cron exige no JWT. |
 | `CRON_OIDC_AUDIENCE` | Não (cai para `STI_HUB_PUBLIC_ORIGIN`) | Audience do token OIDC (`aud`). Precisa coincidir com `--oidc-token-audience` do Scheduler. |
 | `CRON_SECRET` | Não (compatibilidade) | Bearer legado da migração Vercel, ≥ 16 caracteres. **Não** entra na linha de comando do `apply.sh`. Sem OIDC configurado e sem este segredo, nenhum cron é autorizado (fail-closed). |
+| `STI_HUB_ORIGIN_SHARED_SECRET` | **Sim** no Cloud Run | Segredo compartilhado com o Worker `sti-hub-proxy` (≥ 16 caracteres). O Worker envia `X-STI-Origin-Auth`. Sem o cabeçalho válido, o app responde 403. Sem o secret no Cloud Run, falha fechado. **Nunca** registrar o valor. |
+
+O valor de produção de `STI_HUB_PUBLIC_ORIGIN` é `https://sti-hub.setatelecom.com.br`. Ele é configurado por variável de ambiente, **não** está fixo no código.
 
 Compatibilidade: `VERCEL=1` e `VERCEL_ENV=production\|preview` continuam válidos enquanto a migração não termina. `CLOUD_RUN_JOB` (Job de migração, que **não** define `K_SERVICE`) entra no mesmo sinal de produção que `K_SERVICE`.
 
@@ -32,7 +35,7 @@ X-Forwarded-For: 8.8.8.8, 203.0.113.10
 
 O IP confiável é `203.0.113.10` (direita). `8.8.8.8` é tratado como forjado.
 
-- **`TRUSTED_PROXY_HOPS=2`:** load balancer HTTPS externo na frente do Cloud Run. O LB acrescenta o IP do cliente; o GFE acrescenta o IP do LB. A entrada correta é a **segunda a partir da direita**. Com hops=1 nesse caso o IP devolvido seria o do LB, não o do cliente:
+- **`TRUSTED_PROXY_HOPS=2`:** load balancer HTTPS externo ou o Worker `sti-hub-proxy` na frente do Cloud Run. O proxy/LB acrescenta o IP do cliente; o GFE acrescenta o IP do proxy. A entrada correta é a **segunda a partir da direita**. Com hops=1 nesse caso o IP devolvido seria o do proxy/LB, não o do cliente. **Com a trava de origem ativa** (`K_SERVICE` ou `CLOUD_RUN_JOB`) os hops ficam **forçados em 2**.
 
 ```
 X-Forwarded-For: 8.8.8.8, 198.51.100.4, 203.0.113.10
@@ -99,6 +102,30 @@ gcloud run jobs create sti-hub-migrate \
   --args=dist/src/db/cli-migrate.js \
   --set-secrets=DATABASE_URL=...
 ```
+
+## Trava de origem, Worker e ingress
+
+O tráfego de produção deve chegar ao Cloud Run **só** pelo Worker `sti-hub-proxy` e/ou por um load balancer HTTPS interno. Recomendação: **ingress interno + LB**, ou **somente o Worker**. Esta unificação **não altera** o ingress — só documenta o alvo.
+
+O Worker envia, em toda requisição, o cabeçalho:
+
+```
+X-STI-Origin-Auth: <STI_HUB_ORIGIN_SHARED_SECRET>
+```
+
+No Cloud Run (`K_SERVICE` ou `CLOUD_RUN_JOB`) o app:
+
+- compara o cabeçalho em tempo constante;
+- responde **403** se estiver ausente ou errado;
+- **falha fechado** se `STI_HUB_ORIGIN_SHARED_SECRET` não estiver configurado (ou tiver menos de 16 caracteres);
+- não registra o secret nem o valor do cabeçalho;
+- força `TRUSTED_PROXY_HOPS=2` (Worker/LB + GFE).
+
+Única exceção: os 6 GET do Cloud Scheduler com Bearer OIDC válido (forma de JWT no Edge; verificação criptográfica no bridge). Além de `/api/cron/*`, isso inclui `/api/erp/daily-sync`, `/api/crm/proposal-followup` e `/api/tickets/email-intake/poll` — os mesmos jobs do Scheduler. Bearer `CRON_SECRET` **não** dispensa a trava.
+
+O probe padrão do Cloud Run é TCP na porta do container e não é afetado pela trava HTTP.
+
+Respostas do middleware incluem `Strict-Transport-Security: max-age=63072000; includeSubDomains`.
 
 ## Cloud Scheduler (OIDC)
 
