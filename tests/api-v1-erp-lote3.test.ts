@@ -956,6 +956,7 @@ describe('Lote 3 / CISO 26/11: correcoes de regressao', () => {
     assert.equal(body(denied).code, 'DANGEROUS_SCOPE_NOT_CONFIRMED');
     // limite por usuario: duas chaves do MESMO usuario somam
     env.deps.limits.dangerousPerMinute = 2;
+    for (const k of [...env.store.rate.keys()]) if (k.startsWith('danger:')) env.store.rate.delete(k); // janela nova
     const k1 = await dangerAdminKey(env);
     const k2 = await keyFor(env, ADMIN.uid, 'TODOS', ['crm:delete', 'crm:tasks:read'], ALL_MODULES as never);
     assert.equal((await prepare(env, k1, path)).status, 200);
@@ -1012,7 +1013,7 @@ describe('Lote 3 / CISO 26/11: correcoes de regressao', () => {
     assert.equal((await prepare(env, key, '/api/v1/erp/bank-accounts', { name: 'Banco Novo', initialBalance: 1000 })).status, 400);
     const { c: ren } = await twoStep(env, key, '/api/v1/erp/bank-accounts/bank-1/update', { name: 'Banco X Renomeado' });
     assert.equal(ren.status, 200, JSON.stringify(ren.body));
-    const bank = env.repo.getErpState().bankAccounts.find((b) => b.id === 'bank-1')!;
+    const bank = (env.repo.getErpState().bankAccounts || []).find((b) => b.id === 'bank-1')!;
     assert.equal(bank.name, 'Banco X Renomeado');
     assert.equal(bank.balance, 12345.67, 'saldo intocado');
   });
@@ -1028,15 +1029,14 @@ describe('Lote 3 / CISO 26/11: correcoes de regressao', () => {
       saves++;
       return origSave();
     };
-    const res = await env.router.dispatch({ method: 'PATCH', path: '/api/erp/invoices/inv-1', query: {}, body: { status: 'CANCELADA' }, context: { trusted: true } as never } as never).catch(() => null);
-    // via conector (caminho real do cancelamento): mesma rota, contexto interno
+    // caminho real do cancelamento pelo conector: rota interna PATCH /api/erp/invoices/:id
     const dp = new RouterDataPort(env.router);
-    saves = 0;
-    const r = res && (res as any).status === 200 ? res : await dp.dangerous('PATCH', '/api/erp/invoices/inv-1', { status: 'CANCELADA' });
-    assert.equal((r as any).status, 200, JSON.stringify((r as any).body));
+    const r = await dp.dangerous('PATCH', '/api/erp/invoices/inv-1', { status: 'CANCELADA' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(String(erp.invoices.find((i) => i.id === 'inv-1')!.status), 'CANCELADA');
     assert.equal(String(erp.financialEntries.find((f) => f.id === 'fin-inv-1')!.status), 'CANCELADO');
-    if (!(res && (res as any).status === 200)) assert.equal(saves, 1, 'fatura e recebivel no mesmo save/persist');
+    assert.deepEqual((r.body as any).cancelledReceivableIds, ['fin-inv-1']);
+    assert.equal(saves, 1, 'fatura e recebivel no mesmo save => uma unica transacao no persist');
     repoAny.save = origSave;
     const key = await dangerAdminKey(env);
     const pay = await prepare(env, key, '/api/v1/erp/financial-entries/fin-inv-1/pay');
@@ -1099,13 +1099,17 @@ describe('Lote 3 / CISO 26/11: correcoes de regressao', () => {
     await withFlags(FLAGS_OFF, async () => {
       const doc = buildOpenApiDocument() as any;
       const json = JSON.stringify(doc);
-      assert.ok(!/fiscal-documents|generate-remessa|generate-invoice|batch-billing|nfe-import|partial-return/.test(json), 'nenhuma rota fiscal no OpenAPI');
+      const opPaths = Object.keys(doc.paths).filter((p) => Object.values(doc.paths[p]).some((o: any) => o['x-stihub-dangerous']));
+      assert.ok(!opPaths.some((p) => /fiscal-documents|generate-remessa|generate-invoice|batch-billing|nfe-import|partial-return/.test(p)), 'nenhuma operacao fiscal no OpenAPI');
       assert.ok(!/erp:fiscal:issue|erp:fiscal:cancel/.test(json), 'nenhum escopo fiscal no OpenAPI');
       const meta = await handleOAuth(req('GET', '/.well-known/oauth-authorization-server'), env.deps);
       assert.ok(!JSON.stringify(meta.body ?? '').includes('erp:fiscal'));
       const list = await handleMcp(rpc(key, { jsonrpc: '2.0', id: 1, method: 'tools/list' }), env.deps);
       const names = (body(list).result.tools as Array<{ name: string }>).map((t) => t.name);
-      assert.ok(!names.some((n) => /fiscal|remessa|generate_invoice|batch_billing|nfe_import|partial_return/.test(n)), names.join(','));
+      // operacoes fiscais (emitir, remessa, faturar/reservar numeracao, NF-e importacao, cancelar/excluir) somem;
+      // leituras do Lote 1 ja publicadas (erp_invoices_list, erp_fiscal_settings_get) seguem como estavam.
+      const ops = names.filter((n) => !/_(list|get)$/.test(n));
+      assert.ok(!ops.some((n) => /fiscal|remessa|generate_invoice|batch_billing|nfe_import|partial_return/.test(n)), ops.join(','));
       assert.ok(names.includes('erp_contracts_readjust_prepare'), 'reajuste nao e fiscal');
       const r = await prepare(env, key, '/api/v1/erp/contracts/ctr-ana/generate-remessa');
       assert.equal(r.status, 404);

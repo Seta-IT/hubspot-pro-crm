@@ -97,7 +97,7 @@ Regras:
 - `crm_insights_get` e `crm_data_health_summary_get`: DTOs fechados (allowlist). Removidos `contactEmail`, `emailOrDomain`, `suggestedMerge`, `description` das issues, `suggestedMessage`/`contactRole`; textos livres passam por máscara de e-mail/telefone (`maskPiiText`). Listas limitadas a 100 itens. `crm_data_health_duplicates_list` não usa mais o e-mail como rótulo.
 - `erp_service_orders_list`/`_get` (carteira PROPRIOS/EQUIPE): no máximo 10 páginas (2.000 OS) por chamada; acima disso `422 TOO_MANY_RECORDS` (nunca lista parcial). Cache da varredura por requisição.
 
-## Fase 2 / Lote 3 — operações perigosas em duas etapas (41 operações = 82 tools)
+## Fase 2 / Lote 3 — operações perigosas em duas etapas (40 operações = 80 tools; aceite de proposta removido em 26/11)
 Branch `feat/api-v1-erp-lote3` (empilhada sobre o Lote 2). Allowlist fechada `LOTE3_DANGEROUS_OPERATIONS` (`use-cases/index.ts`) + rotas internas `ALLOWED_DANGEROUS` (`data-port.ts`, método + caminho). Arquivos: `use-cases/dangerous.ts` (framework) e `danger-3a.ts` … `danger-3d.ts`.
 
 **Fluxo obrigatório**: `<tool>_prepare` (POST, `readOnlyHint=true`, não grava) confere escopo, alçada de tela, permissão de ação, carteira e estado, e devolve `{preview, effects, confirmationToken, expiresAt, commitTool}`. `<tool>_commit` (POST, `destructiveHint=true`) exige `confirmationToken` + **argumentos idênticos**, reconfere tudo com o estado vivo e executa. Token `stc_…` (32 bytes), só o SHA-256 no Postgres (`api_confirmation_tokens`), **uso único**, **5 min**, preso a operação + hash canônico dos argumentos + credencial/usuário/autorização efetiva. Erros 409: `CONFIRMATION_INVALID` (inexistente/forjado/outra credencial ou usuário — sem oráculo), `CONFIRMATION_USED`, `CONFIRMATION_EXPIRED`, `CONFIRMATION_ARGS_MISMATCH` (o token é queimado). Rate-limit próprio por credencial (`danger:`; padrão 10/min, `INTEGRATION_DANGEROUS_RATE_LIMIT_PER_MINUTE` 1–120) → 429 `DANGEROUS_RATE_LIMITED`. JSON-RPC batch continua 400. Auditoria `details.op` = delete/merge/send/approve/pay/issue/cancel… com antes/depois sanitizados.
@@ -141,6 +141,8 @@ Regras:
 ## Variáveis de ambiente (produção = `NODE_ENV=production` ou `VERCEL=1`)
 
 - `INTEGRATION_ENABLE_PLAN_EXPANSION_OPS=1`: liga as 3 operações do ponto (9) (padrão: desligadas).
+- `INTEGRATION_ENABLE_DANGEROUS_COMMITS=1`: libera os `*_commit` do Lote 3 (padrão: **desligada** — só `*_prepare`; commit → 404 `OPERATION_DISABLED`).
+- `INTEGRATION_ENABLE_FISCAL_OPS=1`: libera as operações fiscais (padrão: **desligada** — fora do tools/list, OpenAPI, escopos anunciados, REST e allowlist interna).
 | Variável | Obrigatória | Efeito |
 |---|---|---|
 | `STI_HUB_PUBLIC_ORIGIN` | **Sim** em produção | Origem https usada como issuer/resource. Ausente ou inválida em produção → rotas de integração respondem 503 `PUBLIC_ORIGIN_NOT_CONFIGURED` (sem confiar no Host). |
@@ -148,7 +150,7 @@ Regras:
 | `OAUTH_ALLOWED_REDIRECT_SCHEMES` | Opcional | Esquemas privados extras aceitos pela validação básica de `redirect_uri`. |
 | `ERP_SYNC_SERVICE_KEY` / `ERP_SYNC_SERVICE_KEY_PREVIOUS` | Sim (só production) / opcional | Chave de serviço da sincronização ERP (`stihub_sync_…`). Ausente → `POST /api/v1/erp/sync/run` responde 503. |
 | `INTEGRATION_RATE_LIMIT_PER_MINUTE` / `INTEGRATION_OAUTH_RATE_LIMIT_PER_MINUTE` | Opcional | Limites (padrão 120 / 30). |
-| `INTEGRATION_DANGEROUS_RATE_LIMIT_PER_MINUTE` | Opcional | Limite das operações perigosas (Lote 3) por credencial (padrão 10, 1–120). |
+| `INTEGRATION_DANGEROUS_RATE_LIMIT_PER_MINUTE` | Opcional | Limite das operações perigosas (Lote 3) **por usuário**, somando todas as credenciais/clientes (padrão 10, 1–120). |
 
 ## Chave de serviço da sincronização ERP (`POST /api/v1/erp/sync/run`)
 Uso: rotina diária (Nova) que sincroniza GestãoClick → STI-hub em produção sem sessão humana/MFA.
@@ -172,9 +174,7 @@ Uso: rotina diária (Nova) que sincroniza GestãoClick → STI-hub em produção
 - OpenAPI: a rota **não** entra no `openapi.json` (documento é para chaves IAM/OAuth de integração; esta é credencial interna de serviço).
 
 ## Tabelas (criadas por `ensurePostgresSchema` → `ensureIntegrationSchema`)
-`integration_api_keys`, `api_idempotency_keys`, `integration_audit_logs` (+ `target_user_id`, `details` via `ADD COLUMN IF NOT EXISTS`), `api_rate_limits`, `oauth_clients`, `oauth_auth_codes`, `oauth_tokens`. **Fora do boot (migração manual, ver abaixo):** `api_record_owners`. Todos os segredos/tokens/códigos somente como SHA-256.
-
-`integration_api_keys`, `api_idempotency_keys`, `integration_audit_logs` (+ `target_user_id`, `details` via `ADD COLUMN IF NOT EXISTS`), `api_rate_limits`, `oauth_clients`, `oauth_auth_codes`, `oauth_tokens`, `api_confirmation_tokens` (Lote 3). Todos os segredos/tokens/códigos somente como SHA-256.
+`integration_api_keys`, `api_idempotency_keys`, `integration_audit_logs` (+ `target_user_id`, `details` via `ADD COLUMN IF NOT EXISTS`), `api_rate_limits`, `oauth_clients`, `oauth_auth_codes`, `oauth_tokens`. **Fora do boot (migração manual, ver abaixo):** `api_record_owners`, `api_confirmation_tokens`, `api_deleted_records`, `api_dangerous_scope_confirmations`. Todos os segredos/tokens/códigos somente como SHA-256.
 
 ## Decisões do CISO (fechadas)
 1. OAuth não oferece `EQUIPE` (não há lista de equipe no cadastro): teto `TODOS` → `PROPRIOS` ou `TODOS`; teto `EQUIPE`/`PROPRIOS` → só `PROPRIOS`.
@@ -200,3 +200,14 @@ Uso: rotina diária (Nova) que sincroniza GestãoClick → STI-hub em produção
 ### Lote 3 alinhado à correção CISO do Lote 2 (item 2: posse por ID)
 
 As ações perigosas do Lote 3 que atuam sobre um registro da carteira (excluir tarefa, proposta e contrato; aceite e link público de proposta; cobrança em lote; fatura mensal, remessa, faturamento em lote, devolução e reajuste de contrato) passam a exigir posse por **ID** do usuário dono, como as escritas do Lote 2: carteira `TODOS` segue livre; ID de outro usuário ⇒ 404; registro sem ID dono ⇒ 403 `OWNER_ID_REQUIRED` (contratos/propostas: exceto controle total do ERP). O contrato criado pelo aceite de proposta via conector fica registrado em `api_record_owners` com o ID de quem aceitou.
+
+### Parecer do CISO de 26/11 — Lote 3
+1. **Commits desligados.** Todo `*_commit` fica atrás de `INTEGRATION_ENABLE_DANGEROUS_COMMITS` (padrão desligada): só os `*_prepare` aparecem (tools/list, OpenAPI); o commit responde 404 `OPERATION_DISABLED` em REST e MCP. Sem tela de 2FA.
+2. **OAuth.** Escopo perigoso só é concedido se o IAM confirmou (`POST /api/iam/integration-keys/dangerous-confirmations` com `confirmDangerousScopes: true`): o **cliente** precisa estar verificado (`subjectType: "client"`, `clientVerified: true`) e o escopo confirmado para o cliente **ou** para o usuário (`subjectType: "user"`). Cliente DCR não verificado → sempre negado. Reconferido a cada chamada perigosa (revogação em `.../dangerous-confirmations/{client|user}/{id}/revoke` vale na hora → 403 `DANGEROUS_SCOPE_NOT_CONFIRMED`). Limite de 10/min **por usuário**.
+3. **comms_email_send.** `to`/`cc` só contatos cadastrados na carteira do usuário (422 `RECIPIENT_NOT_IN_PORTFOLIO`); `bcc` só usuários internos ativos (422 `BCC_EXTERNAL_FORBIDDEN`); corpo ≤ 5.000 caracteres; 50 envios/dia (UTC) por usuário (429 `DAILY_QUOTA_EXCEEDED`).
+4. **Financeiro.** `autoPayMatched` removido da conciliação OFX (o conector manda sempre `false` e o app passou a respeitar: casado vira `CONCILIADO_PAREADO`, sem baixa); conta bancária: só renomear (sem `balance`) e criação sempre com saldo zero; o data-port barra qualquer tentativa.
+5. **Cancelar fatura cancela o recebível** em aberto vinculado (`invoiceId`, `RECEBER`) na mesma mutação/`save()` → mesma transação do persist; recebível `CANCELADO` não recebe baixa (409 `FINANCIAL_ENTRY_CANCELLED`). Vale também para a tela.
+6. **Lixeira.** Antes de toda exclusão/merge pelo conector, cópia integral do(s) registro(s) em `api_deleted_records`; falha na cópia → 503 `TRASH_UNAVAILABLE` e nada é excluído.
+7. **Sem aceite** de proposta com CPF nem aceite de termos em nome do cliente: tool, escopo `erp:proposals:approve` e rota `/approve` da allowlist removidos. O aceite é só do cliente, no link público.
+8. **Fiscal** (emitir, remessa, gerar fatura/faturamento em lote — reservam numeração —, devolução parcial, NF-e de importação, cancelar/excluir documento) atrás de `INTEGRATION_ENABLE_FISCAL_OPS` (padrão desligada): fora do tools/list, OpenAPI (rotas e escopos), metadados OAuth, REST (404), criação de chave no IAM (422 `FISCAL_OPS_DISABLED`) e allowlist interna. Reajuste de contrato não é fiscal e segue (só prepare, pelo item 1). As leituras do Lote 1 (`erp_invoices_list`, `erp_fiscal_settings_get`) seguem como publicadas.
+- **Migração manual** (mesmo comando do Lote 2) agora cria também `api_confirmation_tokens` (saiu do boot), `api_deleted_records` e `api_dangerous_scope_confirmations`. Sem elas → 503 `MIGRATION_REQUIRED` em toda operação que não é `GET`.
