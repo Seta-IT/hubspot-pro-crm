@@ -15,7 +15,7 @@ import { RecordIdConflictError, assertNewRecordId, formatProposalCode, nextFreeC
 import { stripLeanMarker } from '../modules/bootstrap/lean-payload';
 import { parseBillingRecipientEmails } from '../modules/erp/billing-recipient-emails';
 import { isLegacyProposalCode, migrateLegacyProposalCodes, nextGcProposalNumber } from '../app/lib/proposal-number';
-import { displayProposalTitle } from '../app/lib/proposal-title';
+import { DEFAULT_PROPOSAL_INTRODUCTION, displayProposalTitle } from '../app/lib/proposal-title';
 import { applyProposalCommercialNotesDefault, proposalNoteDefaultTypeKey } from '../app/lib/proposal-note-defaults';
 import { calendarDaysBetween, parseIsoDate } from '../app/lib/br-date';
 import { resolveProposalValidityForSave } from '../app/lib/proposal-validity';
@@ -5075,7 +5075,7 @@ export class CrmRepository {
         (contact ? `${contact.firstName} ${contact.lastName}`.trim() : 'Decisor Comercial'),
       introductionText:
         input.introductionText ||
-        'Apresentamos a seguir nossa proposta técnico-comercial personalizada com equipamentos homologados Seta Telecom e garantia de alta disponibilidade.',
+        DEFAULT_PROPOSAL_INTRODUCTION,
       internalNotes: input.internalNotes || '',
       setupFee: explicitSetupFee,
       templateStyle: input.templateStyle || 'CLEAN_CORPORATE_LIGHT',

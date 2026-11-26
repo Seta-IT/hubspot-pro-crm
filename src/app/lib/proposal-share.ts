@@ -8,6 +8,7 @@ import {
   ErpProposalVersionSnapshot,
 } from '../../db/types';
 import { displayProposalTitle } from './proposal-title';
+import { proposalItemDetails } from './proposal-item-grid';
 
 export interface ProposalSlaOptionSpec {
   id: string;
@@ -1502,6 +1503,7 @@ export interface CompactProposalPayload {
     un?: string; // unit
     fn: string; // fiscalNature
     nc: string; // ncmOrServiceCode
+    dt?: string; // details (texto livre, nao NCM)
     sk?: string; // serviceKind (tipo de servico da linha)
     q: number; // quantity
     u: number; // unitPrice
@@ -1578,6 +1580,7 @@ export function encodeProposalToQueryParam(prop: ErpCommercialProposal): string 
         un: normalizeProposalItemUnit(item.unit, inferProposalItemType(item)),
         fn: item.fiscalNature,
         nc: item.ncmOrServiceCode,
+        dt: proposalItemDetails(item) || undefined,
         sk: (item as ProposalGridItem).serviceKind || undefined,
         q: item.quantity,
         u: item.unitPrice,
@@ -1645,6 +1648,7 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
             unit: normalizeProposalItemUnit(it.un, itemType),
             fiscalNature: fn,
             ncmOrServiceCode: it.nc || 'NCM 8517.62.59',
+            ...(it.dt ? { details: String(it.dt) } : {}),
             ...(it.sk ? { serviceKind: it.sk } : {}),
             quantity: qty,
             unitPrice,

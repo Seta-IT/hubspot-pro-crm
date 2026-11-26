@@ -31,6 +31,7 @@ import { formatBRL as formatBRLWhole } from '../../components/ui-helpers';
 import { isoToBrDate } from '../../lib/br-date';
 import { formatClientProposalViews } from '../../lib/proposal-client-view';
 import { publicDtoToRenderableProposal, type PublicProposalDto } from '../../lib/proposal-public-dto';
+import { proposalItemDetails } from '../../lib/proposal-item-grid';
 import { displayPaymentConditionText, proposalPaymentMethodLabel } from '../../lib/proposal-payment-method';
 import { buildOpenCrmHref } from '../../lib/home-screen';
 import { SETA_PROPOSAL_HEADER_ADDRESS } from '../../lib/company-issuer-address';
@@ -66,7 +67,7 @@ import {
   resolveProposalAmountDisplay,
   resolveProposalCommercialPresentation,
 } from '../../lib/proposal-share';
-import { displayProposalTitle } from '../../lib/proposal-title';
+import { clientProposalIntroduction } from '../../lib/proposal-title';
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
 import { copySignedProposalVersionLink } from '../../lib/proposal-link-client';
@@ -938,7 +939,7 @@ function PublicProposalPrintContent() {
     !saleLike && resolvedSla.id !== "SEM_SLA_ESPECIFICO" && Boolean(resolvedSla.shortLabel);
   const commercialFigures = resolveProposalCommercialFigures(proposal);
   const avulsoService = commercialFigures.oneTime;
-  const shownIntroduction = (hideServiceFreight
+  const rawIntroduction = (hideServiceFreight
     ? String(proposal.introductionText || "")
         .split(/\n+/)
         .filter((line) => !/frete|transportadora|endere[cç]o de entrega/i.test(line))
@@ -950,6 +951,7 @@ function PublicProposalPrintContent() {
     .replace(avulsoService ? /reajuste anual(?:\s+pelo)?\s+IPCA/gi : /$^/, "")
     .replace(avulsoService ? /\s{2,}/g : /$^/, avulsoService ? " " : "")
     .trim();
+  const shownIntroduction = clientProposalIntroduction(rawIntroduction);
   const uniquePayment = commercialView.uniquePayment;
   const uniquePaymentLabel = commercialView.uniquePaymentLabel;
   const hasContractVigencia =
@@ -2047,17 +2049,14 @@ function PublicProposalPrintContent() {
             </div>
           )}
 
-          {/* BLOCO 5: TÍTULO, TABELA LEVE DE ITENS E RESUMO DE SUBTOTAIS */}
+          {/* BLOCO 5: TABELA DE ITENS E RESUMO DE SUBTOTAIS (sem título interno nem parágrafo fixo) */}
+          {shownIntroduction ? (
           <div className={`print-avoid-break print-keep-with-next border-l-3 ${scopeBorderClass} pl-3.5 py-0.5 space-y-1`}>
-            <h2 className="text-sm sm:text-base font-semibold text-slate-900">
-              {displayProposalTitle(proposal)}
-            </h2>
-            {shownIntroduction && (
-              <p className="text-xs text-slate-600 leading-relaxed">
-                {shownIntroduction}
-              </p>
-            )}
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {shownIntroduction}
+            </p>
           </div>
+          ) : null}
 
           <div className={`border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
             <div className={`${tableHeaderBgClass} print-avoid-break print-keep-with-next px-4 py-2.5 print:py-2 flex items-center justify-between text-[11px] font-semibold tracking-wide`}>
@@ -2079,11 +2078,17 @@ function PublicProposalPrintContent() {
                 {proposal.items.map((item, idx) => {
                   const hasDisc =
                     (item.discountPercent || 0) > 0 || (item.discountAmount || 0) > 0;
+                  const itemDetails = proposalItemDetails(item);
                   return (
                     <tr key={item.id || idx} className="print-avoid-break even:bg-slate-50/40 hover:bg-slate-50/80">
                       <td className="py-2.5 print:py-1.5 px-2.5 font-mono font-semibold text-[#1e3a6e] text-[11px] whitespace-nowrap">{item.sku}</td>
                       <td className="py-2.5 print:py-1.5 px-2.5">
                         <div className="font-semibold text-slate-900 leading-snug">{item.description}</div>
+                        {itemDetails ? (
+                          <div data-testid="proposal-item-details" className="mt-0.5 text-[11px] print:text-[10.5px] text-slate-600 font-normal leading-snug whitespace-pre-wrap">
+                            {itemDetails}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="py-2.5 print:py-1.5 px-2 text-center font-semibold text-slate-900 whitespace-nowrap">
                         {item.quantity} {item.quantity === 1 ? "un" : "un"}
