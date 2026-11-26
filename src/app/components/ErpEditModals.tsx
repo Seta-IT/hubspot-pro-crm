@@ -690,56 +690,125 @@ export function ProposalEditModal({
         <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
           {/* BLOCO 1: INFORME OS DADOS DO ORÇAMENTO (FIEL AO PRINT GESTÃOCLICK [t62u]) */}
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-visible">
-            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
-                  <Edit3 className="w-4 h-4 text-[#1e3a6e]" />
-                  <span>Dados do orçamento</span>
+            <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
+                    <Edit3 className="w-4 h-4 text-[#1e3a6e]" />
+                    <span>Dados do orçamento</span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="text-[11px] font-semibold text-slate-600">Modelo da proposta</label>
+                  <AppSelect
+                    ariaLabel="Modelo da proposta"
+                    value={resolveProposalLayoutKind(draft.templateStyle)}
+                    onChange={(v) =>
+                      updateDraft({
+                        templateStyle: v as ErpCommercialProposal['templateStyle'],
+                      })
+                    }
+                    className="px-3 py-1.5 rounded border border-emerald-400 bg-emerald-50 text-emerald-950"
+                    options={PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((tpl) => ({
+                      value: tpl.id,
+                      label: tpl.label,
+                    }))}
+                  />
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="text-[11px] font-semibold text-slate-600">Modelo da proposta</label>
-                <AppSelect
-                  ariaLabel="Modelo da proposta"
-                  value={resolveProposalLayoutKind(draft.templateStyle)}
-                  onChange={(v) =>
-                    updateDraft({
-                      templateStyle: v as ErpCommercialProposal['templateStyle'],
-                    })
-                  }
-                  className="px-3 py-1.5 rounded border border-emerald-400 bg-emerald-50 text-emerald-950"
-                  options={PROPOSAL_TEMPLATE_STYLE_OPTIONS.map((tpl) => ({
-                    value: tpl.id,
-                    label: tpl.label,
-                  }))}
-                />
 
-                <label className="text-[11px] font-semibold text-slate-600">Tipo de orçamento</label>
-                <AppSelect
-                  ariaLabel="Tipo de orçamento"
-                  value={draft.budgetType || 'LOCACAO'}
-                  onChange={(v) => {
-                    const budgetType = v as ErpCommercialProposal['budgetType'];
-                    updateDraft(notesPatchFor({
-                      budgetType,
-                      ...(budgetType === 'SPARE_PARTS'
-                        ? {
-                            contractMonths: 1,
-                            setupFee: 0,
-                            slaTier: 'SEM_SLA_ESPECIFICO',
-                          }
-                        : {}),
-                    }));
-                  }}
-                  className="px-3 py-1.5 rounded border border-[#1e3a6e]/40 bg-blue-50/40 text-[#1e3a6e]"
-                  options={[
-                    { value: 'PRODUTOS', label: 'Orçamento de Produtos' },
-                    { value: 'SERVICOS', label: 'Orçamento de Serviços' },
-                    { value: 'SPARE_PARTS', label: 'Spare Parts / Hard Parts' },
-                    { value: 'CONJUNTO', label: 'Orçamento conjunto' },
-                    { value: 'LOCACAO', label: 'Locação' },
-                  ]}
-                />
+              <div className="flex flex-wrap items-start gap-3.5" data-testid="proposal-type-row">
+                <div className="w-full sm:w-auto sm:min-w-[220px] sm:flex-1 sm:max-w-xs">
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Tipo de orçamento</label>
+                  <AppSelect
+                    ariaLabel="Tipo de orçamento"
+                    value={draft.budgetType || 'LOCACAO'}
+                    onChange={(v) => {
+                      const budgetType = v as ErpCommercialProposal['budgetType'];
+                      updateDraft(notesPatchFor({
+                        budgetType,
+                        ...(budgetType === 'SPARE_PARTS'
+                          ? {
+                              contractMonths: 1,
+                              setupFee: 0,
+                              slaTier: 'SEM_SLA_ESPECIFICO',
+                            }
+                          : {}),
+                      }));
+                    }}
+                    className="w-full px-3 py-1.5 rounded border border-[#1e3a6e]/40 bg-blue-50/40 text-[#1e3a6e]"
+                    options={[
+                      { value: 'PRODUTOS', label: 'Orçamento de Produtos' },
+                      { value: 'SERVICOS', label: 'Orçamento de Serviços' },
+                      { value: 'SPARE_PARTS', label: 'Spare Parts / Hard Parts' },
+                      { value: 'CONJUNTO', label: 'Orçamento conjunto' },
+                      { value: 'LOCACAO', label: 'Locação' },
+                    ]}
+                  />
+                </div>
+
+                {draft.budgetType !== "PRODUTOS" && (
+                <div className="w-full sm:w-40 sm:flex-none">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Prazo do contrato (meses)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={120}
+                    value={draft.contractMonths}
+                    onChange={(e) => {
+                      const contractMonths = Math.max(1, Number(e.target.value) || 24);
+                      const turningAvulso = draft.budgetType === "SERVICOS" && contractMonths === 1;
+                      if (turningAvulso) setInstallmentCount(1);
+                      const rawCondition = String(draft.paymentCondition || "").trim();
+                      const conditionIsSlug = /^a[_ ]?vista$/i.test(rawCondition) || /^pagamento_unico$/i.test(rawCondition);
+                      updateDraft(notesPatchFor({
+                        contractMonths,
+                        ...(turningAvulso && (!rawCondition || conditionIsSlug)
+                          ? { paymentCondition: "À vista — Pagamento único" }
+                          : {}),
+                      }));
+                    }}
+                    className="w-full px-3 py-2 rounded border border-slate-300 text-[#1e3a6e]"
+                  />
+                </div>
+                )}
+
+                {draft.budgetType !== "PRODUTOS" && draft.budgetType !== "SPARE_PARTS" && (
+                <div className="w-full sm:min-w-[220px] sm:flex-1 bg-blue-50/50 p-2.5 rounded border border-blue-200">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#1e3a6e] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Number(draft.setupFee || 0) > 0}
+                        onChange={(e) =>
+                          updateDraft({ setupFee: e.target.checked ? (Number(draft.setupFee) > 0 ? Number(draft.setupFee) : 500) : 0 })
+                        }
+                        className="accent-[#1e3a6e]"
+                      />
+                      <span>{proposalSetupFeeLabel(draft, 'include')}</span>
+                    </label>
+                  </div>
+                  {Number(draft.setupFee || 0) > 0 ? (
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={draft.setupFee ?? 0}
+                      onChange={(e) =>
+                        updateDraft({ setupFee: Math.max(0, Number(e.target.value) || 0) })
+                      }
+                      placeholder={proposalSetupFeeLabel(draft, 'placeholder')}
+                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-right font-semibold text-slate-900"
+                    />
+                  ) : (
+                    <div className="px-3 py-2 rounded border border-dashed border-slate-300 bg-slate-50 text-[11px] text-slate-500">
+                      {proposalSetupFeeLabel(draft, 'empty')}
+                    </div>
+                  )}
+                </div>
+                )}
               </div>
             </div>
 
@@ -1079,7 +1148,7 @@ export function ProposalEditModal({
                 </div>
               </div>
 
-              {/* LINHA 3: Centro de custo | Plano de contas | Nome | CNPJ | Prazo */}
+              {/* LINHA 3: Centro de custo | Plano de contas | CNPJ ou CPF */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
@@ -1121,7 +1190,7 @@ export function ProposalEditModal({
                   </datalist>
                 </div>
 
-                <div className="sm:col-span-4">
+                <div className="sm:col-span-8">
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">CNPJ ou CPF</label>
                   <input
                     type="text"
@@ -1131,34 +1200,6 @@ export function ProposalEditModal({
                     className="w-full px-3 py-2 rounded border border-slate-300 font-mono"
                   />
                 </div>
-
-                {draft.budgetType !== "PRODUTOS" && (
-                <div className="sm:col-span-4">
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Prazo do contrato (meses)
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={120}
-                    value={draft.contractMonths}
-                    onChange={(e) => {
-                      const contractMonths = Math.max(1, Number(e.target.value) || 24);
-                      const turningAvulso = draft.budgetType === "SERVICOS" && contractMonths === 1;
-                      if (turningAvulso) setInstallmentCount(1);
-                      const rawCondition = String(draft.paymentCondition || "").trim();
-                      const conditionIsSlug = /^a[_ ]?vista$/i.test(rawCondition) || /^pagamento_unico$/i.test(rawCondition);
-                      updateDraft(notesPatchFor({
-                        contractMonths,
-                        ...(turningAvulso && (!rawCondition || conditionIsSlug)
-                          ? { paymentCondition: "À vista — Pagamento único" }
-                          : {}),
-                      }));
-                    }}
-                    className="w-full px-3 py-2 rounded border border-slate-300 text-[#1e3a6e]"
-                  />
-                </div>
-                )}
               </div>
 
               {/* LINHA DE CONFIGURAÇÃO POR TIPO DE PROPOSTA (PRODUTOS vs LOCAÇÃO vs SERVIÇOS) */}
@@ -1221,43 +1262,6 @@ export function ProposalEditModal({
                     ))}
                   </datalist>
                 </div>
-              )}
-
-              {draft.budgetType !== "PRODUTOS" && draft.budgetType !== "SPARE_PARTS" && (
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 bg-blue-50/50 p-3 rounded border border-blue-200">
-                <div className="sm:col-span-12">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#1e3a6e] cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={Number(draft.setupFee || 0) > 0}
-                        onChange={(e) =>
-                          updateDraft({ setupFee: e.target.checked ? (Number(draft.setupFee) > 0 ? Number(draft.setupFee) : 500) : 0 })
-                        }
-                        className="accent-[#1e3a6e]"
-                      />
-                      <span>{proposalSetupFeeLabel(draft, 'include')}</span>
-                    </label>
-                  </div>
-                  {Number(draft.setupFee || 0) > 0 ? (
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={draft.setupFee ?? 0}
-                      onChange={(e) =>
-                        updateDraft({ setupFee: Math.max(0, Number(e.target.value) || 0) })
-                      }
-                      placeholder={proposalSetupFeeLabel(draft, 'placeholder')}
-                      className="w-full px-3 py-2 rounded border border-blue-300 bg-white text-right font-semibold text-slate-900"
-                    />
-                  ) : (
-                    <div className="px-3 py-2 rounded border border-dashed border-slate-300 bg-slate-50 text-[11px] text-slate-500">
-                      {proposalSetupFeeLabel(draft, 'empty')}
-                    </div>
-                  )}
-                </div>
-              </div>
               )}
 
               {/* LINHA 4 DO GESTÃOCLICK: Introdução da proposta */}
