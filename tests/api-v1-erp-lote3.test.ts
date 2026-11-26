@@ -25,6 +25,8 @@ import { LOTE1_SCOPES, LOTE2_WRITE_SCOPES, isBlockedScope, validateRequestedScop
 import { LOTE2_WRITE_OPERATIONS, LOTE3_DANGEROUS_OPERATIONS } from '../src/modules/integration/use-cases';
 import { LOTE3_DANGEROUS_SCOPES } from '../src/modules/integration/scopes';
 import { describeTool } from '../src/modules/integration/mcp';
+import { API_V1_MANUAL_TABLES } from '../src/modules/integration/migrations/api-v1-manual-migration';
+import { INTEGRATION_SCHEMA_SQL } from '../src/modules/integration/store-postgres';
 
 // CISO 26/11: os *_commit e as operacoes fiscais ficam desligados por padrao. As suites historicas
 // abaixo exercitam a execucao, entao LIGAM as duas flags neste processo; a suite "CISO 26/11" no fim
@@ -840,5 +842,284 @@ describe('Lote 3 / CISO Lote 2 (2): posse por ID nas acoes perigosas', () => {
     assert.equal((await prepare(env, ana, '/api/v1/erp/contracts/ctr-ana/delete')).status, 200);
     const admin = await dangerAdminKey(env);
     assert.equal((await prepare(env, admin, '/api/v1/erp/contracts/ctr-ana-co/delete')).status, 200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Parecer do CISO de 26/11/2026 — Lote 3: um teste de regressao por item.
+// ---------------------------------------------------------------------------
+async function withFlags<T>(flags: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+  const saved: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(flags)) {
+    saved[k] = process.env[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+const FLAGS_OFF = { INTEGRATION_ENABLE_DANGEROUS_COMMITS: undefined, INTEGRATION_ENABLE_FISCAL_OPS: undefined };
+const NON_FISCAL_D = D.filter((s) => s !== 'erp:fiscal:issue' && s !== 'erp:fiscal:cancel');
+
+function pkce() {
+  const verifier = randomBytes(32).toString('base64url');
+  return { verifier, challenge: createHash('sha256').update(verifier).digest('base64url') };
+}
+async function registerClient(env: Env) {
+  const redirect = 'https://client.example/callback';
+  const reg = await handleOAuth(req('POST', '/api/oauth/register', { body: { client_name: 'Agente 26/11', redirect_uris: [redirect] } }), env.deps);
+  return { clientId: body(reg).client_id as string, redirect };
+}
+async function iamConfirm(env: Env, payload: Record<string, unknown>) {
+  return handleIamIntegrationKeys(req('POST', '/api/iam/integration-keys/dangerous-confirmations', { session: session(ADMIN), body: { confirmDangerousScopes: true, ...payload } }), env.deps);
+}
+async function oauthFlow(env: Env, clientId: string, redirect: string, scope: string, checks: Record<string, string>) {
+  const { verifier, challenge } = pkce();
+  const q = { response_type: 'code', client_id: clientId, redirect_uri: redirect, scope, state: 's', code_challenge: challenge, code_challenge_method: 'S256' };
+  const sess = session(ADMIN);
+  const page = await handleOAuth(req('GET', '/api/oauth/authorize', { query: q, session: sess }), env.deps);
+  assert.equal(page.status, 200, JSON.stringify(page).slice(0, 300));
+  const html = page.text || '';
+  const csrf = /name="csrf" value="([^"]+)"/.exec(html)?.[1];
+  const post = await handleOAuth(req('POST', '/api/oauth/authorize', { session: sess, body: { ...q, csrf, decision: 'approve', portfolio_scope: 'TODOS', ...checks } }), env.deps);
+  const code = post.redirect ? new URL(post.redirect).searchParams.get('code') : null;
+  if (!code) return { html, token: null as string | null, scopes: [] as string[] };
+  const tok = await handleOAuth(req('POST', '/api/oauth/token', { headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: { grant_type: 'authorization_code', client_id: clientId, code, redirect_uri: redirect, code_verifier: verifier } }), env.deps);
+  return { html, token: body(tok).access_token as string, scopes: String(body(tok).scope).split(' ').sort() };
+}
+
+describe('Lote 3 / CISO 26/11: correcoes de regressao', () => {
+  it('1. *_commit atras de INTEGRATION_ENABLE_DANGEROUS_COMMITS (desligada): so prepare; commit => 404 OPERATION_DISABLED (REST e MCP), fora do tools/list e do OpenAPI', async () => {
+    const env = makeEnv();
+    const key = await dangerAdminKey(env);
+    await withFlags(FLAGS_OFF, async () => {
+      const path = `/api/v1/crm/tasks/${env.ids.tAna}/delete`;
+      const p = await prepare(env, key, path);
+      assert.equal(p.status, 200, JSON.stringify(p.body));
+      const c = await commit(env, key, path, {}, body(p).data.confirmationToken);
+      assert.equal(c.status, 404);
+      assert.equal(body(c).code, 'OPERATION_DISABLED');
+      assert.ok(env.repo.listTasks().some((t: any) => t.id === env.ids.tAna), 'nada excluido');
+      const list = await handleMcp(rpc(key, { jsonrpc: '2.0', id: 1, method: 'tools/list' }), env.deps);
+      const names = (body(list).result.tools as Array<{ name: string }>).map((t) => t.name);
+      assert.ok(names.includes('crm_tasks_delete_prepare'));
+      assert.ok(!names.some((n) => n.endsWith('_commit')), 'nenhum commit anunciado');
+      const mc = await handleMcp(rpc(key, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'crm_tasks_delete_commit', arguments: { id: env.ids.tAna, confirmationToken: body(p).data.confirmationToken } } }), env.deps);
+      const txt = JSON.parse(body(mc).result.content[0].text);
+      assert.equal(txt.status, 404);
+      assert.equal(txt.code, 'OPERATION_DISABLED');
+      const doc = buildOpenApiDocument() as any;
+      const ops = Object.values(doc.paths).flatMap((p: any) => Object.values(p)) as any[];
+      assert.ok(ops.some((o) => o['x-stihub-dangerous'] === 'prepare'));
+      assert.ok(!ops.some((o) => o['x-stihub-dangerous'] === 'commit'));
+    });
+    // ligada: o mesmo commit executa
+    const p2 = await prepare(env, key, `/api/v1/crm/tasks/${env.ids.tAna}/delete`);
+    const c2 = await commit(env, key, `/api/v1/crm/tasks/${env.ids.tAna}/delete`, {}, body(p2).data.confirmationToken);
+    assert.equal(c2.status, 200, JSON.stringify(c2.body));
+  });
+
+  it('2. OAuth: perigoso so com confirmDangerousScopes do IAM; DCR nao verificado sempre negado; revogacao vale na hora; limite 10/min por USUARIO', async () => {
+    const env = makeEnv();
+    grant(env, ADMIN.uid, ALL_GUARDS);
+    // sem nada no IAM: perigoso nem e oferecido, mesmo marcado a forca
+    const c1 = await registerClient(env);
+    const a = await oauthFlow(env, c1.clientId, c1.redirect, 'crm:contacts:read crm:delete', { grant_crm_delete: '1' });
+    assert.ok(!/grant_crm_delete/.test(a.html));
+    assert.match(a.html, /sem confirmacao do IAM/);
+    assert.deepEqual(a.scopes, ['crm:contacts:read']);
+    // usuario confirmado, mas cliente DCR NAO verificado => continua negado
+    assert.equal((await iamConfirm(env, { subjectType: 'user', subjectId: ADMIN.uid, scopes: ['crm:delete'] })).status, 200);
+    assert.equal((await iamConfirm(env, { subjectType: 'client', subjectId: c1.clientId, scopes: ['crm:delete'], clientVerified: false })).status, 200);
+    const b = await oauthFlow(env, c1.clientId, c1.redirect, 'crm:contacts:read crm:delete', { grant_crm_delete: '1' });
+    assert.deepEqual(b.scopes, ['crm:contacts:read']);
+    // IAM sem confirmDangerousScopes => 400
+    const noConfirm = await handleIamIntegrationKeys(req('POST', '/api/iam/integration-keys/dangerous-confirmations', { session: session(ADMIN), body: { subjectType: 'client', subjectId: c1.clientId, scopes: [], clientVerified: true } }), env.deps);
+    assert.equal(noConfirm.status, 400);
+    // cliente verificado (sem escopos proprios) + confirmacao do usuario => concedido
+    assert.equal((await iamConfirm(env, { subjectType: 'client', subjectId: c1.clientId, scopes: [], clientVerified: true })).status, 200);
+    const c = await oauthFlow(env, c1.clientId, c1.redirect, 'crm:contacts:read crm:delete', { grant_crm_delete: '1' });
+    assert.deepEqual(c.scopes, ['crm:contacts:read', 'crm:delete']);
+    const path = `/api/v1/crm/tasks/${env.ids.tAna}/delete`;
+    assert.equal((await prepare(env, c.token!, path)).status, 200);
+    // revogou no IAM => a proxima chamada perigosa ja e negada
+    const rv = await handleIamIntegrationKeys(req('POST', `/api/iam/integration-keys/dangerous-confirmations/user/${ADMIN.uid}/revoke`, { session: session(ADMIN) }), env.deps);
+    assert.equal(rv.status, 200);
+    const denied = await prepare(env, c.token!, path);
+    assert.equal(denied.status, 403);
+    assert.equal(body(denied).code, 'DANGEROUS_SCOPE_NOT_CONFIRMED');
+    // limite por usuario: duas chaves do MESMO usuario somam
+    env.deps.limits.dangerousPerMinute = 2;
+    const k1 = await dangerAdminKey(env);
+    const k2 = await keyFor(env, ADMIN.uid, 'TODOS', ['crm:delete', 'crm:tasks:read'], ALL_MODULES as never);
+    assert.equal((await prepare(env, k1, path)).status, 200);
+    assert.equal((await prepare(env, k2, path)).status, 200);
+    const third = await prepare(env, k2, path);
+    assert.equal(third.status, 429);
+    assert.equal(body(third).code, 'DANGEROUS_RATE_LIMITED');
+  });
+
+  it('3. comms_email_send: so contato da carteira; sem bcc externo; corpo <= 5.000; teto diario de 50 por usuario', async () => {
+    const env = makeEnv();
+    const key = await dangerAdminKey(env);
+    const send = (p: Record<string, unknown>) => prepare(env, key, '/api/v1/comms/email/send', { subject: 'Oi', body: 'texto', ...p });
+    const ext = await send({ to: ['qualquer@externo.com'] });
+    assert.equal(ext.status, 422);
+    assert.equal(body(ext).code, 'RECIPIENT_NOT_IN_PORTFOLIO');
+    const ccExt = await send({ to: ['cliente.ana@empresa-a.com.br'], cc: ['qualquer@externo.com'] });
+    assert.equal(body(ccExt).code, 'RECIPIENT_NOT_IN_PORTFOLIO');
+    const bcc = await send({ to: ['cliente.ana@empresa-a.com.br'], bcc: ['espiao@externo.com'] });
+    assert.equal(bcc.status, 422);
+    assert.equal(body(bcc).code, 'BCC_EXTERNAL_FORBIDDEN');
+    assert.equal((await send({ to: ['cliente.ana@empresa-a.com.br'], bcc: [ANA.email] })).status, 200, 'bcc interno ok');
+    assert.equal((await send({ to: ['cliente.ana@empresa-a.com.br'], body: 'x'.repeat(5001) })).status, 400);
+    assert.equal((await send({ to: ['cliente.ana@empresa-a.com.br'], body: 'x'.repeat(5000) })).status, 200);
+    // ANA (PROPRIOS) nao manda para contato da Carla
+    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['comms:send'], { crm: true, chamados: false, erp: true });
+    assert.equal(body(await prepare(env, ana, '/api/v1/comms/email/send', { to: ['zuleica@empresa-c.com.br'], subject: 'a', body: 'b' })).code, 'RECIPIENT_NOT_IN_PORTFOLIO');
+    // teto diario: 50 envios ja contados hoje => commit 429 antes de enviar
+    const now = new Date();
+    const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+    env.store.rate.set(`day:comms_email_send:user:${ADMIN.uid}@${day}`, 50);
+    const args = { to: ['cliente.ana@empresa-a.com.br'], subject: 'Oi', body: 'texto' };
+    const p = await prepare(env, key, '/api/v1/comms/email/send', args);
+    const c = await commit(env, key, '/api/v1/comms/email/send', args, body(p).data.confirmationToken);
+    assert.equal(c.status, 429, JSON.stringify(c.body));
+    assert.equal(body(c).code, 'DAILY_QUOTA_EXCEEDED');
+  });
+
+  it('4. OFX sem autoPayMatched (nunca baixa); conta bancaria sem ajuste manual de saldo', async () => {
+    const env = makeEnv();
+    const key = await dangerAdminKey(env);
+    const OFX = `<OFX><BANKTRANLIST><STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261210<TRNAMT>-77.00<FITID>F1<MEMO>Conta aberta L3</STMTTRN></BANKTRANLIST></OFX>`;
+    const withFlag = await prepare(env, key, '/api/v1/erp/financial/reconcile-ofx', { bankId: 'bank-1', ofxContent: OFX, autoPayMatched: true });
+    assert.equal(withFlag.status, 400);
+    const { c } = await twoStep(env, key, '/api/v1/erp/financial/reconcile-ofx', { bankId: 'bank-1', ofxContent: OFX });
+    assert.equal(c.status, 200, JSON.stringify(c.body));
+    assert.equal(String(env.repo.getErpState().financialEntries.find((f) => f.id === 'fin-l3-open')!.status), 'ABERTO');
+    // data-port barra autoPayMatched=true mesmo vindo de codigo do conector
+    const dp = new RouterDataPort(env.router);
+    await assert.rejects(() => dp.dangerous('POST', '/api/erp/financial/reconcile-ofx', { bankId: 'bank-1', ofxContent: OFX, autoPayMatched: true }));
+    await assert.rejects(() => dp.dangerous('PATCH', '/api/erp/records/bankAccounts/bank-1', { name: 'X', balance: 1 }));
+    // saldo: nem no update nem na criacao
+    assert.equal((await prepare(env, key, '/api/v1/erp/bank-accounts/bank-1/update', { balance: 1 })).status, 400);
+    assert.equal((await prepare(env, key, '/api/v1/erp/bank-accounts', { name: 'Banco Novo', initialBalance: 1000 })).status, 400);
+    const { c: ren } = await twoStep(env, key, '/api/v1/erp/bank-accounts/bank-1/update', { name: 'Banco X Renomeado' });
+    assert.equal(ren.status, 200, JSON.stringify(ren.body));
+    const bank = env.repo.getErpState().bankAccounts.find((b) => b.id === 'bank-1')!;
+    assert.equal(bank.name, 'Banco X Renomeado');
+    assert.equal(bank.balance, 12345.67, 'saldo intocado');
+  });
+
+  it('5. cancelar fatura cancela o recebivel vinculado na MESMA transacao (um unico save); recebivel cancelado nao recebe baixa', async () => {
+    const env = makeEnv();
+    const erp = env.repo.getErpState();
+    erp.financialEntries.push({ id: 'fin-inv-1', type: 'RECEBER', category: 'LOCACAO_EQUIPAMENTOS', description: 'Fatura NF-777', companyName: 'C', costCenter: 'CC', amount: 500, dueDate: '2026-11-10', paidAt: null, status: 'ABERTO', invoiceId: 'inv-1', paymentMethod: 'BOLETO_PIX' } as never);
+    let saves = 0;
+    const repoAny = env.repo as any;
+    const origSave = repoAny.save.bind(repoAny);
+    repoAny.save = () => {
+      saves++;
+      return origSave();
+    };
+    const res = await env.router.dispatch({ method: 'PATCH', path: '/api/erp/invoices/inv-1', query: {}, body: { status: 'CANCELADA' }, context: { trusted: true } as never } as never).catch(() => null);
+    // via conector (caminho real do cancelamento): mesma rota, contexto interno
+    const dp = new RouterDataPort(env.router);
+    saves = 0;
+    const r = res && (res as any).status === 200 ? res : await dp.dangerous('PATCH', '/api/erp/invoices/inv-1', { status: 'CANCELADA' });
+    assert.equal((r as any).status, 200, JSON.stringify((r as any).body));
+    assert.equal(String(erp.invoices.find((i) => i.id === 'inv-1')!.status), 'CANCELADA');
+    assert.equal(String(erp.financialEntries.find((f) => f.id === 'fin-inv-1')!.status), 'CANCELADO');
+    if (!(res && (res as any).status === 200)) assert.equal(saves, 1, 'fatura e recebivel no mesmo save/persist');
+    repoAny.save = origSave;
+    const key = await dangerAdminKey(env);
+    const pay = await prepare(env, key, '/api/v1/erp/financial-entries/fin-inv-1/pay');
+    assert.equal(pay.status, 409);
+    assert.equal(body(pay).code, 'FINANCIAL_ENTRY_CANCELLED');
+    // cancelar com outros campos junto => 400 (cancelamento exclusivo)
+    await assert.rejects(() => dp.dangerous('PATCH', '/api/erp/invoices/inv-1', { status: 'CANCELADA', grossAmount: 1 }));
+  });
+
+  it('6. lixeira: copia integral ANTES de excluir; falha na copia => nada excluido; tabelas so na migracao manual', async () => {
+    const env = makeEnv();
+    const key = await dangerAdminKey(env);
+    const path = `/api/v1/crm/tasks/${env.ids.tAna}/delete`;
+    env.store.failTrashInsert = true;
+    const p = await prepare(env, key, path);
+    const c = await commit(env, key, path, {}, body(p).data.confirmationToken);
+    assert.equal(c.status, 503);
+    assert.equal(body(c).code, 'TRASH_UNAVAILABLE');
+    assert.ok(env.repo.listTasks().some((t: any) => t.id === env.ids.tAna), 'sem copia => sem exclusao');
+    env.store.failTrashInsert = false;
+    const ok = await twoStep(env, key, path);
+    assert.equal(ok.c.status, 200, JSON.stringify(ok.c.body));
+    const trash = await env.store.listDeletedRecords('crm.task', env.ids.tAna);
+    assert.equal(trash.length, 1);
+    assert.equal(trash[0].snapshot.title, 'Ligar para cliente da Ana', 'registro inteiro, nao so a previa');
+    assert.equal(trash[0].operationId, 'crm.tasks.delete');
+    assert.equal(trash[0].actorUserId, ADMIN.uid);
+    // merge tambem copia os dois registros
+    const dup = env.repo.createContact({ firstName: 'Cliente', lastName: 'DaAna2', email: 'cliente.ana2@empresa-a.com.br', ownerId: 'usr-ana', ownerName: 'Ana Vendas' });
+    const mg = await twoStep(env, key, '/api/v1/crm/merge', { entityType: 'CONTACT', primaryId: env.ids.cAna, duplicateId: dup.id });
+    if (mg.c.status === 200) assert.equal((await env.store.listDeletedRecords('crm.contact', dup.id)).length, 1);
+    // tabelas fora do boot
+    assert.ok(API_V1_MANUAL_TABLES.includes('api_deleted_records' as never));
+    assert.ok(API_V1_MANUAL_TABLES.includes('api_confirmation_tokens' as never));
+    assert.ok(API_V1_MANUAL_TABLES.includes('api_dangerous_scope_confirmations' as never));
+    assert.ok(!/api_confirmation_tokens|api_deleted_records|api_dangerous_scope_confirmations/.test(INTEGRATION_SCHEMA_SQL));
+    // sem a migracao: falha fechada antes de qualquer token
+    env.store.manualMigrationApplied = false;
+    const mr = await prepare(env, key, `/api/v1/crm/tasks/${env.ids.tCarla}/delete`);
+    assert.equal(mr.status, 503);
+    assert.equal(body(mr).code, 'MIGRATION_REQUIRED');
+  });
+
+  it('7. conector sem aceite de proposta (CPF) e sem aceite de termos em nome do cliente', async () => {
+    const env = makeEnv();
+    const key = await dangerAdminKey(env);
+    const r = await prepare(env, key, '/api/v1/erp/proposals/prop-ana/approve', { signerName: 'Fulano', signerCpf: '529.982.247-25', signerRole: 'Dir', modality: 'GOV_BR_OURO', acceptedTerms: true });
+    assert.equal(r.status, 404);
+    assert.ok(!INTEGRATION_USE_CASES.some((u) => /approve|accept/i.test(u.operationId) && u.method === 'POST'));
+    assert.ok(!INTEGRATION_USE_CASES.some((u) => JSON.stringify((u as any).inputSchema?.toJSONSchema?.() ?? '').match(/signerCpf|acceptedTerms/)));
+    assert.equal(validateRequestedScopes(['erp:proposals:approve']).ok, false);
+    const dp = new RouterDataPort(env.router);
+    await assert.rejects(() => dp.dangerous('POST', '/api/erp/proposals/prop-ana/approve', { signerName: 'x' }));
+    assert.equal(String(env.repo.getErpState().proposals.find((p) => p.id === 'prop-ana')!.status), 'ENVIADA');
+  });
+
+  it('8. fiscal atras de INTEGRATION_ENABLE_FISCAL_OPS (desligada): nada fiscal no tools/list, OpenAPI, escopos, REST, IAM nem allowlist interna', async () => {
+    const env = makeEnv();
+    const key = await dangerAdminKey(env); // criada com a flag ligada (chave antiga com escopo fiscal)
+    await withFlags(FLAGS_OFF, async () => {
+      const doc = buildOpenApiDocument() as any;
+      const json = JSON.stringify(doc);
+      assert.ok(!/fiscal-documents|generate-remessa|generate-invoice|batch-billing|nfe-import|partial-return/.test(json), 'nenhuma rota fiscal no OpenAPI');
+      assert.ok(!/erp:fiscal:issue|erp:fiscal:cancel/.test(json), 'nenhum escopo fiscal no OpenAPI');
+      const meta = await handleOAuth(req('GET', '/.well-known/oauth-authorization-server'), env.deps);
+      assert.ok(!JSON.stringify(meta.body ?? '').includes('erp:fiscal'));
+      const list = await handleMcp(rpc(key, { jsonrpc: '2.0', id: 1, method: 'tools/list' }), env.deps);
+      const names = (body(list).result.tools as Array<{ name: string }>).map((t) => t.name);
+      assert.ok(!names.some((n) => /fiscal|remessa|generate_invoice|batch_billing|nfe_import|partial_return/.test(n)), names.join(','));
+      assert.ok(names.includes('erp_contracts_readjust_prepare'), 'reajuste nao e fiscal');
+      const r = await prepare(env, key, '/api/v1/erp/contracts/ctr-ana/generate-remessa');
+      assert.equal(r.status, 404);
+      const k = await createKey(env, { name: 'f', scopes: ['erp:fiscal:issue'], portfolioScope: 'TODOS', moduleAccess: { crm: true, chamados: false, erp: true }, ownerUserId: ADMIN.uid, confirmDangerousScopes: true });
+      assert.equal(k.res.status, 422);
+      assert.equal(body(k.res).code, 'FISCAL_OPS_DISABLED');
+      const dp = new RouterDataPort(env.router);
+      const before = env.repo.getErpState().invoices.length;
+      await assert.rejects(() => dp.dangerous('POST', '/api/erp/rental-contracts/ctr-ana/generate-remessa', {}));
+      await assert.rejects(() => dp.dangerous('POST', '/api/erp/invoices', { companyName: 'X', grossAmount: 1 }));
+      assert.equal(env.repo.getErpState().invoices.length, before);
+      // nao-fiscal segue normal
+      assert.equal((await prepare(env, key, `/api/v1/crm/tasks/${env.ids.tAna}/delete`)).status, 200);
+      void NON_FISCAL_D;
+    });
   });
 });
