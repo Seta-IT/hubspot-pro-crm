@@ -40,6 +40,7 @@ import {
   getLifecycleBadge,
   getScoreColorClasses,
 } from './ui-helpers';
+import PhoneInput from './PhoneInput';
 
 export interface EnrichedContactItem extends Contact {
   company?: Company | null;
@@ -1726,12 +1727,10 @@ export default function ContactsCompaniesTab({
                   <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                     Telefone / WhatsApp
                   </label>
-                  <input
-                    type="text"
+                  <PhoneInput
+                    kind="phone"
                     value={cPhone}
-                    onChange={(e) => setCPhone(e.target.value)}
-                    placeholder="(11) 98888-7766"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
+                    onChange={(v) => setCPhone(v)}
                   />
                 </div>
                 <div>

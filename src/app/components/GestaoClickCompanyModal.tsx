@@ -26,6 +26,7 @@ import {
   validateCnpj,
   validateDocumentByPersonType,
 } from '../../modules/data-health/validators';
+import PhoneInput from './PhoneInput';
 
 export interface AdditionalCompanyContact {
   id: string;
@@ -1000,24 +1001,20 @@ function GestaoClickCompanyModalForm({
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     Telefone Comercial
                   </label>
-                  <input
-                    type="text"
+                  <PhoneInput
+                    kind="phone"
                     value={commercialPhone}
-                    onChange={(e) => setCommercialPhone(formatBrPhoneMask(e.target.value))}
-                    placeholder="(00) 0000-0000"
-                    className="w-full px-3 py-2 rounded border border-slate-300"
+                    onChange={(v) => setCommercialPhone(v)}
                   />
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     Celular / WhatsApp
                   </label>
-                  <input
-                    type="text"
+                  <PhoneInput
+                    kind="mobile"
                     value={whatsappPhone}
-                    onChange={(e) => setWhatsappPhone(formatBrPhoneMask(e.target.value))}
-                    placeholder="(00) 90000-0000"
-                    className="w-full px-3 py-2 rounded border border-slate-300"
+                    onChange={(v) => setWhatsappPhone(v)}
                   />
                 </div>
                 <div>
@@ -1098,16 +1095,15 @@ function GestaoClickCompanyModalForm({
                         }}
                         className="col-span-3 px-2.5 py-1.5 rounded border border-slate-300"
                       />
-                      <input
-                        type="text"
-                        placeholder="Telefone / Ramal"
+                      <PhoneInput
+                        kind="phone"
                         value={ac.phone}
-                        onChange={(e) => {
+                        onChange={(v) => {
                           const copy = [...additionalContacts];
-                          copy[idx].phone = formatBrPhoneMask(e.target.value);
+                          copy[idx].phone = v;
                           setAdditionalContacts(copy);
-                        }}
-                        className="col-span-2 px-2.5 py-1.5 rounded border border-slate-300"
+                      }}
+                        className="col-span-2"
                       />
                       <button
                         type="button"

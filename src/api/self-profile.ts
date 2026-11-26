@@ -5,7 +5,7 @@
 // do schema (somente leitura ate decisao do Marcello); newEmail fora do schema.
 // ============================================================================
 import { z } from 'zod';
-import { normalizeAndValidatePhone } from '../modules/data-health/validators';
+import { normalizeAndValidatePhone, storedPhoneFromValidation } from '../modules/data-health/validators';
 import type { StiHubUserRecord } from '../db/types';
 import { PASSWORD_RESET_MIN_LENGTH } from './password-reset';
 import { resolveConfiguredPublicOrigin } from '../lib/platform';
@@ -70,14 +70,14 @@ export const selfProfilePatchSchema = z
       .refine((s) => !CONTROL_CHARS.test(s) && !HTML_CHARS.test(s), 'O nome não pode ter caracteres de controle nem HTML.'),
     phone: z
       .string()
-      .max(20, 'Telefone com no máximo 20 caracteres.')
+      .max(32, 'Telefone com no máximo 32 caracteres.')
       .transform((s, ctx) => {
         const r = normalizeAndValidatePhone(s);
         if (!r.isValid) {
           ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Telefone inválido.' });
           return z.NEVER;
         }
-        return (r.formatted || s.trim()).slice(0, 20);
+        return (storedPhoneFromValidation(r) || r.formatted || s.trim()).slice(0, 32);
       }),
     preferences: z
       .object({ homeScreen: z.union([z.string().max(40), z.null()]) })

@@ -208,6 +208,7 @@ import {
   PartialEquipmentReturnProRataModal,
 } from './GestaoClickEnrichedModals';
 
+import { formatPhoneForDisplay } from '../lib/phone-format';
 export interface ErpOverviewPayload {
   kpis: {
     monthlyRentalMrr: number;
@@ -5901,7 +5902,7 @@ export default function ErpGestaoClickTab({
                       >
                         <td className="py-2 px-3 font-semibold text-[#1e3a6e] underline">{sup.name}</td>
                         <td className="py-2 px-3 font-mono">{sup.cnpj}</td>
-                        <td className="py-2 px-3">{sup.phone}</td>
+                        <td className="py-2 px-3">{formatPhoneForDisplay(sup.phone)}</td>
                         <td className="py-2 px-3">{sup.email}</td>
                         <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="inline-flex items-center justify-end gap-1.5">
@@ -5980,7 +5981,7 @@ export default function ErpGestaoClickTab({
                         <td className="py-2 px-3 font-semibold text-[#1e3a6e] underline">{emp.name}</td>
                         <td className="py-2 px-3">{emp.role}</td>
                         <td className="py-2 px-3">{emp.email}</td>
-                        <td className="py-2 px-3">{emp.phone}</td>
+                        <td className="py-2 px-3">{formatPhoneForDisplay(emp.phone)}</td>
                         <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="inline-flex items-center justify-end gap-1.5">
                             <button
@@ -6050,7 +6051,7 @@ export default function ErpGestaoClickTab({
                           <td className="py-2 px-3 font-mono">{trp.cnpj}</td>
                           <td className="py-2 px-3">{trp.modalFrete || 'Rodoviário / Aéreo B2B (ANTT)'}</td>
                           <td className="py-2 px-3">{trp.cityState || 'São Paulo/SP'}</td>
-                          <td className="py-2 px-3">{trp.phone || trp.email}</td>
+                          <td className="py-2 px-3">{trp.phone ? formatPhoneForDisplay(trp.phone) : trp.email}</td>
                           <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                             <div className="inline-flex items-center justify-end gap-1.5">
                               <button

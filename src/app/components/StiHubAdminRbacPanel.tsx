@@ -101,6 +101,7 @@ import {
   StiHubCompanyEmitterSettings,
   StiHubGeneralSystemParameters,
 } from '../../modules/erp/daily-sync-service';
+import PhoneInput from './PhoneInput';
 
 export type AdminSubView =
   | 'USERS_RBAC'
@@ -3235,11 +3236,10 @@ export default function StiHubAdminRbacPanel({
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Telefone</label>
-                  <input
-                    type="text"
+                  <PhoneInput
+                    kind="phone"
                     value={newUserPhone}
-                    onChange={(e) => setNewUserPhone(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    onChange={(v) => setNewUserPhone(v)}
                   />
                 </div>
               </div>

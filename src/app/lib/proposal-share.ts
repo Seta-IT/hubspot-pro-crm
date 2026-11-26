@@ -1,3 +1,4 @@
+import { splitExtension } from './phone-format';
 import {
   ErpCommercialProposal,
   ErpProposalDigitalSignature,
@@ -469,7 +470,8 @@ const PLACEHOLDER_SELLER_PHONES = new Set(['(11) 99999-4929']);
 
 /** "(11) 3958-4929" => "551139584929" (DDI 55 quando vier so DDD + numero). */
 export function proposalPhoneDigits(phone: string | undefined): string {
-  const d = String(phone || '').replace(/\D/g, '');
+  // Ramal (";ext=12", "ramal 12") nao entra no link tel:/wa.me.
+  const d = splitExtension(String(phone || '')).number.replace(/\D/g, '');
   if (!d) return '';
   return d.length === 10 || d.length === 11 ? `55${d}` : d;
 }

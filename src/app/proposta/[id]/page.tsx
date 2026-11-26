@@ -77,6 +77,7 @@ import { formatProposalDisplayCode, isLegacyProposalCode } from '../../lib/propo
 import { displayProposalTechnicalClauses } from '../../lib/proposal-technical-clauses';
 import { isProposalEffectiveValidityExpired, proposalExpiredRevalidationMessage, formatProposalValidUntilPtBr, effectiveProposalValidUntil } from '../../lib/proposal-validity';
 
+import { formatPhoneForDisplay } from '../../lib/phone-format';
 /**
  * Token do link assinado: lido SOMENTE do FRAGMENTO (#t=...), que nao vai ao servidor, aos logs
  * nem ao Referer. B5 (CISO 30/10): ?t= na query NAO e aceito. O token so e enviado no header
@@ -1756,9 +1757,9 @@ function PublicProposalPrintContent() {
                   <Phone className="w-3 h-3 text-emerald-600 shrink-0" />
                   <span>
                     WhatsApp:{" "}
-                    <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="font-semibold text-slate-800 hover:underline">{sellerContact.phone}</a>
+                    <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="font-semibold text-slate-800 hover:underline">{formatPhoneForDisplay(sellerContact.phone)}</a>
                     {" "}• Tel:{" "}
-                    <a href={proposalTelUrl(sellerContact.phone)} className="font-semibold text-slate-800 hover:underline">{sellerContact.phone}</a>
+                    <a href={proposalTelUrl(sellerContact.phone)} className="font-semibold text-slate-800 hover:underline">{formatPhoneForDisplay(sellerContact.phone)}</a>
                   </span>
                 </span>
               )}
@@ -1920,10 +1921,10 @@ function PublicProposalPrintContent() {
                   <span className="inline-flex items-center gap-1">
                     <Phone className="w-3.5 h-3.5 text-slate-400" />
                     <strong className="text-slate-800">WhatsApp:</strong>{" "}
-                    <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="hover:underline">{sellerContact.phone}</a>
+                    <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="hover:underline">{formatPhoneForDisplay(sellerContact.phone)}</a>
                     <span className="text-slate-400">•</span>
                     <strong className="text-slate-800">Tel:</strong>{" "}
-                    <a href={proposalTelUrl(sellerContact.phone)} className="hover:underline">{sellerContact.phone}</a>
+                    <a href={proposalTelUrl(sellerContact.phone)} className="hover:underline">{formatPhoneForDisplay(sellerContact.phone)}</a>
                   </span>
                 )}
               </div>
@@ -2364,7 +2365,7 @@ function PublicProposalPrintContent() {
                       {sellerContact.phone ? (
                         <>
                           {" • WhatsApp: "}
-                          <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="hover:underline">{sellerContact.phone}</a>
+                          <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="hover:underline">{formatPhoneForDisplay(sellerContact.phone)}</a>
                         </>
                       ) : null}
                     </div>

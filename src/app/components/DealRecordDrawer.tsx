@@ -69,6 +69,7 @@ import {
   type DealOwnerOption,
 } from '../lib/deal-sidebar-edit';
 
+import { formatPhoneForDisplay } from '../lib/phone-format';
 function dash(v: unknown): string {
   if (v === null || v === undefined || v === '') return '--';
   if (typeof v === 'boolean') return v ? 'Verdadeiro' : 'Falso';
@@ -1364,7 +1365,7 @@ export default function DealRecordDrawer({
                           </div>
                           {c.jobTitle ? <div className="text-slate-500 font-semibold">{c.jobTitle}</div> : null}
                           <div className="text-slate-600 font-semibold break-all">{c.email || '--'}</div>
-                          <div className="text-slate-500 font-semibold">{c.phone || c.normalizedPhone || '--'}</div>
+                          <div className="text-slate-500 font-semibold">{c.phone || c.normalizedPhone ? formatPhoneForDisplay(c.phone || c.normalizedPhone) : '--'}</div>
                         </div>
                       ))}
                       {associatedContacts.length > 3 && !showAllAssoc.contacts ? (

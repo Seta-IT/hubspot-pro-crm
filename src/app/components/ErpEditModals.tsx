@@ -92,6 +92,7 @@ import {
 } from '../lib/proposal-validity';
 import { BrDateInput } from './BrDateInput';
 import { AppSelect } from './AppSelect';
+import PhoneInput from './PhoneInput';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
 export function ProposalEditModal({
@@ -1034,12 +1035,10 @@ export function ProposalEditModal({
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     WhatsApp do Vendedor
                   </label>
-                  <input
-                    type="text"
-                    placeholder="(11) 99999-4929"
+                  <PhoneInput
+                    kind="mobile"
                     value={draft.sellerPhone || resolveProposalSellerContact(draft).phone}
-                    onChange={(e) => updateDraft({ sellerPhone: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
+                    onChange={(v) => updateDraft({ sellerPhone: v })}
                   />
                 </div>
 
@@ -2096,12 +2095,10 @@ export function ProposalEditModal({
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">Telefone ou WhatsApp</label>
-                    <input
-                      type="text"
+                    <PhoneInput
+                      kind="phone"
                       value={qcPhone}
-                      onChange={(e) => setQcPhone(formatBrPhoneMask(e.target.value))}
-                      placeholder="(11) 90000-0000"
-                      className="w-full px-3 py-2 rounded border border-slate-300"
+                      onChange={(v) => setQcPhone(v)}
                     />
                   </div>
                   <div>

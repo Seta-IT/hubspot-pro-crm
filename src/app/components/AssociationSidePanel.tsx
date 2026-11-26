@@ -29,6 +29,7 @@ import {
   type AssociationSort,
 } from '../lib/association-panel';
 
+import PhoneInput from './PhoneInput';
 type FieldDef = { key: string; label: string; type?: string; options?: Array<{ id: string; label: string }> };
 
 const FIELDS: Record<AssociationKind, FieldDef[]> = {
@@ -388,6 +389,14 @@ export default function AssociationSidePanel({
                         </option>
                       ))}
                     </select>
+                  ) : fd.key === 'phone' || fd.key === 'mobile' ? (
+                    <PhoneInput
+                      kind={fd.key === 'mobile' ? 'mobile' : 'phone'}
+                      disabled={!enabled}
+                      value={values[fd.key] || ''}
+                      onChange={(v) => setValues((vals) => ({ ...vals, [fd.key]: v }))}
+                      data-testid={`assoc-create-${kind}-${fd.key}`}
+                    />
                   ) : (
                     <input
                       type={fd.type || 'text'}

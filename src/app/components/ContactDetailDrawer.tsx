@@ -28,7 +28,9 @@ import {
   getIcpTierBadge,
   getLifecycleBadge,
 } from './ui-helpers';
+import PhoneInput from './PhoneInput';
 
+import { formatPhoneForDisplay } from '../lib/phone-format';
 export interface DetailedContactResponse extends Contact {
   company: Company | null;
   deals: Deal[];
@@ -350,12 +352,10 @@ export default function ContactDetailDrawer({
                       <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Telefone / WhatsApp
                       </label>
-                      <input
-                        type="text"
+                      <PhoneInput
+                        kind="phone"
                         value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="(11) 98888-7766"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
+                        onChange={(v) => setPhone(v)}
                       />
                     </div>
                   </div>
@@ -676,7 +676,7 @@ export default function ContactDetailDrawer({
                   <div>
                     <span className="text-slate-400 block">Telefone (Padrão E.164)</span>
                     <span className="font-semibold text-slate-800">
-                      {contactDetail.phone || 'Não informado'}
+                      {contactDetail.phone ? formatPhoneForDisplay(contactDetail.phone) : 'Não informado'}
                     </span>
                     {contactDetail.normalizedPhone && (
                       <span className="block text-[10px] text-emerald-600 font-medium">

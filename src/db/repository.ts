@@ -221,7 +221,7 @@ import {
   mergeGestaoClickContracts,
   upsertRecordsById,
 } from '../modules/erp/gestaoclick-merge';
-import { normalizeAndValidatePhone, normalizeCorporateDomain, validateCnpj, validateEmail } from '../modules/data-health/validators';
+import { normalizeAndValidatePhone, normalizeCorporateDomain, storedPhoneFromValidation, validateCnpj, validateEmail } from '../modules/data-health/validators';
 import {
   calculateLeadScore,
   computeContactNextBestAction,
@@ -1974,7 +1974,8 @@ export class CrmRepository {
       email: emailVal.normalizedEmail || rawEmail.toLowerCase(),
       firstName: cleanFirstName,
       lastName: cleanLastName,
-      phone: phoneVal?.isValid && phoneVal.formatted ? phoneVal.formatted : input.phone ?? null,
+      // 26/11/2026: telefone gravado normalizado em E.164 (+ramal); texto nao interpretavel fica como veio.
+      phone: storedPhoneFromValidation(phoneVal) ?? input.phone ?? null,
       normalizedPhone: phoneVal?.e164 ?? null,
       jobTitle: jobInfo.normalizedTitle || input.jobTitle || null,
       seniority: input.seniority || jobInfo.seniority,
@@ -2072,9 +2073,7 @@ export class CrmRepository {
       email: emailVal.normalizedEmail || nextEmail.trim().toLowerCase(),
       phone:
         patch.phone !== undefined
-          ? phoneVal?.isValid && phoneVal.formatted
-            ? phoneVal.formatted
-            : patch.phone
+          ? storedPhoneFromValidation(phoneVal) ?? patch.phone
           : existing.phone,
       jobTitle: rawJobTitle !== undefined ? (jobInfo.normalizedTitle || rawJobTitle || null) : existing.jobTitle,
       seniority: patch.seniority !== undefined ? patch.seniority : (jobInfo.seniority || existing.seniority),
