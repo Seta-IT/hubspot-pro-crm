@@ -3,8 +3,10 @@
 // ============================================================================
 // ERP > Fiscal > Notas de produtos — lista "NF-e" no padrão do emissor GestaoClick
 //  - "+ Adicionar", "Mais ações", filtro por mês e busca; estado vazio "Nenhuma NF-e em <mês>".
-//  - Ações que dependem da SEFAZ/certificado (emitir, carta de correção, inutilizar) ficam
-//    desabilitadas até a integração. Excluir só vale para rascunho.
+//  - Menu ⋮ por linha (padrão GestãoClick): "Assinar / Transmitir" (SEFAZ-SP, só HOMOLOGAÇÃO),
+//    Consultar, Baixar XML (nfeProc), Carta de correção e Cancelar ligados às rotas /sefaz; a
+//    alçada fiscal + 2FA é conferida no servidor. Excluir só vale para rascunho não transmitido.
+//  - Situação derivada do estado SEFAZ (Aprovada, Corrigida, Cancelada, Rejeitada...).
 // ============================================================================
 import React, { useMemo, useState } from 'react';
 import {
@@ -26,11 +28,25 @@ import {
   ChevronLeft,
   ChevronRight,
   Home,
+  MoreVertical,
 } from 'lucide-react';
 import type { Company, ErpCatalogItem, ErpFiscalInvoice, ErpSupplierRecord } from '../../db/types';
 import { formatBRL } from './ui-helpers';
 import ProductNfeForm from './ProductNfeForm';
 import { PRODUCT_NFE_SEFAZ_PENDING_HINT } from '../../modules/erp/product-nfe-engine';
+import {
+  TRANSMIT_CONFIRMATION_TEXT,
+  describeSefazError,
+  describeSefazSuccess,
+  isSefazTransmitted,
+  productNfeRowActions,
+  productNfeSituacao,
+  xmlDownloadSource,
+  type ProductNfeBadgeTone,
+  type ProductNfeRowActionId,
+  type SefazFeedback,
+  type SefazRouteData,
+} from '../../modules/erp/product-nfe-row-actions';
 
 const NAVY = '#1e3a6e';
 const PRODUCT_NFE_TYPES = new Set(['NFE_VENDA_PRODUTO', 'NFE_REMESSA_LOCACAO', 'NFE_RETORNO_LOCACAO']);
@@ -55,11 +71,23 @@ function currentMonthKey(): string {
   return `${y}-${m}`;
 }
 
-function statusBadge(inv: ErpFiscalInvoice): { label: string; cls: string } {
-  if (inv.status === 'RASCUNHO') return { label: 'Rascunho', cls: 'bg-amber-50 text-amber-800 border-amber-200' };
-  if (inv.status === 'CANCELADA') return { label: 'Cancelada', cls: 'bg-rose-50 text-rose-700 border-rose-200' };
-  if (inv.status === 'ENTRADA_REGISTRADA') return { label: 'Entrada', cls: 'bg-slate-50 text-slate-700 border-slate-200' };
-  return { label: 'Emitida', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+/** Cores dos badges de Situação (padrão GestãoClick: Aprovada verde, Corrigida ciano, Cancelada vermelho). */
+const BADGE_CLASS: Record<ProductNfeBadgeTone, string> = {
+  green: 'bg-emerald-500 text-white border-emerald-500',
+  cyan: 'bg-cyan-500 text-white border-cyan-500',
+  red: 'bg-rose-600 text-white border-rose-600',
+  orange: 'bg-orange-500 text-white border-orange-500',
+  slateDark: 'bg-slate-700 text-white border-slate-700',
+  amber: 'bg-amber-400 text-amber-950 border-amber-400',
+  amberLight: 'bg-amber-50 text-amber-800 border-amber-200',
+  slate: 'bg-slate-50 text-slate-700 border-slate-200',
+  emeraldLight: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+};
+
+/** Situação da linha: derivada do estado SEFAZ (ver product-nfe-row-actions). */
+function statusBadge(inv: ErpFiscalInvoice) {
+  const s = productNfeSituacao(inv);
+  return { ...s, cls: BADGE_CLASS[s.tone] };
 }
 
 function nfeNumberLabel(inv: ErpFiscalInvoice): string {
@@ -112,6 +140,9 @@ export default function ProductNfeWorkspace({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [xmlPreview, setXmlPreview] = useState<ErpFiscalInvoice | null>(null);
+  const [rowMenu, setRowMenu] = useState<string | null>(null);
+  const [sefazBusyId, setSefazBusyId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<(SefazFeedback & { nfe: string }) | null>(null);
 
   const nfes = useMemo(
     () => invoices.filter((i) => PRODUCT_NFE_TYPES.has(i.documentType)).sort((a, b) => String(b.issueDate).localeCompare(String(a.issueDate))),
@@ -180,7 +211,7 @@ export default function ProductNfeWorkspace({
 
   const deleteSelected = async () => {
     if (!selectedRows.length) return onShowToast('Selecione as NF-e em rascunho que deseja excluir.');
-    const drafts = selectedRows.filter((r) => r.status === 'RASCUNHO' && r.productNfe);
+    const drafts = selectedRows.filter((r) => r.status === 'RASCUNHO' && r.productNfe && !isSefazTransmitted(r));
     const skipped = selectedRows.length - drafts.length;
     if (!drafts.length) return onShowToast('Só é possível excluir NF-e em rascunho.');
     if (!window.confirm(`Excluir ${drafts.length} rascunho(s) de NF-e? O número reservado não é reaproveitado.`)) return;
@@ -198,6 +229,100 @@ export default function ProductNfeWorkspace({
     onShowToast(
       `${ok} rascunho(s) excluído(s).${skipped ? ` ${skipped} nota(s) não-rascunho mantida(s).` : ''}${lastError ? ` Erro: ${lastError}` : ''}`
     );
+  };
+
+  // --------------------------------------------------------------------------
+  // SEFAZ-SP (homologação): o servidor confere alçada fiscal + 2FA, ambiente e certificado.
+  // --------------------------------------------------------------------------
+  const callSefaz = async (
+    inv: ErpFiscalInvoice,
+    action: 'transmitir' | 'consultar' | 'cancelar' | 'carta-correcao',
+    payload: Record<string, unknown>
+  ) => {
+    const label = nfeNumberLabel(inv);
+    setSefazBusyId(inv.id);
+    setFeedback(null);
+    try {
+      const res = await fetch(`/api/erp/nfe-produtos/${encodeURIComponent(inv.id)}/sefaz/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = (await res.json().catch(() => null)) as { data?: SefazRouteData; error?: string; code?: string; details?: string[] } | null;
+      const fb = res.ok && json?.data ? describeSefazSuccess(action, json.data) : describeSefazError(res.status, json);
+      setFeedback({ ...fb, nfe: label });
+      onShowToast(`NF-e ${label}: ${fb.message}`);
+      await onRefresh();
+    } catch {
+      const fb: SefazFeedback = { tone: 'error', message: 'Falha de rede ao falar com o STI-hub. Use "Consultar na SEFAZ" antes de reenviar.' };
+      setFeedback({ ...fb, nfe: label });
+      onShowToast(`NF-e ${label}: ${fb.message}`);
+    } finally {
+      setSefazBusyId(null);
+    }
+  };
+
+  const downloadSefazXml = async (inv: ErpFiscalInvoice) => {
+    const res = await fetch(`/api/erp/nfe-produtos/${encodeURIComponent(inv.id)}/sefaz/xml`);
+    const json = (await res.json().catch(() => null)) as { data?: { accessKey: string; kind: string; xml: string }; error?: string; code?: string } | null;
+    if (!res.ok || !json?.data) return onShowToast(describeSefazError(res.status, json).message);
+    downloadText(`${json.data.accessKey}-${json.data.kind === 'nfeProc' ? 'procNFe' : 'nfe-assinada'}.xml`, json.data.xml, 'application/xml');
+  };
+
+  const deleteOne = async (inv: ErpFiscalInvoice) => {
+    if (!window.confirm(`Excluir o rascunho ${nfeNumberLabel(inv)}? O número reservado não é reaproveitado.`)) return;
+    setBusy(true);
+    const res = await fetch(`/api/erp/nfe-produtos/${encodeURIComponent(inv.id)}`, { method: 'DELETE' });
+    setBusy(false);
+    if (!res.ok) {
+      const j = (await res.json().catch(() => null)) as { error?: string } | null;
+      return onShowToast(j?.error || `Falha ao excluir (${res.status}).`);
+    }
+    await onRefresh();
+    onShowToast(`Rascunho ${nfeNumberLabel(inv)} excluído.`);
+  };
+
+  const handleRowAction = (inv: ErpFiscalInvoice, id: ProductNfeRowActionId) => {
+    setRowMenu(null);
+    const label = nfeNumberLabel(inv);
+    switch (id) {
+      case 'TRANSMITIR':
+        if (!window.confirm(TRANSMIT_CONFIRMATION_TEXT(`NF-e ${label}`))) return;
+        void callSefaz(inv, 'transmitir', {});
+        return;
+      case 'CONSULTAR':
+        void callSefaz(inv, 'consultar', {});
+        return;
+      case 'IMPRIMIR_DANFE':
+        onPrintInvoice(inv);
+        return;
+      case 'BAIXAR_XML':
+        if (xmlDownloadSource(inv) === 'SEFAZ') void downloadSefazXml(inv);
+        else setXmlPreview(inv);
+        return;
+      case 'CARTA_CORRECAO': {
+        const correcao = window.prompt(
+          `Carta de correção da NF-e ${label} (HOMOLOGAÇÃO).\nDescreva a correção (15 a 1000 caracteres). Não corrige valores, impostos, destinatário nem data.`
+        );
+        if (correcao === null) return;
+        if (correcao.trim().length < 15) return onShowToast('Correção: mínimo de 15 caracteres.');
+        void callSefaz(inv, 'carta-correcao', { correcao: correcao.trim() });
+        return;
+      }
+      case 'CANCELAR': {
+        const justificativa = window.prompt(`Cancelar a NF-e ${label} na SEFAZ (HOMOLOGAÇÃO).\nJustificativa (15 a 255 caracteres):`);
+        if (justificativa === null) return;
+        if (justificativa.trim().length < 15) return onShowToast('Justificativa: mínimo de 15 caracteres.');
+        if (!window.confirm(`Confirmar o cancelamento da NF-e ${label}? O evento não pode ser desfeito.`)) return;
+        void callSefaz(inv, 'cancelar', { justificativa: justificativa.trim() });
+        return;
+      }
+      case 'EXCLUIR':
+        void deleteOne(inv);
+        return;
+      default:
+        return;
+    }
   };
 
   type Action = { label: string; icon: React.ReactNode; onClick?: () => void; disabledHint?: string };
@@ -354,6 +479,32 @@ export default function ProductNfeWorkspace({
         />
       )}
 
+      {feedback && (
+        <div
+          role="status"
+          data-testid="product-nfe-sefaz-feedback"
+          className={`flex items-start justify-between gap-2 px-3 py-2 rounded border text-xs ${
+            feedback.tone === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : feedback.tone === 'warning'
+                ? 'bg-amber-50 border-amber-200 text-amber-900'
+                : 'bg-rose-50 border-rose-200 text-rose-800'
+          }`}
+        >
+          <p>
+            <strong>NF-e {feedback.nfe} — SEFAZ-SP homologação:</strong> {feedback.message}
+            {feedback.openCertificate && (
+              <button type="button" onClick={onOpenCertificate} className="ml-2 underline font-semibold">
+                Abrir Certificado digital
+              </button>
+            )}
+          </p>
+          <button type="button" aria-label="Fechar aviso" onClick={() => setFeedback(null)}>
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       <div className="bg-white border border-slate-200 rounded">
         {rows.length === 0 ? (
           <div className="py-12 flex flex-col items-center text-center gap-2" data-testid="product-nfe-empty">
@@ -419,11 +570,14 @@ export default function ProductNfeWorkspace({
                     </td>
                     <td className="p-2 text-right font-bold">{formatBRL(r.productNfe?.totals.vNF ?? r.netAmount)}</td>
                     <td className="p-2">
-                      <span className={`inline-block px-2 py-0.5 rounded border text-[10px] font-bold ${b.cls}`}>{b.label}</span>
+                      <span title={b.detail || b.label} data-testid="product-nfe-situacao" className={`inline-block px-2 py-0.5 rounded border text-[10px] font-bold ${b.cls}`}>{b.label}</span>
                       {r.productNfe && (
                         <span className={`ml-1 inline-block px-2 py-0.5 rounded border text-[10px] font-bold ${r.productNfe.environment === 'PRODUCAO' ? 'border-emerald-200 text-emerald-700' : 'border-amber-200 text-amber-700'}`}>
                           {r.productNfe.environment === 'PRODUCAO' ? 'Produção' : 'Homologação'}
                         </span>
+                      )}
+                      {(b.key === 'REJEITADA' || b.key === 'DENEGADA' || b.key === 'EM_PROCESSAMENTO' || b.key === 'FALHA_ENVIO') && b.detail && (
+                        <p className="mt-0.5 text-[10px] text-slate-500 max-w-[260px] truncate" title={b.detail}>{b.detail}</p>
                       )}
                     </td>
                     <td className="p-2 text-right whitespace-nowrap">
@@ -435,6 +589,47 @@ export default function ProductNfeWorkspace({
                       <button type="button" onClick={() => onPrintInvoice(r)} className="px-2 py-1 rounded border border-slate-300 text-[10px] font-bold">
                         DANFE
                       </button>
+                      <span className="relative inline-block ml-1 align-middle">
+                        <button
+                          type="button"
+                          aria-label={`Ações da NF-e ${nfeNumberLabel(r)}`}
+                          aria-haspopup="menu"
+                          aria-expanded={rowMenu === r.id}
+                          disabled={sefazBusyId === r.id}
+                          onClick={() => setRowMenu((cur) => (cur === r.id ? null : r.id))}
+                          className="p-1 rounded border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          <MoreVertical className="w-3.5 h-3.5" />
+                        </button>
+                        {sefazBusyId === r.id && <span className="ml-1 text-[10px] text-slate-500">SEFAZ…</span>}
+                        {rowMenu === r.id && (
+                          <div role="menu" data-testid="product-nfe-row-menu" className="absolute right-0 z-30 mt-1 w-56 bg-white border border-slate-200 rounded shadow-lg py-1 text-xs text-left">
+                            {productNfeRowActions(r).map((a) => (
+                              <button
+                                key={a.id}
+                                type="button"
+                                role="menuitem"
+                                disabled={Boolean(a.disabledHint) || busy || sefazBusyId !== null}
+                                aria-disabled={Boolean(a.disabledHint) || busy || sefazBusyId !== null}
+                                title={a.disabledHint || a.label}
+                                onClick={() => handleRowAction(r, a.id)}
+                                className={`w-full flex items-center gap-2 px-3 py-1.5 text-left ${
+                                  a.disabledHint
+                                    ? 'text-slate-400 cursor-not-allowed'
+                                    : a.id === 'TRANSMITIR'
+                                      ? 'font-semibold text-[#1e3a6e] hover:bg-slate-50 cursor-pointer'
+                                      : a.danger
+                                        ? 'text-rose-700 hover:bg-rose-50 cursor-pointer'
+                                        : 'text-slate-700 hover:bg-slate-50 cursor-pointer'
+                                }`}
+                              >
+                                <span className="flex-1">{a.label}</span>
+                                {a.id === 'TRANSMITIR' && !a.disabledHint && <span className="text-[9px] text-amber-700 font-semibold">HOMOLOGAÇÃO</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </span>
                     </td>
                   </tr>
                 );

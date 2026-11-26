@@ -24,8 +24,10 @@ import {
   fmt10,
   formatSaoPauloDateTime,
   generateRandomCnf,
+  draftEmitterCityIbge,
   renderEmitterXml,
   xmlField,
+  type DraftEmitter,
 } from './sebrae-nfe-import-engine';
 
 /** Em homologação a SEFAZ exige este xNome no destinatário (NT 2011/002). */
@@ -555,7 +557,8 @@ export interface ProductNfeXmlContext {
   serie: string;
   nNF: number;
   taxRegime: ErpTaxRegime;
-  emitter: { emitterName: string; emitterCnpj: string; emitterIe: string; emitterUf: string };
+  /** Emitente da configuração (CNPJ/IE/razão das Configurações Fiscais; endereço de Dados da Empresa). */
+  emitter: DraftEmitter;
   /** Chave/cNF já gerados (reprocessamento do mesmo rascunho). */
   key?: { accessKey: string; cNF: string; cDV: string; dhEmi: string };
   now?: Date;
@@ -577,7 +580,7 @@ export function generateProductNfeXml(
 ): { xml: string; accessKey: string; cNF: string; cDV: string; dhEmi: string } {
   const x = xmlField;
   const tpAmb = ctx.environment === 'PRODUCAO' ? '1' : '2';
-  const cnpjDigits = ctx.emitter.emitterCnpj.replace(/\D/g, '').padEnd(14, '0').slice(0, 14);
+  const cnpjDigits = ctx.emitter.emitterCnpj.replace(/\D/g, '');
   const serie = String(ctx.serie).replace(/\D/g, '') || '1';
   const nNF = String(ctx.nNF);
   let key = ctx.key;
@@ -610,7 +613,7 @@ export function generateProductNfeXml(
         <xLgr>${x(p.street, MOC.xLgr)}</xLgr>
         <nro>${x(p.number || 'S/N', MOC.nro)}</nro>${p.complement ? `\n        <xCpl>${x(p.complement, 60)}</xCpl>` : ''}
         <xBairro>${x(p.district, MOC.xBairro)}</xBairro>
-        <cMun>${onlyDigits(p.cityIbge) || '0000000'}</cMun>
+        <cMun>${onlyDigits(p.cityIbge)}</cMun>
         <xMun>${x(p.city, MOC.xMun)}</xMun>
         <UF>${x(p.uf, 2)}</UF>
       </${tag}>`;
@@ -750,7 +753,7 @@ export function generateProductNfeXml(
           <pICMSRet>${fmt4(tr.icmsRetention.ratePercent)}</pICMSRet>
           <vICMSRet>${fmt2((tr.icmsRetention.baseValue * tr.icmsRetention.ratePercent) / 100)}</vICMSRet>
           <CFOP>${onlyDigits(tr.icmsRetention.cfop) || '5353'}</CFOP>
-          <cMunFG>${onlyDigits(tr.icmsRetention.cityIbge) || '3550308'}</cMunFG>
+          <cMunFG>${onlyDigits(tr.icmsRetention.cityIbge) || draftEmitterCityIbge(ctx.emitter)}</cMunFG>
         </retTransp>`
     : '';
   const vehicle = tr.hasVehicle && tr.vehicle && tr.vehicle.plate
@@ -782,7 +785,7 @@ export function generateProductNfeXml(
         <dhSaiEnt>${dhSaiEnt}</dhSaiEnt>
         <tpNF>${draft.general.tpNF}</tpNF>
         <idDest>${draft.general.idDest}</idDest>
-        <cMunFG>3550308</cMunFG>
+        <cMunFG>${draftEmitterCityIbge(ctx.emitter)}</cMunFG>
         <tpImp>1</tpImp>
         <tpEmis>${draft.general.tpEmis}</tpEmis>
         <cDV>${key.cDV}</cDV>
@@ -801,7 +804,7 @@ ${renderEmitterXml(ctx.emitter, crt)}
           <xLgr>${x(a.street, MOC.xLgr)}</xLgr>
           <nro>${x(a.number || 'S/N', MOC.nro)}</nro>${opt('xCpl', a.complement, 60)}
           <xBairro>${x(a.district, MOC.xBairro)}</xBairro>
-          <cMun>${onlyDigits(a.cityIbge) || '0000000'}</cMun>
+          <cMun>${onlyDigits(a.cityIbge)}</cMun>
           <xMun>${x(a.city, MOC.xMun)}</xMun>
           <UF>${x(a.uf, 2)}</UF>${onlyDigits(a.cep) ? `\n          <CEP>${onlyDigits(a.cep).padStart(8, '0').slice(-8)}</CEP>` : ''}
           <cPais>1058</cPais>

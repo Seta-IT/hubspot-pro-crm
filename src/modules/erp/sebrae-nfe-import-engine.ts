@@ -380,6 +380,8 @@ export function calculateSebraeImportNfe(params: {
   emitterCnpj?: string;
   emitterIe?: string;
   emitterUf?: string;
+  /** Endereço do emitente (Configurações > Empresa). Sem ele o rascunho sai com o endereço PENDENTE. */
+  emitterAddress?: DraftEmitterAddress | null;
   /** Data/hora da emissão (default: agora). Convertida para America/Sao_Paulo. */
   issuedAt?: Date | string;
   /** Código numérico da chave (default: aleatório de 8 dígitos). */
@@ -581,11 +583,13 @@ export function calculateSebraeImportNfe(params: {
     infCpl,
   };
 
-  const emitter = {
-    emitterName: params.emitterName || 'SETA TELECOM LTDA',
-    emitterCnpj: params.emitterCnpj || '18.456.789/0001-90',
-    emitterIe: params.emitterIe || '149882410114',
+  // Sem valores padrão inventados: o que não vier da configuração fica vazio (rascunho com PENDENTE).
+  const emitter: DraftEmitter = {
+    emitterName: params.emitterName || '',
+    emitterCnpj: params.emitterCnpj || '',
+    emitterIe: params.emitterIe || '',
     emitterUf: params.emitterUf || 'SP',
+    address: params.emitterAddress || null,
   };
 
   // #6: chave de acesso real (AAMM da emissão, série, nNF, cNF aleatório, DV módulo 11) e dhEmi em America/Sao_Paulo
@@ -647,18 +651,12 @@ export function tpAmbOf(meta: { environment?: 'HOMOLOGACAO' | 'PRODUCAO' }): '1'
   return meta.environment === 'PRODUCAO' ? '1' : '2';
 }
 
-export function generateSebrae401Txt(
-  meta: ErpImportNfeMetadata,
-  emitter: {
-    emitterName: string;
-    emitterCnpj: string;
-    emitterIe: string;
-    emitterUf: string;
-  }
-): string {
+export function generateSebrae401Txt(meta: ErpImportNfeMetadata, emitter: DraftEmitter): string {
   const t = sanitizeTxtField;
-  const cnpjDigits = emitter.emitterCnpj.replace(/\D/g, '').padEnd(14, '0').slice(0, 14);
-  const ieDigits = emitter.emitterIe.replace(/\D/g, '') || '149882410114';
+  const cnpjDigits = emitter.emitterCnpj.replace(/\D/g, '');
+  const ieDigits = emitter.emitterIe.replace(/\D/g, '');
+  const ea = emitter.address || {};
+  const cMunFG = draftEmitterCityIbge(emitter);
   const { accessKey, cNF, cDV, dhEmi } = resolveKeyFields(meta, cnpjDigits);
   const serie = String(meta.serie).replace(/\D/g, '') || '1';
   const nNF = String(meta.nNF).replace(/\D/g, '');
@@ -667,11 +665,11 @@ export function generateSebrae401Txt(
     'NOTA FISCAL|1|',
     `A|4.00|NFe${accessKey}|`,
     // Registro B com >= 21 campos alinhados conforme validador SetaIT/app-nfe-importacao
-    `B|35|${cNF}|${t(meta.natOp, MOC.natOp)}|55|${serie}|${nNF}|${dhEmi}|${dhEmi}|0|3|3550308|1|1|${cDV}|${tpAmbOf(meta)}|${meta.finNFe}|${meta.indFinal}|${meta.indPres}|${meta.indIntermed}|3|4.01_SEBRAE|||`,
+    `B|35|${cNF}|${t(meta.natOp, MOC.natOp)}|55|${serie}|${nNF}|${dhEmi}|${dhEmi}|0|3|${cMunFG}|1|1|${cDV}|${tpAmbOf(meta)}|${meta.finNFe}|${meta.indFinal}|${meta.indPres}|${meta.indIntermed}|3|4.01_SEBRAE|||`,
     // Registro C com CRT no último campo (ex: CRT=1 Simples Nacional)
-    `C|${t(emitter.emitterName, MOC.xNome)}|SETA IT TELECOM|${ieDigits}||||${meta.crt}`,
+    `C|${t(emitter.emitterName, MOC.xNome)}|${t(ea.tradeName || '', 60)}|${ieDigits}||||${meta.crt}`,
     `C02|${cnpjDigits}|`,
-    `C05|AV PAULISTA|1000|CONJ 101|BELA VISTA|3550308|SAO PAULO|${t(emitter.emitterUf, 2)}|01310100|1058|BRASIL|1139584929|`,
+    `C05|${t(ea.street || '', MOC.xLgr)}|${t(ea.number || '', MOC.nro)}|${t(ea.complement || '', 60)}|${t(ea.district || '', MOC.xBairro)}|${cMunFG}|${t(ea.cityName || '', MOC.xMun)}|${t(ea.uf || emitter.emitterUf, 2)}|${digitsOf(ea.cep)}|1058|BRASIL|${digitsOf(ea.phone).slice(0, 14)}|`,
     // Registro E: Exportador Estrangeiro (UF=EX, cMun=9999999 EXTERIOR)
     `E|${t(meta.di.exporterName, MOC.xNome)}|9||||financeiro@setatelecom.com.br|`,
     `E03a|${t(meta.di.exporterIdEstrangeiro, MOC.idEstrangeiro)}|`,
@@ -753,48 +751,91 @@ export const SEFAZ_XML_DRAFT_NOTICE =
 // ============================================================================
 // Gerador de XML SEFAZ 4.00 — RASCUNHO NÃO AUTORIZADO (<NFe> sem assinatura e sem protNFe)
 // ============================================================================
+/** Endereço do emitente (Configurações > Empresa). Campos vazios ficam vazios: nada é inventado. */
+export interface DraftEmitterAddress {
+  tradeName?: string;
+  street?: string;
+  number?: string;
+  complement?: string;
+  district?: string;
+  cityIbge?: string;
+  cityName?: string;
+  uf?: string;
+  cep?: string;
+  phone?: string;
+}
+
+/** Emitente dos rascunhos (XML/TXT): CNPJ/IE/razão das Configurações Fiscais + endereço de Dados da Empresa. */
+export interface DraftEmitter {
+  emitterName: string;
+  emitterCnpj: string;
+  emitterIe: string;
+  emitterUf: string;
+  address?: DraftEmitterAddress | null;
+}
+
+const digitsOf = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+
+/** Código IBGE do município do emitente (cMunFG) — só da configuração; vazio quando não cadastrado. */
+export function draftEmitterCityIbge(emitter: DraftEmitter): string {
+  const ibge = digitsOf(emitter.address?.cityIbge);
+  return ibge.length === 7 ? ibge : '';
+}
+
+/** Campos do emitente que faltam na configuração (para aviso no rascunho; a transmissão bloqueia). */
+export function draftEmitterPendingFields(emitter: DraftEmitter): string[] {
+  const a = emitter.address || {};
+  const out: string[] = [];
+  if (digitsOf(emitter.emitterCnpj).length !== 14) out.push('CNPJ (14 dígitos)');
+  if (!digitsOf(emitter.emitterIe)) out.push('inscrição estadual');
+  if (!String(emitter.emitterName || '').trim()) out.push('razão social');
+  if (!String(a.street || '').trim()) out.push('logradouro');
+  if (!String(a.number || '').trim()) out.push('número');
+  if (!String(a.district || '').trim()) out.push('bairro');
+  if (!draftEmitterCityIbge(emitter)) out.push('município (código IBGE)');
+  if (!String(a.cityName || '').trim()) out.push('nome do município');
+  if (digitsOf(a.cep).length !== 8) out.push('CEP');
+  return out;
+}
+
 /**
  * Bloco <emit> do XML 4.00 (compartilhado pela NF-e de importação e pela NF-e de produtos).
- * CNPJ, IE, UF e município vêm da configuração do emitente — nunca do formulário da nota.
+ * CNPJ, IE e razão social vêm das Configurações Fiscais; endereço, município (IBGE), CEP e
+ * telefone de Configurações > Empresa — nunca do formulário da nota e nunca valores padrão.
+ * O que faltar sai vazio e listado num comentário PENDENTE (rascunho; a transmissão valida antes).
  */
-export function renderEmitterXml(
-  emitter: { emitterName: string; emitterCnpj: string; emitterIe: string; emitterUf: string },
-  crt: string
-): string {
+export function renderEmitterXml(emitter: DraftEmitter, crt: string): string {
   const x = xmlField;
-  const cnpjDigits = emitter.emitterCnpj.replace(/\D/g, '').padEnd(14, '0').slice(0, 14);
-  const ieDigits = emitter.emitterIe.replace(/\D/g, '') || '149882410114';
-  return `      <emit>
+  const a = emitter.address || {};
+  const cnpjDigits = digitsOf(emitter.emitterCnpj);
+  const ieDigits = digitsOf(emitter.emitterIe);
+  const cep = digitsOf(a.cep);
+  const fone = digitsOf(a.phone);
+  const pending = draftEmitterPendingFields(emitter);
+  const opt = (tag: string, v: string | undefined, max: number, indent: string) =>
+    String(v || '').trim() ? `\n${indent}<${tag}>${x(String(v).trim(), max)}</${tag}>` : '';
+  return `      <emit>${pending.length ? `\n        <!-- PENDENTE nos dados do emitente (Configurações > Empresa / Fiscal): ${pending.join(', ')} -->` : ''}
         <CNPJ>${cnpjDigits}</CNPJ>
-        <xNome>${x(emitter.emitterName, MOC.xNome)}</xNome>
-        <xFant>SETA IT TELECOM</xFant>
+        <xNome>${x(emitter.emitterName, MOC.xNome)}</xNome>${opt('xFant', a.tradeName, 60, '        ')}
         <enderEmit>
-          <xLgr>AV PAULISTA</xLgr>
-          <nro>1000</nro>
-          <xBairro>BELA VISTA</xBairro>
-          <cMun>3550308</cMun>
-          <xMun>SAO PAULO</xMun>
-          <UF>${x(emitter.emitterUf, 2)}</UF>
-          <CEP>01310100</CEP>
+          <xLgr>${x(a.street || '', MOC.xLgr)}</xLgr>
+          <nro>${x(a.number || '', MOC.nro)}</nro>${opt('xCpl', a.complement, 60, '          ')}
+          <xBairro>${x(a.district || '', MOC.xBairro)}</xBairro>
+          <cMun>${draftEmitterCityIbge(emitter)}</cMun>
+          <xMun>${x(a.cityName || '', MOC.xMun)}</xMun>
+          <UF>${x(a.uf || emitter.emitterUf, 2)}</UF>
+          <CEP>${cep}</CEP>
           <cPais>1058</cPais>
-          <xPais>BRASIL</xPais>
+          <xPais>BRASIL</xPais>${fone ? `\n          <fone>${fone.slice(0, 14)}</fone>` : ''}
         </enderEmit>
         <IE>${ieDigits}</IE>
         <CRT>${x(crt, 1)}</CRT>
       </emit>`;
 }
 
-export function generateSefaz400Xml(
-  meta: ErpImportNfeMetadata,
-  emitter: {
-    emitterName: string;
-    emitterCnpj: string;
-    emitterIe: string;
-    emitterUf: string;
-  }
-): string {
+export function generateSefaz400Xml(meta: ErpImportNfeMetadata, emitter: DraftEmitter): string {
   const x = xmlField;
-  const cnpjDigits = emitter.emitterCnpj.replace(/\D/g, '').padEnd(14, '0').slice(0, 14);
+  const cnpjDigits = emitter.emitterCnpj.replace(/\D/g, '');
   const { accessKey, cNF, cDV, dhEmi } = resolveKeyFields(meta, cnpjDigits);
   const serie = String(meta.serie).replace(/\D/g, '') || '1';
   const nNF = String(meta.nNF).replace(/\D/g, '');
@@ -903,7 +944,7 @@ export function generateSefaz400Xml(
         <dhSaiEnt>${dhEmi}</dhSaiEnt>
         <tpNF>0</tpNF>
         <idDest>3</idDest>
-        <cMunFG>3550308</cMunFG>
+        <cMunFG>${draftEmitterCityIbge(emitter)}</cMunFG>
         <tpImp>1</tpImp>
         <tpEmis>1</tpEmis>
         <cDV>${cDV}</cDV>
@@ -1210,6 +1251,7 @@ type ImportEmitterConfig = {
   emitterCnpj?: string;
   emitterIe?: string;
   emitterUf?: string;
+  emitterAddress?: DraftEmitterAddress | null;
 };
 
 function normalizeImportCfop(rawCfop: string | undefined | null): '3.101' | '3.102' | '3.551' | '3.949' {
@@ -1655,6 +1697,7 @@ function parseTxtToSebraeDraft(
     emitterCnpj: emitter?.emitterCnpj,
     emitterIe: emitter?.emitterIe,
     emitterUf: emitter?.emitterUf,
+    emitterAddress: emitter?.emitterAddress,
   });
 
   const autoFixesCount = analysis.findings.filter((f) => f.autoFix).length;
@@ -2058,6 +2101,7 @@ function parseXmlToSebraeDraft(
     emitterCnpj: emitter?.emitterCnpj,
     emitterIe: emitter?.emitterIe,
     emitterUf: emitter?.emitterUf,
+    emitterAddress: emitter?.emitterAddress,
   });
 
   findings.push({

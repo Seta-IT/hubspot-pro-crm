@@ -173,6 +173,7 @@ import {
   productNfeWarnings,
   type ProductNfeDraft,
 } from '../modules/erp/product-nfe-engine';
+import type { DraftEmitterAddress } from '../modules/erp/sebrae-nfe-import-engine';
 
 /** Identidade reservada a contas de servico (id svc-* ou e-mail @servico.sti-hub). */
 export function isServiceAccountIdentity(id: unknown, email?: unknown): boolean {
@@ -7317,7 +7318,9 @@ export class CrmRepository {
    */
   createProductNfeDraft(
     draft: ProductNfeDraft,
-    actor: string
+    actor: string,
+    /** Endereço do emitente (Configurações > Empresa). Sem ele o XML de rascunho marca o endereço como PENDENTE. */
+    emitterAddress: DraftEmitterAddress | null = null
   ): { ok: true; invoice: ErpFiscalInvoice } | { ok: false; code: 'NUMBER_IN_USE'; nextAvailable: number; environment: FiscalEnvironment; serie: string } {
     const erp = this.ensureErp();
     const settings = this.ensureFiscalDocumentSettings();
@@ -7334,6 +7337,7 @@ export class CrmRepository {
       emitterCnpj: cfg.companyCnpj,
       emitterIe: cfg.stateRegistration,
       emitterUf: 'SP',
+      address: emitterAddress,
     };
     const warnings = productNfeWarnings(draft, {
       taxRegime,

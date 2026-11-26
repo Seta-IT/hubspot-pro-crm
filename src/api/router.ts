@@ -392,6 +392,7 @@ import {
   parseImportFileToSebraeDraft,
   RawImportItemDraft,
   utf8ByteLength,
+  type DraftEmitterAddress,
 } from '../modules/erp/sebrae-nfe-import-engine';
 import { validateImportNfeRequest } from '../modules/erp/nfe-import-validation';
 import {
@@ -3066,6 +3067,23 @@ export class CrmApiRouter {
     return {
       gc: { companyLegalName: gc.companyLegalName, companyCnpj: gc.companyCnpj, stateRegistration: gc.stateRegistration, taxRegime: gc.taxRegime },
       company: this.companyEmitter ? { ...this.companyEmitter } : null,
+    };
+  }
+
+  /** Endereço do emitente para os rascunhos (Configurações > Empresa) — sem valores padrão inventados. */
+  private draftEmitterAddress(): DraftEmitterAddress {
+    const c = this.companyEmitter;
+    return {
+      tradeName: c.tradeName,
+      street: c.addressStreet,
+      number: c.addressNumber,
+      complement: c.addressComplement,
+      district: c.neighborhood,
+      cityIbge: c.ibgeCode,
+      cityName: c.city,
+      uf: c.state,
+      cep: c.cep,
+      phone: c.phone,
     };
   }
 
@@ -9652,7 +9670,8 @@ export class CrmApiRouter {
           return { status: 400, body: { error: validated.error, code: 'PRODUCT_NFE_INVALID_INPUT', issues: validated.issues } };
         }
         const actor = npPriv.email || this.sessionActorName(query) || 'sistema';
-        const created = this.repo.createProductNfeDraft(validated.data, actor);
+        await this.ensureCompanyEmitterHydrated();
+        const created = this.repo.createProductNfeDraft(validated.data, actor, this.draftEmitterAddress());
         if (!created.ok) {
           return {
             status: 409,
@@ -9856,6 +9875,7 @@ export class CrmApiRouter {
         const serie = input.serie || '1';
         // Configurações Fiscais: numeração e tpAmb do ambiente da NF-e (padrão HOMOLOGAÇÃO)
         const nfeEnvironment = this.repo.getFiscalDocumentSettings().nfe.environment;
+        await this.ensureCompanyEmitterHydrated();
         try {
           const meta = calculateSebraeImportNfe({
             serie,
@@ -9873,6 +9893,7 @@ export class CrmApiRouter {
             emitterCnpj: cfg.companyCnpj,
             emitterIe: cfg.stateRegistration,
             emitterUf: 'SP',
+            emitterAddress: this.draftEmitterAddress(),
           });
           return { status: 200, body: { data: meta } };
         } catch (err) {
@@ -9905,6 +9926,7 @@ export class CrmApiRouter {
         if (!rawContent.trim()) {
           return { status: 400, body: { error: 'Envie o conteúdo do arquivo .TXT ou .XML para importação.' } };
         }
+        await this.ensureCompanyEmitterHydrated();
         const erp = this.repo.getErpOverview();
         const cfg = erp.gestaoClickConfig;
         try {
@@ -9913,6 +9935,7 @@ export class CrmApiRouter {
             emitterCnpj: cfg.companyCnpj,
             emitterIe: cfg.stateRegistration,
             emitterUf: 'SP',
+            emitterAddress: this.draftEmitterAddress(),
           });
           return { status: 200, body: { data: draft } };
         } catch (err) {
@@ -9979,6 +10002,7 @@ export class CrmApiRouter {
           };
         }
         let meta;
+        await this.ensureCompanyEmitterHydrated();
         try {
           meta = calculateSebraeImportNfe({
             serie,
@@ -9996,6 +10020,7 @@ export class CrmApiRouter {
             emitterCnpj: cfg.companyCnpj,
             emitterIe: cfg.stateRegistration,
             emitterUf: 'SP',
+            emitterAddress: this.draftEmitterAddress(),
           });
         } catch (err) {
           return {
