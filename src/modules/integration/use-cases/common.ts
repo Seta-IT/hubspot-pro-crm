@@ -143,8 +143,6 @@ export function ownerMeetsScope(user: ScopeUser, scope: string): boolean {
     case 'crm:automation:activate':
     case 'crm:marketing:dispatch':
       return userHasAccess(user, 'marketing', 'EDIT');
-    case 'erp:proposals:approve':
-      return erpEdit('proposals') && userHasGuard(user, 'canApproveProposals');
     case 'erp:public_links:write':
       return erpEdit('proposals') || erpEdit('finance');
     case 'erp:financial:settle':

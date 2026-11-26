@@ -12,7 +12,7 @@
 // ============================================================================
 
 /** Tabelas desta migracao (ordem de criacao). */
-export const API_V1_MANUAL_TABLES = ['api_record_owners'] as const;
+export const API_V1_MANUAL_TABLES = ['api_record_owners', 'api_confirmation_tokens', 'api_deleted_records', 'api_dangerous_scope_confirmations'] as const;
 
 export const API_V1_MANUAL_MIGRATION_SQL = `
 -- Lote 2: dono por ID de registro (metadado de autoria; nao amplia visibilidade).
@@ -25,6 +25,45 @@ CREATE TABLE IF NOT EXISTS api_record_owners (
   PRIMARY KEY (entity, record_id)
 );
 CREATE INDEX IF NOT EXISTS idx_api_record_owners_owner ON api_record_owners(owner_user_id);
+
+-- Lote 3: tokens de confirmacao (prepare -> commit), uso unico, so SHA-256 do token.
+CREATE TABLE IF NOT EXISTS api_confirmation_tokens (
+  token_hash TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL,
+  args_hash TEXT NOT NULL,
+  principal_key TEXT NOT NULL,
+  actor_user_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_api_confirmation_expires ON api_confirmation_tokens(expires_at);
+
+-- Lote 3 (CISO 26/11 item 6): lixeira — copia integral do registro ANTES de qualquer exclusao pelo conector.
+CREATE TABLE IF NOT EXISTS api_deleted_records (
+  id TEXT PRIMARY KEY,
+  entity TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  snapshot JSONB NOT NULL,
+  actor_user_id TEXT NOT NULL,
+  credential TEXT NOT NULL,
+  deleted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_api_deleted_records_entity ON api_deleted_records(entity, record_id);
+
+-- Lote 3 (CISO 26/11 item 2): confirmacao do IAM para escopos perigosos via OAuth, por cliente ou por usuario.
+-- subject_type='client' com client_verified=true = cliente (DCR) verificado pelo IAM.
+CREATE TABLE IF NOT EXISTS api_dangerous_scope_confirmations (
+  subject_type TEXT NOT NULL CHECK (subject_type IN ('client', 'user')),
+  subject_id TEXT NOT NULL,
+  scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  client_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  confirmed_by_user_id TEXT NOT NULL,
+  confirmed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  revoked_at TIMESTAMPTZ,
+  PRIMARY KEY (subject_type, subject_id)
+);
 `.trim();
 
 export interface MigrationQueryable {

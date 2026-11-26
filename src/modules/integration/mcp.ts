@@ -15,7 +15,7 @@ import { json, postgresUnavailable, problem, type IntegrationHttpRequest, type I
 import { API_V1_VERSION } from './openapi';
 import { resolveIntegrationDeps, type IntegrationDeps } from './runtime';
 import type { IntegrationStore } from './store';
-import { INTEGRATION_USE_CASES, findUseCaseByToolName, isUseCaseEnabled, type UseCaseDefinition } from './use-cases';
+import { INTEGRATION_USE_CASES, findUseCaseByToolName, isUseCaseEnabled, useCaseDisabledReason, type UseCaseDefinition } from './use-cases';
 
 export const MCP_SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
 export const MCP_SERVER_INFO = { name: 'stihub-mcp', title: 'STI-hub (CRM, Chamados e ERP)', version: API_V1_VERSION };
@@ -117,6 +117,11 @@ async function handleMessage(
       const args = (params as { arguments?: unknown }).arguments ?? {};
       const meta = ((params as { _meta?: unknown })._meta || {}) as Record<string, unknown>;
       const uc = findUseCaseByToolName(name);
+      // CISO 26/11 (Lote 3, 1): commit perigoso com a flag desligada => 404 OPERATION_DISABLED (fora do tools/list).
+      if (uc && useCaseDisabledReason(uc) === 'DANGEROUS_COMMIT' && hasScope(auth as AuthContext, uc.requiredScope)) {
+        await audit(store, { requestId, channel: 'mcp', authType: auth.authType, auth, scope: uc.requiredScope, action: `tools/call:${uc.toolName}`, path: req.path, statusCode: 404, ip: req.ip, startedAt, errorCode: 'OPERATION_DISABLED', now: deps.now() });
+        return rpcResult(id, { isError: true, content: [{ type: 'text', text: JSON.stringify({ status: 404, code: 'OPERATION_DISABLED', title: 'Execucao de operacoes perigosas desligada nesta instalacao (INTEGRATION_ENABLE_DANGEROUS_COMMITS). So a previa (*_prepare) esta disponivel.' }) }] });
+      }
       if (!uc || !visibleTools(auth).includes(uc)) {
         await audit(store, { requestId, channel: 'mcp', authType: auth.authType, auth, action: `tools/call:${name.slice(0, 64) || '?'}`, path: req.path, statusCode: 404, ip: req.ip, startedAt, errorCode: 'TOOL_NOT_FOUND', now: deps.now() });
         return rpcError(id, -32602, `Unknown tool: ${name.slice(0, 64)}`);

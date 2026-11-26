@@ -27,6 +27,20 @@ export interface UseCaseContext {
   owners: RecordOwnerPort;
   /** Fase 2 / Lote 3: emissao/consumo do token de confirmacao em duas etapas. */
   confirm: ConfirmationPort;
+  /** CISO 26/11 (Lote 3, 6): lixeira — copia integral gravada ANTES de qualquer exclusao. */
+  trash: TrashPort;
+  /** CISO 26/11 (Lote 3, 3): cotas diarias por usuario (ex.: e-mails enviados pelo conector). */
+  quota: QuotaPort;
+}
+
+export interface TrashPort {
+  /** Grava a copia; falha => lanca (a exclusao NAO acontece). */
+  snapshot(entity: string, recordId: string, operationId: string, record: Record<string, unknown>): Promise<void>;
+}
+
+export interface QuotaPort {
+  /** Conta +1 na cota diaria (UTC) do usuario dono para `kind`; acima do limite => 429. */
+  consumeDaily(kind: string, limit: number): Promise<{ count: number; limit: number }>;
 }
 
 

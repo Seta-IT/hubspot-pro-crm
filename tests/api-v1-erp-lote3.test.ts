@@ -26,6 +26,12 @@ import { LOTE2_WRITE_OPERATIONS, LOTE3_DANGEROUS_OPERATIONS } from '../src/modul
 import { LOTE3_DANGEROUS_SCOPES } from '../src/modules/integration/scopes';
 import { describeTool } from '../src/modules/integration/mcp';
 
+// CISO 26/11: os *_commit e as operacoes fiscais ficam desligados por padrao. As suites historicas
+// abaixo exercitam a execucao, entao LIGAM as duas flags neste processo; a suite "CISO 26/11" no fim
+// confere o padrao desligado (desliga e restaura dentro de cada teste).
+process.env.INTEGRATION_ENABLE_DANGEROUS_COMMITS = '1';
+process.env.INTEGRATION_ENABLE_FISCAL_OPS = '1';
+
 const ORIGIN = 'https://stihub.test';
 const CSC_SECRET = 'CSCSEGREDO1234567890ABCD';
 const GC_TOKEN_MASK = 'gcTok-XYZ-123456';
@@ -273,8 +279,9 @@ async function twoStep(env: Env, key: string, path: string, payload: Record<stri
 describe('Lote 3: catalogo de operacoes perigosas', () => {
   it('todo par prepare/commit esta na allowlist, com escopo perigoso, POST e anotacoes corretas', () => {
     const danger = INTEGRATION_USE_CASES.filter((u) => u.dangerous);
-    assert.equal(LOTE3_DANGEROUS_OPERATIONS.size, 41);
-    assert.equal(LOTE3_DANGEROUS_SCOPES.size, 14);
+    // CISO 26/11 (7): aceite de proposta (CPF/termos em nome do cliente) removido => 40 operacoes / 13 escopos.
+    assert.equal(LOTE3_DANGEROUS_OPERATIONS.size, 40);
+    assert.equal(LOTE3_DANGEROUS_SCOPES.size, 13);
     assert.equal(danger.length, LOTE3_DANGEROUS_OPERATIONS.size * 2);
     for (const uc of danger) {
       const base = uc.operationId.replace(/\.(prepare|commit)$/, '');
@@ -503,10 +510,15 @@ describe('Lote 3: consentimento OAuth, IAM e MCP', () => {
     const verifier = randomBytes(32).toString('base64url');
     return { verifier, challenge: createHash('sha256').update(verifier).digest('base64url') };
   }
-  async function consent(env: Env, scope: string, extra: Record<string, string>) {
+  async function consent(env: Env, scope: string, extra: Record<string, string>, iamScopes: string[] | null = ['crm:delete']) {
     const redirect = 'https://client.example/callback';
     const reg = await handleOAuth(req('POST', '/api/oauth/register', { body: { client_name: 'Agente', redirect_uris: [redirect] } }), env.deps);
     const clientId = body(reg).client_id as string;
+    // CISO 26/11 (2): sem o IAM verificar o cliente e confirmar o escopo perigoso, nada perigoso e oferecido.
+    if (iamScopes) {
+      const conf = await handleIamIntegrationKeys(req('POST', '/api/iam/integration-keys/dangerous-confirmations', { session: session(ADMIN), body: { subjectType: 'client', subjectId: clientId, scopes: iamScopes, clientVerified: true, confirmDangerousScopes: true } }), env.deps);
+      assert.equal(conf.status, 200, JSON.stringify(conf.body));
+    }
     const { verifier, challenge } = pkcePair();
     const q = { response_type: 'code', client_id: clientId, redirect_uri: redirect, scope, state: 's1', code_challenge: challenge, code_challenge_method: 'S256' };
     const sess = session(ADMIN);
@@ -565,7 +577,7 @@ describe('Lote 3: consentimento OAuth, IAM e MCP', () => {
 
 // ---------------------------------------------------------------------------
 describe('Lote 3b: envios e acoes com efeito externo', () => {
-  it('admin: follow-up, cadencia ativa, aceite, workflow (ativar/disparar), campanha, cobranca em lote', async () => {
+  it('admin: follow-up, cadencia ativa, workflow (ativar/disparar), campanha, cobranca em lote', async () => {
     const env = makeEnv();
     const key = await dangerAdminKey(env);
     const deal = env.repo.createDeal({ title: 'Negocio FU', companyId: env.ids.coAna, ownerName: 'Ana Vendas', amount: 10 } as never);
@@ -582,12 +594,9 @@ describe('Lote 3b: envios e acoes com efeito externo', () => {
     const ni = await prepare(env, key, `/api/v1/crm/sequences/${inactive.id}/enroll`, { contactId: env.ids.cAna });
     assert.equal(ni.status, 409);
     assert.equal(body(ni).code, 'SEQUENCE_NOT_ACTIVE');
-    // aceite da proposta
-    const ap = await twoStep(env, key, '/api/v1/erp/proposals/prop-ana/approve', { signerName: 'Fulano de Tal', signerCpf: '529.982.247-25', signerRole: 'Diretor', modality: 'GOV_BR_OURO', acceptedTerms: true });
-    assert.equal(ap.c.status, 200, JSON.stringify(ap.c.body));
-    assert.ok(['APROVADA', 'CONVERTIDA_CONTRATO'].includes(String(env.repo.getErpState().proposals.find((p) => p.id === 'prop-ana')!.status)));
-    const again = await prepare(env, key, '/api/v1/erp/proposals/prop-ana/approve', { signerName: 'Fulano de Tal', signerCpf: '529.982.247-25', signerRole: 'Diretor', modality: 'GOV_BR_OURO', acceptedTerms: true });
-    assert.equal(again.status, 409);
+    // aceite da proposta: REMOVIDO do conector (CISO 26/11, 7) => rota inexistente
+    const ap = await prepare(env, key, '/api/v1/erp/proposals/prop-ana/approve', { signerName: 'Fulano de Tal', signerCpf: '529.982.247-25', signerRole: 'Diretor', modality: 'GOV_BR_OURO', acceptedTerms: true });
+    assert.equal(ap.status, 404);
     // workflow
     const wf = env.repo.createWorkflow({ name: 'WF L3', triggerType: 'CONTACT_CREATED' as never, isActive: false, steps: [] } as never) as any;
     const trNo = await prepare(env, key, `/api/v1/automation/workflows/${wf.id}/trigger`, { entityType: 'CONTACT', entityId: env.ids.cAna });
@@ -613,17 +622,17 @@ describe('Lote 3b: envios e acoes com efeito externo', () => {
     const key = await dangerAdminKey(env);
     const tooMany = await prepare(env, key, '/api/v1/comms/email/send', { to: ['a@x.com', 'b@x.com', 'c@x.com', 'd@x.com', 'e@x.com', 'f@x.com'], cc: ['g@x.com', 'h@x.com', 'i@x.com', 'j@x.com', 'k@x.com'], subject: 'Oi', body: 'texto' });
     assert.equal(tooMany.status, 422);
-    const p = await prepare(env, key, '/api/v1/comms/email/send', { to: ['cliente@empresa.com'], subject: 'Proposta', body: 'Segue', contactId: env.ids.cAna });
+    const p = await prepare(env, key, '/api/v1/comms/email/send', { to: ['cliente.ana@empresa-a.com.br'], subject: 'Proposta', body: 'Segue', contactId: env.ids.cAna });
     assert.equal(p.status, 200, JSON.stringify(p.body));
     assert.equal(body(p).data.preview.from, ADMIN.email);
-    const c = await commit(env, key, '/api/v1/comms/email/send', { to: ['cliente@empresa.com'], subject: 'Proposta', body: 'Segue', contactId: env.ids.cAna }, body(p).data.confirmationToken);
+    const c = await commit(env, key, '/api/v1/comms/email/send', { to: ['cliente.ana@empresa-a.com.br'], subject: 'Proposta', body: 'Segue', contactId: env.ids.cAna }, body(p).data.confirmationToken);
     // sem caixa do Outlook conectada no teste: o app recusa, mas reconhece o dono como ator (nao "so usuarios")
     assert.notEqual(body(c).code, 'MAILBOX_USER_ONLY', JSON.stringify(c.body));
     assert.ok([200, 409, 503].includes(c.status), JSON.stringify(c.body));
     // ficha fora da carteira => 404
     grant(env, ANA.uid, {});
     const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['comms:send'], { crm: true, chamados: false, erp: true });
-    assert.equal((await prepare(env, ana, '/api/v1/comms/email/send', { to: ['x@y.com'], subject: 'a', body: 'b', contactId: (env.repo.listContacts().find((x: any) => x.ownerName === 'Carla Outra') as any).id })).status, 404);
+    assert.equal((await prepare(env, ana, '/api/v1/comms/email/send', { to: ['cliente.ana@empresa-a.com.br'], subject: 'a', body: 'b', contactId: (env.repo.listContacts().find((x: any) => x.ownerName === 'Carla Outra') as any).id })).status, 404);
     // links publicos: o dono vira ator (sem sessao), segredo ausente => 503 fail-closed do app
     const pl = await twoStep(env, key, '/api/v1/erp/proposals/prop-carla/public-link');
     assert.notEqual(body(pl.c).code, 'MFA_AUTH_REQUIRED', JSON.stringify(pl.c.body));
@@ -633,14 +642,13 @@ describe('Lote 3b: envios e acoes com efeito externo', () => {
     assert.ok([200, 404, 503].includes(il.c.status), JSON.stringify(il.c.body));
   });
 
-  it('negacoes: aceite sem canApproveProposals, campanha/ativacao sem TODOS, contrato fora da carteira', async () => {
+  it('negacoes: aceite inexistente, campanha/ativacao sem TODOS, contrato fora da carteira', async () => {
     const env = makeEnv();
+    // CISO 26/11 (7): o escopo de aceite nao existe mais
     const k = await createKey(env, { name: 'x', scopes: ['erp:proposals:approve'], portfolioScope: 'PROPRIOS', moduleAccess: { crm: true, chamados: false, erp: true }, ownerUserId: BRUNO.uid, confirmDangerousScopes: true });
-    assert.equal(k.res.status, 422);
-    grant(env, ANA.uid, { canApproveProposals: true });
+    assert.equal(k.res.status, 400);
     grantMarketing(env, ANA.uid);
-    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['erp:proposals:approve', 'crm:marketing:dispatch', 'crm:automation:activate', 'comms:send'], { crm: true, chamados: false, erp: true });
-    assert.equal((await prepare(env, ana, '/api/v1/erp/proposals/prop-carla/approve', { signerName: 'Fulano', signerCpf: '529.982.247-25', signerRole: 'Dir', modality: 'GOV_BR_OURO', acceptedTerms: true })).status, 404);
+    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['crm:marketing:dispatch', 'crm:automation:activate', 'comms:send'], { crm: true, chamados: false, erp: true });
     assert.equal((await prepare(env, ana, '/api/v1/marketing/campaigns/cmp-x/dispatch', { templateId: 't', segmentId: 's' })).status, 403);
     const wf = env.repo.createWorkflow({ name: 'WF', triggerType: 'CONTACT_CREATED' as never, isActive: false, steps: [] } as never) as any;
     assert.equal((await prepare(env, ana, `/api/v1/automation/workflows/${wf.id}/activate`)).status, 403);
@@ -665,16 +673,17 @@ describe('Lote 3c: financeiro (TODOS)', () => {
     // OFX: previa nao grava
     erp.financialEntries.push({ id: 'fin-l3-ofx', type: 'PAGAR', category: 'OPERACIONAL', description: 'OFX', companyName: 'F', costCenter: 'CC', amount: 77, dueDate: '2026-12-10', paidAt: null, status: 'ABERTO', invoiceId: null, paymentMethod: 'PIX' } as never);
     const snapshot = JSON.stringify(erp.financialEntries);
-    const op = await prepare(env, key, '/api/v1/erp/financial/reconcile-ofx', { bankId: 'bank-1', ofxContent: OFX, autoPayMatched: true });
+    const op = await prepare(env, key, '/api/v1/erp/financial/reconcile-ofx', { bankId: 'bank-1', ofxContent: OFX });
     assert.equal(op.status, 200, JSON.stringify(op.body));
     assert.equal(body(op).data.preview.transactions, 2);
     assert.ok(body(op).data.preview.probableMatches >= 1);
     assert.equal(JSON.stringify(erp.financialEntries), snapshot, 'previa do OFX nao grava');
-    const oc = await commit(env, key, '/api/v1/erp/financial/reconcile-ofx', { bankId: 'bank-1', ofxContent: OFX, autoPayMatched: true }, body(op).data.confirmationToken);
+    const oc = await commit(env, key, '/api/v1/erp/financial/reconcile-ofx', { bankId: 'bank-1', ofxContent: OFX }, body(op).data.confirmationToken);
     assert.equal(oc.status, 200, JSON.stringify(oc.body));
-    assert.equal(String(erp.financialEntries.find((f) => f.id === 'fin-l3-ofx')!.status), 'PAGO');
+    // CISO 26/11 (4): sem baixa automatica — o casado continua em aberto
+    assert.equal(String(erp.financialEntries.find((f) => f.id === 'fin-l3-ofx')!.status), 'ABERTO');
     // contas bancarias
-    const bc = await twoStep(env, key, '/api/v1/erp/bank-accounts', { name: 'Banco API', initialBalance: 0 });
+    const bc = await twoStep(env, key, '/api/v1/erp/bank-accounts', { name: 'Banco API' });
     assert.equal(bc.c.status, 200, JSON.stringify(bc.c.body));
     const bankId = body(bc.c).data.result.id;
     assert.ok((erp.bankAccounts || []).some((b) => b.id === bankId));
@@ -779,8 +788,12 @@ describe('Lote 3d: fiscal (TODOS + canIssueFiscalDocuments)', () => {
 // Lote 3 alinhado a correcao CISO Lote 2 (item 2): acoes perigosas tambem exigem posse por ID
 // ---------------------------------------------------------------------------
 describe('Lote 3 / CISO Lote 2 (2): posse por ID nas acoes perigosas', () => {
-  const own = (env: Env, entity: string, recordId: string, ownerUserId: string) =>
-    env.store.putRecordOwner({ entity, recordId, ownerUserId, createdAt: new Date().toISOString() });
+  // CISO 26/11 (Lote 2, 4): o registro de dono so insere; trocar = transferencia (CAS no dono atual).
+  const own = async (env: Env, entity: string, recordId: string, ownerUserId: string) => {
+    const cur = await env.store.getRecordOwner(entity, recordId);
+    if (cur === null) await env.store.insertRecordOwner({ entity, recordId, ownerUserId, createdAt: new Date().toISOString() });
+    else await env.store.transferRecordOwner(entity, recordId, cur, ownerUserId, new Date().toISOString());
+  };
 
   it('tarefa: so nome do responsavel => 403 OWNER_ID_REQUIRED; ID de outro => 404; ID proprio => ok', async () => {
     const env = makeEnv();
@@ -827,16 +840,5 @@ describe('Lote 3 / CISO Lote 2 (2): posse por ID nas acoes perigosas', () => {
     assert.equal((await prepare(env, ana, '/api/v1/erp/contracts/ctr-ana/delete')).status, 200);
     const admin = await dangerAdminKey(env);
     assert.equal((await prepare(env, admin, '/api/v1/erp/contracts/ctr-ana-co/delete')).status, 200);
-  });
-
-  it('aceite de proposta pelo conector registra o ID de quem aceitou como dono do contrato criado', async () => {
-    const env = makeEnv();
-    grant(env, ANA.uid, { canApproveProposals: true });
-    const ana = await keyFor(env, ANA.uid, 'PROPRIOS', ['erp:proposals:approve'], { crm: true, chamados: false, erp: true });
-    const { c } = await twoStep(env, ana, '/api/v1/erp/proposals/prop-ana/approve', { signerName: 'Fulano', signerCpf: '529.982.247-25', signerRole: 'Dir', modality: 'GOV_BR_OURO', acceptedTerms: true });
-    assert.equal(c.status, 200, JSON.stringify(c.body));
-    const contractId = body(c).data?.result?.contractId ?? body(c).data?.contractId;
-    assert.ok(contractId, JSON.stringify(c.body));
-    assert.equal(await env.store.getRecordOwner('erp.contract', contractId), ANA.uid);
   });
 });

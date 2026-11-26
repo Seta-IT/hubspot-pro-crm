@@ -9665,6 +9665,21 @@ export class CrmApiRouter {
           // Pacote L (3): alterar fatura/NF existente exige a alcada fiscal (a mesma do /generate-invoice).
           const fisPriv = this.fiscalIssuancePrivilege(query, ctx);
           if (!fisPriv.allowed) return this.denyFiscalIssuance(method, cleanPath, query, fisPriv, 'alteracao de fatura/NF existente');
+          // CISO 26/11 (Lote 3, 5): cancelar a fatura cancela o recebivel vinculado na MESMA transacao.
+          if (typeof body.status === 'string' && body.status.trim().toUpperCase() === 'CANCELADA') {
+            const { status: _st, ...rest } = body as Record<string, unknown>;
+            if (Object.keys(rest).length > 0) {
+              return { status: 400, body: { error: 'Cancelamento de documento fiscal não aceita outros campos no mesmo pedido.', code: 'INVOICE_CANCEL_EXCLUSIVE' } };
+            }
+            const currentInv = this.repo.listInvoices().find((i) => i.id === invId || String(i.documentNumber || '').toLowerCase() === invId.toLowerCase());
+            if (!currentInv) return { status: 404, body: { error: 'Documento fiscal não encontrado.' } };
+            if (String(currentInv.status).toUpperCase() === 'PAGA' || currentInv.paidAt) {
+              return { status: 409, body: { error: 'Documento pago não pode ser cancelado.', code: 'INVOICE_PAID' } };
+            }
+            const cancelled = this.repo.cancelInvoiceWithReceivables(invId);
+            if (!cancelled) return { status: 404, body: { error: 'Documento fiscal não encontrado.' } };
+            return { status: 200, body: { data: cancelled.invoice, cancelledReceivableIds: cancelled.cancelledReceivableIds } };
+          }
           const updated = this.repo.updateInvoice(invId, body);
           if (!updated) return { status: 404, body: { error: 'Documento fiscal não encontrado.' } };
           return { status: 200, body: { data: updated } };
@@ -9799,6 +9814,7 @@ export class CrmApiRouter {
             .filter(
               (e) =>
                 e.status !== 'PAGO' &&
+                e.status !== 'CANCELADO' &&
                 !used.has(e.id) &&
                 e.type === wantType &&
                 Math.abs(Math.abs(t.amount) - e.amount) < 0.01,
@@ -9829,6 +9845,8 @@ export class CrmApiRouter {
           bankCode: bankId.toLowerCase().includes('ita') || bankId === '341' ? '341' : '077',
           transactions: Array.isArray(body.transactions) ? body.transactions : undefined,
           autoCreateMissing: body.autoCreateMissing !== false,
+          // CISO 26/11 (Lote 3, 4): autoPayMatched=false (conector sempre; tela desmarcada) => sem baixa.
+          markPaid: body.autoPayMatched !== false,
         });
         const effectiveMatched = Math.max(reconciledEntries.length, repoOfxResult.reconciledEntriesCount);
         return {
@@ -10306,6 +10324,10 @@ export class CrmApiRouter {
 
       const payFinMatch = cleanPath.match(/^\/api\/erp\/financial\/([^/]+)\/pay$/);
       if (payFinMatch && method === 'POST') {
+        const finTarget = (this.repo.getErpState().financialEntries || []).find((f) => f.id === payFinMatch[1]);
+        if (finTarget && finTarget.status === 'CANCELADO') {
+          return { status: 409, body: { error: 'Lançamento cancelado (fatura cancelada) não recebe baixa.', code: 'FINANCIAL_ENTRY_CANCELLED' } };
+        }
         const paid = this.repo.markFinancialEntryPaid(payFinMatch[1]);
         if (!paid) {
           return { status: 404, body: { error: 'Lançamento financeiro não encontrado.' } };

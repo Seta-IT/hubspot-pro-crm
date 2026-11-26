@@ -6,6 +6,7 @@ import { CRM_WRITE_USE_CASES } from './crm-write';
 import { ERP_USE_CASES } from './erp';
 import { ERP_WRITE_USE_CASES } from './erp-write';
 import { LOTE3_DANGEROUS_SCOPES } from '../scopes';
+import { dangerousCommitsEnabled, fiscalOpsEnabled, isFiscalScope } from '../flags';
 import { lote3aUseCases } from './danger-3a';
 import { lote3bUseCases } from './danger-3b';
 import { lote3cUseCases } from './danger-3c';
@@ -103,7 +104,6 @@ export const LOTE3_DANGEROUS_OPERATIONS: ReadonlySet<string> = new Set([
   'comms.email.send',
   'crm.sequences.enroll',
   'crm.proposal_followup.set',
-  'erp.proposals.approve',
   'erp.proposals.public_link',
   'erp.invoices.public_link',
   'automation.workflows.activate',
@@ -184,9 +184,37 @@ for (const id of PLAN_EXPANSION_OPERATIONS) {
 export function planExpansionEnabled(): boolean {
   return process.env[PLAN_EXPANSION_FLAG] === '1';
 }
-/** false => a operacao nao existe para o cliente (desligada pelo ponto 9). */
-export function isUseCaseEnabled(uc: Pick<UseCaseDefinition, 'operationId'>): boolean {
-  return !PLAN_EXPANSION_OPERATIONS.has(uc.operationId) || planExpansionEnabled();
+// ---------------------------------------------------------------------------
+// CISO 26/11 (Lote 3, itens 1 e 8): *_commit atras de INTEGRATION_ENABLE_DANGEROUS_COMMITS e tudo
+// que e fiscal atras de INTEGRATION_ENABLE_FISCAL_OPS (ambas desligadas; ver ../flags.ts).
+// ---------------------------------------------------------------------------
+export type UseCaseDisabledReason = 'PLAN_EXPANSION' | 'FISCAL' | 'DANGEROUS_COMMIT';
+type FlagView = Pick<UseCaseDefinition, 'operationId'> & { requiredScope?: string; dangerous?: 'prepare' | 'commit' };
+export function isFiscalUseCase(uc: FlagView): boolean {
+  return typeof uc.requiredScope === 'string' && isFiscalScope(uc.requiredScope);
+}
+export function useCaseDisabledReason(uc: FlagView): UseCaseDisabledReason | null {
+  if (PLAN_EXPANSION_OPERATIONS.has(uc.operationId) && !planExpansionEnabled()) return 'PLAN_EXPANSION';
+  if (isFiscalUseCase(uc) && !fiscalOpsEnabled()) return 'FISCAL';
+  if (uc.dangerous === 'commit' && !dangerousCommitsEnabled()) return 'DANGEROUS_COMMIT';
+  return null;
+}
+/** false => a operacao esta desligada (ponto 9, fiscal ou commit perigoso). */
+export function isUseCaseEnabled(uc: FlagView): boolean {
+  return useCaseDisabledReason(uc) === null;
+}
+/**
+ * Rota REST/tool existe? Ponto (9) e fiscal: nao existem (404 de rota). Commit perigoso desligado:
+ * a rota existe e responde 404 OPERATION_DISABLED (parecer 26/11), mas fica fora do tools/list e do OpenAPI.
+ */
+export function isUseCaseRoutable(uc: FlagView): boolean {
+  const r = useCaseDisabledReason(uc);
+  return r === null || r === 'DANGEROUS_COMMIT';
+}
+for (const uc of INTEGRATION_USE_CASES) {
+  if (isFiscalUseCase(uc) && !LOTE3_DANGEROUS_OPERATIONS.has(uc.operationId.replace(/\.(prepare|commit)$/, ''))) {
+    throw new Error(`Operacao fiscal fora da allowlist do Lote 3: ${uc.operationId}`);
+  }
 }
 
 export function findUseCaseByOperationId(id: string): UseCaseDefinition | undefined {

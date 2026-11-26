@@ -1641,8 +1641,10 @@ export interface ErpFinancialEntry {
   amount: number;
   dueDate: string;
   paidAt: string | null;
-  status: 'ABERTO' | 'PAGO' | 'ATRASADO';
+  /** CANCELADO: recebivel cancelado junto com a fatura (CISO 26/11, Lote 3 item 5). */
+  status: 'ABERTO' | 'PAGO' | 'ATRASADO' | 'CANCELADO';
   invoiceId: string | null;
+  cancelledAt?: string | null;
   paymentMethod: string;
 }
 
@@ -1774,7 +1776,8 @@ export interface ErpOfxTransactionItem {
   matchedFinancialEntryId?: string | null;
   matchedInvoiceId?: string | null;
   matchedCompanyName?: string | null;
-  status: "CONCILIADO_BAIXADO" | "NOVO_LANCAMENTO_CRIADO" | "JA_CONCILIADO";
+  /** CONCILIADO_PAREADO: casado com o extrato SEM baixa (autoPayMatched=false; CISO 26/11). */
+  status: "CONCILIADO_BAIXADO" | "CONCILIADO_PAREADO" | "NOVO_LANCAMENTO_CRIADO" | "JA_CONCILIADO";
 }
 
 export interface ErpOfxReconciliationResult {

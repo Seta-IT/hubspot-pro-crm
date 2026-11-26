@@ -34,6 +34,10 @@ async function crmLinksInScope(ctx: UseCaseContext, ids: { contactId?: string; c
 // ---------------------------------------------------------------------------
 // E-mail pela caixa do dono (Outlook conectado na tela)
 // ---------------------------------------------------------------------------
+/** CISO 26/11 (Lote 3, 3): limites do envio de e-mail pelo conector. */
+export const EMAIL_BODY_MAX_CHARS = 5_000;
+export const EMAIL_DAILY_LIMIT_PER_USER = 50;
+
 const commsEmailSend = defineDangerous({
   ...crmBase,
   name: 'comms_email_send',
@@ -44,14 +48,14 @@ const commsEmailSend = defineDangerous({
   op: 'send',
   summary: 'Enviar e-mail pela caixa do usuario',
   description:
-    'Envia e-mail pela caixa do Outlook JA conectada pelo proprio usuario dono da credencial (nunca outra caixa) e registra na ficha. Ate 10 destinatarios no total, sem anexos. Ficha vinculada precisa estar na carteira.',
+    `Envia e-mail pela caixa do Outlook JA conectada pelo proprio usuario dono da credencial (nunca outra caixa) e registra na ficha. Destinatarios (to/cc) SO contatos cadastrados na carteira do usuario; bcc so para usuarios internos ativos; corpo ate ${EMAIL_BODY_MAX_CHARS} caracteres; ate 10 destinatarios; ${EMAIL_DAILY_LIMIT_PER_USER} envios/dia por usuario; sem anexos.`,
   inputSchema: z
     .object({
       to: z.array(Email).min(1).max(10),
       cc: z.array(Email).max(10).default([]),
       bcc: z.array(Email).max(10).default([]),
       subject: text(200).min(1),
-      body: z.string().max(20_000),
+      body: z.string().max(EMAIL_BODY_MAX_CHARS),
       bodyFormat: z.enum(['text', 'html']).default('text'),
       contactId: IdSchema.optional(),
       companyId: IdSchema.optional(),
@@ -62,6 +66,20 @@ const commsEmailSend = defineDangerous({
     const total = input.to.length + input.cc.length + input.bcc.length;
     if (total > 10) throw new UseCaseError(422, 'TOO_MANY_RECIPIENTS', 'No maximo 10 destinatarios (to+cc+bcc) por envio pelo conector.');
     await crmLinksInScope(ctx, input);
+    // to/cc: so e-mail de contato cadastrado NA CARTEIRA do usuario (fora/desconhecido => mesma recusa, sem oraculo).
+    const snap = await ctx.data.snapshot('crm');
+    const portfolioEmails = new Set(
+      snap.contacts.filter((c) => contactInScope(ctx.portfolio, c)).map((c: any) => String(c.email || '').trim().toLowerCase()).filter(Boolean)
+    );
+    const outside = [...input.to, ...input.cc].filter((e) => !portfolioEmails.has(e));
+    if (outside.length) {
+      throw new UseCaseError(422, 'RECIPIENT_NOT_IN_PORTFOLIO', 'Destinatario (to/cc) precisa ser contato cadastrado na carteira do usuario.', { count: outside.length });
+    }
+    // bcc: nunca externo — so usuarios internos ativos do STI-hub.
+    const internal = new Set(ctx.allUsers.filter((u) => u.active).map((u) => u.email.toLowerCase()));
+    if (input.bcc.some((e) => !internal.has(e))) {
+      throw new UseCaseError(422, 'BCC_EXTERNAL_FORBIDDEN', 'Copia oculta (bcc) so para usuarios internos ativos.');
+    }
     return {
       entity: 'comms.email',
       entityId: input.contactId || input.dealId || input.companyId || 'avulso',
@@ -76,9 +94,12 @@ const commsEmailSend = defineDangerous({
         bodyChars: input.body.length,
         bodyStart: input.body.slice(0, 280),
         links: { contactId: input.contactId || null, companyId: input.companyId || null, dealId: input.dealId || null },
+        dailyLimit: EMAIL_DAILY_LIMIT_PER_USER,
       },
-      effects: ['E-mail sai da caixa do Outlook do usuario e nao pode ser desfeito.', 'Registro na linha do tempo da ficha (rastreamento conforme a regra da tela).'],
+      effects: ['E-mail sai da caixa do Outlook do usuario e nao pode ser desfeito.', 'Registro na linha do tempo da ficha (rastreamento conforme a regra da tela).', `Conta 1 no limite diario (${EMAIL_DAILY_LIMIT_PER_USER}/dia por usuario).`],
       run: async () => {
+        // Cota diaria POR USUARIO (todas as credenciais somadas), consumida antes de enviar.
+        await ctx.quota.consumeDaily('comms_email_send', EMAIL_DAILY_LIMIT_PER_USER);
         const payload: Record<string, unknown> = { to: input.to, cc: input.cc, bcc: input.bcc, subject: input.subject, body: input.body, bodyFormat: input.bodyFormat };
         for (const k of ['contactId', 'companyId', 'dealId'] as const) if (input[k]) payload[k] = input[k];
         const r = unwrapDangerous(await ctx.data.dangerous('POST', '/api/mailbox/send', payload, { actorUserId: ctx.owner.id }), 'Caixa');
@@ -150,53 +171,10 @@ const crmProposalFollowup = defineDangerous({
 });
 
 // ---------------------------------------------------------------------------
-// Proposta: aceite (converte) e link publico; link publico de fatura
+// Proposta: link publico (o aceite e do cliente, no link); link publico de fatura
 // ---------------------------------------------------------------------------
-const erpProposalsApprove = defineDangerous({
-  ...erpBase,
-  name: 'erp_proposals_approve',
-  operationId: 'erp.proposals.approve',
-  path: '/api/v1/erp/proposals/{id}/approve',
-  pathParams: ['id'],
-  requiredScope: 'erp:proposals:approve',
-  op: 'approve',
-  summary: 'Registrar aceite da proposta (converte em contrato)',
-  description:
-    'Registra o aceite do cliente (signatario, CPF, cargo, modalidade) numa proposta ENVIADA/EM_NEGOCIACAO da carteira e dispara a conversao do app (contrato e, se configurado, fatura). Exige canApproveProposals + edicao de propostas.',
-  inputSchema: z
-    .object({
-      id: IdSchema,
-      signerName: text(160).min(3),
-      signerCpf: z.string().trim().regex(/^\d{3}\.?\d{3}\.?\d{3}-?\d{2}$/, 'CPF invalido'),
-      signerRole: text(160).min(2),
-      signerEmail: Email.optional(),
-      modality: z.enum(['ICP_BRASIL_A1', 'ICP_BRASIL_A3', 'GOV_BR_OURO']),
-      acceptedTerms: z.literal(true),
-    })
-    .strict(),
-  async plan(input, ctx) {
-    requireErpEdit(ctx, 'proposals');
-    const p: any = await loadWritableProposal(ctx, input.id);
-    if (!['ENVIADA', 'EM_NEGOCIACAO'].includes(String(p.status || '').toUpperCase())) {
-      throw new UseCaseError(409, 'PROPOSAL_NOT_APPROVABLE', 'So proposta ENVIADA ou EM_NEGOCIACAO pode receber aceite.');
-    }
-    return {
-      entity: 'erp.proposal',
-      entityId: p.id,
-      before: { status: str(p.status) },
-      preview: { action: 'ACEITAR_PROPOSTA', id: p.id, code: str(p.code) || null, companyName: str(p.companyName) || null, totalContractValue: Number(p.totalContractValue) || 0, signerName: input.signerName, modality: input.modality },
-      effects: ['A proposta vira APROVADA/CONVERTIDA e o app cria o contrato (e a fatura, se a configuracao mandar).', 'Nao ha desfazer pelo conector.'],
-      run: async () => {
-        const { id: _id, ...signer } = input;
-        const r = unwrapDangerous(await ctx.data.dangerous('POST', `/api/erp/proposals/${enc(p.id)}/approve`, { ...signer, signerEmail: signer.signerEmail ?? null }), 'Proposta');
-        const contractId = str(r?.contract?.id) || null;
-        // Contrato nascido do aceite: posse por ID de quem aceitou (registro; nao amplia leitura).
-        if (contractId) await ctx.owners.set('erp.contract', contractId, ctx.owner.id);
-        return { approved: true, proposalStatus: str(r?.proposal?.status) || null, contractId, invoiceId: str(r?.invoice?.id) || null };
-      },
-    };
-  },
-});
+// CISO 26/11 (Lote 3, item 7): o conector NAO registra aceite de proposta (signatario/CPF) nem aceite de
+// termos em nome do cliente. O aceite so acontece pelo proprio cliente no link publico.
 
 const erpProposalsPublicLink = defineDangerous({
   ...erpBase,
@@ -420,7 +398,6 @@ export const lote3bUseCases: UseCaseDefinition[] = [
   ...commsEmailSend,
   ...crmSequencesEnroll,
   ...crmProposalFollowup,
-  ...erpProposalsApprove,
   ...erpProposalsPublicLink,
   ...erpInvoicesPublicLink,
   ...automationWorkflowsActivate,

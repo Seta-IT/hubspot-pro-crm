@@ -561,6 +561,7 @@ export function suggestPayableMatches(
         (e) =>
           e.type === 'PAGAR' &&
           e.status !== 'PAGO' &&
+          e.status !== 'CANCELADO' &&
           !used.has(e.id) &&
           Math.abs(Math.abs(it.amount) - Number(e.amount || 0)) < 0.01,
       )

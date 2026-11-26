@@ -487,7 +487,7 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
   const invKpis = {
     emitidos: invoices.length + boletoEntries.length,
     liquidados: invoices.filter((i) => i.status === 'PAGA').length + boletoEntries.filter((e) => e.status === 'PAGO').length,
-    abertos: invoices.filter((i) => i.status === 'EMITIDA' || i.status === 'VENCIDA').length + boletoEntries.filter((e) => e.status !== 'PAGO').length,
+    abertos: invoices.filter((i) => i.status === 'EMITIDA' || i.status === 'VENCIDA').length + boletoEntries.filter((e) => e.status !== 'PAGO' && e.status !== 'CANCELADO').length,
   };
   const companyCnpj = (name: string) => companies.find((c) => c.name === name)?.cnpj || '';
 
@@ -544,7 +544,7 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
       <td className={`${td} text-right`}>
         <RowMenu
           items={[
-            ...(fin.status !== 'PAGO' ? [{ label: 'Dar baixa', icon: CheckCircle2, onClick: () => payEntry(fin) }] : []),
+            ...(fin.status !== 'PAGO' && fin.status !== 'CANCELADO' ? [{ label: 'Dar baixa', icon: CheckCircle2, onClick: () => payEntry(fin) }] : []),
             { label: 'Editar', icon: Pencil, onClick: () => editEntry(fin) },
             { label: 'Enviar boleto por e-mail', icon: Mail, onClick: () => emailEntry(fin) },
             { label: 'Excluir', icon: Trash2, onClick: () => void deleteEntry(fin), danger: true, disabled: recordUsageTotal(countRecordUsage('financialEntry', { id: fin.id }, usageSources)) > 0, title: recordUsageTotal(countRecordUsage('financialEntry', { id: fin.id }, usageSources)) > 0 ? 'Em uso' : 'Excluir' },
@@ -807,7 +807,7 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
                   <RowMenu
                     items={[
                       { label: 'Enviar por e-mail', icon: Mail, onClick: () => emailEntry(fin) },
-                      ...(fin.status !== 'PAGO' ? [{ label: 'Dar baixa', icon: CheckCircle2, onClick: () => payEntry(fin) }] : []),
+                      ...(fin.status !== 'PAGO' && fin.status !== 'CANCELADO' ? [{ label: 'Dar baixa', icon: CheckCircle2, onClick: () => payEntry(fin) }] : []),
                     ]}
                   />
                 </td>
@@ -823,7 +823,7 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
   const renderDocPreview = () => {
     if (!docPreview) return null;
     const p = docPreview;
-    const payables = financialEntries.filter((e) => e.type === 'PAGAR' && e.status !== 'PAGO');
+    const payables = financialEntries.filter((e) => e.type === 'PAGAR' && e.status !== 'PAGO' && e.status !== 'CANCELADO');
     const chosen = docRows.filter((r) => r.action !== 'IGNORE').length;
     const input = 'border border-slate-300 rounded-md px-1.5 py-1 bg-white text-xs';
     return (

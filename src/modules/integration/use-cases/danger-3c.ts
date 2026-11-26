@@ -40,6 +40,7 @@ const erpFinancialPay = defineDangerous({
     const f: any = (await collections(ctx)).financialEntries.find((x) => x.id === input.id);
     if (!f) throw notFound('Lancamento');
     if (isPaid(f.status)) throw new UseCaseError(409, 'ALREADY_SETTLED', 'Lancamento ja baixado.');
+    if (String(f.status || '').toUpperCase() === 'CANCELADO') throw new UseCaseError(409, 'FINANCIAL_ENTRY_CANCELLED', 'Lancamento cancelado (fatura cancelada) nao recebe baixa.');
     return {
       entity: 'erp.financial_entry',
       entityId: f.id,
@@ -112,12 +113,11 @@ const erpFinancialReconcileOfx = defineDangerous({
   op: 'reconcile',
   summary: 'Conciliar extrato OFX',
   description:
-    'Concilia o extrato OFX com os lancamentos. autoPayMatched=true da baixa nos casados; autoCreateMissing=true cria lancamentos para o que nao casou. Carteira TODOS + edicao do Financeiro.',
+    'Concilia o extrato OFX com os lancamentos (CISO 26/11: SEM baixa automatica — a baixa de cada lancamento casado e feita pela tela ou por erp_financial_entries_pay). autoCreateMissing=true cria lancamentos para o que nao casou. Carteira TODOS + edicao do Financeiro.',
   inputSchema: z
     .object({
       bankId: IdSchema,
       ofxContent: z.string().min(20).max(MAX_TEXT),
-      autoPayMatched: z.boolean().default(false),
       autoCreateMissing: z.boolean().default(false),
     })
     .strict(),
@@ -127,7 +127,7 @@ const erpFinancialReconcileOfx = defineDangerous({
     if (!cols.bankAccounts.some((b) => b.id === input.bankId) && !/^\d{3}$/.test(input.bankId)) throw notFound('Conta bancaria');
     const tx = parseOfx(input.ofxContent);
     if (!tx.length) throw new UseCaseError(422, 'OFX_EMPTY', 'Nenhuma transacao encontrada no OFX.');
-    const open = cols.financialEntries.filter((e: any) => !isPaid(e.status));
+    const open = cols.financialEntries.filter((e: any) => !isPaid(e.status) && String(e.status || '').toUpperCase() !== 'CANCELADO');
     const used = new Set<string>();
     let matches = 0;
     for (const t of tx) {
@@ -150,16 +150,15 @@ const erpFinancialReconcileOfx = defineDangerous({
         credits: Math.round(tx.filter((t) => t.amount > 0).reduce((a, t) => a + t.amount, 0) * 100) / 100,
         debits: Math.round(tx.filter((t) => t.amount < 0).reduce((a, t) => a + t.amount, 0) * 100) / 100,
         probableMatches: matches,
-        autoPayMatched: input.autoPayMatched,
         autoCreateMissing: input.autoCreateMissing,
       },
       effects: [
         'Registra a conciliacao do extrato.',
-        ...(input.autoPayMatched ? [`Ate ${matches} lancamento(s) recebem baixa.`] : []),
+        'Nenhum lancamento recebe baixa automatica (autoPayMatched removido pelo CISO).',
         ...(input.autoCreateMissing ? ['Transacoes sem par viram lancamentos novos.'] : []),
       ],
       run: async () => {
-        const r = await ctx.data.dangerous('POST', '/api/erp/financial/reconcile-ofx', { bankId: input.bankId, ofxContent: input.ofxContent, autoPayMatched: input.autoPayMatched, autoCreateMissing: input.autoCreateMissing });
+        const r = await ctx.data.dangerous('POST', '/api/erp/financial/reconcile-ofx', { bankId: input.bankId, ofxContent: input.ofxContent, autoPayMatched: false, autoCreateMissing: input.autoCreateMissing });
         unwrapDangerous(r, 'Conciliacao');
         const b: any = r.body || {};
         const rec = Array.isArray(b.reconciledEntries) ? b.reconciledEntries : [];
@@ -289,7 +288,6 @@ const erpPurchasesImportXml = defineDangerous({
 // ---------------------------------------------------------------------------
 // Contas bancarias
 // ---------------------------------------------------------------------------
-const money = z.number().finite().min(-1_000_000_000).max(1_000_000_000);
 const bankStatus = (b: number) => (b > 0 ? 'POSITIVE' : b < 0 ? 'NEGATIVE' : 'ZERO');
 const bankBase = { ...base, requiredScope: 'erp:banks:write' as const };
 
@@ -301,8 +299,8 @@ const erpBanksCreate = defineDangerous({
   pathParams: [],
   op: 'create',
   summary: 'Cadastrar conta bancaria',
-  description: 'Cadastra conta bancaria com saldo inicial. Carteira TODOS + edicao do Financeiro + ver saldos bancarios.',
-  inputSchema: z.object({ name: text(120).min(2), initialBalance: money.default(0) }).strict(),
+  description: 'Cadastra conta bancaria com saldo ZERO (CISO 26/11: sem saldo manual pelo conector; o saldo so muda por lancamentos/baixas). Carteira TODOS + edicao do Financeiro + ver saldos bancarios.',
+  inputSchema: z.object({ name: text(120).min(2) }).strict(),
   async plan(input, ctx) {
     requireFinance(ctx, 'Contas bancarias');
     rejectMaskedValues(input);
@@ -313,11 +311,11 @@ const erpBanksCreate = defineDangerous({
       entity: 'erp.bank_account',
       entityId: input.name,
       before: null,
-      preview: { action: 'CRIAR_CONTA_BANCARIA', name: input.name, initialBalance: input.initialBalance },
-      effects: ['Saldo inicial entra no saldo disponivel do painel.'],
+      preview: { action: 'CRIAR_CONTA_BANCARIA', name: input.name, initialBalance: 0 },
+      effects: ['Conta criada com saldo zero.'],
       run: async () => {
         const r = unwrapDangerous(
-          await ctx.data.dangerous('POST', '/api/erp/records/bankAccounts', { id, name: input.name, balance: input.initialBalance, status: bankStatus(input.initialBalance), lastMovedAt: new Date().toISOString() }),
+          await ctx.data.dangerous('POST', '/api/erp/records/bankAccounts', { id, name: input.name, balance: 0, status: bankStatus(0), lastMovedAt: new Date().toISOString() }),
           'Conta bancaria'
         );
         return { id: str(r?.id) || id, name: str(r?.name) || input.name, balance: Number(r?.balance) || 0 };
@@ -333,24 +331,22 @@ const erpBanksUpdate = defineDangerous({
   path: '/api/v1/erp/bank-accounts/{id}/update',
   pathParams: ['id'],
   op: 'update',
-  summary: 'Editar conta bancaria (nome/ajuste de saldo)',
-  description: 'Renomeia a conta e/ou ajusta o saldo (ajuste manual auditado). Carteira TODOS + edicao do Financeiro + ver saldos bancarios.',
-  inputSchema: z.object({ id: IdSchema, name: text(120).min(2).optional(), balance: money.optional() }).strict(),
+  summary: 'Renomear conta bancaria',
+  description: 'Renomeia a conta. CISO 26/11: ajuste manual de saldo REMOVIDO do conector (saldo so muda por lancamentos/baixas). Carteira TODOS + edicao do Financeiro + ver saldos bancarios.',
+  inputSchema: z.object({ id: IdSchema, name: text(120).min(2) }).strict(),
   async plan(input, ctx) {
     requireFinance(ctx, 'Contas bancarias');
     rejectMaskedValues(input);
-    if (input.name === undefined && input.balance === undefined) throw new UseCaseError(422, 'EMPTY_PATCH', 'Informe name e/ou balance.');
     const b: any = (await collections(ctx)).bankAccounts.find((x) => x.id === input.id);
     if (!b) throw notFound('Conta bancaria');
-    const patch: Record<string, unknown> = { ...b };
-    if (input.name !== undefined) patch.name = input.name;
-    if (input.balance !== undefined) Object.assign(patch, { balance: input.balance, status: bankStatus(input.balance), lastMovedAt: new Date().toISOString() });
+    // So o nome: o PATCH interno faz merge, entao saldo/status nunca sao reenviados (nem valor velho).
+    const patch: Record<string, unknown> = { name: input.name };
     return {
       entity: 'erp.bank_account',
       entityId: b.id,
       before: { name: str(b.name), balance: Number(b.balance) || 0 },
-      preview: { action: 'EDITAR_CONTA_BANCARIA', id: b.id, from: { name: str(b.name), balance: Number(b.balance) || 0 }, to: { name: patch.name, balance: patch.balance } },
-      effects: input.balance !== undefined ? ['Ajuste manual de saldo (sem lancamento de contrapartida).'] : ['So o nome muda.'],
+      preview: { action: 'RENOMEAR_CONTA_BANCARIA', id: b.id, from: { name: str(b.name) }, to: { name: input.name } },
+      effects: ['So o nome muda (saldo intocado).'],
       run: async () => {
         const r = unwrapDangerous(await ctx.data.dangerous('PATCH', `/api/erp/records/bankAccounts/${enc(b.id)}`, patch), 'Conta bancaria');
         return { id: b.id, name: str(r?.name), balance: Number(r?.balance) || 0 };
@@ -381,7 +377,8 @@ const erpBanksDelete = defineDangerous({
       entityId: b.id,
       before: { name: str(b.name), balance: 0 },
       preview: { action: 'EXCLUIR', entity: 'erp.bank_account', id: b.id, name: str(b.name), balance: 0 },
-      effects: ['Exclusao definitiva.'],
+      effects: ['Exclusao no app; copia integral fica na lixeira do conector.'],
+      trash: [{ entity: 'erp.bank_account', recordId: b.id, record: b }],
       run: async () => {
         unwrapDangerous(await ctx.data.dangerous('DELETE', `/api/erp/records/bankAccounts/${enc(b.id)}`, {}), 'Conta bancaria');
         return { deleted: true, deletedId: b.id };

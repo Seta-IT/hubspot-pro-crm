@@ -20,6 +20,12 @@ export interface DangerousPlan {
   before?: Record<string, unknown> | null;
   /** Efeitos colaterais conhecidos (exibidos na previa). */
   effects: string[];
+  /**
+   * CISO 26/11 (Lote 3, 6): registros que deixam de existir (exclusao/merge). Cada um e copiado
+   * INTEGRALMENTE para a lixeira (api_deleted_records) ANTES do run(); falha na copia => nada e excluido.
+   * Obrigatorio para op 'delete' e 'merge'.
+   */
+  trash?: Array<{ entity: string; recordId: string; record: Record<string, unknown> }>;
   /** Executa (so no commit). Retorna o resultado sanitizado (vira "after" na auditoria). */
   run: () => Promise<Record<string, unknown>>;
 }
@@ -57,6 +63,9 @@ const PrepareOut = z.object({
   }),
 });
 const CommitOut = z.object({ data: z.object({ operation: z.string(), entityId: z.string(), result: Record_ }) });
+
+/** Operacoes que removem registros: exigem copia integral na lixeira antes de executar. */
+export const TRASH_REQUIRED_OPS: ReadonlySet<string> = new Set(['delete', 'merge']);
 
 const TokenSchema = z.string().trim().min(10).max(80);
 
@@ -120,6 +129,10 @@ export function defineDangerous<I extends z.ZodObject<z.ZodRawShape>>(spec: Dang
       // Consome ANTES de reconferir: token de uso unico mesmo se a reconferencia falhar.
       await ctx.confirm.consume(spec.operationId, args, confirmationToken);
       const plan = await spec.plan(args as z.infer<I>, ctx);
+      if (TRASH_REQUIRED_OPS.has(spec.op)) {
+        if (!plan.trash?.length) throw new UseCaseError(500, 'TRASH_SNAPSHOT_MISSING', 'Exclusao sem copia para a lixeira (recusada).');
+        for (const t of plan.trash) await ctx.trash.snapshot(t.entity, t.recordId, spec.operationId, t.record);
+      }
       const result = await plan.run();
       recordWriteAudit(ctx, plan.entity, spec.op, plan.entityId, plan.before ?? null, result);
       return { data: { operation: spec.operationId, entityId: plan.entityId, result } };

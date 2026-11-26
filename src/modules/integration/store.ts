@@ -136,6 +136,32 @@ export interface ConfirmationTokenRecord {
   usedAt: string | null;
 }
 
+/** CISO 26/11 (Lote 3, 6): copia integral do registro gravada ANTES da exclusao (lixeira). */
+export interface DeletedRecordSnapshot {
+  id: string;
+  entity: string;
+  recordId: string;
+  operationId: string;
+  snapshot: Record<string, unknown>;
+  actorUserId: string;
+  credential: string;
+  deletedAt: string;
+}
+
+/**
+ * CISO 26/11 (Lote 3, 2): confirmacao do IAM para escopos perigosos via OAuth.
+ * subjectType 'client' (clientVerified = cliente DCR verificado pelo IAM) ou 'user'.
+ */
+export interface DangerousScopeConfirmationRecord {
+  subjectType: 'client' | 'user';
+  subjectId: string;
+  scopes: string[];
+  clientVerified: boolean;
+  confirmedByUserId: string;
+  confirmedAt: string;
+  revokedAt: string | null;
+}
+
 export interface IntegrationStore {
   readonly kind: 'postgres' | 'memory-test';
   // --- chaves de integracao ---
@@ -195,4 +221,12 @@ export interface IntegrationStore {
    * uso; `alreadyUsed` quando ja consumido; null se nao existe ou e de outro principal (sem oraculo).
    */
   consumeConfirmation(tokenHash: string, principalKey: string, at: string): Promise<{ record: ConfirmationTokenRecord; alreadyUsed: boolean } | null>;
+  // --- CISO 26/11 (Lote 3): lixeira e confirmacao do IAM (tabelas da migracao manual) ---
+  insertDeletedRecord(rec: DeletedRecordSnapshot): Promise<void>;
+  listDeletedRecords(entity?: string, recordId?: string): Promise<DeletedRecordSnapshot[]>;
+  getDangerousScopeConfirmation(subjectType: 'client' | 'user', subjectId: string): Promise<DangerousScopeConfirmationRecord | null>;
+  /** So o IAM (sessao 2FA + admin) chama. */
+  upsertDangerousScopeConfirmation(rec: DangerousScopeConfirmationRecord): Promise<void>;
+  revokeDangerousScopeConfirmation(subjectType: 'client' | 'user', subjectId: string, at: string): Promise<boolean>;
+  listDangerousScopeConfirmations(): Promise<DangerousScopeConfirmationRecord[]>;
 }

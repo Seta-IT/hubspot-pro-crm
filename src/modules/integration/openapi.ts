@@ -5,7 +5,8 @@
 // no catalogo e, portanto, nunca aparecem aqui.
 // ============================================================================
 import { z } from 'zod/v4';
-import { INTEGRATION_SCOPES, SCOPE_DESCRIPTIONS } from './scopes';
+import { SCOPE_DESCRIPTIONS } from './scopes';
+import { dangerousCommitsEnabled, exposedScopes, fiscalOpsEnabled } from './flags';
 import { INTEGRATION_USE_CASES, isUseCaseEnabled, planExpansionEnabled, type UseCaseDefinition } from './use-cases';
 
 export const API_V1_VERSION = '1.0.0';
@@ -93,7 +94,7 @@ function operationFor(uc: UseCaseDefinition): JsonSchema {
 export function buildOpenApiDocument(): JsonSchema {
   const paths: Record<string, Record<string, JsonSchema>> = {};
   for (const uc of INTEGRATION_USE_CASES) {
-    if (!isUseCaseEnabled(uc)) continue; // ponto (9)
+    if (!isUseCaseEnabled(uc)) continue; // ponto (9), fiscal e commit perigoso desligados
     paths[uc.path] = paths[uc.path] || {};
     paths[uc.path][uc.method.toLowerCase()] = operationFor(uc);
   }
@@ -114,7 +115,7 @@ export function buildOpenApiDocument(): JsonSchema {
   const sortedPaths: typeof paths = {};
   for (const k of Object.keys(paths).sort()) sortedPaths[k] = paths[k];
   const scopes: Record<string, string> = {};
-  for (const s of INTEGRATION_SCOPES) scopes[s] = SCOPE_DESCRIPTIONS[s];
+  for (const s of exposedScopes()) scopes[s] = SCOPE_DESCRIPTIONS[s];
   return {
     openapi: '3.1.0',
     jsonSchemaDialect: 'https://json-schema.org/draft/2020-12/schema',
@@ -176,9 +177,9 @@ export function buildOpenApiDocument(): JsonSchema {
 }
 
 let cached: JsonSchema | null = null;
-let cachedFlag: boolean | null = null;
+let cachedFlag: string | null = null;
 export function getOpenApiDocument(): JsonSchema {
-  const flag = planExpansionEnabled();
+  const flag = `${planExpansionEnabled()}|${dangerousCommitsEnabled()}|${fiscalOpsEnabled()}`;
   if (!cached || cachedFlag !== flag) {
     cached = buildOpenApiDocument();
     cachedFlag = flag;
