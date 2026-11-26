@@ -313,6 +313,14 @@ describe('Gerar contrato só para serviços e locações', () => {
     assert.ok(tabSrc.includes('openProposalInCrm') && tabSrc.includes('onOpenLinkedDeal'));
     assert.ok(viewSrc.includes('proposal-open-crm') && viewSrc.includes('buildOpenCrmHref'));
   });
+
+  it('o menu dos 3 pontos tem Gerar negócio no CRM e chama o endpoint dedicado', () => {
+    const tabSrc = read('src/app/components/ErpGestaoClickTab.tsx');
+    assert.ok(tabSrc.includes('menu-gerar-negocio-crm') && tabSrc.includes('Gerar negócio no CRM'));
+    assert.ok(tabSrc.includes('generateProposalCrmDeal'));
+    assert.ok(tabSrc.includes('/create-crm-deal'));
+    assert.ok(tabSrc.includes('Já existe um negócio vinculado ao orçamento'));
+  });
 });
 
 describe('Centro de custo e Plano de contas editáveis', () => {
