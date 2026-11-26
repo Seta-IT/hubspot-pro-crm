@@ -109,6 +109,7 @@ import {
 import { buildProposalDisplayCodeMap, formatProposalDisplayCode, nextGcProposalNumber } from '../lib/proposal-number';
 import { appendClientProposalVersion, buildProposalVersionShortUrl, buildInternalProposalUrl, buildSnapshotFromProposal, proposalFromVersionSnapshot, proposalSetupFeeLabel, resolveProposalAmountDisplay } from '../lib/proposal-share';
 import { displayProposalTitle } from '../lib/proposal-title';
+import { displayProposalVersionSummary } from '../lib/proposal-version-summary';
 import { buildProposalCopyDraft, proposalCopyCreatedToast } from '../lib/proposal-copy';
 import {
   applyProposalSaveToListPage,
@@ -8346,9 +8347,11 @@ export default function ErpGestaoClickTab({
                                       • {itemsCount} {itemsCount === 1 ? "item" : "itens"}
                                       {amount.oneTime ? "" : ` • ${snapProp.contractMonths ?? statusModalProposal.contractMonths}m`}
                                     </div>
+                                    {displayProposalVersionSummary(ver.changeSummary) ? (
                                     <div className="text-[11px] text-slate-600">
-                                      {ver.changeSummary}
+                                      {displayProposalVersionSummary(ver.changeSummary)}
                                     </div>
+                                    ) : null}
                                   </td>
                                   <td className="py-2.5 px-3 text-right">
                                     <div className="inline-flex flex-wrap items-center justify-end gap-1">

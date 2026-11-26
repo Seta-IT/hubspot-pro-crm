@@ -84,6 +84,7 @@ import { focusProposalValidityField } from '../lib/proposal-validity-return';
 import { withoutEmailHistoryBccList } from '../lib/email-send-history';
 import { funnelLabelForBudgetType } from '../../modules/deals/proposal-deal-link';
 import { addCalendarDays, isoToBrDate, localIsoDate } from '../lib/br-date';
+import { displayProposalVersionSummary } from '../lib/proposal-version-summary';
 import {
   DEFAULT_PROPOSAL_VALIDITY_DAYS,
   formatValidityDaysLabel,
@@ -175,7 +176,7 @@ export function ProposalEditModal({
         savedAt: draft.updatedAt || draft.createdAt || new Date().toISOString(),
         savedBy: draft.sellerName || 'Marcelo Lopes Mira',
         changedFields: ['Emissão Inicial da Proposta'],
-        changeSummary: `Versão inicial da Proposta Comercial #${draft.code || 'Nova'}`,
+        changeSummary: '',
         snapshot: {
           title: draft.title || '',
           status: draft.status || 'ENVIADA',
@@ -1824,7 +1825,9 @@ export function ProposalEditModal({
                                 {(snap.items || []).length === 1 ? "item" : "itens"} •{" "}
                                 {snap.contractMonths} meses
                               </div>
-                              <div className="text-[11px] text-slate-600">{ver.changeSummary}</div>
+                              {displayProposalVersionSummary(ver.changeSummary) ? (
+                                <div className="text-[11px] text-slate-600">{displayProposalVersionSummary(ver.changeSummary)}</div>
+                              ) : null}
                             </td>
 
                             <td className="py-3 px-3 text-right">
