@@ -18,7 +18,6 @@ import {
   Calendar,
   UserCheck,
   Edit3,
-  Truck,
   Landmark,
   History,
   Clock,
@@ -2276,26 +2275,7 @@ function PublicProposalPrintContent() {
             </div>
           )}
 
-          {/* BLOCO 8 E 9: TRANSPORTE/ENTREGA E CLÁUSULAS TÉCNICAS */}
-          {!hideServiceFreight && (proposal.shippingCarrier || proposal.deliveryAddress || deliveryLeadTime || shippingCost > 0) && (
-            <div className={`print-avoid-break p-3.5 print:p-3 rounded-lg ${softBoxClass} flex flex-wrap items-center justify-between gap-3 text-xs`}>
-              <div className="flex items-center gap-2">
-                <Truck className="w-4 h-4 text-[#1e3a6e] shrink-0" />
-                <div>
-                  <span className="font-semibold text-slate-800 uppercase text-[11px] block">
-                    {saleLike ? "Logística, Transporte & Entrega" : "Logística, Remessa & Instalação"}
-                  </span>
-                  <span className="text-slate-600">
-                    Modalidade: <strong className="text-slate-800">{proposal.shippingCarrier || "Frota Própria Seta Telecom"}</strong>{deliveryLeadTime ? <> • Prazo de Entrega: <strong className="text-slate-800">{deliveryLeadTime}</strong></> : null}{proposal.deliveryAddress ? ` • Local: ${proposal.deliveryAddress}` : ""}
-                  </span>
-                </div>
-              </div>
-              <div className="font-semibold text-slate-800">
-                FRETE R$: {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
-              </div>
-            </div>
-          )}
-
+          {/* BLOCO 9: CLÁUSULAS TÉCNICAS (a seção de logística fixa não entra na folha do cliente) */}
           {displayProposalTechnicalClauses(proposal) && (
             <div className={`print-avoid-break p-4 print:p-3 rounded-lg ${softBoxClass} space-y-1.5 text-xs`}>
               <div className="font-semibold text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
