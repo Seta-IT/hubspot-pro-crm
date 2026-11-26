@@ -55,6 +55,14 @@ import {
   systemHasAccess,
 } from './lib/home-screen';
 import { proposalFlowNavigation } from './lib/proposal-validity-return';
+import {
+  appliedNavFromLocation,
+  canSyncAppLocation,
+  locationFromNav,
+  mergeAppLocationHref,
+  parseAppLocation,
+  type AppLocationRoute,
+} from './lib/app-location';
 import { loadClientIamUsersOverride, migrateClientIamStorage } from './lib/auth';
 import { saveClientIamUserOverrideIfNewer } from './lib/iam-seal-cache';
 import CrmSidebar, { CrmModuleId } from './components/CrmSidebar';
@@ -190,6 +198,8 @@ export default function HubSpotProCrmApp() {
   const [erpCurrentSubId, setErpCurrentSubId] = useState<string>('INICIO');
   const [settingsItemId, setSettingsItemId] = useState<string>('pref-geral');
   const [settingsReturnModule, setSettingsReturnModule] = useState<ActiveModule>('OVERVIEW_AI');
+  const [erpListSearch, setErpListSearch] = useState<string>('');
+  const [erpListStatus, setErpListStatus] = useState<string>('TODOS');
 
   // Real-Time API States
   const [aiReport, setAiReport] = useState<AiInsightsReport | null>(null);
@@ -1246,6 +1256,41 @@ export default function HubSpotProCrmApp() {
     }
   }, []);
 
+  const applyAppLocation = useCallback((route: AppLocationRoute) => {
+    const applied = appliedNavFromLocation(route);
+    if (!applied) return;
+    if (route.q) setErpListSearch(route.q);
+    if (route.status) setErpListStatus(route.status);
+    if (applied.kind === 'erp') {
+      setErpInitialSection(applied.section as GestaoClickMenuSection);
+      if (applied.subId) setErpInitialSubId(applied.subId);
+      setErpNavigationTrigger((n) => n + 1);
+      setActiveModule('ERP_GESTAOCLICK');
+      return;
+    }
+    if (applied.kind === 'service') {
+      setServiceDeskInitialTab(applied.tab);
+      setServiceDeskNavTrigger((n) => n + 1);
+      setActiveModule('SERVICE_DESK');
+      return;
+    }
+    if (applied.kind === 'settings') {
+      setSettingsItemId(applied.itemId || 'pref-geral');
+      setActiveModule('SETTINGS_HUB');
+      return;
+    }
+    if (applied.contactsSub) {
+      setContactsInitialSubView(applied.contactsSub);
+      setContactsNavTrigger((n) => n + 1);
+    }
+    if (applied.marketingSub) {
+      setMarketingSubView(applied.marketingSub as MarketingHubSubView);
+    }
+    if (applied.dataHealthScope) setDataHealthScope(applied.dataHealthScope);
+    setLastCrmSubModule(applied.module as CrmModuleId);
+    setActiveModule(applied.module as ActiveModule);
+  }, []);
+
   /** Registro selado do proprio usuario (cache IAM do navegador), enviado para nao perder configuracoes em instancia fria. */
   const ownSealedIamRecords = (userId: string, email?: string) =>
     loadClientIamUsersOverride().filter(
@@ -1281,14 +1326,19 @@ export default function HubSpotProCrmApp() {
       setErpNavigationTrigger((n) => n + 1);
       setActiveModule('ERP_GESTAOCLICK');
     }
+    const appLoc = typeof window !== 'undefined' ? parseAppLocation(window.location.search) : null;
+    if (!flowNav && appLoc) {
+      applyAppLocation(appLoc);
+    }
+    const locationAlreadyApplied = Boolean(flowNav || appLoc);
     const apply = (saved: HomeScreenId | null) => {
       setHomeScreenPreference(saved);
       const resolution = resolveInitialHomeScreen({ saved, access, deepLink });
-      if (resolution.screenId) openHomeScreen(resolution.screenId);
+      if (resolution.screenId && !locationAlreadyApplied) openHomeScreen(resolution.screenId);
       setHomeScreenResolved(true);
     };
     const cached = loadHomeScreenPreference(userId);
-    if (deepLink.hasDeepLink && !deepLink.screenId) {
+    if (deepLink.hasDeepLink && !deepLink.screenId && !appLoc) {
       // Link direto: abre o destino sem esperar a preferencia do servidor.
       setHomeScreenPreference(cached);
       setHomeScreenResolved(true);
@@ -1331,7 +1381,7 @@ export default function HubSpotProCrmApp() {
       clearTimeout(timeout);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRbacUser?.id, openHomeScreen]);
+  }, [activeRbacUser?.id, openHomeScreen, applyAppLocation]);
 
   // Sem usuario resolvido apos o carregamento, libera a tela para nao travar o carregamento.
   useEffect(() => {
@@ -1444,6 +1494,40 @@ export default function HubSpotProCrmApp() {
     serviceTab: serviceDeskCurrentTab,
     settingsItemId,
   };
+
+  useEffect(() => {
+    if (!homeScreenResolved) return;
+    if (typeof window === 'undefined') return;
+    if (!canSyncAppLocation(window.location.pathname)) return;
+    const route = locationFromNav({
+      module: activeModule,
+      contactsSub: contactsInitialSubView,
+      marketingSub: marketingSubView,
+      dataHealthScope,
+      erpSection: erpCurrentSection,
+      erpSubId: erpCurrentSubId,
+      serviceTab: serviceDeskCurrentTab,
+      settingsItemId,
+      q: erpListSearch,
+      status: erpListStatus,
+    });
+    if (!route) return;
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const next = mergeAppLocationHref(current, route);
+    if (next !== current) window.history.replaceState(null, '', next);
+  }, [
+    homeScreenResolved,
+    activeModule,
+    contactsInitialSubView,
+    marketingSubView,
+    dataHealthScope,
+    erpCurrentSection,
+    erpCurrentSubId,
+    serviceDeskCurrentTab,
+    settingsItemId,
+    erpListSearch,
+    erpListStatus,
+  ]);
 
 
   const handleSaveHomeScreen = async (screenId: HomeScreenId | null) => {
@@ -2368,6 +2452,12 @@ export default function HubSpotProCrmApp() {
               navigationTrigger={erpNavigationTrigger}
               onSectionChange={setErpCurrentSection}
               onSubIdChange={setErpCurrentSubId}
+              initialListSearch={erpListSearch}
+              initialListStatus={erpListStatus}
+              onListFiltersChange={({ search, status }) => {
+                setErpListSearch(search);
+                setErpListStatus(status);
+              }}
               targetEntity={erpTargetEntity}
               onClearTargetEntity={() => setErpTargetEntity(null)}
               autoOpenNewProposalTrigger={autoOpenNewProposalTrigger}
