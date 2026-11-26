@@ -1,5 +1,6 @@
 'use client';
 
+import { contactEmailForRead, displayContactEmail } from '../../modules/data-health/invented-contact-email';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Ticket,
@@ -1908,7 +1909,7 @@ export default function ServiceDeskTab({
                   <span className="inline-flex items-center gap-1">
                     <User className="w-3.5 h-3.5 text-emerald-700" />
                     {activeTicket.contact.firstName} {activeTicket.contact.lastName} (
-                    {activeTicket.contact.email})
+                    {displayContactEmail(activeTicket.contact.email)})
                   </span>
                 )}
               </div>

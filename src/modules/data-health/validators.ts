@@ -2,6 +2,8 @@
 // Data Health & Hygiene - Validators & Normalizers
 // ============================================================================
 
+import { isInventedContactEmail } from './invented-contact-email';
+
 const DISPOSABLE_EMAIL_DOMAINS = new Set([
   'mailinator.com',
   'tempmail.com',
@@ -64,6 +66,18 @@ export function validateEmail(rawEmail: string | null | undefined): EmailValidat
       isFreeProvider: false,
       isCorporate: false,
       reason: 'EMPTY_EMAIL',
+    };
+  }
+
+  if (isInventedContactEmail(rawEmail)) {
+    return {
+      isValid: false,
+      normalizedEmail: '',
+      domain: null,
+      isDisposable: false,
+      isFreeProvider: false,
+      isCorporate: false,
+      reason: 'INVENTED_EMAIL',
     };
   }
 

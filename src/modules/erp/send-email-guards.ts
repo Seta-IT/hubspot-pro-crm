@@ -1,6 +1,7 @@
 /** Regras do parecer CISO sobre POST /api/communications/send-email (HTML, destinatários, anexos). */
 
 import { validateEmail } from '../data-health/validators';
+import { isInventedContactEmail } from '../data-health/invented-contact-email';
 
 export const MAX_EMAIL_RECIPIENTS = 20;
 
@@ -37,6 +38,9 @@ export function parseEmailList(raw: unknown): { ok: true; emails: string[] } | {
   for (const part of parts) {
     const check = validateEmail(part);
     if (!check.isValid) {
+      if (check.reason === 'INVENTED_EMAIL' || isInventedContactEmail(part)) {
+        return { ok: false, error: 'E-mail inventado pelo sistema não pode ser usado para envio. Informe um e-mail real.' };
+      }
       return { ok: false, error: `O e-mail "${part}" é inválido.` };
     }
     emails.push(check.normalizedEmail);
