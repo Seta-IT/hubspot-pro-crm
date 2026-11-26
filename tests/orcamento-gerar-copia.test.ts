@@ -178,6 +178,35 @@ describe('Gerar cópia do orçamento abre a cópia para edição', () => {
     assert.equal(copy.setupFee, 1500);
   });
 
+
+  it('título legado "Orçamento #N" e (Cópia) viram o padrão com o número novo, sem herdar o negócio', () => {
+    const evamind = base({
+      id: 'prop-gc-409244925',
+      code: '4699',
+      title: 'Orçamento #4699 — EVAMIND SERVICOS DE TECNOLOGIA DA INFORMACAO LTDA',
+      budgetType: 'LOCACAO',
+      companyName: 'EVAMIND SERVICOS DE TECNOLOGIA DA INFORMACAO LTDA',
+      dealId: 'deal-1795640092157-ugbt',
+      monthlyRecurringTotal: 1450,
+      totalContractValue: 34800,
+      contractMonths: 24,
+      proposalDate: '2026-10-30',
+      validUntil: '2026-10-30',
+    });
+    const copy = buildProposalCopyDraft(evamind, { nextCode: '4727', now, newId: 'prop-copy-evamind' });
+    assert.equal(copy.title, 'Orçamento de Locação nº 4727 — EVAMIND SERVICOS DE TECNOLOGIA DA INFORMACAO LTDA');
+    assert.equal(copy.dealId, null);
+    assert.equal(copy.validUntil, '2026-12-10');
+
+    const fromCopy = buildProposalCopyDraft(
+      { ...copy, id: 'prop-4727', code: '4727', title: 'Orçamento #4699 — EVAMIND SERVICOS DE TECNOLOGIA DA INFORMACAO LTDA (Cópia)', dealId: 'deal-1795640092157-ugbt' },
+      { nextCode: '4728', now: new Date('2026-11-26T13:11:15.000Z'), newId: 'prop-copy-evamind-2' }
+    );
+    assert.equal(fromCopy.title, 'Orçamento de Locação nº 4728 — EVAMIND SERVICOS DE TECNOLOGIA DA INFORMACAO LTDA');
+    assert.equal(fromCopy.dealId, null);
+    assert.doesNotMatch(fromCopy.title, /4699|Cópia/i);
+  });
+
   it('o aviso é discreto e cita o número de origem', () => {
     assert.equal(proposalCopyCreatedToast('4726'), 'Cópia do orçamento #4726 criada');
     assert.equal(proposalCopyCreatedToast('GC-ORC-4726'), 'Cópia do orçamento #4726 criada');
