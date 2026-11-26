@@ -47,6 +47,7 @@ import {
   detectDuplicateContacts,
   detectDuplicateCompanies,
   detectProtectedBranchCompanies,
+  getCompanyMergeBlock,
   haveConflictingCnpjs,
   jaroWinklerSimilarity,
   levenshteinSimilarity,
@@ -4671,5 +4672,132 @@ describe('17. Regra Fiscal de CNPJ (sem merge entre CNPJs distintos) ', () => {
     );
     // Seed TOTVS (mesmo CNPJ) continua sendo unificada normalmente
     assert.ok(!repo.getCompanyById('comp-totvs-dup'));
+  });
+});
+
+// ============================================================================
+// 18. Empresa sem CNPJ: nunca merge automático; merge manual só com confirmação + auditoria
+// ============================================================================
+describe('18. Merge de empresas sem CNPJ (manual com confirmação) e auditoria de registros do CRM', () => {
+  const dispatch = (router: CrmApiRouter, method: string, p: string, body?: Record<string, unknown>, query?: Record<string, string>) =>
+    router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method, path: p, body: body || {}, query: query || {} } as never);
+
+  it('getCompanyMergeBlock: só libera com CNPJ nas duas e dígitos idênticos', () => {
+    assert.equal(getCompanyMergeBlock('53.113.791/0001-22', '53113791000122'), null);
+    assert.equal(getCompanyMergeBlock('53.113.791/0001-22', '')?.code, 'MISSING_CNPJ_MERGE_BLOCKED');
+    assert.equal(getCompanyMergeBlock(null, null)?.code, 'MISSING_CNPJ_MERGE_BLOCKED');
+    assert.equal(getCompanyMergeBlock('11.222.333/0001-81', '04.252.011/0001-10')?.code, 'CONFLICTING_CNPJ_MERGE_BLOCKED');
+  });
+
+  it('par sem CNPJ aparece só como aviso (mergeBlocked) e o Auto-Clean não unifica', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const a = await dispatch(router, 'POST', '/api/companies', { name: 'Beta Logística Integrada Ltda', domain: 'betalog.com.br', cnpj: '11.222.333/0001-81' });
+    const b = await dispatch(router, 'POST', '/api/companies', { name: 'Beta Logistica Integrada', domain: 'betalog.com.br' });
+    assert.equal(a.status, 201);
+    assert.equal(b.status, 201);
+    const aId = (a.body as { data: { id: string } }).data.id;
+    const bId = (b.body as { data: { id: string } }).data.id;
+    const pair = detectDuplicateCompanies(repo.listCompanies()).find(
+      (p) => [p.primary.id, p.duplicate.id].sort().join() === [aId, bId].sort().join()
+    );
+    assert.ok(pair, 'o par continua visível como aviso');
+    assert.equal(pair!.mergeBlocked, true);
+    assert.equal(pair!.mergeBlockedCode, 'MISSING_CNPJ_MERGE_BLOCKED');
+
+    new DataHealthService().autoCleanDatabase(repo, { minConfidence: 50, autoEnrich: false, actor: { name: 'Tester', email: 't@x' } });
+    assert.ok(repo.getCompanyById(aId) && repo.getCompanyById(bId), 'Auto-Clean nunca unifica empresa sem CNPJ');
+    // TOTVS (mesmo CNPJ) é unificada e auditada como AUTO_CLEAN com o CNPJ de cada lado
+    const merges = repo.listCrmRecordAudit({ action: 'MERGE' }).data;
+    const totvs = merges.find((e) => e.metadata?.duplicateId === 'comp-totvs-dup');
+    assert.ok(totvs, 'merge TOTVS auditado');
+    assert.equal(totvs!.source, 'AUTO_CLEAN');
+    assert.equal(totvs!.actorName, 'Tester');
+    assert.equal(String(totvs!.metadata?.primaryCnpj).replace(/\D/g, ''), '53113791000122');
+    assert.equal(String(totvs!.metadata?.duplicateCnpj).replace(/\D/g, ''), '53113791000122');
+  });
+
+  it('merge manual sem CNPJ: 422 MISSING_CNPJ_MERGE_BLOCKED sem confirmação; 200 com confirmMissingCnpj e auditado', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const a = (await dispatch(router, 'POST', '/api/companies', { name: 'Gama Serviços', domain: 'gama.com.br', cnpj: '11.222.333/0001-81' })).body as { data: { id: string } };
+    const b = (await dispatch(router, 'POST', '/api/companies', { name: 'Gama Servicos', domain: 'gama.com.br' })).body as { data: { id: string } };
+    const noFlag = await dispatch(router, 'POST', '/api/companies/merge', { entityType: 'COMPANY', primaryId: a.data.id, duplicateId: b.data.id });
+    assert.equal(noFlag.status, 422);
+    assert.equal((noFlag.body as { code: string }).code, 'MISSING_CNPJ_MERGE_BLOCKED');
+    assert.equal((noFlag.body as { requiresConfirmation: boolean }).requiresConfirmation, true);
+    assert.ok(repo.getCompanyById(b.data.id));
+
+    const ok = await dispatch(router, 'POST', '/api/data-health/merge', {
+      entityType: 'COMPANY', primaryId: a.data.id, duplicateId: b.data.id, confirmMissingCnpj: true,
+    });
+    assert.equal(ok.status, 200);
+    assert.equal(repo.getCompanyById(b.data.id), undefined);
+    const audit = await dispatch(router, 'GET', '/api/data-health/audit', undefined, { entityType: 'COMPANY', entityId: b.data.id, action: 'MERGE' });
+    const entry = (audit.body as { data: Array<{ metadata: Record<string, unknown> }> }).data[0];
+    assert.ok(entry);
+    assert.equal(entry.metadata.confirmMissingCnpj, true);
+    assert.equal(entry.metadata.primaryId, a.data.id);
+    assert.equal(entry.metadata.duplicateCnpj, null);
+    assert.equal(String(entry.metadata.primaryCnpj).replace(/\D/g, ''), '11222333000181');
+
+    // serviço direto também exige o flag
+    const c = repo.createCompany({ name: 'Delta X' });
+    const d = repo.createCompany({ name: 'Delta X Ltda' });
+    assert.throws(() => new DataHealthService().mergeRecords(repo, { entityType: 'COMPANY', primaryId: c.id, duplicateId: d.id }), /Falta CNPJ/);
+  });
+
+  it('CNPJs diferentes continuam bloqueados mesmo com confirmMissingCnpj', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const a = (await dispatch(router, 'POST', '/api/companies', { name: 'Ômega Telecom', domain: 'omega.com.br', cnpj: '11.222.333/0001-81' })).body as { data: { id: string } };
+    const b = (await dispatch(router, 'POST', '/api/companies', { name: 'Omega Telecom', domain: 'omega.com.br', cnpj: '04.252.011/0001-10' })).body as { data: { id: string } };
+    const res = await dispatch(router, 'POST', '/api/data-health/merge', {
+      entityType: 'COMPANY', primaryId: a.data.id, duplicateId: b.data.id, confirmMissingCnpj: true,
+    });
+    assert.equal(res.status, 422);
+    assert.equal((res.body as { code: string }).code, 'CONFLICTING_CNPJ_MERGE_BLOCKED');
+    assert.ok(repo.getCompanyById(a.data.id) && repo.getCompanyById(b.data.id));
+  });
+
+  it('auditoria registra criar, editar (antes/depois), reatribuir dono e excluir contato e empresa, e persiste no estado', async () => {
+    const repo = createInMemoryRepository();
+    const router = new CrmApiRouter(repo);
+    const comp = (await dispatch(router, 'POST', '/api/companies', { name: 'Auditoria SA', domain: 'auditoria.com.br' })).body as { data: { id: string } };
+    const ct = (await dispatch(router, 'POST', '/api/contacts', { firstName: 'Ana', lastName: 'Audit', email: 'ana@auditoria.com.br', companyId: comp.data.id })).body as { data: { id: string } };
+    await dispatch(router, 'PATCH', `/api/contacts/${ct.data.id}`, { jobTitle: 'CFO', ownerId: 'owner-evelyn', ownerName: 'Evelyn Ternero Seta Telecom' });
+    await dispatch(router, 'PATCH', `/api/companies/${comp.data.id}`, { industry: 'Auditoria' });
+
+    const contactLog = repo.listCrmRecordAudit({ entityType: 'CONTACT', entityId: ct.data.id }).data;
+    const actions = contactLog.map((e) => e.action);
+    assert.ok(actions.includes('CREATE'));
+    assert.ok(actions.includes('UPDATE'));
+    assert.ok(actions.includes('REASSIGN_OWNER'));
+    const upd = contactLog.find((e) => e.action === 'UPDATE')!;
+    const job = upd.changes!.find((c) => c.field === 'jobTitle');
+    assert.ok(job);
+    assert.equal(job!.after, 'CFO');
+    const reassign = contactLog.find((e) => e.action === 'REASSIGN_OWNER')!;
+    assert.ok(reassign.changes!.every((c) => c.field === 'ownerId' || c.field === 'ownerName'));
+    assert.equal(reassign.changes!.find((c) => c.field === 'ownerName')!.after, 'Evelyn Ternero Seta Telecom');
+    assert.ok(upd.timestamp && upd.actorName);
+
+    const del = await dispatch(router, 'DELETE', `/api/contacts/${ct.data.id}`);
+    assert.equal(del.status, 200);
+    assert.ok(repo.listCrmRecordAudit({ entityId: ct.data.id, action: 'DELETE' }).data.length === 1);
+
+    const compLog = repo.listCrmRecordAudit({ entityType: 'COMPANY', entityId: comp.data.id }).data.map((e) => e.action);
+    assert.ok(compLog.includes('CREATE') && compLog.includes('UPDATE'));
+    assert.ok((repo.getState().crmRecordAuditLogs || []).length >= 6, 'log persistido no estado (arquivo/crm_state_v1)');
+  });
+
+  it('a UI mostra o histórico na ficha e pede confirmação no merge sem CNPJ', () => {
+    const drawer = fs.readFileSync(path.join(process.cwd(), 'src/app/components/ContactDetailDrawer.tsx'), 'utf8');
+    const tab = fs.readFileSync(path.join(process.cwd(), 'src/app/components/ContactsCompaniesTab.tsx'), 'utf8');
+    const dh = fs.readFileSync(path.join(process.cwd(), 'src/app/components/DataHealthTab.tsx'), 'utf8');
+    assert.ok(drawer.includes('<CrmRecordAuditHistory entityType="CONTACT"'));
+    assert.ok(tab.includes('<CrmRecordAuditHistory entityType="COMPANY"'));
+    assert.ok(dh.includes('window.confirm(') && dh.includes('confirmMissingCnpj: true'));
+    assert.ok(dh.includes("disabled={isMerging || mergeBlock?.code === 'CONFLICTING_CNPJ_MERGE_BLOCKED'}"));
   });
 });

@@ -35,6 +35,7 @@ import {
   Company,
   Contact,
   CrmDatabaseState,
+  CrmRecordAuditEntry,
   DataHealthIssue,
   Deal,
   ProposalFollowupEnrollment,
@@ -977,6 +978,9 @@ function snapshotTombstoneIds(
   }
   return out;
 }
+
+/** Teto do log de auditoria de registros do CRM (mais recentes primeiro). */
+export const CRM_RECORD_AUDIT_MAX = 5000;
 
 export class CrmRepository {
   private state: CrmDatabaseState;
@@ -8566,6 +8570,45 @@ export class CrmRepository {
     }
     rbac.auditLogs = logs;
     return entry;
+  }
+
+  /** Auditoria de registros do CRM (persistida no estado: arquivo local ou crm_state_v1). */
+  appendCrmRecordAudit(
+    input: Omit<CrmRecordAuditEntry, 'id' | 'timestamp'> & { timestamp?: string }
+  ): CrmRecordAuditEntry {
+    const logs = (this.state.crmRecordAuditLogs ||= []);
+    const entry: CrmRecordAuditEntry = {
+      ...input,
+      id: `CRMAUD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
+      timestamp: input.timestamp || new Date().toISOString(),
+      actorName: input.actorName || 'Sistema STI-hub',
+      source: input.source || 'API',
+    };
+    logs.unshift(entry);
+    if (logs.length > CRM_RECORD_AUDIT_MAX) logs.length = CRM_RECORD_AUDIT_MAX;
+    this.save();
+    return entry;
+  }
+
+  listCrmRecordAudit(filter: {
+    entityType?: string;
+    entityId?: string;
+    action?: string;
+    limit?: number;
+  } = {}): { data: CrmRecordAuditEntry[]; total: number } {
+    const all = this.state.crmRecordAuditLogs || [];
+    const matches = all.filter((e) => {
+      if (filter.entityType && e.entityType !== filter.entityType) return false;
+      if (filter.action && e.action !== filter.action) return false;
+      if (filter.entityId) {
+        const meta = (e.metadata || {}) as Record<string, unknown>;
+        const related = [e.entityId, meta.primaryId, meta.duplicateId].map((v) => String(v || ''));
+        if (!related.includes(filter.entityId)) return false;
+      }
+      return true;
+    });
+    const limit = Math.max(1, Math.min(Number(filter.limit) || 100, 1000));
+    return { data: matches.slice(0, limit).map((e) => ({ ...e })), total: matches.length };
   }
 
   listSecurityAuditLogs(limit = 100): {

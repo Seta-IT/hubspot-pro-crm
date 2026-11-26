@@ -2432,6 +2432,8 @@ export interface CrmDatabaseState {
    * Impede que o journal antigo do navegador (ou o backfill de seed) recrie o registro.
    */
   recordTombstones?: Record<string, Record<string, string>>;
+  /** Log de auditoria de ações do usuário em contatos/empresas/negócios (criar, editar, excluir, mesclar, reatribuir dono, higienizar). */
+  crmRecordAuditLogs?: CrmRecordAuditEntry[];
   emailTemplates?: CrmEmailTemplate[];
   proposalFollowupEnrollments?: ProposalFollowupEnrollment[];
   snippets?: CrmSnippet[];
@@ -2442,4 +2444,38 @@ export interface CrmDatabaseState {
   suppressionList?: SuppressionEntry[];
   erp?: ErpDatabaseState;
   rbac?: StiHubRbacState;
+}
+
+// ============================================================================
+// Auditoria de registros do CRM (contatos, empresas, negócios)
+// ============================================================================
+export type CrmRecordAuditAction =
+  | 'CREATE'
+  | 'UPDATE'
+  | 'DELETE'
+  | 'MERGE'
+  | 'REASSIGN_OWNER'
+  | 'CLEANUP';
+
+export interface CrmRecordAuditFieldChange {
+  field: string;
+  before: unknown;
+  after: unknown;
+}
+
+export interface CrmRecordAuditEntry {
+  id: string;
+  timestamp: string;
+  actorName: string;
+  actorEmail?: string | null;
+  action: CrmRecordAuditAction;
+  entityType: 'CONTACT' | 'COMPANY' | 'DEAL';
+  entityId: string;
+  entityLabel?: string | null;
+  /** Campos alterados (antes/depois) em UPDATE, REASSIGN_OWNER e CLEANUP. */
+  changes?: CrmRecordAuditFieldChange[];
+  details?: string;
+  /** Ex.: ids e CNPJ de cada lado num MERGE. */
+  metadata?: Record<string, unknown>;
+  source?: 'API' | 'AUTO_CLEAN' | 'SCRIPT';
 }

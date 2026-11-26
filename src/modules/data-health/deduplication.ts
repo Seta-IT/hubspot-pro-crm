@@ -130,6 +130,15 @@ export interface DuplicateCandidatePair<T> {
   confidenceScore: number;
   matchReasons: string[];
   suggestedMerge: SuggestedMergePlan;
+  /**
+   * REGRA FISCAL (empresas): o par só é mesclável quando AMBAS têm CNPJ e os dígitos são idênticos.
+   * Quando true, o par é um aviso: nunca entra em merge automático/Auto-Clean. Sem CNPJ
+   * (MISSING_CNPJ_MERGE_BLOCKED) o merge MANUAL é possível com confirmação explícita;
+   * CNPJs diferentes (CONFLICTING_CNPJ_MERGE_BLOCKED) nunca são mesclados.
+   */
+  mergeBlocked?: boolean;
+  mergeBlockedCode?: CompanyMergeBlockCode;
+  mergeBlockedReason?: string;
 }
 
 function choosePrimaryRecord<T extends { completenessScore: number; updatedAt: string; createdAt: string }>(
@@ -475,6 +484,49 @@ export function haveConflictingCnpjs(
   return Boolean(digitsA.length > 0 && digitsB.length > 0 && digitsA !== digitsB);
 }
 
+export type CompanyMergeBlockCode = 'MISSING_CNPJ_MERGE_BLOCKED' | 'CONFLICTING_CNPJ_MERGE_BLOCKED';
+
+export interface CompanyMergeBlock {
+  code: CompanyMergeBlockCode;
+  reason: string;
+}
+
+/**
+ * REGRA FISCAL: duas empresas só podem ser mescladas quando AMBAS têm CNPJ cadastrado e o CNPJ
+ * (só dígitos) é idêntico. CNPJs diferentes ou CNPJ ausente em qualquer lado => registros separados.
+ * Retorna null quando o merge é permitido.
+ */
+export function getCompanyMergeBlock(
+  cnpjA: string | null | undefined,
+  cnpjB: string | null | undefined
+): CompanyMergeBlock | null {
+  const digitsA = normalizeCnpjDigits(cnpjA);
+  const digitsB = normalizeCnpjDigits(cnpjB);
+  if (!digitsA || !digitsB) {
+    return {
+      code: 'MISSING_CNPJ_MERGE_BLOCKED',
+      reason:
+        'Bloqueio Fiscal: mesclagem de empresas exige CNPJ cadastrado e idêntico nas duas. Falta CNPJ em ' +
+        (!digitsA && !digitsB ? 'ambas as empresas' : 'uma das empresas') +
+        '; nunca há unificação automática (Auto-Clean). A mesclagem manual só é feita com confirmação explícita do usuário.',
+    };
+  }
+  if (digitsA !== digitsB) {
+    return {
+      code: 'CONFLICTING_CNPJ_MERGE_BLOCKED',
+      reason: `Bloqueio Fiscal: CNPJs diferentes (${cnpjA} vs ${cnpjB}); cada CNPJ tem personalidade jurídica e faturamento próprios, os registros ficam separados.`,
+    };
+  }
+  return null;
+}
+
+export function canMergeCompaniesByCnpj(
+  cnpjA: string | null | undefined,
+  cnpjB: string | null | undefined
+): boolean {
+  return getCompanyMergeBlock(cnpjA, cnpjB) === null;
+}
+
 export interface ProtectedBranchPair {
   companyA: Company;
   companyB: Company;
@@ -578,6 +630,7 @@ export function detectDuplicateCompanies(
           timelineEvents
         );
 
+        const mergeBlock = getCompanyMergeBlock(primary.cnpj, duplicate.cnpj);
         results.push({
           entityType: 'COMPANY',
           primary,
@@ -585,6 +638,9 @@ export function detectDuplicateCompanies(
           confidenceScore: maxConfidence,
           matchReasons,
           suggestedMerge,
+          ...(mergeBlock
+            ? { mergeBlocked: true, mergeBlockedCode: mergeBlock.code, mergeBlockedReason: mergeBlock.reason }
+            : {}),
         });
       }
     }

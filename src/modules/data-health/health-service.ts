@@ -1,3 +1,5 @@
+import type { CrmRecordAuditEntry } from '../../db/types';
+import { contactLabel, diffRecordFields } from '../crm-audit/record-audit';
 // ============================================================================
 // Data Health & Hygiene - Global Health Summary, Merge & Auto-Clean Service
 // ============================================================================
@@ -19,6 +21,7 @@ import {
   detectDuplicateCompanies,
   detectDuplicateContacts,
   haveConflictingCnpjs,
+  getCompanyMergeBlock,
 } from './deduplication';
 import { normalizeAndValidatePhone, normalizeCorporateDomain, validateEmail } from './validators';
 import { EnrichmentService } from '../enrichment/enrichment-service';
@@ -73,6 +76,11 @@ export interface DataHealthSummaryReport {
   issues: DataHealthIssue[];
   recommendations: string[];
   generatedAt: string;
+}
+
+export interface CrmAuditActor {
+  name: string;
+  email?: string | null;
 }
 
 export interface MergeExecutionResult {
@@ -142,8 +150,10 @@ export class DataHealthService {
         primaryEntityId: pair.primary.id,
         duplicateEntityId: pair.duplicate.id,
         confidenceScore: pair.confidenceScore,
-        title: `Empresa duplicada detectada: ${pair.primary.name} vs ${pair.duplicate.name}`,
-        description: pair.matchReasons.join(' | '),
+        title: pair.mergeBlocked
+          ? `Possível duplicidade (aviso, merge bloqueado): ${pair.primary.name} vs ${pair.duplicate.name}`
+          : `Empresa duplicada detectada: ${pair.primary.name} vs ${pair.duplicate.name}`,
+        description: [pair.mergeBlockedReason, ...pair.matchReasons].filter(Boolean).join(' | '),
         suggestedMerge: pair.suggestedMerge,
         status: 'OPEN',
         detectedAt: new Date().toISOString(),
@@ -449,9 +459,96 @@ export class DataHealthService {
       primaryId: string;
       duplicateId: string;
       fieldOverrides?: Record<string, unknown>;
+      /**
+       * Merge MANUAL de empresas sem CNPJ em um dos lados: só com confirmação explícita do usuário.
+       * CNPJs diferentes continuam bloqueados mesmo com este flag. Auto-Clean nunca passa este flag.
+       */
+      confirmMissingCnpj?: boolean;
+      /** Quem executou (auditoria). */
+      actor?: CrmAuditActor;
+      source?: CrmRecordAuditEntry['source'];
+    }
+  ): MergeExecutionResult {
+    const result = this.mergeRecordsInternal(repo, params);
+    try {
+      this.auditMerge(repo, params, result);
+    } catch {
+      // auditoria nunca derruba o merge
+    }
+    return result;
+  }
+
+  /** Snapshots (ids e CNPJ de cada lado) capturados antes do merge, para a auditoria. */
+  private pendingMergeAudit: Record<string, unknown> | null = null;
+
+  private auditMerge(
+    repo: CrmRepository,
+    params: { entityType: 'CONTACT' | 'COMPANY'; primaryId: string; duplicateId: string; confirmMissingCnpj?: boolean; actor?: CrmAuditActor; source?: CrmRecordAuditEntry['source'] },
+    result: MergeExecutionResult
+  ): void {
+    const snap = this.pendingMergeAudit || {};
+    this.pendingMergeAudit = null;
+    const merged = result.mergedRecord as unknown as Record<string, unknown>;
+    const label =
+      params.entityType === 'COMPANY'
+        ? String(merged.name || '')
+        : `${String(merged.firstName || '')} ${String(merged.lastName || '')}`.trim();
+    repo.appendCrmRecordAudit({
+      actorName: params.actor?.name || 'Sistema STI-hub',
+      actorEmail: params.actor?.email || null,
+      action: 'MERGE',
+      entityType: params.entityType,
+      entityId: params.primaryId,
+      entityLabel: label,
+      details: `${params.entityType === 'COMPANY' ? 'Empresa' : 'Contato'} ${params.duplicateId} unificado(a) em ${params.primaryId}.`,
+      metadata: {
+        primaryId: params.primaryId,
+        duplicateId: params.duplicateId,
+        confirmMissingCnpj: Boolean(params.confirmMissingCnpj),
+        dealsMoved: result.dealsMoved,
+        contactsMoved: result.contactsMoved,
+        timelineEventsMoved: result.timelineEventsMoved,
+        ...snap,
+      },
+      source: params.source || 'API',
+    });
+  }
+
+  private mergeRecordsInternal(
+    repo: CrmRepository,
+    params: {
+      entityType: 'CONTACT' | 'COMPANY';
+      primaryId: string;
+      duplicateId: string;
+      fieldOverrides?: Record<string, unknown>;
+      confirmMissingCnpj?: boolean;
     }
   ): MergeExecutionResult {
     const state = repo.getState();
+    this.pendingMergeAudit = null;
+    if (params.entityType === 'CONTACT') {
+      const p = repo.getContactById(params.primaryId);
+      const d = repo.getContactById(params.duplicateId);
+      const pc = p?.companyId ? repo.getCompanyById(p.companyId) : null;
+      const dc = d?.companyId ? repo.getCompanyById(d.companyId) : null;
+      this.pendingMergeAudit = {
+        primaryEmail: p?.email || null,
+        duplicateEmail: d?.email || null,
+        primaryCompanyId: p?.companyId || null,
+        duplicateCompanyId: d?.companyId || null,
+        primaryCnpj: pc?.cnpj || null,
+        duplicateCnpj: dc?.cnpj || null,
+      };
+    } else {
+      const p = repo.getCompanyById(params.primaryId);
+      const d = repo.getCompanyById(params.duplicateId);
+      this.pendingMergeAudit = {
+        primaryName: p?.name || null,
+        duplicateName: d?.name || null,
+        primaryCnpj: p?.cnpj || null,
+        duplicateCnpj: d?.cnpj || null,
+      };
+    }
 
     if (params.entityType === 'CONTACT') {
       const primary = repo.getContactById(params.primaryId);
@@ -560,6 +657,11 @@ export class DataHealthService {
         `Bloqueio Fiscal: Empresas com CNPJs diferentes (${primaryComp.cnpj} vs ${duplicateComp.cnpj}) não podem ser unificadas (cada CNPJ possui personalidade jurídica e faturamento próprios).`
       );
     }
+    const missingCnpjBlock = getCompanyMergeBlock(primaryComp.cnpj, duplicateComp.cnpj);
+    if (missingCnpjBlock && !params.confirmMissingCnpj) {
+      // Sem CNPJ em algum lado: merge só MANUAL e com confirmação explícita (confirmMissingCnpj)
+      throw new Error(missingCnpjBlock.reason);
+    }
 
     const plan = buildCompanyMergePlan(
       primaryComp,
@@ -653,10 +755,15 @@ export class DataHealthService {
    */
   autoCleanDatabase(
     repo: CrmRepository,
-    options: { minConfidence?: number; autoEnrich?: boolean } = {}
+    options: { minConfidence?: number; autoEnrich?: boolean; actor?: CrmAuditActor } = {}
   ): AutoCleanResult {
     const minConfidence = options.minConfidence ?? 80;
     const autoEnrich = options.autoEnrich !== false;
+    const auditActor = options.actor;
+    // Snapshot para auditar (antes/depois) tudo que a higienização alterar
+    const snapshotBefore = new Map<string, Record<string, unknown>>();
+    for (const c of repo.listContacts()) snapshotBefore.set(`CONTACT:${c.id}`, JSON.parse(JSON.stringify(c)));
+    for (const c of repo.listCompanies()) snapshotBefore.set(`COMPANY:${c.id}`, JSON.parse(JSON.stringify(c)));
 
     const beforeReport = this.generateHealthSummary(repo);
     const mergeResults: MergeExecutionResult[] = [];
@@ -680,7 +787,7 @@ export class DataHealthService {
       if (
         !currentPrimary ||
         !currentDuplicate ||
-        haveConflictingCnpjs(currentPrimary.cnpj, currentDuplicate.cnpj)
+        getCompanyMergeBlock(currentPrimary.cnpj, currentDuplicate.cnpj) !== null
       ) {
         continue;
       }
@@ -693,6 +800,8 @@ export class DataHealthService {
           entityType: 'COMPANY',
           primaryId: pair.primary.id,
           duplicateId: pair.duplicate.id,
+          actor: auditActor,
+          source: 'AUTO_CLEAN',
         });
         mergeResults.push(res);
         mergedCompanyIds.add(pair.duplicate.id);
@@ -717,6 +826,8 @@ export class DataHealthService {
           entityType: 'CONTACT',
           primaryId: pair.primary.id,
           duplicateId: pair.duplicate.id,
+          actor: auditActor,
+          source: 'AUTO_CLEAN',
         });
         mergeResults.push(res);
         mergedContactIds.add(pair.duplicate.id);
@@ -768,6 +879,33 @@ export class DataHealthService {
           recordsNormalized++;
         }
       }
+    }
+
+    // Auditoria: um CLEANUP por registro alterado (campos antes/depois); merges já auditados acima
+    try {
+      const after: Array<['CONTACT' | 'COMPANY', Record<string, unknown>]> = [
+        ...repo.listContacts().map((c) => ['CONTACT', c as unknown as Record<string, unknown>] as ['CONTACT', Record<string, unknown>]),
+        ...repo.listCompanies().map((c) => ['COMPANY', c as unknown as Record<string, unknown>] as ['COMPANY', Record<string, unknown>]),
+      ];
+      for (const [type, rec] of after) {
+        const id = String(rec.id);
+        const before = snapshotBefore.get(`${type}:${id}`);
+        const changes = diffRecordFields(before || {}, rec);
+        if (!before || changes.length === 0) continue;
+        repo.appendCrmRecordAudit({
+          actorName: auditActor?.name || 'Sistema STI-hub',
+          actorEmail: auditActor?.email || null,
+          action: 'CLEANUP',
+          entityType: type,
+          entityId: id,
+          entityLabel: type === 'COMPANY' ? String(rec.name || '') : contactLabel(rec as never),
+          changes,
+          details: 'Higienização automática (Auto-Clean): padronização/enriquecimento.',
+          source: 'AUTO_CLEAN',
+        });
+      }
+    } catch {
+      // auditoria nunca derruba a higienização
     }
 
     const afterReport = this.generateHealthSummary(repo);
