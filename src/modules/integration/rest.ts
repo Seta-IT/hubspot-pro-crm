@@ -8,7 +8,7 @@ import { audit, beginIdempotency, checkRateLimit, credentialBucket, executeUseCa
 import { json, postgresUnavailable, problem, readSessionToken, type IntegrationHttpRequest, type IntegrationHttpResponse } from './http';
 import { getOpenApiDocument } from './openapi';
 import { resolveIntegrationDeps, type IntegrationDeps } from './runtime';
-import { INTEGRATION_USE_CASES, isUseCaseEnabled, type UseCaseDefinition } from './use-cases';
+import { INTEGRATION_USE_CASES, isUseCaseRoutable, type UseCaseDefinition } from './use-cases';
 
 interface CompiledRoute {
   uc: UseCaseDefinition;
@@ -36,7 +36,9 @@ const ROUTES: CompiledRoute[] = INTEGRATION_USE_CASES.map((uc) => {
 function matchRoute(method: string, path: string): { route: CompiledRoute; params: Record<string, string> } | { allow: string[] } | null {
   const allow = new Set<string>();
   for (const route of ROUTES) {
-    if (!isUseCaseEnabled(route.uc)) continue; // ponto (9): desligada => rota inexistente
+    // ponto (9) e fiscal desligados => rota inexistente; commit perigoso desligado => rota existe e o
+    // executor responde 404 OPERATION_DISABLED (CISO 26/11).
+    if (!isUseCaseRoutable(route.uc)) continue;
     const m = route.re.exec(path);
     if (!m) continue;
     if (route.uc.method !== method) {

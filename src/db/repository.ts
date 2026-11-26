@@ -4805,7 +4805,7 @@ export class CrmRepository {
     const issSavedBySv31Stf = Math.round(totalRentalBilled * 0.05 * 100) / 100;
 
     const totalReceivablesOpen = erp.financialEntries
-      .filter((f) => f.type === 'RECEBER' && f.status !== 'PAGO')
+      .filter((f) => f.type === 'RECEBER' && f.status !== 'PAGO' && f.status !== 'CANCELADO')
       .reduce((s, f) => s + f.amount, 0);
     const totalReceivablesPaid = erp.financialEntries
       .filter((f) => f.type === 'RECEBER' && f.status === 'PAGO')
@@ -7540,6 +7540,30 @@ export class CrmRepository {
 
   listFinancialEntries(): ErpFinancialEntry[] {
     return [...this.ensureErp().financialEntries];
+  }
+
+  /**
+   * CISO 26/11 (Lote 3, item 5): cancela a fatura/NF E os recebiveis em aberto vinculados a ela
+   * (invoiceId) na MESMA mutacao de estado — um unico save() => uma unica transacao no persist.
+   * Recebivel ja PAGO nao e tocado (a fatura paga nem chega aqui). null = documento inexistente.
+   */
+  cancelInvoiceWithReceivables(idOrDoc: string): { invoice: ErpFiscalInvoice; cancelledReceivableIds: string[] } | null {
+    const erp = this.ensureErp();
+    const inv = erp.invoices.find((i) => i.id === idOrDoc || String(i.documentNumber || '').toLowerCase() === idOrDoc.toLowerCase());
+    if (!inv) return null;
+    const now = new Date().toISOString();
+    inv.status = 'CANCELADA' as ErpFiscalInvoice['status'];
+    (inv as unknown as Record<string, unknown>).updatedAt = now;
+    const cancelledReceivableIds: string[] = [];
+    for (const f of erp.financialEntries) {
+      if (f.invoiceId === inv.id && f.type === 'RECEBER' && f.status !== 'PAGO' && f.status !== 'CANCELADO') {
+        f.status = 'CANCELADO';
+        f.cancelledAt = now;
+        cancelledReceivableIds.push(f.id);
+      }
+    }
+    this.save();
+    return { invoice: inv, cancelledReceivableIds };
   }
 
   markFinancialEntryPaid(id: string): ErpFinancialEntry | null {
@@ -10403,7 +10427,13 @@ export class CrmRepository {
     bankCode?: string;
     transactions?: Array<Partial<ErpOfxTransactionItem>>;
     autoCreateMissing?: boolean;
+    /**
+     * CISO 26/11 (Lote 3, 4): false => so PAREIA os titulos casados (sem baixa, sem marcar fatura paga).
+     * Ausente => comportamento historico (baixa). O conector sempre manda false.
+     */
+    markPaid?: boolean;
   }): ErpOfxReconciliationResult {
+    const markPaid = input.markPaid !== false;
     const erp = this.ensureErp();
     const nowIso = new Date().toISOString();
     const rawOfx = String(input.ofxContent || "");
@@ -10471,7 +10501,7 @@ export class CrmRepository {
     }
 
     if (parsedTxns.length === 0) {
-      const openEntries = erp.financialEntries.filter((f) => f.status !== "PAGO").slice(0, 3);
+      const openEntries = erp.financialEntries.filter((f) => f.status !== "PAGO" && f.status !== "CANCELADO").slice(0, 3);
       if (openEntries.length > 0) {
         openEntries.forEach((oe, idx) => {
           parsedTxns.push({
@@ -10519,6 +10549,7 @@ export class CrmRepository {
         (f) =>
           f.type === expectedType &&
           f.status !== "PAGO" &&
+          f.status !== "CANCELADO" &&
           Math.abs(f.amount - tx.amount) <= 1.0
       );
 
@@ -10527,9 +10558,23 @@ export class CrmRepository {
           (f) =>
             f.type === expectedType &&
             f.status !== "PAGO" &&
+            f.status !== "CANCELADO" &&
             memoNorm.includes(normalizeSearchText(f.companyName).slice(0, 8)) &&
             Math.abs(f.amount - tx.amount) <= Math.max(50, tx.amount * 0.05)
         );
+      }
+
+      if (matchedFin && !markPaid) {
+        processedTransactions.push({
+          ...tx,
+          bankCode: detectedBankCode,
+          bankName,
+          matchedFinancialEntryId: matchedFin.id,
+          matchedInvoiceId: matchedFin.invoiceId,
+          matchedCompanyName: matchedFin.companyName,
+          status: "CONCILIADO_PAREADO",
+        });
+        continue;
       }
 
       if (matchedFin) {
@@ -10565,6 +10610,18 @@ export class CrmRepository {
             i.status !== "CANCELADA" &&
             (Math.abs(i.netAmount - tx.amount) <= 1.0 || Math.abs(i.grossAmount - tx.amount) <= 1.0)
         );
+        if (matchedInv && !markPaid) {
+          processedTransactions.push({
+            ...tx,
+            bankCode: detectedBankCode,
+            bankName,
+            matchedFinancialEntryId: null,
+            matchedInvoiceId: matchedInv.id,
+            matchedCompanyName: matchedInv.companyName,
+            status: "CONCILIADO_PAREADO",
+          });
+          continue;
+        }
         if (matchedInv) {
           matchedInv.status = "PAGA";
           matchedInv.paidAt = tx.dtPosted;

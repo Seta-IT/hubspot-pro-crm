@@ -5,6 +5,8 @@
 // ============================================================================
 import type {
   ConfirmationTokenRecord,
+  DangerousScopeConfirmationRecord,
+  DeletedRecordSnapshot,
   IdempotencyRecord,
   RecordOwnerRecord,
   IntegrationApiKeyRecord,
@@ -28,6 +30,10 @@ export class TestOnlyMemoryIntegrationStore implements IntegrationStore {
   readonly codes = new Map<string, OAuthAuthCodeRecord>();
   readonly tokens = new Map<string, OAuthTokenRecord>();
   readonly confirmations = new Map<string, ConfirmationTokenRecord>();
+  readonly trash: DeletedRecordSnapshot[] = [];
+  readonly dangerousConfirmations = new Map<string, DangerousScopeConfirmationRecord>();
+  /** Teste: simula falha ao gravar a lixeira (a exclusao nao pode acontecer). */
+  failTrashInsert = false;
 
   constructor() {
     if (process.env.NODE_ENV !== 'test') {
@@ -85,6 +91,9 @@ export class TestOnlyMemoryIntegrationStore implements IntegrationStore {
   manualMigrationApplied = true;
   async manualMigrationReady() {
     return this.manualMigrationApplied;
+  }
+  private requireManualTable(t: string) {
+    if (!this.manualMigrationApplied) throw new Error(`relation "${t}" does not exist`);
   }
   private requireOwnersTable() {
     if (!this.manualMigrationApplied) throw new Error('relation "api_record_owners" does not exist');
@@ -167,14 +176,45 @@ export class TestOnlyMemoryIntegrationStore implements IntegrationStore {
     return n;
   }
   async insertConfirmation(rec: ConfirmationTokenRecord) {
+    this.requireManualTable('api_confirmation_tokens');
     this.confirmations.set(rec.tokenHash, clone(rec));
   }
   async consumeConfirmation(tokenHash: string, principalKey: string, at: string) {
+    this.requireManualTable('api_confirmation_tokens');
     const c = this.confirmations.get(tokenHash);
     if (!c || c.principalKey !== principalKey) return null;
     const before = clone(c);
     if (c.usedAt) return { record: before, alreadyUsed: true };
     c.usedAt = at;
     return { record: before, alreadyUsed: false };
+  }
+  async insertDeletedRecord(rec: DeletedRecordSnapshot) {
+    this.requireManualTable('api_deleted_records');
+    if (this.failTrashInsert) throw new Error('falha simulada ao gravar a lixeira');
+    this.trash.push(clone(rec));
+  }
+  async listDeletedRecords(entity?: string, recordId?: string) {
+    this.requireManualTable('api_deleted_records');
+    return this.trash.filter((t) => (!entity || t.entity === entity) && (!recordId || t.recordId === recordId)).map(clone);
+  }
+  async getDangerousScopeConfirmation(subjectType: 'client' | 'user', subjectId: string) {
+    this.requireManualTable('api_dangerous_scope_confirmations');
+    const r = this.dangerousConfirmations.get(`${subjectType}\u0000${subjectId}`);
+    return r ? clone(r) : null;
+  }
+  async upsertDangerousScopeConfirmation(rec: DangerousScopeConfirmationRecord) {
+    this.requireManualTable('api_dangerous_scope_confirmations');
+    this.dangerousConfirmations.set(`${rec.subjectType}\u0000${rec.subjectId}`, clone(rec));
+  }
+  async revokeDangerousScopeConfirmation(subjectType: 'client' | 'user', subjectId: string, at: string) {
+    this.requireManualTable('api_dangerous_scope_confirmations');
+    const r = this.dangerousConfirmations.get(`${subjectType}\u0000${subjectId}`);
+    if (!r || r.revokedAt) return false;
+    r.revokedAt = at;
+    return true;
+  }
+  async listDangerousScopeConfirmations() {
+    this.requireManualTable('api_dangerous_scope_confirmations');
+    return [...this.dangerousConfirmations.values()].map(clone);
   }
 }

@@ -23,7 +23,7 @@ export interface IntegrationLimits {
   refreshTokenTtlSeconds: number;
   authCodeTtlSeconds: number;
   idempotencyTtlSeconds: number;
-  /** Lote 3: requisicoes/min por credencial nas tools perigosas (*_prepare e *_commit somadas). */
+  /** Lote 3 (CISO 26/11): requisicoes/min POR USUARIO nas tools perigosas (*_prepare e *_commit somadas). */
   dangerousPerMinute: number;
   /** Lote 3: validade do token de confirmacao (prepare -> commit). */
   confirmationTtlSeconds: number;

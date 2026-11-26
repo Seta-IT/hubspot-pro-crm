@@ -15,6 +15,7 @@ import { resolveIntegrationDeps, type IntegrationDeps } from './runtime';
 import { LOTE3_DANGEROUS_SCOPES, moduleForScope, portfolioExceeds, PORTFOLIO_SCOPES, validateRequestedScopes } from './scopes';
 import type { IntegrationApiKeyRecord } from './store';
 import { generateId, generateIntegrationKey } from './tokens';
+import { fiscalOpsEnabled, isFiscalScope } from './flags';
 
 const MAX_TTL_DAYS = 365;
 const DEFAULT_TTL_DAYS = 90;
@@ -30,6 +31,18 @@ const CreateKeySchema = z
     ownerUserId: z.string().regex(/^[A-Za-z0-9._@-]{1,120}$/).optional(),
     teamMemberIds: z.array(z.string().regex(/^[A-Za-z0-9._@-]{1,120}$/)).max(200).optional(),
     expiresAt: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
+
+/** CISO 26/11 (Lote 3, 2): IAM confirma escopos perigosos via OAuth para um cliente (e o verifica) ou usuario. */
+const DangerousConfirmationSchema = z
+  .object({
+    subjectType: z.enum(['client', 'user']),
+    subjectId: z.string().regex(/^[A-Za-z0-9._@:-]{1,120}$/),
+    scopes: z.array(z.string().max(80)).max(30),
+    /** So para subjectType=client: marca o cliente (DCR) como verificado pelo IAM. */
+    clientVerified: z.boolean().optional(),
+    confirmDangerousScopes: z.literal(true),
   })
   .strict();
 
@@ -98,6 +111,80 @@ export async function handleIamIntegrationKeys(req: IntegrationHttpRequest, deps
       now: deps.now(),
     });
 
+  // CISO 26/11 (Lote 3, 2): confirmacao de escopos perigosos via OAuth (cliente verificado / usuario).
+  const dc = /^\/api\/iam\/integration-keys\/dangerous-confirmations(?:\/(client|user)\/([A-Za-z0-9._@:-]{1,120})\/revoke)?$/.exec(path);
+  if (dc) {
+    if (!(await store.manualMigrationReady())) {
+      await log(503, 'iam.dangerous_confirmations', null, 'MIGRATION_REQUIRED');
+      return problem(503, 'MIGRATION_REQUIRED', 'Migracao manual da API v1 nao aplicada (npm run db:migrate:api-v1 -- --apply).');
+    }
+    const [, revokeType, revokeId] = dc;
+    if (revokeType && revokeId) {
+      if (method !== 'POST') return problem(405, 'METHOD_NOT_ALLOWED', 'Use POST.');
+      const ok = await store.revokeDangerousScopeConfirmation(revokeType as 'client' | 'user', revokeId, deps.now().toISOString());
+      await log(ok ? 200 : 404, 'iam.dangerous_confirmations.revoke', null, ok ? null : 'NOT_FOUND', { targetUserId: revokeType === 'user' ? revokeId : null, details: { subjectType: revokeType, subjectId: revokeId } });
+      return ok ? json(200, { data: { subjectType: revokeType, subjectId: revokeId, revoked: true } }) : problem(404, 'NOT_FOUND', 'Confirmacao inexistente ou ja revogada.');
+    }
+    if (method === 'GET') {
+      const list = await store.listDangerousScopeConfirmations();
+      await log(200, 'iam.dangerous_confirmations.list', null);
+      return json(200, { data: list, total: list.length });
+    }
+    if (method !== 'POST') return problem(405, 'METHOD_NOT_ALLOWED', 'Use GET ou POST.');
+    const parsed = DangerousConfirmationSchema.safeParse(req.body && typeof req.body === 'object' ? req.body : {});
+    if (!parsed.success) {
+      await log(400, 'iam.dangerous_confirmations.set', null, 'VALIDATION_FAILED');
+      return problem(400, 'VALIDATION_FAILED', 'Dados invalidos (exige confirmDangerousScopes=true).', { fields: [...new Set(parsed.error.issues.map((i) => i.path.join('.') || '(corpo)'))] });
+    }
+    const input = parsed.data;
+    const scopes = [...new Set(input.scopes)];
+    const notDangerous = scopes.filter((sc) => !LOTE3_DANGEROUS_SCOPES.has(sc));
+    if (notDangerous.length) {
+      await log(422, 'iam.dangerous_confirmations.set', null, 'SCOPE_NOT_DANGEROUS');
+      return problem(422, 'SCOPE_NOT_DANGEROUS', 'So escopos perigosos do Lote 3 sao confirmados aqui.', { invalid: notDangerous });
+    }
+    const fiscal = scopes.filter((sc) => isFiscalScope(sc));
+    if (fiscal.length && !fiscalOpsEnabled()) {
+      await log(422, 'iam.dangerous_confirmations.set', null, 'FISCAL_OPS_DISABLED');
+      return problem(422, 'FISCAL_OPS_DISABLED', 'Operacoes fiscais desligadas nesta instalacao.', { invalid: fiscal });
+    }
+    if (input.subjectType === 'client') {
+      const client = await store.getOAuthClient(input.subjectId);
+      if (!client || client.revokedAt) {
+        await log(422, 'iam.dangerous_confirmations.set', null, 'CLIENT_INVALID');
+        return problem(422, 'CLIENT_INVALID', 'Cliente OAuth inexistente ou revogado.', { fields: ['subjectId'] });
+      }
+    } else {
+      if (input.clientVerified !== undefined) {
+        await log(422, 'iam.dangerous_confirmations.set', null, 'VALIDATION_FAILED');
+        return problem(422, 'VALIDATION_FAILED', 'clientVerified so vale para subjectType=client.', { fields: ['clientVerified'] });
+      }
+      const snap = await deps.createDataPort().snapshot('crm');
+      const u = snap.users.find((x) => x.id === input.subjectId);
+      if (!u || !u.active) {
+        await log(422, 'iam.dangerous_confirmations.set', null, 'OWNER_INVALID');
+        return problem(422, 'OWNER_INVALID', 'Usuario inexistente ou inativo.', { fields: ['subjectId'] });
+      }
+      const above = scopesAboveUserAccess(scopes as never, u);
+      if (above.length) {
+        await log(422, 'iam.dangerous_confirmations.set', null, 'SCOPE_EXCEEDS_OWNER_ACCESS', { targetUserId: u.id });
+        return problem(422, 'SCOPE_EXCEEDS_OWNER_ACCESS', 'Escopo acima da alcada (RBAC) do usuario.', { invalid: above });
+      }
+    }
+    const rec = {
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      scopes,
+      clientVerified: input.subjectType === 'client' ? input.clientVerified === true : false,
+      confirmedByUserId: admin.uid,
+      confirmedAt: deps.now().toISOString(),
+      revokedAt: null,
+    };
+    await store.upsertDangerousScopeConfirmation(rec);
+    await log(200, 'iam.dangerous_confirmations.set', null, null, { targetUserId: input.subjectType === 'user' ? input.subjectId : null, scope: scopes.join(' '), details: { ...rec } });
+    return json(200, { data: rec });
+  }
+
   const m = /^\/api\/iam\/integration-keys(?:\/([A-Za-z0-9_]{1,80}))?(\/revoke)?$/.exec(path);
   if (!m) return problem(404, 'ROUTE_NOT_FOUND', 'Rota inexistente.');
   const [, id, revokeSuffix] = m;
@@ -122,6 +209,11 @@ export async function handleIamIntegrationKeys(req: IntegrationHttpRequest, deps
         return problem(400, scopes.code, scopes.code === 'SCOPE_BLOCKED'
           ? 'Escopo bloqueado pela politica CISO (IAM/Admin, DELETE, merge, escrita de Sequencias/Fiscal/Financeiro/ERP ou integracao com o ERP de origem).'
           : 'Escopo inexistente no catalogo.', { invalid: scopes.invalid });
+      }
+      const fiscalScopes = scopes.scopes.filter((s) => isFiscalScope(s));
+      if (fiscalScopes.length && !fiscalOpsEnabled()) {
+        await log(422, 'iam.integration_keys.create', null, 'FISCAL_OPS_DISABLED');
+        return problem(422, 'FISCAL_OPS_DISABLED', 'Operacoes fiscais desligadas nesta instalacao (INTEGRATION_ENABLE_FISCAL_OPS).', { invalid: fiscalScopes });
       }
       const dangerous = scopes.scopes.filter((s) => LOTE3_DANGEROUS_SCOPES.has(s));
       if (dangerous.length && input.confirmDangerousScopes !== true) {

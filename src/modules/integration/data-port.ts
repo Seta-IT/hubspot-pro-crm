@@ -34,6 +34,7 @@ import type { CrmApiRouter } from '../../api/router';
 import { TRUSTED_INTERNAL_CONTEXT } from '../../api/router';
 import { buildDefaultCrmPermissionsForRole, buildDefaultErpPermissionsForRole } from '../erp/rbac-seed';
 import { isPortfolioScope, type PortfolioScope } from './scopes';
+import { fiscalOpsEnabled, isFiscalRoute } from './flags';
 import { IntegrationStoreUnavailableError } from './store-errors';
 
 export interface IntegrationUser {
@@ -329,7 +330,8 @@ const ALLOWED_DANGEROUS: Array<{ method: 'POST' | 'PATCH' | 'DELETE'; re: RegExp
   { method: 'POST', re: /^\/api\/mailbox\/send$/ },
   { method: 'POST', re: /^\/api\/sequences\/enroll$/ },
   { method: 'POST', re: new RegExp(`^/api/deals/${ID}/proposal-followup$`) },
-  { method: 'POST', re: new RegExp(`^/api/erp/proposals/${ID}/(approve|public-link)$`) },
+  // CISO 26/11 (Lote 3, 7): sem /approve (aceite com CPF/termos em nome do cliente) — so o link publico.
+  { method: 'POST', re: new RegExp(`^/api/erp/proposals/${ID}/public-link$`) },
   { method: 'POST', re: new RegExp(`^/api/erp/invoices/${ID}/public-link$`) },
   { method: 'PATCH', re: new RegExp(`^/api/workflows/${ID}$`) },
   { method: 'POST', re: /^\/api\/workflows\/trigger$/ },
@@ -351,7 +353,30 @@ const ALLOWED_DANGEROUS: Array<{ method: 'POST' | 'PATCH' | 'DELETE'; re: RegExp
 ];
 
 export function isAllowedDangerousRoute(method: string, path: string): boolean {
+  // CISO 26/11 (Lote 3, 8): fiscal desligado => nem a allowlist interna aceita a rota.
+  if (isFiscalRoute(method, path) && !fiscalOpsEnabled()) return false;
   return ALLOWED_DANGEROUS.some((r) => r.method === method && r.re.test(path));
+}
+
+/**
+ * CISO 26/11 (Lote 3, 4): corpo de operacao perigosa — sem baixa automatica no OFX, sem ajuste manual de
+ * saldo bancario e cancelamento de documento so como status CANCELADA. Violou => erro (bug do conector).
+ */
+export function assertSafeDangerousBody(method: string, path: string, body: Record<string, unknown>): void {
+  if (path === '/api/erp/financial/reconcile-ofx' && body.autoPayMatched !== false) {
+    throw new Error('Conciliacao OFX pelo conector nunca da baixa automatica (autoPayMatched=false).');
+  }
+  if (method === 'PATCH' && /^\/api\/erp\/records\/bankAccounts\//.test(path)) {
+    const keys = Object.keys(body);
+    if (keys.length !== 1 || keys[0] !== 'name') throw new Error('Conta bancaria pelo conector: so renomear (sem ajuste de saldo).');
+  }
+  if (method === 'POST' && path === '/api/erp/records/bankAccounts' && Number(body.balance) !== 0) {
+    throw new Error('Conta bancaria pelo conector nasce com saldo zero.');
+  }
+  if (method === 'PATCH' && /^\/api\/erp\/invoices\//.test(path)) {
+    const keys = Object.keys(body);
+    if (keys.length !== 1 || body.status !== 'CANCELADA') throw new Error('Documento fiscal pelo conector: so cancelamento (status CANCELADA).');
+  }
 }
 
 export class RouterDataPort implements IntegrationDataPort {
@@ -484,6 +509,7 @@ export class RouterDataPort implements IntegrationDataPort {
     if (!isAllowedDangerousRoute(method, path)) {
       throw new Error('Operacao perigosa fora da allowlist da API v1 (Lote 3).');
     }
+    if (method !== 'DELETE') assertSafeDangerousBody(method, path, body);
     this.cache = {};
     const query: Record<string, string> = opts.actorUserId ? { _integrationActorId: opts.actorUserId } : {};
     if (opts.actorUserId && path === '/api/mailbox/send') query._integrationMailboxSend = '1';

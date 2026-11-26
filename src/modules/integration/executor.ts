@@ -9,8 +9,9 @@ import type { AuditChannel, AuditAuthType, IntegrationStore } from './store';
 import { randomBytes } from 'node:crypto';
 import { generateId, sha256Hex } from './tokens';
 import { isIntegrationStoreUnavailable } from './store-errors';
+import { iamConfirmedDangerousScopes } from './dangerous-grants';
 import { isUseCaseEnabled, UseCaseError, type UseCaseDefinition } from './use-cases';
-import type { ConfirmationPort, WriteAuditTrail } from './use-cases/types';
+import type { ConfirmationPort, QuotaPort, TrashPort, WriteAuditTrail } from './use-cases/types';
 import { ownerMeetsScope } from './use-cases/common';
 
 export type ExecResult = (
@@ -80,7 +81,15 @@ export async function executeUseCase(def: UseCaseDefinition, rawInput: unknown, 
     if (def.dangerous) {
       // Lote 3: rate-limit mais apertado nas tools perigosas (prepare + commit somados).
       if (!deps.store) return { ok: false, status: 503, code: 'INTEGRATION_STORE_UNAVAILABLE', title: 'Armazenamento indisponivel (Postgres). Tente novamente.' };
-      const rate = await checkRateLimit(deps.store, `danger:${credentialBucket(auth)}`, deps.limits.dangerousPerMinute, deps.now());
+      // CISO 26/11 (Lote 3, 2): escopo perigoso via OAuth reconferido no IAM a cada chamada (revogacao vale na hora).
+      if (auth.authType === 'oauth') {
+        const allowed = await iamConfirmedDangerousScopes(deps.store, auth.oauthClientId, auth.actorUserId);
+        if (!allowed.has(def.requiredScope)) {
+          return { ok: false, status: 403, code: 'DANGEROUS_SCOPE_NOT_CONFIRMED', title: 'Escopo perigoso sem confirmacao vigente do IAM para este aplicativo/usuario.' };
+        }
+      }
+      // CISO 26/11 (Lote 3, 2): limite POR USUARIO (soma todas as credenciais/clientes do mesmo usuario).
+      const rate = await checkRateLimit(deps.store, `danger:user:${auth.actorUserId}`, deps.limits.dangerousPerMinute, deps.now());
       if (!rate.allowed) {
         return { ok: false, status: 429, code: 'DANGEROUS_RATE_LIMITED', title: 'Limite de operacoes sensiveis por minuto atingido.', extra: { retryAfterSeconds: rate.resetSeconds, limit: rate.limit } };
       }
@@ -119,7 +128,9 @@ export async function executeUseCase(def: UseCaseDefinition, rawInput: unknown, 
       },
     };
     const confirm = confirmationPort(auth, deps);
-    const out = await def.handler(parsed.data, { auth, data, owner: ceiling.owner, portfolio, allUsers: snap.users, audit: trail, owners, confirm });
+    const trash = trashPort(auth, deps);
+    const quota = quotaPort(auth, deps);
+    const out = await def.handler(parsed.data, { auth, data, owner: ceiling.owner, portfolio, allUsers: snap.users, audit: trail, owners, confirm, trash, quota });
     const checked = def.outputSchema.safeParse(out);
     if (!checked.success) {
       return withWrites({ ok: false, status: 500, code: 'OUTPUT_CONTRACT_VIOLATION', title: 'Resposta fora do contrato da API.' });
@@ -255,6 +266,43 @@ export function confirmationPort(auth: AuthContext, deps: IntegrationDeps): Conf
       if (res.record.operationId !== operationId || res.record.argsHash !== confirmationArgsHash(operationId, args)) {
         throw fail('CONFIRMATION_ARGS_MISMATCH', 'Argumentos diferentes dos confirmados no *_prepare (token invalidado). Rode o *_prepare de novo.');
       }
+    },
+  };
+}
+
+/** CISO 26/11 (Lote 3, 6): lixeira (api_deleted_records, migracao manual). Falha => exclusao abortada. */
+export function trashPort(auth: AuthContext, deps: IntegrationDeps): TrashPort {
+  return {
+    async snapshot(entity, recordId, operationId, record) {
+      if (!deps.store) throw new UseCaseError(503, 'INTEGRATION_STORE_UNAVAILABLE', 'Armazenamento indisponivel (Postgres). Tente novamente.');
+      try {
+        await deps.store.insertDeletedRecord({
+          id: generateId('del'),
+          entity,
+          recordId,
+          operationId,
+          snapshot: JSON.parse(JSON.stringify(record ?? {})),
+          actorUserId: auth.actorUserId,
+          credential: credentialBucket(auth),
+          deletedAt: deps.now().toISOString(),
+        });
+      } catch {
+        throw new UseCaseError(503, 'TRASH_UNAVAILABLE', 'Nao foi possivel gravar a copia do registro na lixeira; nada foi excluido.');
+      }
+    },
+  };
+}
+
+/** CISO 26/11 (Lote 3, 3): cota diaria (dia UTC) por usuario dono, somando todas as credenciais. */
+export function quotaPort(auth: AuthContext, deps: IntegrationDeps): QuotaPort {
+  return {
+    async consumeDaily(kind, limit) {
+      if (!deps.store) throw new UseCaseError(503, 'INTEGRATION_STORE_UNAVAILABLE', 'Armazenamento indisponivel (Postgres). Tente novamente.');
+      const now = deps.now();
+      const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+      const r = await deps.store.hitRateLimit(`day:${kind}:user:${auth.actorUserId}`, day, now.toISOString());
+      if (r.count > limit) throw new UseCaseError(429, 'DAILY_QUOTA_EXCEEDED', `Limite diario do conector atingido (${limit}/dia por usuario).`, { limit });
+      return { count: r.count, limit };
     },
   };
 }

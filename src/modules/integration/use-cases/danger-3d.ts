@@ -311,16 +311,18 @@ const erpFiscalCancel = defineDangerous({
     const inv = await findInvoice(ctx, input.id);
     const st = String(inv.status || '').toUpperCase();
     if (!['EMITIDA', 'VENCIDA'].includes(st) || inv.paidAt) throw new UseCaseError(409, 'INVOICE_NOT_CANCELLABLE', `Documento ${st || 'sem status'} nao pode ser cancelado pelo conector.`);
-    const linkedOpen = (await collections(ctx)).financialEntries.filter((f: any) => f.invoiceId === inv.id && !/PAGO|CANCEL/i.test(String(f.status))).length;
+    const linkedOpen = (await collections(ctx)).financialEntries.filter((f: any) => f.invoiceId === inv.id && f.type === 'RECEBER' && !/PAGO|CANCEL/i.test(String(f.status))).length;
     return {
       entity: 'erp.invoice',
       entityId: inv.id,
       before: { status: st },
       preview: { action: 'CANCELAR_DOCUMENTO_FISCAL', ...invoiceView(inv), companyName: str(inv.companyName), reason: input.reason, linkedOpenFinancialEntries: linkedOpen },
-      effects: ['Documento passa a CANCELADA.', ...(linkedOpen ? [`ATENCAO: ${linkedOpen} lancamento(s) a receber vinculado(s) NAO sao cancelados automaticamente pelo app.`] : [])],
+      effects: ['Documento passa a CANCELADA.', ...(linkedOpen ? [`${linkedOpen} lancamento(s) a receber em aberto vinculado(s) passam a CANCELADO na mesma transacao.`] : [])],
       run: async () => {
-        const r = unwrapDangerous(await ctx.data.dangerous('PATCH', `/api/erp/invoices/${enc(inv.id)}`, { status: 'CANCELADA' }), 'Documento fiscal');
-        return { ...invoiceView(r), reason: input.reason };
+        const res = await ctx.data.dangerous('PATCH', `/api/erp/invoices/${enc(inv.id)}`, { status: 'CANCELADA' });
+        const r = unwrapDangerous(res, 'Documento fiscal');
+        const ids = Array.isArray((res.body as any)?.cancelledReceivableIds) ? (res.body as any).cancelledReceivableIds.map(String).slice(0, 200) : [];
+        return { ...invoiceView(r), reason: input.reason, cancelledReceivableIds: ids };
       },
     };
   },
@@ -347,7 +349,8 @@ const erpFiscalDelete = defineDangerous({
       entityId: inv.id,
       before: invoiceView(inv),
       preview: { action: 'EXCLUIR', entity: 'erp.invoice', ...invoiceView(inv) },
-      effects: ['Exclusao definitiva do registro.'],
+      effects: ['Exclusao no app; copia integral fica na lixeira do conector.'],
+      trash: [{ entity: 'erp.invoice', recordId: inv.id, record: inv }],
       run: async () => {
         unwrapDangerous(await ctx.data.dangerous('DELETE', `/api/erp/invoices/${enc(inv.id)}`, {}), 'Documento fiscal');
         return { deleted: true, deletedId: inv.id };

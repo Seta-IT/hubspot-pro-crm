@@ -30,12 +30,13 @@ function requireCrmArea(ctx: UseCaseContext, area: 'contacts' | 'companies' | 'd
   }
 }
 
-const delPlan = (entity: string, id: string, preview: Record<string, unknown>, path: string, ctx: UseCaseContext, what: string, effects: string[] = []): DangerousPlan => ({
+const delPlan = (entity: string, id: string, preview: Record<string, unknown>, path: string, ctx: UseCaseContext, what: string, effects: string[] = [], record: Record<string, unknown> = preview): DangerousPlan => ({
   entity,
   entityId: id,
   before: preview,
   preview: { action: 'EXCLUIR', entity, ...preview },
-  effects: ['Exclusao definitiva (sem lixeira pelo conector).', ...effects],
+  effects: ['Exclusao no app; copia integral do registro fica na lixeira do conector (api_deleted_records).', ...effects],
+  trash: [{ entity, recordId: id, record }],
   run: async () => {
     const body = unwrapDangerous(await ctx.data.dangerous('DELETE', path, {}), what);
     return { deleted: true, deletedId: str(body?.deletedId) || id };
@@ -75,7 +76,7 @@ const crmDelete = (name: string, entity: string, label: string, area: 'contacts'
       if (area === 'deals') Object.assign(preview, { stage: str(rec.stage) || null, amount: Number(rec.amount) || 0 });
       const effects: string[] = [];
       if (area === 'companies') effects.push(`Contatos vinculados: ${snap.contacts.filter((c: any) => c.companyId === rec.id).length}; negocios: ${snap.deals.filter((d: any) => d.companyId === rec.id).length}.`);
-      return delPlan(entity, rec.id, preview, `/api/${route}/${enc(rec.id)}`, ctx, label, effects);
+      return delPlan(entity, rec.id, preview, `/api/${route}/${enc(rec.id)}`, ctx, label, effects, rec);
     },
   });
 
@@ -94,7 +95,7 @@ const crmTasksDelete = defineDangerous({
   inputSchema: idOnly,
   async plan(input, ctx) {
     const t: any = await findTask(ctx, input.id);
-    return delPlan('crm.task', t.id, { id: t.id, title: str(t.title), status: str(t.status) || null, dueDate: str(t.dueDate) || null }, `/api/tasks/${enc(t.id)}`, ctx, 'Tarefa');
+    return delPlan('crm.task', t.id, { id: t.id, title: str(t.title), status: str(t.status) || null, dueDate: str(t.dueDate) || null }, `/api/tasks/${enc(t.id)}`, ctx, 'Tarefa', [], t);
   },
 });
 
@@ -113,7 +114,7 @@ const erpProposalsDelete = defineDangerous({
   async plan(input, ctx) {
     requireErpArea(ctx, 'proposals');
     const p: any = await loadWritableProposal(ctx, input.id);
-    return delPlan('erp.proposal', p.id, { id: p.id, code: str(p.code) || null, companyName: str(p.companyName) || null, status: str(p.status) || null, totalAmount: Number(p.totalAmount ?? p.total) || 0 }, `/api/erp/proposals/${enc(p.id)}`, ctx, 'Proposta');
+    return delPlan('erp.proposal', p.id, { id: p.id, code: str(p.code) || null, companyName: str(p.companyName) || null, status: str(p.status) || null, totalAmount: Number(p.totalAmount ?? p.total) || 0 }, `/api/erp/proposals/${enc(p.id)}`, ctx, 'Proposta', [], p);
   },
 });
 
@@ -127,7 +128,7 @@ const erpContractsDelete = defineDangerous({
   async plan(input, ctx) {
     requireErpArea(ctx, 'contracts');
     const c: any = await findWritableContract(ctx, input.id);
-    return delPlan('erp.contract', c.id, { id: c.id, contractNumber: str(c.contractNumber) || null, companyName: str(c.companyName) || null, status: str(c.status) || null }, `/api/erp/rental-contracts/${enc(c.id)}`, ctx, 'Contrato');
+    return delPlan('erp.contract', c.id, { id: c.id, contractNumber: str(c.contractNumber) || null, companyName: str(c.companyName) || null, status: str(c.status) || null }, `/api/erp/rental-contracts/${enc(c.id)}`, ctx, 'Contrato', [], c);
   },
 });
 
@@ -146,7 +147,7 @@ const erpFinancialDelete = defineDangerous({
     if (String(f.status || '').toUpperCase() === 'PAGO' || String(f.status || '').toUpperCase() === 'RECEBIDO') {
       throw new UseCaseError(409, 'FINANCIAL_ENTRY_SETTLED', 'Lancamento ja baixado nao e excluido pelo conector.');
     }
-    return delPlan('erp.financial_entry', f.id, { id: f.id, type: str(f.type) || null, description: str(f.description) || null, amount: Number(f.amount) || 0, dueDate: str(f.dueDate) || null, status: str(f.status) || null }, `/api/erp/financial/${enc(f.id)}`, ctx, 'Lancamento');
+    return delPlan('erp.financial_entry', f.id, { id: f.id, type: str(f.type) || null, description: str(f.description) || null, amount: Number(f.amount) || 0, dueDate: str(f.dueDate) || null, status: str(f.status) || null }, `/api/erp/financial/${enc(f.id)}`, ctx, 'Lancamento', [], f);
   },
 });
 
@@ -162,7 +163,7 @@ const erpCatalogDelete = defineDangerous({
     requireErpArea(ctx, 'stockOsSales');
     const c: any = (await collections(ctx)).catalog.find((x) => x.id === input.id);
     if (!c) throw notFound('Item do catalogo');
-    return delPlan('erp.catalog_item', c.id, { id: c.id, code: str(c.code) || null, name: str(c.name) || null }, `/api/erp/catalog/${enc(c.id)}`, ctx, 'Item do catalogo');
+    return delPlan('erp.catalog_item', c.id, { id: c.id, code: str(c.code) || null, name: str(c.name) || null }, `/api/erp/catalog/${enc(c.id)}`, ctx, 'Item do catalogo', [], c);
   },
 });
 
@@ -180,7 +181,7 @@ const erpAuxDelete = defineDangerous({
     const all = [...(data.costCenters || []), ...(data.chartOfAccountsList || [])] as any[];
     const it = all.find((x) => x.id === input.id);
     if (!it) throw notFound('Item da lista');
-    return delPlan('erp.aux_list_item', it.id, { id: it.id, kind: str(it.kind), label: str(it.label) }, `/api/erp/aux-lists/${enc(it.id)}`, ctx, 'Item da lista');
+    return delPlan('erp.aux_list_item', it.id, { id: it.id, kind: str(it.kind), label: str(it.label) }, `/api/erp/aux-lists/${enc(it.id)}`, ctx, 'Item da lista', [], it);
   },
 });
 
@@ -202,7 +203,7 @@ const erpRecordsDelete = defineDangerous({
     else list = ((await collections(ctx)) as any)[input.kind] || [];
     const r = list.find((x) => x && x.id === input.id);
     if (!r) throw notFound('Cadastro');
-    return delPlan(`erp.${input.kind}`, r.id, { id: r.id, kind: input.kind, code: str(r.code || r.number) || null, name: str(r.name || r.companyName || r.supplierName || r.clientName) || null, status: str(r.status) || null }, `/api/erp/records/${input.kind}/${enc(r.id)}`, ctx, 'Cadastro');
+    return delPlan(`erp.${input.kind}`, r.id, { id: r.id, kind: input.kind, code: str(r.code || r.number) || null, name: str(r.name || r.companyName || r.supplierName || r.clientName) || null, status: str(r.status) || null }, `/api/erp/records/${input.kind}/${enc(r.id)}`, ctx, 'Cadastro', [], r);
   },
 });
 
@@ -253,7 +254,11 @@ const crmRecordsMerge = defineDangerous({
       entityId: a.id,
       before: { primaryId: a.id, duplicateId: b.id },
       preview,
-      effects: [`O registro ${b.id} sera removido e seus vinculos movidos para ${a.id}.`, 'Valores do principal prevalecem (sem fieldOverrides pelo conector).'],
+      effects: [`O registro ${b.id} sera removido e seus vinculos movidos para ${a.id}.`, 'Valores do principal prevalecem (sem fieldOverrides pelo conector).', 'Copia integral dos dois registros fica na lixeira do conector.'],
+      trash: [
+        { entity: input.entityType === 'CONTACT' ? 'crm.contact' : 'crm.company', recordId: b.id, record: b },
+        { entity: input.entityType === 'CONTACT' ? 'crm.contact' : 'crm.company', recordId: a.id, record: a },
+      ],
       run: async () => {
         const r = unwrapDangerous(await ctx.data.dangerous('POST', route, { entityType: input.entityType, primaryId: a.id, duplicateId: b.id }), 'Registro');
         return { merged: true, primaryId: a.id, duplicateId: b.id, dealsMoved: Number(r?.dealsMoved ?? r?.dealsToMove) || 0 };
@@ -279,14 +284,31 @@ const crmDataHealthAutoClean = defineDangerous({
     requireAllPortfolio(ctx, 'Limpeza automatica');
     const dup = unwrapCrmRead(await ctx.data.read('/api/data-health/duplicates'), 'Duplicados')?.data || {};
     const score = (p: any) => Number(p?.confidenceScore ?? p?.suggestedMerge?.confidenceScore) || 0;
-    const contacts = (dup.contactDuplicates || []).filter((p: any) => score(p) >= input.minConfidence).length;
-    const companies = (dup.companyDuplicates || []).filter((p: any) => score(p) >= input.minConfidence).length;
+    const contactPairs = (dup.contactDuplicates || []).filter((p: any) => score(p) >= input.minConfidence);
+    const companyPairs = (dup.companyDuplicates || []).filter((p: any) => score(p) >= input.minConfidence);
+    const contacts = contactPairs.length;
+    const companies = companyPairs.length;
+    // Lixeira: copia integral de TODOS os registros candidatos (principal e duplicado de cada par).
+    const snap = await ctx.data.snapshot('crm');
+    const pairIds = (p: any) => [p?.suggestedMerge?.primaryId ?? p?.primaryId, p?.suggestedMerge?.duplicateId ?? p?.duplicateId].filter(Boolean).map(String);
+    const trash: NonNullable<DangerousPlan['trash']> = [];
+    const seen = new Set<string>();
+    for (const id of contactPairs.flatMap(pairIds)) {
+      const r: any = snap.contacts.find((c) => c.id === id);
+      if (r && !seen.has(`c:${id}`)) { seen.add(`c:${id}`); trash.push({ entity: 'crm.contact', recordId: id, record: r }); }
+    }
+    for (const id of companyPairs.flatMap(pairIds)) {
+      const r: any = snap.companies.find((c) => c.id === id);
+      if (r && !seen.has(`e:${id}`)) { seen.add(`e:${id}`); trash.push({ entity: 'crm.company', recordId: id, record: r }); }
+    }
+    if (!trash.length) throw new UseCaseError(409, 'NOTHING_TO_CLEAN', 'Nenhum duplicado acima do limiar (nada a mesclar).');
     return {
       entity: 'crm.data_health',
       entityId: 'auto-clean',
       before: { contactCandidates: contacts, companyCandidates: companies },
       preview: { action: 'LIMPEZA_AUTOMATICA', minConfidence: input.minConfidence, autoEnrich: input.autoEnrich, contactMergeCandidates: contacts, companyMergeCandidates: companies },
-      effects: ['Duplicados acima do limiar serao mesclados (registros duplicados removidos).', 'CNPJs diferentes nunca sao unificados.'],
+      effects: ['Duplicados acima do limiar serao mesclados (registros duplicados removidos).', 'CNPJs diferentes nunca sao unificados.', 'Copia integral dos candidatos fica na lixeira do conector.'],
+      trash,
       run: async () => {
         const r = unwrapDangerous(await ctx.data.dangerous('POST', '/api/data-health/auto-clean', { minConfidence: input.minConfidence, autoEnrich: input.autoEnrich }), 'Limpeza');
         return { done: true, merged: Array.isArray(r?.mergeResults) ? r.mergeResults.length : Number(r?.mergedCount) || 0, enriched: Number(r?.enrichedCount) || 0 };

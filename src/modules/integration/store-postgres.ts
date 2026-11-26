@@ -6,6 +6,8 @@
 // ============================================================================
 import type {
   ConfirmationTokenRecord,
+  DangerousScopeConfirmationRecord,
+  DeletedRecordSnapshot,
   IdempotencyRecord,
   RecordOwnerRecord,
   IntegrationApiKeyRecord,
@@ -91,17 +93,6 @@ CREATE TABLE IF NOT EXISTS api_rate_limits (
 );
 CREATE INDEX IF NOT EXISTS idx_api_rate_limits_window ON api_rate_limits(window_start);
 
-CREATE TABLE IF NOT EXISTS api_confirmation_tokens (
-  token_hash TEXT PRIMARY KEY,
-  operation_id TEXT NOT NULL,
-  args_hash TEXT NOT NULL,
-  principal_key TEXT NOT NULL,
-  actor_user_id TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  expires_at TIMESTAMPTZ NOT NULL,
-  used_at TIMESTAMPTZ
-);
-CREATE INDEX IF NOT EXISTS idx_api_confirmation_expires ON api_confirmation_tokens(expires_at);
 
 CREATE TABLE IF NOT EXISTS oauth_clients (
   client_id TEXT PRIMARY KEY,
@@ -393,7 +384,7 @@ export class PostgresIntegrationStore implements IntegrationStore {
     );
     // Limpeza oportunista (~1% das chamadas) das janelas antigas.
     if (Math.random() < 0.01) {
-      await this.db.query(`DELETE FROM api_rate_limits WHERE window_start < ($1::timestamptz - INTERVAL '1 hour')`, [now]).catch(() => undefined);
+      await this.db.query(`DELETE FROM api_rate_limits WHERE (bucket_key NOT LIKE 'day:%' AND window_start < ($1::timestamptz - INTERVAL '1 hour')) OR window_start < ($1::timestamptz - INTERVAL '3 days')`, [now]).catch(() => undefined);
       await this.db.query(`DELETE FROM api_idempotency_keys WHERE expires_at < $1`, [now]).catch(() => undefined);
       await this.db.query(`DELETE FROM api_confirmation_tokens WHERE expires_at < ($1::timestamptz - INTERVAL '1 day')`, [now]).catch(() => undefined);
     }
@@ -479,6 +470,69 @@ export class PostgresIntegrationStore implements IntegrationStore {
     const sel = await this.q(`SELECT * FROM api_confirmation_tokens WHERE token_hash = $1 AND principal_key = $2`, [tokenHash, principalKey]);
     return sel.rows[0] ? { record: rowToConfirmation(sel.rows[0]), alreadyUsed: true } : null;
   }
+  async insertDeletedRecord(rec: DeletedRecordSnapshot) {
+    await this.q(
+      `INSERT INTO api_deleted_records (id, entity, record_id, operation_id, snapshot, actor_user_id, credential, deleted_at)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8)`,
+      [rec.id, rec.entity, rec.recordId, rec.operationId, JSON.stringify(rec.snapshot), rec.actorUserId, rec.credential, rec.deletedAt]
+    );
+  }
+  async listDeletedRecords(entity?: string, recordId?: string) {
+    const r = await this.q(
+      `SELECT * FROM api_deleted_records WHERE ($1::text IS NULL OR entity = $1) AND ($2::text IS NULL OR record_id = $2) ORDER BY deleted_at DESC LIMIT 500`,
+      [entity ?? null, recordId ?? null]
+    );
+    return r.rows.map(rowToDeleted);
+  }
+  async getDangerousScopeConfirmation(subjectType: 'client' | 'user', subjectId: string) {
+    const r = await this.q(`SELECT * FROM api_dangerous_scope_confirmations WHERE subject_type = $1 AND subject_id = $2`, [subjectType, subjectId]);
+    return r.rows[0] ? rowToDangerousConfirmation(r.rows[0]) : null;
+  }
+  async upsertDangerousScopeConfirmation(rec: DangerousScopeConfirmationRecord) {
+    await this.q(
+      `INSERT INTO api_dangerous_scope_confirmations (subject_type, subject_id, scopes, client_verified, confirmed_by_user_id, confirmed_at, revoked_at)
+       VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7)
+       ON CONFLICT (subject_type, subject_id) DO UPDATE SET scopes = EXCLUDED.scopes, client_verified = EXCLUDED.client_verified,
+         confirmed_by_user_id = EXCLUDED.confirmed_by_user_id, confirmed_at = EXCLUDED.confirmed_at, revoked_at = EXCLUDED.revoked_at`,
+      [rec.subjectType, rec.subjectId, JSON.stringify(rec.scopes), rec.clientVerified, rec.confirmedByUserId, rec.confirmedAt, rec.revokedAt]
+    );
+  }
+  async revokeDangerousScopeConfirmation(subjectType: 'client' | 'user', subjectId: string, at: string) {
+    const r = await this.q(
+      `UPDATE api_dangerous_scope_confirmations SET revoked_at = $3 WHERE subject_type = $1 AND subject_id = $2 AND revoked_at IS NULL RETURNING subject_id`,
+      [subjectType, subjectId, at]
+    );
+    return (r.rowCount ?? r.rows.length) > 0;
+  }
+  async listDangerousScopeConfirmations() {
+    const r = await this.q(`SELECT * FROM api_dangerous_scope_confirmations ORDER BY confirmed_at DESC LIMIT 500`);
+    return r.rows.map(rowToDangerousConfirmation);
+  }
+}
+
+const isoOf = (v: unknown) => (v instanceof Date ? v.toISOString() : v ? String(v) : null);
+function rowToDangerousConfirmation(r: any): DangerousScopeConfirmationRecord {
+  return {
+    subjectType: r.subject_type === 'client' ? 'client' : 'user',
+    subjectId: String(r.subject_id),
+    scopes: Array.isArray(r.scopes) ? r.scopes.map(String) : [],
+    clientVerified: r.client_verified === true,
+    confirmedByUserId: String(r.confirmed_by_user_id),
+    confirmedAt: isoOf(r.confirmed_at) || '',
+    revokedAt: isoOf(r.revoked_at),
+  };
+}
+function rowToDeleted(r: any): DeletedRecordSnapshot {
+  return {
+    id: String(r.id),
+    entity: String(r.entity),
+    recordId: String(r.record_id),
+    operationId: String(r.operation_id),
+    snapshot: r.snapshot && typeof r.snapshot === 'object' ? r.snapshot : {},
+    actorUserId: String(r.actor_user_id),
+    credential: String(r.credential),
+    deletedAt: isoOf(r.deleted_at) || '',
+  };
 }
 
 function rowToConfirmation(r: any): ConfirmationTokenRecord {

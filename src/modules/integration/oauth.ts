@@ -12,13 +12,14 @@
 import { createHmac } from 'node:crypto';
 import { resolveStiHubSigningSecret } from '../../app/lib/auth';
 import { verifyMfaSession } from './auth-context';
+import { iamConfirmedDangerousScopes } from './dangerous-grants';
+import { exposedScopes, fiscalOpsEnabled, isFiscalScope } from './flags';
 import { audit, checkRateLimit, newRequestId } from './executor';
 import { json, NO_STORE_HEADERS, postgresUnavailable, readSessionToken, type IntegrationHttpRequest, type IntegrationHttpResponse } from './http';
 import { isProductionRuntime, resolveIntegrationDeps, type IntegrationDeps } from './runtime';
 import { scopesAboveUserAccess } from './use-cases/common';
 import type { IntegrationUser } from './data-port';
 import {
-  INTEGRATION_SCOPES,
   LOTE1_SCOPES as LOTE1_SCOPE_SET,
   LOTE2_WRITE_SCOPES,
   LOTE3_DANGEROUS_SCOPES,
@@ -65,7 +66,7 @@ export function authorizationServerMetadata(origin: string) {
     code_challenge_methods_supported: ['S256'],
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
     revocation_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
-    scopes_supported: [...INTEGRATION_SCOPES],
+    scopes_supported: exposedScopes(),
     authorization_response_iss_parameter_supported: true,
     service_documentation: `${origin}/api/v1/openapi.json`,
   };
@@ -75,7 +76,7 @@ export function protectedResourceMetadata(origin: string) {
   return {
     resource: `${origin}/api/mcp`,
     authorization_servers: [origin],
-    scopes_supported: [...INTEGRATION_SCOPES],
+    scopes_supported: exposedScopes(),
     bearer_methods_supported: ['header'],
     resource_name: 'STI-hub MCP / API v1',
     resource_documentation: `${origin}/api/v1/openapi.json`,
@@ -418,7 +419,7 @@ async function handleRegister(req: IntegrationHttpRequest, store: IntegrationSto
     scope = v.scopes.join(' ');
   } else {
     // Sem scope: cliente pode pedir qualquer escopo do catalogo (o usuario consente cada um).
-    scope = INTEGRATION_SCOPES.join(' ');
+    scope = exposedScopes().join(" ");
   }
   const clientName = String(b.client_name || 'Cliente MCP').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 120) || 'Cliente MCP';
   const now = deps.now();
@@ -528,9 +529,16 @@ async function handleAuthorize(
     if ((mod === 'crm' && !live.moduleAccess.crm) || (mod === 'erp' && !live.moduleAccess.erp)) return true;
     return scopesAboveUserAccess([s], user).length > 0;
   };
-  const notGranted = v.scopes.filter(lote1Denied);
+  // CISO 26/11 (Lote 3, 2): perigoso so com confirmacao do IAM (cliente verificado + cliente/usuario);
+  // fiscal so com INTEGRATION_ENABLE_FISCAL_OPS. Fora disso: omitido (nunca concedido).
+  const iamDangerous = await iamConfirmedDangerousScopes(store, v.client.clientId, user.id);
+  const iamDenied = (s: string) => LOTE3_DANGEROUS_SCOPES.has(s) && !iamDangerous.has(s);
+  const fiscalDenied = (s: string) => isFiscalScope(s) && !fiscalOpsEnabled();
+  const denied = (s: string) => lote1Denied(s) || iamDenied(s) || fiscalDenied(s);
+  const notGranted = v.scopes.filter((s) => lote1Denied(s) || fiscalDenied(s));
+  const notConfirmed = v.scopes.filter((s) => !lote1Denied(s) && !fiscalDenied(s) && iamDenied(s));
   const requestedScopes = v.scopes;
-  v.scopes = v.scopes.filter((s) => !lote1Denied(s));
+  v.scopes = v.scopes.filter((s) => !denied(s));
   if (v.scopes.length === 0) {
     return done(
       redirectWith(a.redirectUri, { error: 'invalid_scope', error_description: 'Nenhum escopo dentro do perfil do usuario.', state: a.state, iss: req.origin }),
@@ -594,9 +602,11 @@ async function handleAuthorize(
           .map((s) => `<li><label><input type="checkbox" name="${dangerousFieldName(s)}" value="1"> <code>${escapeHtml(s)}</code> — ${escapeHtml(SCOPE_DESCRIPTIONS[s as keyof typeof SCOPE_DESCRIPTIONS] || '')}</label></li>`)
           .join('')}</ul></div>`
       : '';
-    const notGrantedHtml = notGranted.length
-      ? `<p>Nao concedidos (acima do seu perfil): ${notGranted.map((s) => `<code>${escapeHtml(s)}</code>`).join(', ')}</p>`
-      : '';
+    const notGrantedHtml =
+      (notGranted.length ? `<p>Nao concedidos (acima do seu perfil): ${notGranted.map((s) => `<code>${escapeHtml(s)}</code>`).join(', ')}</p>` : '') +
+      (notConfirmed.length
+        ? `<p>Nao concedidos (acao perigosa sem confirmacao do IAM para este aplicativo/usuario): ${notConfirmed.map((s) => `<code>${escapeHtml(s)}</code>`).join(', ')}</p>`
+        : '');
     let redirectHost = a.redirectUri;
     try {
       const u = new URL(a.redirectUri);
