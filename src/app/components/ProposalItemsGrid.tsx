@@ -1,20 +1,36 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { Menu, Package, Pencil, Trash2, Wrench } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import type { ErpCatalogItem, ErpCommercialProposal, ErpProposalItem } from '../../db/types';
-import { formatBRL } from './ui-helpers';
-import { CatalogItemPicker, CATALOG_GRID_INPUT } from './CatalogItemPicker';
-import { catalogPriceFor, isServiceCatalogItem } from '../lib/catalog-search';
-import { inferProposalItemType, PROPOSAL_SERVICE_PILL_OPTIONS, resolveProposalServiceType } from '../lib/proposal-share';
+import { CatalogItemPicker } from './CatalogItemPicker';
+import { isServiceCatalogItem } from '../lib/catalog-search';
+import {
+  inferProposalItemType,
+  PROPOSAL_SERVICE_PILL_OPTIONS,
+  resolveProposalServiceType,
+} from '../lib/proposal-share';
 import type { ProposalGridItem } from '../lib/proposal-share';
+import {
+  PRICE_TABLE_VAREJO,
+  catalogPriceForTable,
+  catalogPriceTables,
+  formatPtBrDecimal,
+  formatPtBrMoney,
+  inferPriceTableId,
+  lineNetAmount,
+  parsePtBrDecimal,
+  proposalItemDetails,
+  resolveDiscountType,
+  type ProposalDiscountType,
+} from '../lib/proposal-item-grid';
 
 /**
- * Grade de itens no padrao GestaoClick ("Adicione os produtos do orcamento"):
- * Produto* | Detalhes | Quant.* | Valor* | Desconto | Subtotal | Acoes.
- * Sem coluna Tipo: a natureza vem do Tipo de Orcamento da proposta (applyBudgetTypeToItems).
- * Sempre ha uma linha vazia pronta; digitar no Produto abre o autocomplete do
- * catalogo e "+ Adicionar novo" inclui um item livre com o texto digitado.
+ * Grade de itens no padrão GestãoClick:
+ * "Adicione os produtos do orçamento" — Produto* (limpar no campo) | Detalhes |
+ * Quant.* | Tipo* (tabela de preço) | Valor* | Desconto (% ou R$) | Subtotal | Ações.
+ * Campos brancos, números pt-BR com 2 casas, botão "+ Adicionar produto" e
+ * "Total de produtos R$ …" no rodapé.
  */
 
 type GridKind = 'PRODUCT' | 'SERVICE';
@@ -29,25 +45,23 @@ export interface ProposalItemsGridProps {
   onItemsChange: (items: ErpProposalItem[]) => void;
 }
 
-const inputBase = CATALOG_GRID_INPUT;
+const inputBase =
+  'w-full h-8 px-2 rounded-[3px] border border-[#ced4da] bg-white text-[12px] text-slate-800 focus:outline-none focus:border-[#1e3a6e] focus:ring-1 focus:ring-[#1e3a6e]/20';
 
 export { isServiceCatalogItem } from '../lib/catalog-search';
 
-/** Tipo de servico das linhas = tipo de servico definido no topo da proposta (chips). */
 function defaultServiceKind(budgetType?: ErpCommercialProposal['budgetType'], serviceType?: string): string {
   return resolveProposalServiceType({ budgetType, serviceType }) || PROPOSAL_SERVICE_PILL_OPTIONS[0];
 }
 
-/** Locacao (MRR) para LOCACAO/SERVICOS/CONJUNTO; venda de equipamento para PRODUTOS. */
 function isRentalBudget(budgetType?: ErpCommercialProposal['budgetType']): boolean {
   return budgetType !== 'PRODUTOS' && budgetType !== 'SPARE_PARTS';
 }
 
 /**
- * Deriva a natureza fiscal de cada linha a partir do Tipo de Orcamento da proposta
- * (LOCACAO -> LOCACAO_BENS_MOVEIS; PRODUTOS -> VENDA_EQUIPAMENTO; servicos -> serviceType da proposta).
- * Chamado ao trocar o tipo de orcamento/servico: o preco do catalogo acompanha a natureza
- * somente quando a linha ainda esta com o preco de catalogo da natureza anterior.
+ * Deriva a natureza fiscal de cada linha a partir do Tipo de Orçamento da proposta.
+ * O preço de catálogo acompanha a natureza somente quando a linha ainda está com
+ * o preço de catálogo da natureza anterior (respeitando a tabela de preço da linha).
  */
 export function applyBudgetTypeToItems(
   items: ErpProposalItem[],
@@ -64,13 +78,17 @@ export function applyBudgetTypeToItems(
     const nextNature: ErpProposalItem['fiscalNature'] = rental ? 'LOCACAO_BENS_MOVEIS' : 'VENDA_EQUIPAMENTO';
     if (item.fiscalNature === nextNature && item.isRecurring === rental) return item;
     const found = catalog.find((c) => c.gestaoClickCode === item.sku);
+    const tableId = inferPriceTableId(item, found, item.fiscalNature !== 'VENDA_EQUIPAMENTO');
     const wasCatalogPrice =
-      found && Number(item.unitPrice) === catalogPriceFor(found, 'PRODUCT', item.fiscalNature !== 'VENDA_EQUIPAMENTO');
+      found &&
+      Number(item.unitPrice) === catalogPriceForTable(found, tableId, 'PRODUCT', item.fiscalNature !== 'VENDA_EQUIPAMENTO');
     return {
       ...item,
       fiscalNature: nextNature,
       isRecurring: rental,
-      ...(found && wasCatalogPrice ? { unitPrice: catalogPriceFor(found, 'PRODUCT', rental) } : {}),
+      ...(found && wasCatalogPrice
+        ? { unitPrice: catalogPriceForTable(found, tableId, 'PRODUCT', rental) }
+        : {}),
     };
   });
 }
@@ -81,48 +99,117 @@ function skuPrefix(item: ErpProposalItem): string {
   return `${sku} - `;
 }
 
-function formatDiscount(item: ErpProposalItem): string {
-  if (Number(item.discountPercent || 0) > 0) return `${String(item.discountPercent).replace('.', ',')}%`;
-  if (Number(item.discountAmount || 0) > 0) return Number(item.discountAmount).toFixed(2).replace('.', ',');
-  return '';
+function findCatalogForItem(item: ErpProposalItem, catalog: ErpCatalogItem[]): ErpCatalogItem | undefined {
+  const sku = String(item.sku || '').trim();
+  if (!sku) return undefined;
+  return catalog.find((c) => c.gestaoClickCode === sku || c.id === sku || c.gestaoClickId === sku);
 }
 
-function parseNumberBR(raw: string): number {
-  const cleaned = raw.replace(/[^\d,.-]/g, '');
-  if (!cleaned) return 0;
-  const normalized = cleaned.includes(',') ? cleaned.replace(/\./g, '').replace(',', '.') : cleaned;
-  const n = Number(normalized);
-  return Number.isFinite(n) ? Math.max(0, n) : 0;
-}
-
-function DiscountInput({ item, onCommit }: { item: ErpProposalItem; onCommit: (pct: number, amt: number) => void }) {
-  const [text, setText] = useState<string>(() => formatDiscount(item));
+function DecimalInput({
+  value,
+  onCommit,
+  className,
+  min,
+  ariaLabel,
+  textAlign = 'right',
+}: {
+  value: number;
+  onCommit: (n: number) => void;
+  className?: string;
+  min?: number;
+  ariaLabel: string;
+  textAlign?: 'right' | 'center' | 'left';
+}) {
   const [focused, setFocused] = useState(false);
-  const shown = focused ? text : formatDiscount(item);
+  const [text, setText] = useState('');
+  const shown = focused ? text : formatPtBrDecimal(value, 2);
+  const align = textAlign === 'center' ? 'text-center' : textAlign === 'left' ? 'text-left' : 'text-right';
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      aria-label={ariaLabel}
+      value={shown}
+      onFocus={() => {
+        setText(formatPtBrDecimal(value, 2));
+        setFocused(true);
+      }}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+        setFocused(false);
+        const parsed = parsePtBrDecimal(text);
+        const next = min != null ? Math.max(min, parsed) : Math.max(0, parsed);
+        onCommit(next);
+      }}
+      className={`${inputBase} ${align} ${className || ''}`}
+    />
+  );
+}
+
+function DiscountCell({
+  item,
+  onCommit,
+}: {
+  item: ErpProposalItem;
+  onCommit: (patch: { discountType: ProposalDiscountType; discountPercent: number; discountAmount: number }) => void;
+}) {
+  const type = resolveDiscountType(item);
+  const [focused, setFocused] = useState(false);
+  const [text, setText] = useState('');
+  const current = type === 'PERCENT' ? Number(item.discountPercent || 0) : Number(item.discountAmount || 0);
+  const shown = focused ? text : current > 0 ? formatPtBrDecimal(current, 2) : '';
+
+  const commitValue = (raw: string, nextType: ProposalDiscountType) => {
+    const n = parsePtBrDecimal(raw);
+    if (nextType === 'PERCENT') onCommit({ discountType: 'PERCENT', discountPercent: Math.min(100, n), discountAmount: 0 });
+    else onCommit({ discountType: 'BRL', discountPercent: 0, discountAmount: Math.max(0, n) });
+  };
+
   return (
     <div className="flex items-stretch">
-      <span className="inline-flex items-center px-1.5 rounded-l-[3px] border border-r-0 border-[#ced4da] bg-[#e9ecef] text-[12px] text-slate-800">
-        R$
-      </span>
       <input
         type="text"
         inputMode="decimal"
+        aria-label="Desconto"
         value={shown}
-        placeholder="0,00 ou %"
-        title="Valor em R$ ou percentual (ex.: 5%)"
+        placeholder="0,00"
         onFocus={() => {
-          setText(formatDiscount(item));
+          setText(current > 0 ? formatPtBrDecimal(current, 2) : '');
           setFocused(true);
         }}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => {
           setFocused(false);
-          const raw = text.trim();
-          if (raw.endsWith('%')) onCommit(Math.min(100, parseNumberBR(raw)), 0);
-          else onCommit(0, parseNumberBR(raw));
+          commitValue(text, type);
         }}
-        className={`${inputBase} rounded-l-none text-right`}
+        className={`${inputBase} rounded-r-none text-right`}
       />
+      <div className="inline-flex rounded-r-[3px] border border-l-0 border-[#ced4da] overflow-hidden shrink-0">
+        <button
+          type="button"
+          title="Desconto em percentual"
+          aria-label="Desconto em %"
+          aria-pressed={type === 'PERCENT'}
+          onClick={() => commitValue(focused ? text : shown, 'PERCENT')}
+          className={`px-1.5 min-w-[28px] text-[11px] font-semibold cursor-pointer ${
+            type === 'PERCENT' ? 'bg-[#1e3a6e] text-white' : 'bg-white text-slate-700 hover:bg-slate-50'
+          }`}
+        >
+          %
+        </button>
+        <button
+          type="button"
+          title="Desconto em R$"
+          aria-label="Desconto em reais"
+          aria-pressed={type === 'BRL'}
+          onClick={() => commitValue(focused ? text : shown, 'BRL')}
+          className={`px-1.5 min-w-[28px] text-[11px] font-semibold cursor-pointer border-l border-[#ced4da] ${
+            type === 'BRL' ? 'bg-[#1e3a6e] text-white' : 'bg-white text-slate-700 hover:bg-slate-50'
+          }`}
+        >
+          R$
+        </button>
+      </div>
     </div>
   );
 }
@@ -138,10 +225,12 @@ export function ProposalItemsGrid({
 }: ProposalItemsGridProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingRemoveIdx, setPendingRemoveIdx] = useState<number | null>(null);
+  const addPickerWrapRef = useRef<HTMLDivElement | null>(null);
 
   const isProduct = kind === 'PRODUCT';
   const defaultRental = isRentalBudget(budgetType);
   const noun = isProduct ? 'produtos' : 'serviços';
+  const nounSingular = isProduct ? 'produto' : 'serviço';
 
   const rows = items
     .map((item, idx) => ({ item, idx }))
@@ -152,6 +241,9 @@ export function ProposalItemsGrid({
     [catalog, isProduct]
   );
 
+  const computedSubtotal =
+    rows.reduce((s, { item }) => s + lineNetAmount(item), 0) || Number(subtotal || 0);
+
   const patchRow = (idx: number, patch: Partial<ProposalGridItem>) => {
     const copy = [...items];
     copy[idx] = { ...copy[idx], ...patch } as ErpProposalItem;
@@ -160,27 +252,32 @@ export function ProposalItemsGrid({
 
   const buildItem = (found: ErpCatalogItem | null, freeText: string): ErpProposalItem => {
     const id = `item-${isProduct ? 'prd' : 'srv'}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const tables = catalogPriceTables(found, isProduct ? defaultRental : false);
+    const table = tables[0] || { id: PRICE_TABLE_VAREJO, name: 'Varejo', price: 0 };
+    const price = found ? catalogPriceForTable(found, table.id, kind, isProduct ? defaultRental : true) : 0;
     if (isProduct) {
       const rental = defaultRental;
-      const price = found ? catalogPriceFor(found, 'PRODUCT', rental) : 0;
       return {
         id,
         sku: found?.gestaoClickCode || '',
         description: found?.name || freeText,
         itemType: 'PRODUCT',
-        unit: 'UN',
+        unit: found?.unitOfMeasure || 'UN',
         fiscalNature: rental ? 'LOCACAO_BENS_MOVEIS' : 'VENDA_EQUIPAMENTO',
-        ncmOrServiceCode: found?.ncmOrLc116 || 'NCM 8517.62.59',
+        ncmOrServiceCode: found?.ncmOrLc116 || '',
+        details: '',
+        priceTableId: table.id,
+        priceTableName: table.name,
         quantity: 1,
         unitPrice: price,
         discountPercent: 0,
         discountAmount: 0,
+        discountType: 'BRL',
         subtotal: price,
         isRecurring: rental,
         totalMonthly: price,
       };
     }
-    const price = found ? catalogPriceFor(found, 'SERVICE', true) : 0;
     const item: ProposalGridItem = {
       id,
       sku: found?.gestaoClickCode || '',
@@ -189,12 +286,16 @@ export function ProposalItemsGrid({
       unit: 'SV',
       fiscalNature:
         found?.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA' ? 'SERVICO_COMUNICACAO_SCM_SVA' : 'SERVICO_TECNICO_TI_TELECOM',
-      ncmOrServiceCode: found?.ncmOrLc116 || 'LC 116/03 Item 01.07',
+      ncmOrServiceCode: found?.ncmOrLc116 || '',
+      details: '',
+      priceTableId: table.id,
+      priceTableName: table.name,
       serviceKind: defaultServiceKind(budgetType, serviceType),
       quantity: 1,
       unitPrice: price,
       discountPercent: 0,
       discountAmount: 0,
+      discountType: 'BRL',
       subtotal: price,
       isRecurring: budgetType !== 'PRODUTOS' && budgetType !== 'SPARE_PARTS',
       totalMonthly: price,
@@ -202,7 +303,6 @@ export function ProposalItemsGrid({
     return item;
   };
 
-  // Mesma funcao de adicionar do contrato: o CatalogItemPicker chama com o item do catalogo ou o texto livre.
   const appendItem = (found: ErpCatalogItem | null, text: string) => {
     if (!found && !text) return;
     onItemsChange([...items, buildItem(found, text)]);
@@ -210,97 +310,160 @@ export function ProposalItemsGrid({
 
   const removeRow = (idx: number) => onItemsChange(items.filter((_, i) => i !== idx));
 
+  const clearProduct = (idx: number, item: ErpProposalItem) => {
+    patchRow(idx, {
+      sku: '',
+      description: '',
+      details: proposalItemDetails(item) ? item.details : '',
+      unitPrice: 0,
+      subtotal: 0,
+      totalMonthly: 0,
+    });
+  };
+
+  const applyPriceTable = (idx: number, item: ErpProposalItem, tableId: string) => {
+    const found = findCatalogForItem(item, catalog);
+    const tables = catalogPriceTables(found, isProduct ? defaultRental : false);
+    const table = tables.find((t) => t.id === tableId) || tables[0];
+    const price = found
+      ? catalogPriceForTable(found, tableId, kind, isProduct ? defaultRental : true)
+      : Number(item.unitPrice || 0);
+    patchRow(idx, {
+      priceTableId: table?.id || tableId,
+      priceTableName: table?.name,
+      unitPrice: price,
+    });
+  };
+
+  const focusAddPicker = () => {
+    const root = addPickerWrapRef.current;
+    const input = root?.querySelector('input');
+    if (input instanceof HTMLInputElement) {
+      input.focus();
+      input.click();
+    }
+  };
+
   const th = 'py-1.5 px-1.5 text-left text-[12px] font-semibold text-slate-700 whitespace-nowrap';
-  const td = 'py-1 px-1.5 align-top';
+  const td = 'py-1 px-1.5 align-middle';
 
   return (
     <div className="bg-white rounded-md border border-slate-200 shadow-2xs" data-testid={`proposal-grid-${noun}`}>
-      <div className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2.5">
-          {isProduct ? (
-            <Package className="w-5 h-5 text-slate-600" />
-          ) : (
-            <Wrench className="w-5 h-5 text-slate-600" />
-          )}
-          <div className="text-[15px] font-semibold text-slate-900">
-            {isProduct ? 'Produtos' : 'Serviços'}
-          </div>
+      <div className="px-4 py-3 border-b border-slate-200">
+        <div className="text-[15px] font-semibold text-slate-900">
+          {isProduct ? 'Adicione os produtos do orçamento' : 'Adicione os serviços do orçamento'}
         </div>
-        <button
-          type="button"
-          title={`${rows.length} ${noun} no orçamento`}
-          className="p-1.5 rounded text-slate-500 hover:bg-slate-100 cursor-pointer"
-        >
-          <Menu className="w-4 h-4" />
-        </button>
+        <div className="text-[12px] text-slate-500 mt-0.5">
+          {isProduct ? 'Produto' : 'Serviço'}, quantidade, valor e desconto por linha.
+        </div>
       </div>
 
       <div className="px-3 py-2">
         <table className="w-full text-[12px]">
           <thead>
             <tr className="border-b border-slate-200">
-              <th className={`${th} w-[38%] min-w-[240px]`}>{isProduct ? 'Produto' : 'Serviço'}<span className="text-rose-600">*</span></th>
-              <th className={`${th} w-[20%] min-w-[140px]`}>Detalhes</th>
-              <th className={`${th} w-[70px]`}>Quant.<span className="text-rose-600">*</span></th>
-              <th className={`${th} w-[110px]`}>Valor<span className="text-rose-600">*</span></th>
-              <th className={`${th} w-[120px]`}>Desconto</th>
+              <th className={`${th} w-[26%] min-w-[200px]`}>
+                {isProduct ? 'Produto' : 'Serviço'}
+                <span className="text-rose-600">*</span>
+              </th>
+              <th className={`${th} min-w-[110px]`}>Detalhes</th>
+              <th className={`${th} w-[78px]`}>
+                Quant.<span className="text-rose-600">*</span>
+              </th>
+              <th className={`${th} w-[120px]`}>
+                Tipo<span className="text-rose-600">*</span>
+              </th>
+              <th className={`${th} w-[110px]`}>
+                Valor<span className="text-rose-600">*</span>
+              </th>
+              <th className={`${th} w-[148px]`}>Desconto</th>
               <th className={`${th} w-[110px]`}>Subtotal</th>
-              <th className={`${th} w-[64px] text-center`}>Ações</th>
+              <th className={`${th} w-[88px] text-center`}>Ações</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(({ item, idx }) => {
-              const gridItem = item as ProposalGridItem;
+              const found = findCatalogForItem(item, catalog);
+              const tables = catalogPriceTables(found, isProduct ? defaultRental : false);
+              const tableId = inferPriceTableId(item, found, isProduct ? defaultRental : false);
               const isEditing = editingId === item.id;
+              const details = proposalItemDetails(item);
+              const net = lineNetAmount(item);
               return (
                 <React.Fragment key={item.id || idx}>
-                  <tr className="border-b border-slate-100">
+                  <tr className="border-b border-slate-100" data-testid={`proposal-grid-${noun}-row`}>
                     <td className={td}>
-                      <input
-                        type="text"
-                        value={`${skuPrefix(item)}${item.description}`}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          const prefix = skuPrefix(item);
-                          patchRow(idx, { description: prefix && v.startsWith(prefix) ? v.slice(prefix.length) : v });
-                        }}
-                        title={item.description}
-                        className={inputBase}
-                      />
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={`${skuPrefix(item)}${item.description}`}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const prefix = skuPrefix(item);
+                            patchRow(idx, { description: prefix && v.startsWith(prefix) ? v.slice(prefix.length) : v });
+                          }}
+                          title={item.description}
+                          className={`${inputBase} pr-8`}
+                        />
+                        {(item.description || item.sku) && (
+                          <button
+                            type="button"
+                            title="Limpar produto"
+                            aria-label="Limpar produto"
+                            onClick={() => clearProduct(idx, item)}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-slate-500 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className={td}>
                       <input
                         type="text"
-                        value={item.ncmOrServiceCode || ''}
-                        onChange={(e) => patchRow(idx, { ncmOrServiceCode: e.target.value })}
-                        placeholder="Detalhes"
+                        value={details}
+                        onChange={(e) => patchRow(idx, { details: e.target.value })}
+                        placeholder=""
+                        aria-label="Detalhes"
                         className={inputBase}
                       />
                     </td>
                     <td className={td}>
-                      <input
-                        type="number"
+                      <DecimalInput
+                        value={Number(item.quantity || 1)}
                         min={1}
-                        value={item.quantity}
-                        onChange={(e) => patchRow(idx, { quantity: Math.max(1, Number(e.target.value) || 1) })}
-                        className={`${inputBase} text-center`}
+                        ariaLabel="Quantidade"
+                        textAlign="center"
+                        onCommit={(n) => patchRow(idx, { quantity: n })}
                       />
                     </td>
                     <td className={td}>
-                      <input
-                        type="number"
+                      <select
+                        aria-label="Tipo (tabela de preço)"
+                        value={tableId}
+                        onChange={(e) => applyPriceTable(idx, item, e.target.value)}
+                        className={inputBase}
+                      >
+                        {tables.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className={td}>
+                      <DecimalInput
+                        value={Number(item.unitPrice || 0)}
                         min={0}
-                        step="0.01"
-                        value={item.unitPrice}
-                        onChange={(e) => patchRow(idx, { unitPrice: Math.max(0, Number(e.target.value) || 0) })}
-                        className={`${inputBase} text-right`}
+                        ariaLabel="Valor"
+                        onCommit={(n) => patchRow(idx, { unitPrice: n })}
                       />
                     </td>
                     <td className={td}>
-                      <DiscountInput
-                        key={`${item.id}-${item.discountPercent}-${item.discountAmount}`}
+                      <DiscountCell
+                        key={`${item.id}-${item.discountType}-${item.discountPercent}-${item.discountAmount}`}
                         item={item}
-                        onCommit={(pct, amt) => patchRow(idx, { discountPercent: pct, discountAmount: amt })}
+                        onCommit={(patch) => patchRow(idx, patch)}
                       />
                     </td>
                     <td className={td}>
@@ -308,32 +471,41 @@ export function ProposalItemsGrid({
                         type="text"
                         readOnly
                         tabIndex={-1}
-                        value={formatBRL(item.subtotal ?? item.totalMonthly)}
-                        className={`${inputBase} text-right bg-[#e9ecef] text-slate-600 cursor-default`}
+                        aria-label="Subtotal"
+                        value={formatPtBrDecimal(net, 2)}
+                        className={`${inputBase} text-right bg-slate-50 text-slate-700 cursor-default`}
                       />
                     </td>
                     <td className={`${td} text-center whitespace-nowrap`}>
-                      <button
-                        type="button"
-                        title="Editar detalhes"
-                        onClick={() => setEditingId(isEditing ? null : item.id)}
-                        className={`p-1.5 rounded cursor-pointer ${isEditing ? 'bg-[#1b2559] text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        title="Remover"
-                        onClick={() => setPendingRemoveIdx(idx)}
-                        className="p-1.5 rounded text-rose-600 hover:bg-rose-50 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          type="button"
+                          title="Editar produto"
+                          aria-label="Editar produto"
+                          onClick={() => setEditingId(isEditing ? null : item.id)}
+                          className={`inline-flex items-center justify-center w-7 h-7 rounded border cursor-pointer ${
+                            isEditing
+                              ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]'
+                              : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Excluir"
+                          aria-label="Excluir"
+                          onClick={() => setPendingRemoveIdx(idx)}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded border border-rose-300 bg-white text-rose-600 hover:bg-rose-50 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   {isEditing && (
                     <tr className="border-b border-slate-100 bg-slate-50/70">
-                      <td colSpan={7} className="px-2 py-2">
+                      <td colSpan={8} className="px-2 py-2">
                         <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-[11px] text-slate-600">
                           <label className="space-y-0.5">
                             <span>Código / SKU</span>
@@ -344,7 +516,16 @@ export function ProposalItemsGrid({
                               className={`${inputBase} font-mono`}
                             />
                           </label>
-                          <label className="space-y-0.5 sm:col-span-2">
+                          <label className="space-y-0.5">
+                            <span>NCM / código fiscal</span>
+                            <input
+                              type="text"
+                              value={item.ncmOrServiceCode || ''}
+                              onChange={(e) => patchRow(idx, { ncmOrServiceCode: e.target.value })}
+                              className={inputBase}
+                            />
+                          </label>
+                          <label className="space-y-0.5">
                             <span>Descrição</span>
                             <input
                               type="text"
@@ -371,49 +552,45 @@ export function ProposalItemsGrid({
                 </React.Fragment>
               );
             })}
-
-            {/* Linha vazia sempre pronta (autocomplete do catalogo) */}
-            <tr>
-              <td className={td}>
-                <CatalogItemPicker
-                  catalog={pool}
-                  testIdPrefix={`proposal-grid-${noun}`}
-                  priceFor={(c) => catalogPriceFor(c, kind, isProduct ? defaultRental : true)}
-                  onAdd={appendItem}
-                />
-              </td>
-              <td className={td}>
-                <input type="text" disabled placeholder="Detalhes" className={`${inputBase} opacity-70`} />
-              </td>
-              <td className={td}>
-                <input type="text" disabled value="" className={`${inputBase} opacity-70`} />
-              </td>
-              <td className={td}>
-                <input type="text" disabled className={`${inputBase} opacity-70`} />
-              </td>
-              <td className={td}>
-                <input type="text" disabled placeholder="R$" className={`${inputBase} opacity-70`} />
-              </td>
-              <td className={td}>
-                <input type="text" disabled className={`${inputBase} opacity-70`} />
-              </td>
-              <td className={td} />
-            </tr>
           </tbody>
         </table>
 
-        <div className="flex justify-end pt-2 mt-1 border-t border-slate-100 text-[12px] text-slate-600">
-          <span>
-            Subtotal {isProduct ? 'produtos' : 'serviços'} ({rows.length}):{' '}
-            <span className="font-semibold text-[#1b2559] text-[13px]">{formatBRL(subtotal || 0)}</span>
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 mt-1 border-t border-slate-200">
+          <div className="flex items-center gap-2 min-w-[240px] flex-1" ref={addPickerWrapRef}>
+            <button
+              type="button"
+              onClick={focusAddPicker}
+              data-testid={`proposal-grid-${noun}-add`}
+              className="inline-flex items-center gap-1 px-2.5 h-8 rounded-[3px] border border-[#1e3a6e] text-[#1e3a6e] bg-white hover:bg-slate-50 text-[12px] font-semibold cursor-pointer shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Adicionar {nounSingular}
+            </button>
+            <div className="flex-1 min-w-[180px] max-w-sm">
+              <CatalogItemPicker
+                catalog={pool}
+                testIdPrefix={`proposal-grid-${noun}`}
+                priceFor={(c) => catalogPriceForTable(c, PRICE_TABLE_VAREJO, kind, isProduct ? defaultRental : true)}
+                onAdd={appendItem}
+                placeholder="Digite para buscar"
+                inputClassName="w-full h-8 px-2 rounded-[3px] border border-[#ced4da] bg-white text-[12px] text-slate-800 focus:outline-none focus:border-[#1e3a6e] focus:ring-1 focus:ring-[#1e3a6e]/20"
+              />
+            </div>
+          </div>
+          <div
+            className="text-right text-[13px] font-semibold text-[#1e3a6e]"
+            data-testid={`proposal-grid-${noun}-total`}
+          >
+            Total de {noun}{' '}
+            <span className="text-[16px] font-semibold tracking-tight">{formatPtBrMoney(computedSubtotal)}</span>
+          </div>
         </div>
       </div>
 
       {pendingRemoveIdx !== null && (
         <div className="fixed inset-0 z-[80] bg-slate-900/50 flex items-center justify-center p-4" data-testid="confirm-delete-proposal-product">
           <div className="bg-white rounded-lg border border-slate-200 shadow-xl max-w-sm w-full p-5 space-y-3">
-            <h4 className="text-sm font-semibold text-slate-900">Excluir produto?</h4>
+            <h4 className="text-sm font-semibold text-slate-900">Excluir {nounSingular}?</h4>
             {rows.filter(({ idx }) => idx !== pendingRemoveIdx).length < 1 && (
               <p className="text-xs font-semibold text-slate-600">A proposta precisa de pelo menos um item.</p>
             )}

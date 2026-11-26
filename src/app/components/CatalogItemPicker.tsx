@@ -30,6 +30,8 @@ export interface CatalogItemPickerProps {
   disabled?: boolean;
   invalid?: boolean;
   maxResults?: number;
+  /** Sobrescreve o estilo do campo (a grade do orçamento usa fundo branco). */
+  inputClassName?: string;
 }
 
 /**
@@ -47,6 +49,7 @@ export function CatalogItemPicker({
   disabled = false,
   invalid = false,
   maxResults = 8,
+  inputClassName,
 }: CatalogItemPickerProps) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -105,7 +108,7 @@ export function CatalogItemPicker({
             setOpen(false);
           }
         }}
-        className={`${CATALOG_GRID_INPUT} ${invalid ? 'border-rose-500' : ''}`}
+        className={`${inputClassName || CATALOG_GRID_INPUT} ${invalid ? 'border-rose-500' : ''}`}
       />
       {open && !disabled && (query.trim() || matches.length > 0) && (
         <div

@@ -2281,9 +2281,11 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(gridSrc.includes('Produtos') || gridSrc.includes('Serviços') || gridSrc.includes('do orçamento'));
     assert.ok(gridSrc.includes('bg-[#1b2559] text-white'), 'linha destacada navy no autocomplete');
     assert.ok(gridSrc.includes('Adicionar novo'));
-    assert.ok(gridSrc.includes('bg-[#e9ecef]'));
-    // Sem coluna Tipo*: natureza derivada do Tipo de Orcamento da proposta
-    assert.equal(gridSrc.includes('Tipo<span'), false, 'coluna Tipo* removida');
+    assert.ok(gridSrc.includes('Adicionar {nounSingular}'));
+    assert.ok(gridSrc.includes('Total de {noun}'));
+    assert.ok(gridSrc.includes('tabela de preço'));
+    // Coluna Tipo* = tabela de preço (Varejo / Atacado), não mais a natureza fiscal da linha.
+    assert.ok(gridSrc.includes('Tipo<span'), 'coluna Tipo* (tabela de preço) presente');
     assert.equal(gridSrc.includes('<option value="VENDA">Venda</option>'), false);
     assert.ok(modalsSrc.includes('applyBudgetTypeToItems(merged.items, merged.budgetType, merged.serviceType, catalog)'));
   });
