@@ -75,7 +75,7 @@ describe('Listas auxiliares no banco (centro de custo e plano de contas)', () =>
     assert.equal(renamed?.label, 'CENTRO EDITADO');
     await assert.rejects(() => store.create('costCenters', 'centro editado'), /Já existe/);
     const fallback = await loadAuxListsOrSeed(
-      { list: async () => { throw new Error('db down'); }, create: async () => { throw new Error('db down'); }, update: async () => null, delete: async () => null }
+      { list: async () => { throw new Error('db down'); }, create: async () => { throw new Error('db down'); }, update: async () => null, delete: async () => null, reorder: async () => [] }
     );
     assert.deepEqual(
       fallback.costCenters.map((i) => i.label),

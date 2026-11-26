@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
+import ContactFieldSelect from './ContactFieldSelect';
+import { CONTACT_DEPARTMENT_KIND, CONTACT_POSITION_KIND } from '../lib/contact-field-lists';
 import { useErpConfigAccess } from './useErpConfigAccess';
 import {
   Mail,
@@ -1243,8 +1245,14 @@ export default function AdminSettingsCenterTab({
                     <input type="email" value={selectedUserProfile.email} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, email: e.target.value })} className="w-full px-3 py-2 rounded border border-slate-300 font-mono" />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Departamento</label>
-                    <input type="text" value={selectedUserProfile.department} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, department: e.target.value })} className="w-full px-3 py-2 rounded border border-slate-300" />
+                    <label className="block font-semibold text-slate-700 mb-1">Área</label>
+                    <ContactFieldSelect
+                      kind={CONTACT_DEPARTMENT_KIND}
+                      value={selectedUserProfile.department || ''}
+                      onChange={(department) => setSelectedUserProfile({ ...selectedUserProfile, department })}
+                      ariaLabel="Área"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-sm"
+                    />
                   </div>
                 </div>
 
@@ -1411,12 +1419,23 @@ export default function AdminSettingsCenterTab({
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-700 mb-1">Cargo / Departamento</label>
-                        <input
-                          type="text"
+                        <label className="block font-semibold text-slate-700 mb-1">Área</label>
+                        <ContactFieldSelect
+                          kind={CONTACT_DEPARTMENT_KIND}
                           value={newUserDept}
-                          onChange={(e) => setNewUserDept(e.target.value)}
-                          className="w-full px-3 py-2 rounded border border-slate-300"
+                          onChange={setNewUserDept}
+                          ariaLabel="Área"
+                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1">Posição</label>
+                        <ContactFieldSelect
+                          kind={CONTACT_POSITION_KIND}
+                          value={newUserJobTitle}
+                          onChange={setNewUserJobTitle}
+                          ariaLabel="Posição"
+                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-sm"
                         />
                       </div>
                     </div>

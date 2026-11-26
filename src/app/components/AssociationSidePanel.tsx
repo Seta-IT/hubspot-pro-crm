@@ -8,6 +8,8 @@
  * associa) e "Criar e adicionar outro". Esc fecha.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import ContactFieldSelect from './ContactFieldSelect';
+import { CONTACT_DEPARTMENT_KIND, CONTACT_POSITION_KIND } from '../lib/contact-field-lists';
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import {
   ASSOCIATION_LABELS,
@@ -374,7 +376,17 @@ export default function AssociationSidePanel({
               return (
                 <label key={fd.key} className={`block ${enabled ? '' : 'opacity-40'}`}>
                   <span className="block text-sm font-semibold text-slate-800 mb-1">{fd.label}</span>
-                  {fd.options ? (
+                  {fd.key === 'jobTitle' || fd.key === 'department' ? (
+                    <ContactFieldSelect
+                      kind={fd.key === 'jobTitle' ? CONTACT_POSITION_KIND : CONTACT_DEPARTMENT_KIND}
+                      value={values[fd.key] || ''}
+                      onChange={(next) => setValues((v) => ({ ...v, [fd.key]: next }))}
+                      disabled={!enabled}
+                      ariaLabel={fd.label}
+                      testId={`assoc-create-${kind}-${fd.key}`}
+                      className="w-full px-3 py-2 rounded-md border border-slate-300 bg-white text-sm text-slate-800 disabled:bg-slate-50"
+                    />
+                  ) : fd.options ? (
                     <select
                       disabled={!enabled}
                       value={values[fd.key] || ''}
