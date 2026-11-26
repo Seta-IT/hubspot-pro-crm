@@ -15,6 +15,7 @@ import type {
 } from '../../db/types';
 import { displayPaymentConditionText, proposalPaymentMethodLabel } from './proposal-payment-method';
 import { proposalItemDetails } from './proposal-item-grid';
+import { displayShippingCarrier } from './proposal-shipping-carrier';
 
 export interface PublicProposalItemDto {
   description: string;
@@ -187,7 +188,7 @@ export function toPublicProposalDto(p: ErpCommercialProposal): PublicProposalDto
     deliveryLeadTime: optStr(p.deliveryLeadTime),
     deliveryForecast: optStr(p.deliveryForecast),
     deliveryDays: optNum(p.deliveryDays),
-    shippingCarrier: optStr(p.shippingCarrier),
+    shippingCarrier: optStr(displayShippingCarrier(p.shippingCarrier)),
     slaTier: optStr(p.slaTier),
     slaResponseHours: optNum(p.slaResponseHours),
     slaAvailabilityPercent: optStr(p.slaAvailabilityPercent),

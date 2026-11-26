@@ -67,6 +67,7 @@ import {
   resolveProposalCommercialPresentation,
 } from '../../lib/proposal-share';
 import { clientProposalIntroduction } from '../../lib/proposal-title';
+import { displayShippingCarrier } from '../../lib/proposal-shipping-carrier';
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
 import { copySignedProposalVersionLink } from '../../lib/proposal-link-client';
@@ -2168,9 +2169,9 @@ function PublicProposalPrintContent() {
               <strong className="text-sm font-semibold text-slate-900">
                 {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
               </strong>
-              {proposal.shippingCarrier && (
+              {displayShippingCarrier(proposal.shippingCarrier) && (
                 <span className="block text-[10px] text-slate-500 truncate">
-                  {proposal.shippingCarrier}
+                  {displayShippingCarrier(proposal.shippingCarrier)}
                 </span>
               )}
             </div>
