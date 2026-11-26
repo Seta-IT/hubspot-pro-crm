@@ -501,6 +501,14 @@ let resendKeyFormatWarned = false;
  * a chave salva no painel administrativo. Formato invalido e registrado so no log.
  */
 /** NODE_ENV=test, VITEST ou JEST: nunca usar chave Resend real (so dummies "re_test_..." com fetch mockado). */
+/**
+ * Assunto do e-mail de codigo OTP/MFA (login, reenvio e reverificacao em Minha Conta).
+ * O codigo vem primeiro para ser lido na notificacao, sem abrir o e-mail (pedido 26/11/2026).
+ */
+export function buildEmailOtpSubject(otpCode: string): string {
+  return `${String(otpCode || '').trim()} é seu código de acesso STI HUB`;
+}
+
 export function isTestRuntime(): boolean {
   if (typeof process === 'undefined' || !process.env) return false;
   return process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST) || Boolean(process.env.JEST_WORKER_ID);
@@ -3812,7 +3820,7 @@ export class CrmApiRouter {
     const smtpPass = (process.env.SMTP_PASS || secCfg?.smtpPass || "").trim();
     const configuredFrom = resolveTransactionalEmailFrom(secCfg?.fromEmail);
 
-    const subject = `[STI-hub • Seta Telecom] Código de Verificação 2FA: ${params.otpCode}`;
+    const subject = buildEmailOtpSubject(params.otpCode);
     const textBody = `Olá, ${params.userName},\n\nSeu código de autenticação multifator (2FA) para acesso ao STI-hub (Seta Telecom LTDA) é:\n\n>>> ${params.otpCode} <<<\n\nValidade: 5 minutos (até ${new Date(params.expiresAt).toLocaleTimeString("pt-BR")}).\nProtocolo: ${protocol}\n\nSe você não solicitou este código, contate imediatamente a equipe de Segurança & Compliance (CISO).`;
 
     // 1. Try Resend HTTP API if RESEND_API_KEY is configured
