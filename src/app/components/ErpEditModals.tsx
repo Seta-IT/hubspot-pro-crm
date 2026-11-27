@@ -61,6 +61,7 @@ import {
 } from '../../modules/data-health/validators';
 import { buildProposalInstallments, buildProposalVersionShortUrl, computeProposalTotals, isAvulsoServiceProposal, PROPOSAL_DELIVERY_SUGGESTIONS, PROPOSAL_SERVICE_PILL_OPTIONS, PROPOSAL_SERVICE_TYPE_OPTIONS, PROPOSAL_SLA_OPTIONS, PROPOSAL_TEMPLATE_STYLE_OPTIONS, proposalHidesFreight, proposalSetupFeeLabel, readablePaymentCondition, resolveProposalDeliveryLeadTime, resolveProposalLayoutKind, resolveProposalSellerContact, resolveProposalServiceType, resolveProposalSlaOption } from '../lib/proposal-share';
 import { proposalStatusChoices } from '../lib/proposal-status';
+import { PROPOSAL_SHIPPING_CARRIER_OPTIONS, shippingCarrierSelectValue } from '../lib/proposal-shipping-carrier';
 import {
   applyProposalCommercialNotesDefault,
   commercialNoteFromDefaults,
@@ -103,6 +104,7 @@ import {
 } from '../lib/proposal-validity';
 import { BrDateInput } from './BrDateInput';
 import { AppSelect } from './AppSelect';
+import PhoneInput from './PhoneInput';
 
 // 1. PROPOSAL FULL EDITOR MODAL (EXACT GESTÃOCLICK "NOVO / EDITAR ORÇAMENTO" COMPLETE LAYOUT)
 export function ProposalEditModal({
@@ -1194,12 +1196,10 @@ export function ProposalEditModal({
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                     WhatsApp do Vendedor
                   </label>
-                  <input
-                    type="text"
-                    placeholder="(11) 99999-4929"
+                  <PhoneInput
+                    kind="mobile"
                     value={draft.sellerPhone || resolveProposalSellerContact(draft).phone}
-                    onChange={(e) => updateDraft({ sellerPhone: e.target.value })}
-                    className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
+                    onChange={(v) => updateDraft({ sellerPhone: v })}
                   />
                 </div>
 
@@ -1427,15 +1427,10 @@ export function ProposalEditModal({
                 </label>
                 <AppSelect
                   ariaLabel="Transportadora"
-                  value={draft.shippingCarrier || 'Frota Própria Seta Telecom'}
+                  value={shippingCarrierSelectValue(draft.shippingCarrier)}
                   onChange={(v) => updateDraft({ shippingCarrier: v })}
                   className="w-full px-3 py-2 rounded border border-slate-300 bg-white"
-                  options={[
-                    { value: 'Frota Própria Seta Telecom', label: 'Frota Própria Seta Telecom (Técnico)' },
-                    { value: 'Correios / SEDEX', label: 'Correios / SEDEX Empresarial' },
-                    { value: 'Transportadora Braspress', label: 'Transportadora Braspress' },
-                    { value: 'Sem Frete (Digital/Remoto)', label: 'Sem Frete (Ativação Remota / Cloud)' },
-                  ]}
+                  options={[...PROPOSAL_SHIPPING_CARRIER_OPTIONS]}
                 />
               </div>
               <div className="sm:col-span-2">
@@ -2290,12 +2285,10 @@ export function ProposalEditModal({
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">Telefone ou WhatsApp</label>
-                    <input
-                      type="text"
+                    <PhoneInput
+                      kind="phone"
                       value={qcPhone}
-                      onChange={(e) => setQcPhone(formatBrPhoneMask(e.target.value))}
-                      placeholder="(11) 90000-0000"
-                      className="w-full px-3 py-2 rounded border border-slate-300"
+                      onChange={(v) => setQcPhone(v)}
                     />
                   </div>
                   <div>

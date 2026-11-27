@@ -5,23 +5,13 @@
 import http from 'node:http';
 import { BRIDGE_RESERVED_KEYS, CrmApiRouter } from './router';
 import { requestBodyCapFor } from '../app/lib/request-body-cap';
-
-const ALLOWED_CORS_ORIGINS = new Set([
-  'https://sti-hub.vercel.app',
-  'https://stihub.setatelecom.com.br',
-  'https://erp.setatelecom.com.br',
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://127.0.0.1:3000',
-]);
+import { corsAllowOrigin } from '../lib/platform';
 
 export function createCrmHttpServer(router = new CrmApiRouter()) {
   return http.createServer(async (req, res) => {
-    const reqOrigin = req.headers.origin || '';
-    const allowedOrigin = ALLOWED_CORS_ORIGINS.has(reqOrigin)
-      ? reqOrigin
-      : 'https://sti-hub.vercel.app';
-    res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+    const reqOrigin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : (req.headers.origin || '');
+    const allowedOrigin = corsAllowOrigin(reqOrigin);
+    if (allowedOrigin) res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-stihub-session');

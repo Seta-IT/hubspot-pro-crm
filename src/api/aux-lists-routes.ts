@@ -134,5 +134,5 @@ export async function handleAuxListsRoute(
 }
 
 export function labelsFromAuxLists(kind: AuxListKind, items: AuxListItem[]): string[] {
-  return groupAuxListItems(items)[kind].map((i) => i.label);
+  return items.filter((i) => i.kind === kind).map((i) => i.label);
 }

@@ -1,6 +1,8 @@
 'use client';
 
 import { CannotDeleteModal } from './CannotDeleteModal';
+import ContactFieldSelect from './ContactFieldSelect';
+import { CONTACT_DEPARTMENT_KIND, CONTACT_POSITION_KIND } from '../lib/contact-field-lists';
 
 import React, { useState, useEffect } from 'react';
 import { Sparkles, CheckCircle2, X, Zap, Pencil, Save, Trash2 } from 'lucide-react';
@@ -18,6 +20,7 @@ import { CrmTask } from '../../db/types';
 import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEmailAndTasksPanel';
 import CrmRecordAuditHistory from './CrmRecordAuditHistory';
 import CrmRecordEmailSection from './email/CrmRecordEmailSection';
+import { displayContactEmail, contactEmailForRead } from '../../modules/data-health/invented-contact-email';
 import {
   BUYING_ROLE_OPTIONS,
   SETA_OWNER_OPTIONS,
@@ -29,7 +32,9 @@ import {
   getIcpTierBadge,
   getLifecycleBadge,
 } from './ui-helpers';
+import PhoneInput from './PhoneInput';
 
+import { formatPhoneForDisplay } from '../lib/phone-format';
 export interface DetailedContactResponse extends Contact {
   company: Company | null;
   deals: Deal[];
@@ -93,6 +98,7 @@ export default function ContactDetailDrawer({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [jobTitle, setJobTitle] = useState('');
+  const [department, setDepartment] = useState('');
   const [companyId, setCompanyId] = useState('');
   const [lifecycleStage, setLifecycleStage] = useState<LifecycleStage>('LEAD');
   const [leadStatus, setLeadStatus] = useState<LeadStatus>('NEW');
@@ -117,9 +123,10 @@ export default function ContactDetailDrawer({
     if (contactDetail) {
       setFirstName(contactDetail.firstName || '');
       setLastName(contactDetail.lastName || '');
-      setEmail(contactDetail.email || '');
+      setEmail(contactEmailForRead(contactDetail.email));
       setPhone(contactDetail.phone || '');
       setJobTitle(contactDetail.jobTitle || '');
+      setDepartment(contactDetail.department || '');
       setCompanyId(contactDetail.companyId || '');
       setLifecycleStage(contactDetail.lifecycleStage || 'LEAD');
       setLeadStatus(contactDetail.leadStatus || 'NEW');
@@ -141,7 +148,7 @@ export default function ContactDetailDrawer({
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!contactDetail || !firstName.trim() || !email.trim()) return;
+    if (!contactDetail || !firstName.trim()) return;
     setSavingEdit(true);
     try {
       // Pacote I: campo vazio ou sem mudanca => ownerName omitido (o servidor mantem o atual).
@@ -153,6 +160,7 @@ export default function ContactDetailDrawer({
         email: email.trim(),
         phone: phone.trim() || null,
         jobTitle: jobTitle.trim() || null,
+        department: department.trim() || null,
         companyId: companyId || null,
         lifecycleStage,
         leadStatus,
@@ -337,11 +345,10 @@ export default function ContactDetailDrawer({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
                       <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
-                        E-mail Corporativo *
+                        E-mail Corporativo
                       </label>
                       <input
                         type="email"
-                        required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
@@ -351,12 +358,10 @@ export default function ContactDetailDrawer({
                       <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Telefone / WhatsApp
                       </label>
-                      <input
-                        type="text"
+                      <PhoneInput
+                        kind="phone"
                         value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="(11) 98888-7766"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
+                        onChange={(v) => setPhone(v)}
                       />
                     </div>
                   </div>
@@ -364,16 +369,33 @@ export default function ContactDetailDrawer({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
                       <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
-                        Cargo Executivo
+                        Posição
                       </label>
-                      <input
-                        type="text"
+                      <ContactFieldSelect
+                        kind={CONTACT_POSITION_KIND}
                         value={jobTitle}
-                        onChange={(e) => setJobTitle(e.target.value)}
-                        placeholder="Ex: Diretor de TI / CTO"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 focus:outline-none focus:border-accent"
+                        onChange={setJobTitle}
+                        ariaLabel="Posição"
+                        testId="contact-edit-position"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900"
                       />
                     </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
+                        Área
+                      </label>
+                      <ContactFieldSelect
+                        kind={CONTACT_DEPARTMENT_KIND}
+                        value={department}
+                        onChange={setDepartment}
+                        ariaLabel="Área"
+                        testId="contact-edit-department"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     <div>
                       <label className="block text-[11px] font-semibold uppercase text-slate-600 mb-1">
                         Empresa Vinculada
@@ -659,7 +681,7 @@ export default function ContactDetailDrawer({
                   <div>
                     <span className="text-slate-400 block">E-mail</span>
                     <span className="font-semibold text-slate-800 break-all">
-                      {contactDetail.email}
+                      {displayContactEmail(contactDetail.email)}
                     </span>
                     <span
                       className={`inline-block mt-0.5 text-[10px] font-semibold ${
@@ -677,7 +699,7 @@ export default function ContactDetailDrawer({
                   <div>
                     <span className="text-slate-400 block">Telefone (Padrão E.164)</span>
                     <span className="font-semibold text-slate-800">
-                      {contactDetail.phone || 'Não informado'}
+                      {contactDetail.phone ? formatPhoneForDisplay(contactDetail.phone) : 'Não informado'}
                     </span>
                     {contactDetail.normalizedPhone && (
                       <span className="block text-[10px] text-emerald-600 font-medium">
@@ -817,7 +839,7 @@ export default function ContactDetailDrawer({
               <CrmRecordEmailSection
                 record={{ contactId: contactDetail.id, companyId: contactDetail.companyId || null }}
                 recordKind="contact"
-                defaultTo={contactDetail.email}
+                defaultTo={contactEmailForRead(contactDetail.email)}
                 recordLabel={`${contactDetail.firstName || ''} ${contactDetail.lastName || ''}`.trim() || contactDetail.email}
                 suggestions={
                   contactDetail.companyId

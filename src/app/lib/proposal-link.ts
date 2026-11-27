@@ -16,6 +16,7 @@
 //    pelo link (o link continua valendo para leitura).
 // ============================================================================
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { isSecretProductionRuntime, parseHttpOrigin, resolveConfiguredPublicOrigin } from '../../lib/platform';
 import { z } from 'zod';
 import { SlidingWindowRateLimiter } from '../../api/password-reset';
 export { proposalValidUntilEndMs, isProposalValidityExpired, isProposalEffectiveValidityExpired, effectiveProposalValidUntil, proposalLinkNotAfterMs, proposalExpiredRevalidationMessage, PROPOSAL_EXPIRED_REVALIDATION_MESSAGE, formatProposalValidUntilPtBr } from './proposal-validity';
@@ -38,10 +39,7 @@ export function proposalNotFoundResponse(): { status: 404; body: { error: string
 }
 
 function isProductionRuntime(): boolean {
-  if (typeof process === 'undefined' || !process.env) return false;
-  const vercelEnv = String(process.env.VERCEL_ENV || '').toLowerCase();
-  if (vercelEnv === 'production' || vercelEnv === 'preview') return true;
-  return process.env.NODE_ENV === 'production' && process.env.STI_HUB_ALLOW_DEV_SECRET !== 'true';
+  return isSecretProductionRuntime();
 }
 
 /** Segredo do link ou null (fail-closed em producao/preview). Nunca registrado. */
@@ -236,22 +234,10 @@ export { redactProposalLinkTokens, deepRedactProposalLinkTokens, PROPOSAL_LINK_T
  * Origem do link assinado (checagem final v4, 01/11/2026): STI_HUB_PUBLIC_ORIGIN quando
  * configurado e valido (http/https absoluto; so a origem, sem caminho/consulta/fragmento), para
  * o link nao depender do host da requisicao (Preview, alias, Host forjado). Sem o env (ou
- * invalido) => origem da requisicao; sem ela => https://sti-hub.vercel.app.
+ * invalido) => origem da requisicao; sem ela => string vazia (sem dominio fixo de fallback).
  */
 export function resolveProposalLinkOrigin(requestOrigin?: string | null): string {
-  const pick = (raw: unknown): string | null => {
-    const v = typeof raw === 'string' ? raw.trim() : '';
-    if (!v) return null;
-    try {
-      const u = new URL(v);
-      if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
-      if (u.username || u.password) return null;
-      return u.origin;
-    } catch {
-      return null;
-    }
-  };
-  return pick(process.env.STI_HUB_PUBLIC_ORIGIN) || pick(requestOrigin) || 'https://sti-hub.vercel.app';
+  return resolveConfiguredPublicOrigin() || parseHttpOrigin(requestOrigin) || '';
 }
 
 /**

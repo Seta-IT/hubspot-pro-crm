@@ -4,10 +4,11 @@
 // Uso: npm run db:migrate:setadesk   (requer DATABASE_URL no ambiente)
 // ============================================================================
 
-import { closePostgresPool, getPostgresPool, isPostgresEnabled } from './postgres';
+import { closePostgresPool, getPostgresPool, isPostgresEnabled, useDirectDatabaseUrlForMigrations } from './postgres';
 import { applySetaDeskMigrations, SETADESK_MIGRATIONS } from './setadesk-schema';
 
 async function main() {
+  useDirectDatabaseUrlForMigrations();
   if (!isPostgresEnabled()) {
     console.error('[SetaDesk] DATABASE_URL nao definida; nada a migrar.');
     process.exitCode = 1;

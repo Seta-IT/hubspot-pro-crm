@@ -28,6 +28,7 @@ export {
   resolveDealPlacementForProposal,
   funnelLabelForBudgetType,
 } from './proposal-deal-link';
+import { dealTitleFromProposal } from '../../app/lib/proposal-title';
 
 export type LinkProposalToCrmDealResult = {
   proposal: ErpCommercialProposal;
@@ -143,13 +144,18 @@ function attachmentFieldsForProposal(
 }
 
 function findExistingDeal(repo: CrmRepository, proposal: ErpCommercialProposal): Deal | undefined {
-  if (proposal.dealId) {
-    const byId = repo.getDealById(proposal.dealId);
-    if (byId) return byId;
-  }
   const byProposal = repo.findDealByProposalId(proposal.id);
   if (byProposal) return byProposal;
-  return repo.listDeals().find((d) => dealLinkedProposalId(d) === proposal.id);
+  const listed = repo.listDeals().find((d) => dealLinkedProposalId(d) === proposal.id);
+  if (listed) return listed;
+  if (proposal.dealId) {
+    const byId = repo.getDealById(proposal.dealId);
+    const linked = byId ? dealLinkedProposalId(byId) : null;
+    // Só reaproveita se o negócio já é desta proposta (ou ainda não tem proposta).
+    // dealId herdado de uma cópia não pode reapontar o negócio original.
+    if (byId && (!linked || linked === proposal.id)) return byId;
+  }
+  return undefined;
 }
 
 /** CISO: resposta neutra para negocio fora do escopo (nada de titulo, valor, etapa ou datas). */
@@ -359,7 +365,7 @@ export function linkProposalToCrmDeal(
   // para não inscrever o follow-up automático: a proposta ainda não foi enviada.
   const placement = resolveDealPlacementForProposal(repo.listPipelines(), proposal.budgetType);
   const createdDeal = repo.getOrCreateDealForProposal(proposal.id, {
-    title: String(proposal.title || proposal.code || 'Proposta comercial').trim(),
+    title: dealTitleFromProposal(proposal),
     value,
     mrr: Number(proposal.monthlyRecurringTotal || 0) || undefined,
     contractMonths: Number(proposal.contractMonths || 24),

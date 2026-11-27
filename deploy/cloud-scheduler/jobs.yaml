@@ -1,0 +1,49 @@
+# Cloud Scheduler jobs for STI-hub (Google Cloud, southamerica-east1).
+# Horarios iguais ao vercel.json. O cron da Vercel e sempre UTC; o time zone
+# e declarado explicitamente como UTC para preservar os mesmos instantes.
+#
+# Nao aplicar automaticamente. Uso:
+#   STI_HUB_PUBLIC_ORIGIN=https://sti-hub.setatelecom.com.br \
+#   CRON_SECRET=... \
+#   GCP_PROJECT=... \
+#   GCP_REGION=southamerica-east1 \
+#   bash deploy/cloud-scheduler/apply.sh
+#
+# Autenticacao: Authorization: Bearer ${CRON_SECRET} (o mesmo segredo que as
+# rotas /api/cron/* e o daily-sync validam em tempo constante, fail-closed).
+
+timeZone: UTC
+httpMethod: GET
+headers:
+  Authorization: Bearer ${CRON_SECRET}
+
+jobs:
+  - name: sti-hub-erp-daily-sync
+    description: Sync diario ERP (GestaoClick)
+    schedule: "0 12 * * *"
+    uriPath: /api/erp/daily-sync
+
+  - name: sti-hub-crm-proposal-followup
+    description: Follow-up de propostas (dias uteis)
+    schedule: "0 12 * * 1-5"
+    uriPath: /api/crm/proposal-followup
+
+  - name: sti-hub-tickets-email-intake-poll
+    description: Poll de e-mail do Setadesk
+    schedule: "*/10 * * * *"
+    uriPath: /api/tickets/email-intake/poll
+
+  - name: sti-hub-cron-sequences
+    description: Executor das cadencias (dias uteis)
+    schedule: "*/15 * * * 1-5"
+    uriPath: /api/cron/sequences
+
+  - name: sti-hub-cron-marketing
+    description: Fila das campanhas
+    schedule: "*/5 * * * *"
+    uriPath: /api/cron/marketing
+
+  - name: sti-hub-cron-workflows
+    description: Automacoes (workflows)
+    schedule: "*/5 * * * *"
+    uriPath: /api/cron/workflows

@@ -10,6 +10,7 @@ import {
   getPostgresPool,
   isPostgresEnabled,
   loadStateFromPostgres,
+  useDirectDatabaseUrlForMigrations,
 } from './postgres';
 import { getRepository } from './repository';
 import { applySetaDeskMigrations } from './setadesk-schema';
@@ -19,6 +20,7 @@ import { ensureProposalNoteDefaultsSchema } from '../modules/erp/proposal-note-d
 import { ensureErpTablesSchema } from './erp-tables-registry';
 
 async function main() {
+  useDirectDatabaseUrlForMigrations();
   const args = process.argv.slice(2);
   const forceReset = args.includes('--reset') || args.includes('--seed');
 

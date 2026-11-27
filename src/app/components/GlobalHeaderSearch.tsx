@@ -33,6 +33,7 @@ import { formatBRL } from './ui-helpers';
 import { buildTicketSearchHaystack, displayTicketSubject } from '../lib/setadesk-ticket-search';
 import { formatProposalDisplayCode } from '../lib/proposal-number';
 
+import { formatPhoneForDisplay } from '../lib/phone-format';
 export type SearchSystemFilter = 'ALL' | 'CRM' | 'ERP' | 'CHAMADOS';
 
 export type SearchCategoryKey =
@@ -451,7 +452,7 @@ export default function GlobalHeaderSearch({
         category: 'COMPANIES',
         system: 'ERP',
         title: sup.name,
-        subtitle: `Fornecedor • ERP${sup.cnpj ? ` • CNPJ ${sup.cnpj}` : ''}${sup.phone ? ` • ${sup.phone}` : ''}`,
+        subtitle: `Fornecedor • ERP${sup.cnpj ? ` • CNPJ ${sup.cnpj}` : ''}${sup.phone ? ` • ${formatPhoneForDisplay(sup.phone)}` : ''}`,
         rawRecord: sup,
       });
     }

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { TicketCategory, TicketPriority, TicketStatus } from '../../db/types';
 import { formatDateTimeBR } from '../components/ui-helpers';
+import PhoneInput from '../components/PhoneInput';
 
 /**
  * Contrato publico do portal (HOTFIX 29/10/2026): o servidor so devolve o chamado quando a
@@ -616,12 +617,10 @@ function CustomerPortalContent() {
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Telefone / WhatsApp de Contato
                   </label>
-                  <input
-                    type="text"
+                  <PhoneInput
+                    kind="phone"
                     value={newPhone}
-                    onChange={(e) => setNewPhone(e.target.value)}
-                    placeholder="(11) 98888-7777"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs"
+                    onChange={(v) => setNewPhone(v)}
                   />
                 </div>
               </div>

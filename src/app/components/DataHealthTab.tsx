@@ -27,6 +27,7 @@ import {
 import { AutoCleanResult, DataHealthSummaryReport } from '../../modules/data-health/health-service';
 import { formatBRL } from './ui-helpers';
 
+import { formatPhoneForDisplay } from '../lib/phone-format';
 export interface DuplicatesPayload {
   contactDuplicates: DuplicateCandidatePair<Contact>[];
   companyDuplicates: DuplicateCandidatePair<Company>[];
@@ -926,7 +927,7 @@ export default function DataHealthTab({
                                 <strong>E-mail:</strong> {pair.primary.email}
                               </div>
                               <div>
-                                <strong>Telefone:</strong> {pair.primary.phone || '—'}
+                                <strong>Telefone:</strong> {pair.primary.phone ? formatPhoneForDisplay(pair.primary.phone) : '—'}
                               </div>
                               <div>
                                 <strong>Cargo:</strong> {pair.primary.jobTitle || '—'}
@@ -956,7 +957,7 @@ export default function DataHealthTab({
                                 <strong>E-mail:</strong> {pair.duplicate.email}
                               </div>
                               <div>
-                                <strong>Telefone:</strong> {pair.duplicate.phone || '—'}
+                                <strong>Telefone:</strong> {pair.duplicate.phone ? formatPhoneForDisplay(pair.duplicate.phone) : '—'}
                               </div>
                               <div>
                                 <strong>Cargo:</strong> {pair.duplicate.jobTitle || '—'}

@@ -272,8 +272,8 @@ Arquitetura enxuta e completa do ERP (`src/app/components/SetaErpTenPillarsAndPd
      - **Bloqueio Automático**: Qualquer acesso não autenticado (ou sem `mfaVerified`) às páginas protegidas (`/`, `/portal`, etc.) redireciona imediatamente para `/login?next=...`, e qualquer chamada direta às APIs protegidas (`/api/*`) sem sessão válida (ou header interno de teste automatizado) retorna `401 Unauthorized`.
 3. **Permissões por Usuário Aplicadas em Tempo Real (RBAC Ativo na Sessão)**:
    - O usuário autenticado no topo do STI-hub (`Marcéllo Mira` ou qualquer um dos 22 colaboradores da Seta Telecom) tem seu perfil RBAC, escopo (`TODOS` / `EQUIPE` / `PROPRIOS`) e travas de ação aplicados tanto na interface (`⚙️ Administração STI-hub` e `Configurações > Usuários`) quanto nas rotas de mutação da API.
-4. **Subdomínio Oficial Configurado (`sti-hub.vercel.app` + Subdomínio Customizado Seta Telecom)**:
-   - **Subdomínio Padrão em Produção (Vercel)**: `https://sti-hub.vercel.app`.
+4. **Domínio Oficial Configurado (`sti-hub.setatelecom.com.br` + Subdomínio Customizado Seta Telecom)**:
+   - **Domínio padrão em produção**: `https://sti-hub.setatelecom.com.br`.
    - **Subdomínios Corporativos Seta Telecom**: Suporte e painel de configuração para `https://stihub.setatelecom.com.br` e `https://erp.setatelecom.com.br` com instruções DNS **`CNAME -> cname.vercel-dns.com`**, verificação de status SSL/TLS e geração de links públicos de propostas (`/proposta/[id]`) respeitando automaticamente o domínio oficial configurado (`NEXT_PUBLIC_APP_URL` / host ativo).
 
 ---
@@ -574,8 +574,8 @@ Arquitetura enxuta e completa do ERP (`src/app/components/SetaErpTenPillarsAndPd
      - **Bloqueio Automático**: Qualquer acesso não autenticado (ou sem `mfaVerified`) às páginas protegidas (`/`, `/portal`, etc.) redireciona imediatamente para `/login?next=...`, e qualquer chamada direta às APIs protegidas (`/api/*`) sem sessão válida (ou header interno de teste automatizado) retorna `401 Unauthorized`.
 3. **Permissões por Usuário Aplicadas em Tempo Real (RBAC Ativo na Sessão)**:
    - O usuário autenticado no topo do STI-hub (`Marcéllo Mira` ou qualquer um dos 22 colaboradores da Seta Telecom) tem seu perfil RBAC, escopo (`TODOS` / `EQUIPE` / `PROPRIOS`) e travas de ação aplicados tanto na interface (`⚙️ Administração STI-hub` e `Configurações > Usuários`) quanto nas rotas de mutação da API.
-4. **Subdomínio Oficial Configurado (`sti-hub.vercel.app` + Subdomínio Customizado Seta Telecom)**:
-   - **Subdomínio Padrão em Produção (Vercel)**: `https://sti-hub.vercel.app`.
+4. **Domínio Oficial Configurado (`sti-hub.setatelecom.com.br` + Subdomínio Customizado Seta Telecom)**:
+   - **Domínio padrão em produção**: `https://sti-hub.setatelecom.com.br`.
    - **Subdomínios Corporativos Seta Telecom**: Suporte e painel de configuração para `https://stihub.setatelecom.com.br` e `https://erp.setatelecom.com.br` com instruções DNS **`CNAME -> cname.vercel-dns.com`**, verificação de status SSL/TLS e geração de links públicos de propostas (`/proposta/[id]`) respeitando automaticamente o domínio oficial configurado (`NEXT_PUBLIC_APP_URL` / host ativo).
 
 ---
@@ -870,8 +870,8 @@ Arquitetura enxuta e completa do ERP (`src/app/components/SetaErpTenPillarsAndPd
      - **Bloqueio Automático**: Qualquer acesso não autenticado (ou sem `mfaVerified`) às páginas protegidas (`/`, `/portal`, etc.) redireciona imediatamente para `/login?next=...`, e qualquer chamada direta às APIs protegidas (`/api/*`) sem sessão válida (ou header interno de teste automatizado) retorna `401 Unauthorized`.
 3. **Permissões por Usuário Aplicadas em Tempo Real (RBAC Ativo na Sessão)**:
    - O usuário autenticado no topo do STI-hub (`Marcéllo Mira` ou qualquer um dos 22 colaboradores da Seta Telecom) tem seu perfil RBAC, escopo (`TODOS` / `EQUIPE` / `PROPRIOS`) e travas de ação aplicados tanto na interface (`⚙️ Administração STI-hub` e `Configurações > Usuários`) quanto nas rotas de mutação da API.
-4. **Subdomínio Oficial Configurado (`sti-hub.vercel.app` + Subdomínio Customizado Seta Telecom)**:
-   - **Subdomínio Padrão em Produção (Vercel)**: `https://sti-hub.vercel.app`.
+4. **Domínio Oficial Configurado (`sti-hub.setatelecom.com.br` + Subdomínio Customizado Seta Telecom)**:
+   - **Domínio padrão em produção**: `https://sti-hub.setatelecom.com.br`.
    - **Subdomínios Corporativos Seta Telecom**: Suporte e painel de configuração para `https://stihub.setatelecom.com.br` e `https://erp.setatelecom.com.br` com instruções DNS **`CNAME -> cname.vercel-dns.com`**, verificação de status SSL/TLS e geração de links públicos de propostas (`/proposta/[id]`) respeitando automaticamente o domínio oficial configurado (`NEXT_PUBLIC_APP_URL` / host ativo).
 
 ---
@@ -1166,8 +1166,8 @@ Arquitetura enxuta e completa do ERP (`src/app/components/SetaErpTenPillarsAndPd
      - **Bloqueio Automático**: Qualquer acesso não autenticado (ou sem `mfaVerified`) às páginas protegidas (`/`, `/portal`, etc.) redireciona imediatamente para `/login?next=...`, e qualquer chamada direta às APIs protegidas (`/api/*`) sem sessão válida (ou header interno de teste automatizado) retorna `401 Unauthorized`.
 3. **Permissões por Usuário Aplicadas em Tempo Real (RBAC Ativo na Sessão)**:
    - O usuário autenticado no topo do STI-hub (`Marcéllo Mira` ou qualquer um dos 22 colaboradores da Seta Telecom) tem seu perfil RBAC, escopo (`TODOS` / `EQUIPE` / `PROPRIOS`) e travas de ação aplicados tanto na interface (`⚙️ Administração STI-hub` e `Configurações > Usuários`) quanto nas rotas de mutação da API.
-4. **Subdomínio Oficial Configurado (`sti-hub.vercel.app` + Subdomínio Customizado Seta Telecom)**:
-   - **Subdomínio Padrão em Produção (Vercel)**: `https://sti-hub.vercel.app`.
+4. **Domínio Oficial Configurado (`sti-hub.setatelecom.com.br` + Subdomínio Customizado Seta Telecom)**:
+   - **Domínio padrão em produção**: `https://sti-hub.setatelecom.com.br`.
    - **Subdomínios Corporativos Seta Telecom**: Suporte e painel de configuração para `https://stihub.setatelecom.com.br` e `https://erp.setatelecom.com.br` com instruções DNS **`CNAME -> cname.vercel-dns.com`**, verificação de status SSL/TLS e geração de links públicos de propostas (`/proposta/[id]`) respeitando automaticamente o domínio oficial configurado (`NEXT_PUBLIC_APP_URL` / host ativo).
 
 ---
@@ -1462,8 +1462,8 @@ Arquitetura enxuta e completa do ERP (`src/app/components/SetaErpTenPillarsAndPd
      - **Bloqueio Automático**: Qualquer acesso não autenticado (ou sem `mfaVerified`) às páginas protegidas (`/`, `/portal`, etc.) redireciona imediatamente para `/login?next=...`, e qualquer chamada direta às APIs protegidas (`/api/*`) sem sessão válida (ou header interno de teste automatizado) retorna `401 Unauthorized`.
 3. **Permissões por Usuário Aplicadas em Tempo Real (RBAC Ativo na Sessão)**:
    - O usuário autenticado no topo do STI-hub (`Marcéllo Mira` ou qualquer um dos 22 colaboradores da Seta Telecom) tem seu perfil RBAC, escopo (`TODOS` / `EQUIPE` / `PROPRIOS`) e travas de ação aplicados tanto na interface (`⚙️ Administração STI-hub` e `Configurações > Usuários`) quanto nas rotas de mutação da API.
-4. **Subdomínio Oficial Configurado (`sti-hub.vercel.app` + Subdomínio Customizado Seta Telecom)**:
-   - **Subdomínio Padrão em Produção (Vercel)**: `https://sti-hub.vercel.app`.
+4. **Domínio Oficial Configurado (`sti-hub.setatelecom.com.br` + Subdomínio Customizado Seta Telecom)**:
+   - **Domínio padrão em produção**: `https://sti-hub.setatelecom.com.br`.
    - **Subdomínios Corporativos Seta Telecom**: Suporte e painel de configuração para `https://stihub.setatelecom.com.br` e `https://erp.setatelecom.com.br` com instruções DNS **`CNAME -> cname.vercel-dns.com`**, verificação de status SSL/TLS e geração de links públicos de propostas (`/proposta/[id]`) respeitando automaticamente o domínio oficial configurado (`NEXT_PUBLIC_APP_URL` / host ativo).
 
 ---

@@ -124,7 +124,7 @@ describe('Orçamento de produtos: SLA, nome, setup e prazo de contrato', () => {
 
     assert.equal(router.includes("!body.title && body.budgetType !== 'PRODUTOS'"), false);
     assert.ok(router.includes('Nome da proposta não é obrigatório'));
-    assert.ok(page.includes('displayProposalTitle(proposal)'));
-    assert.ok(tab.includes('displayProposalTitle(prop)'));
+    assert.equal(page.includes('displayProposalTitle(proposal)'), false, 'título interno não vai para a folha/PDF do cliente');
+    assert.ok(tab.includes('displayProposalTitle(prop)'), 'título permanece no ERP');
   });
 });

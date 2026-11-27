@@ -2,7 +2,7 @@ import type { ErpCommercialProposal } from '../../db/types';
 import { localIsoDate } from './br-date';
 import { formatProposalDisplayCode } from './proposal-number';
 import { computeProposalTotals } from './proposal-share';
-import { defaultProposalTitle } from './proposal-title';
+import { isAutomaticProposalTitle } from './proposal-title';
 
 import { recalculateProposalValidity } from './proposal-validity';
 export { recalculateProposalValidity };
@@ -15,6 +15,7 @@ export const PROPOSAL_COPY_OMIT_KEYS = [
   'versionLabel',
   'versionHistory',
   'statusHistory',
+  'dealId',
   'convertedContractId',
   'convertedInvoiceId',
   'digitalSignature',
@@ -46,8 +47,7 @@ export function proposalCopyCreatedToast(sourceCode: unknown): string {
 
 function copyTitleFor(source: ErpCommercialProposal): string {
   const stored = String(source.title || '').trim();
-  const auto = defaultProposalTitle(source);
-  if (!stored || stored === auto) return '';
+  if (isAutomaticProposalTitle(stored, source)) return '';
   return / \(Cópia\)$/i.test(stored) ? stored : `${stored} (Cópia)`;
 }
 
@@ -73,6 +73,7 @@ export function buildProposalCopyDraft(
     id: options.newId || `prop-copy-${now.getTime()}`,
     code: options.nextCode,
     title: copyTitleFor(source),
+    dealId: null,
     status: 'RASCUNHO',
     version: 1,
     proposalDate: today,

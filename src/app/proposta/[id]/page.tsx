@@ -18,7 +18,6 @@ import {
   Calendar,
   UserCheck,
   Edit3,
-  Truck,
   Landmark,
   History,
   Clock,
@@ -31,6 +30,7 @@ import { formatBRL as formatBRLWhole } from '../../components/ui-helpers';
 import { isoToBrDate } from '../../lib/br-date';
 import { formatClientProposalViews } from '../../lib/proposal-client-view';
 import { publicDtoToRenderableProposal, type PublicProposalDto } from '../../lib/proposal-public-dto';
+import { proposalItemDetails } from '../../lib/proposal-item-grid';
 import { displayPaymentConditionText, proposalPaymentMethodLabel } from '../../lib/proposal-payment-method';
 import { displayProposalPaymentCondition, isMonthlyBillingBudgetType } from '../../lib/proposal-monthly-billing';
 
@@ -68,6 +68,8 @@ import {
 } from '../../lib/proposal-share';
 import { displayProposalTitle } from '../../lib/proposal-title';
 import { displayProposalVersionSummary } from '../../lib/proposal-version-summary';
+import { clientProposalIntroduction } from '../../lib/proposal-title';
+import { displayShippingCarrier } from '../../lib/proposal-shipping-carrier';
 import { loadDurableJournal, recordUpsertedProposal } from '../../lib/durable-storage';
 import { ProposalEditModal } from '../../components/ErpEditModals';
 import { copySignedProposalVersionLink } from '../../lib/proposal-link-client';
@@ -78,6 +80,7 @@ import { formatProposalDisplayCode, isLegacyProposalCode } from '../../lib/propo
 import { displayProposalTechnicalClauses } from '../../lib/proposal-technical-clauses';
 import { isProposalEffectiveValidityExpired, proposalExpiredRevalidationMessage, formatProposalValidUntilPtBr, effectiveProposalValidUntil } from '../../lib/proposal-validity';
 
+import { formatPhoneForDisplay } from '../../lib/phone-format';
 /**
  * Token do link assinado: lido SOMENTE do FRAGMENTO (#t=...), que nao vai ao servidor, aos logs
  * nem ao Referer. B5 (CISO 30/10): ?t= na query NAO e aceito. O token so e enviado no header
@@ -938,7 +941,7 @@ function PublicProposalPrintContent() {
     !saleLike && resolvedSla.id !== "SEM_SLA_ESPECIFICO" && Boolean(resolvedSla.shortLabel);
   const commercialFigures = resolveProposalCommercialFigures(proposal);
   const avulsoService = commercialFigures.oneTime;
-  const shownIntroduction = (hideServiceFreight
+  const rawIntroduction = (hideServiceFreight
     ? String(proposal.introductionText || "")
         .split(/\n+/)
         .filter((line) => !/frete|transportadora|endere[cç]o de entrega/i.test(line))
@@ -950,6 +953,7 @@ function PublicProposalPrintContent() {
     .replace(avulsoService ? /reajuste anual(?:\s+pelo)?\s+IPCA/gi : /$^/, "")
     .replace(avulsoService ? /\s{2,}/g : /$^/, avulsoService ? " " : "")
     .trim();
+  const shownIntroduction = clientProposalIntroduction(rawIntroduction);
   const uniquePayment = commercialView.uniquePayment;
   const uniquePaymentLabel = commercialView.uniquePaymentLabel;
   const hasContractVigencia =
@@ -1755,9 +1759,9 @@ function PublicProposalPrintContent() {
                   <Phone className="w-3 h-3 text-emerald-600 shrink-0" />
                   <span>
                     WhatsApp:{" "}
-                    <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="font-semibold text-slate-800 hover:underline">{sellerContact.phone}</a>
+                    <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="font-semibold text-slate-800 hover:underline">{formatPhoneForDisplay(sellerContact.phone)}</a>
                     {" "}• Tel:{" "}
-                    <a href={proposalTelUrl(sellerContact.phone)} className="font-semibold text-slate-800 hover:underline">{sellerContact.phone}</a>
+                    <a href={proposalTelUrl(sellerContact.phone)} className="font-semibold text-slate-800 hover:underline">{formatPhoneForDisplay(sellerContact.phone)}</a>
                   </span>
                 </span>
               )}
@@ -1919,10 +1923,10 @@ function PublicProposalPrintContent() {
                   <span className="inline-flex items-center gap-1">
                     <Phone className="w-3.5 h-3.5 text-slate-400" />
                     <strong className="text-slate-800">WhatsApp:</strong>{" "}
-                    <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="hover:underline">{sellerContact.phone}</a>
+                    <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="hover:underline">{formatPhoneForDisplay(sellerContact.phone)}</a>
                     <span className="text-slate-400">•</span>
                     <strong className="text-slate-800">Tel:</strong>{" "}
-                    <a href={proposalTelUrl(sellerContact.phone)} className="hover:underline">{sellerContact.phone}</a>
+                    <a href={proposalTelUrl(sellerContact.phone)} className="hover:underline">{formatPhoneForDisplay(sellerContact.phone)}</a>
                   </span>
                 )}
               </div>
@@ -2045,17 +2049,14 @@ function PublicProposalPrintContent() {
             </div>
           )}
 
-          {/* BLOCO 5: TÍTULO, TABELA LEVE DE ITENS E RESUMO DE SUBTOTAIS */}
+          {/* BLOCO 5: TABELA DE ITENS E RESUMO DE SUBTOTAIS (sem título interno nem parágrafo fixo) */}
+          {shownIntroduction ? (
           <div className={`print-avoid-break print-keep-with-next border-l-3 ${scopeBorderClass} pl-3.5 py-0.5 space-y-1`}>
-            <h2 className="text-sm sm:text-base font-semibold text-slate-900">
-              {displayProposalTitle(proposal)}
-            </h2>
-            {shownIntroduction && (
-              <p className="text-xs text-slate-600 leading-relaxed">
-                {shownIntroduction}
-              </p>
-            )}
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {shownIntroduction}
+            </p>
           </div>
+          ) : null}
 
           <div className={`border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
             <div className={`${tableHeaderBgClass} print-avoid-break print-keep-with-next px-4 py-2.5 print:py-2 flex items-center justify-between text-[11px] font-semibold tracking-wide`}>
@@ -2077,11 +2078,17 @@ function PublicProposalPrintContent() {
                 {proposal.items.map((item, idx) => {
                   const hasDisc =
                     (item.discountPercent || 0) > 0 || (item.discountAmount || 0) > 0;
+                  const itemDetails = proposalItemDetails(item);
                   return (
                     <tr key={item.id || idx} className="print-avoid-break even:bg-slate-50/40 hover:bg-slate-50/80">
                       <td className="py-2.5 print:py-1.5 px-2.5 font-mono font-semibold text-[#1e3a6e] text-[11px] whitespace-nowrap">{item.sku}</td>
                       <td className="py-2.5 print:py-1.5 px-2.5">
                         <div className="font-semibold text-slate-900 leading-snug">{item.description}</div>
+                        {itemDetails ? (
+                          <div data-testid="proposal-item-details" className="mt-0.5 text-[11px] print:text-[10.5px] text-slate-600 font-normal leading-snug whitespace-pre-wrap">
+                            {itemDetails}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="py-2.5 print:py-1.5 px-2 text-center font-semibold text-slate-900 whitespace-nowrap">
                         {item.quantity} {item.quantity === 1 ? "un" : "un"}
@@ -2162,9 +2169,9 @@ function PublicProposalPrintContent() {
               <strong className="text-sm font-semibold text-slate-900">
                 {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
               </strong>
-              {proposal.shippingCarrier && (
+              {displayShippingCarrier(proposal.shippingCarrier) && (
                 <span className="block text-[10px] text-slate-500 truncate">
-                  {proposal.shippingCarrier}
+                  {displayShippingCarrier(proposal.shippingCarrier)}
                 </span>
               )}
             </div>
@@ -2269,26 +2276,7 @@ function PublicProposalPrintContent() {
             </div>
           )}
 
-          {/* BLOCO 8 E 9: TRANSPORTE/ENTREGA E CLÁUSULAS TÉCNICAS */}
-          {!hideServiceFreight && (proposal.shippingCarrier || proposal.deliveryAddress || deliveryLeadTime || shippingCost > 0) && (
-            <div className={`print-avoid-break p-3.5 print:p-3 rounded-lg ${softBoxClass} flex flex-wrap items-center justify-between gap-3 text-xs`}>
-              <div className="flex items-center gap-2">
-                <Truck className="w-4 h-4 text-[#1e3a6e] shrink-0" />
-                <div>
-                  <span className="font-semibold text-slate-800 uppercase text-[11px] block">
-                    {saleLike ? "Logística, Transporte & Entrega" : "Logística, Remessa & Instalação"}
-                  </span>
-                  <span className="text-slate-600">
-                    Modalidade: <strong className="text-slate-800">{proposal.shippingCarrier || "Frota Própria Seta Telecom"}</strong>{deliveryLeadTime ? <> • Prazo de Entrega: <strong className="text-slate-800">{deliveryLeadTime}</strong></> : null}{proposal.deliveryAddress ? ` • Local: ${proposal.deliveryAddress}` : ""}
-                  </span>
-                </div>
-              </div>
-              <div className="font-semibold text-slate-800">
-                FRETE R$: {shippingCost > 0 ? formatBRL(shippingCost) : "R$ 0,00"}
-              </div>
-            </div>
-          )}
-
+          {/* BLOCO 9: CLÁUSULAS TÉCNICAS (a seção de logística fixa não entra na folha do cliente) */}
           {displayProposalTechnicalClauses(proposal) && (
             <div className={`print-avoid-break p-4 print:p-3 rounded-lg ${softBoxClass} space-y-1.5 text-xs`}>
               <div className="font-semibold text-slate-800 uppercase text-[11px] flex items-center gap-1.5">
@@ -2363,7 +2351,7 @@ function PublicProposalPrintContent() {
                       {sellerContact.phone ? (
                         <>
                           {" • WhatsApp: "}
-                          <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="hover:underline">{sellerContact.phone}</a>
+                          <a href={proposalWhatsAppUrl(sellerContact.phone)} target="_blank" rel="noopener noreferrer" className="hover:underline">{formatPhoneForDisplay(sellerContact.phone)}</a>
                         </>
                       ) : null}
                     </div>

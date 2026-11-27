@@ -83,7 +83,7 @@ describe('Checagem final v4: STI_HUB_PUBLIC_ORIGIN no link assinado', () => {
   it('resolveProposalLinkOrigin: env valido (so a origem) > origem da requisicao > padrao; env invalido e ignorado', () => {
     delete process.env.STI_HUB_PUBLIC_ORIGIN;
     assert.equal(resolveProposalLinkOrigin('https://preview.exemplo.invalid'), 'https://preview.exemplo.invalid');
-    assert.equal(resolveProposalLinkOrigin(undefined), 'https://sti-hub.vercel.app');
+    assert.equal(resolveProposalLinkOrigin(undefined), '');
     process.env.STI_HUB_PUBLIC_ORIGIN = ' https://sti-hub.setatelecom.com.br/qualquer/caminho?x=1#y ';
     assert.equal(resolveProposalLinkOrigin('https://preview.exemplo.invalid'), 'https://sti-hub.setatelecom.com.br');
     for (const bad of ['javascript:alert(1)', 'sti-hub.vercel.app', 'https://user:pw@evil.example', 'ftp://x']) {

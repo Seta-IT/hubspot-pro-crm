@@ -20,6 +20,7 @@ import MailboxConnectionsPanel from './email/MailboxConnectionsPanel';
 import { StiHubMacroModule, StiHubUserRecord } from '../../db/types';
 import { saveClientIamUserOverrideIfNewer } from '../lib/iam-seal-cache';
 import { NEW_PASSWORD_MIN_LENGTH } from '../lib/password-policy';
+import PhoneInput from './PhoneInput';
 
 interface UserAccountModalProps {
   user: StiHubUserRecord;
@@ -428,11 +429,10 @@ export default function UserAccountModal({
             </div>
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Telefone / Ramal</label>
-              <input
-                type="text"
+              <PhoneInput
+                kind="phone"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900"
+                onChange={(v) => setPhone(v)}
               />
             </div>
             <div>

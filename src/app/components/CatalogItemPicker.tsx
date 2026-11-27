@@ -4,12 +4,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import type { ErpCatalogItem } from '../../db/types';
 import { formatBRL } from './ui-helpers';
-import { filterCatalogProducts } from '../lib/catalog-search';
+import { filterCatalogProducts, findExactCatalogMatch } from '../lib/catalog-search';
 
 export {
   catalogPriceFor,
   catalogRentalPrice,
   filterCatalogProducts,
+  findExactCatalogMatch,
   isServiceCatalogItem,
 } from '../lib/catalog-search';
 
@@ -36,6 +37,8 @@ export interface CatalogItemPickerProps {
   disabled?: boolean;
   invalid?: boolean;
   maxResults?: number;
+  /** Sobrescreve o estilo do campo (a grade do orçamento usa fundo branco). */
+  inputClassName?: string;
 }
 
 /**
@@ -55,6 +58,7 @@ export function CatalogItemPicker({
   disabled = false,
   invalid = false,
   maxResults = 8,
+  inputClassName,
 }: CatalogItemPickerProps) {
   const [query, setQuery] = useState(value ?? '');
   const [open, setOpen] = useState(false);
@@ -73,7 +77,8 @@ export function CatalogItemPicker({
     return filterCatalogProducts(pool, q, maxResults);
   }, [catalog, query, maxResults]);
 
-  const add = (found: ErpCatalogItem | null) => {
+  const add = (found: ErpCatalogItem | null, rawText?: string) => {
+    // Linha já preenchida (value/onSelectItem): escolher outro item troca o produto da linha.
     if (found && onSelectItem) {
       onSelectItem(found);
       setOpen(false);
@@ -81,7 +86,7 @@ export function CatalogItemPicker({
       setHighlight(0);
       return;
     }
-    const text = query.trim();
+    const text = (rawText ?? query).trim();
     if (!found && !text) return;
     onAdd(found, text);
     setQuery(value ?? '');
@@ -92,6 +97,18 @@ export function CatalogItemPicker({
 
   const keepOpenOnTouch = (e: React.PointerEvent | React.MouseEvent) => {
     e.preventDefault();
+  };
+
+  /**
+   * Colar ou concluir um texto que casa exatamente com o catálogo já inclui a linha.
+   * Na linha preenchida, o texto atual (value) não conta: sair do campo sem mudar nada não troca o item.
+   */
+  const autoSelectIfExact = (text: string): boolean => {
+    if (value !== undefined && text.trim() === value.trim()) return false;
+    const found = findExactCatalogMatch(catalog, text);
+    if (!found) return false;
+    add(found, text);
+    return true;
   };
 
   return (
@@ -112,16 +129,37 @@ export function CatalogItemPicker({
           setOpen(true);
           requestAnimationFrame(() => inputRef.current?.select());
         }}
-        onBlur={() =>
+        onBlur={() => {
+          const text = inputRef.current?.value || query;
           setTimeout(() => {
+            if (autoSelectIfExact(text)) return;
             setOpen(false);
             setFocused(false);
             if (value !== undefined) setQuery(value);
-          }, 200)
-        }
-        onChange={(e) => {
-          setQuery(e.target.value);
+          }, 200);
+        }}
+        onPaste={(e) => {
+          const pasted = e.clipboardData?.getData('text') ?? '';
+          if (!pasted) return;
+          const input = e.currentTarget;
+          const start = input.selectionStart ?? query.length;
+          const end = input.selectionEnd ?? query.length;
+          const next = `${query.slice(0, start)}${pasted}${query.slice(end)}`;
+          if (findExactCatalogMatch(catalog, next)) {
+            e.preventDefault();
+            autoSelectIfExact(next);
+            return;
+          }
+          setQuery(next);
           setHighlight(0);
+          setOpen(true);
+          e.preventDefault();
+        }}
+        onChange={(e) => {
+          const text = e.target.value;
+          setQuery(text);
+          setHighlight(0);
+          if (autoSelectIfExact(text)) return;
           setOpen(true);
         }}
         onKeyDown={(e) => {
@@ -139,7 +177,7 @@ export function CatalogItemPicker({
             setOpen(false);
           }
         }}
-        className={`${CATALOG_GRID_INPUT} ${invalid ? 'border-rose-500' : ''}`}
+        className={`${inputClassName || CATALOG_GRID_INPUT} ${invalid ? 'border-rose-500' : ''}`}
       />
       {open && !disabled && (query.trim() || matches.length > 0) && (
         <div

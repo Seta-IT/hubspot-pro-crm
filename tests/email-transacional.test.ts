@@ -5,6 +5,7 @@ import { createInMemoryRepository } from '../src/db/repository';
 import {
   buildInviteEmailHtml,
   CrmApiRouter,
+  buildEmailOtpSubject,
   resolveTransactionalEmailFrom,
   STI_HUB_DEFAULT_EMAIL_FROM,
 } from '../src/api/router';
@@ -100,7 +101,15 @@ describe('E-mail transacional: nada de link ou codigo nas respostas', () => {
       assert.equal(res.status, 200);
       const code = String(calls[0].subject).match(/(\d{6})/)?.[1];
       assert.ok(code);
+      assert.match(String(calls[0].subject), /^\d{6} é seu código de acesso STI HUB$/, 'codigo no inicio do assunto');
       assert.equal(JSON.stringify(res.body).includes(code!), false);
     });
+  });
+});
+
+describe('E-mail de codigo OTP: codigo visivel no assunto', () => {
+  it('assunto comeca com o codigo e usa a marca STI HUB', () => {
+    assert.equal(buildEmailOtpSubject('123456'), '123456 é seu código de acesso STI HUB');
+    assert.equal(buildEmailOtpSubject(' 004213 '), '004213 é seu código de acesso STI HUB');
   });
 });

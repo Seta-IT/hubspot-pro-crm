@@ -130,7 +130,8 @@ describe('Troca de produto numa linha existente', () => {
     const grid = readFileSync(join(process.cwd(), 'src/app/components/ProposalItemsGrid.tsx'), 'utf8');
     const picker = readFileSync(join(process.cwd(), 'src/app/components/CatalogItemPicker.tsx'), 'utf8');
     const rowStart = grid.indexOf('rows.map(({ item, idx })');
-    const emptyStart = grid.indexOf('Linha vazia sempre pronta');
+    // Grade GestãoClick da release Cloud Run (27/11): a linha nova abre em "addingRow" (+ Adicionar produto).
+    const emptyStart = grid.indexOf('{addingRow && (');
     const row = grid.slice(rowStart, emptyStart);
     const empty = grid.slice(emptyStart);
     assert.match(row, /onSelectItem=/);
@@ -139,9 +140,11 @@ describe('Troca de produto numa linha existente', () => {
     assert.equal(empty.includes('onSelectItem'), false);
     assert.match(picker, /onPointerDown=\{keepOpenOnTouch\}/);
     assert.match(picker, /onSelectItem/);
-    assert.match(grid, /proposalLineDetailsText\(item\)/);
+    assert.match(grid, /proposalLineDetailsText\(item\)|proposalItemDetails\(item\)/);
     assert.match(grid, /lineDetails: e\.target\.value/);
-    assert.equal(grid.includes('value={item.ncmOrServiceCode'), false);
+    // O NCM só é editável no campo próprio "NCM / código fiscal" (painel de edição da linha), nunca em Detalhes.
+    const withoutFiscalField = grid.replace(/<span>NCM \/ código fiscal<\/span>[\s\S]*?value=\{item\.ncmOrServiceCode/, '');
+    assert.equal(withoutFiscalField.includes('value={item.ncmOrServiceCode'), false);
   });
 
   it('Detalhes não mostra o NCM automático; o texto digitado permanece', () => {

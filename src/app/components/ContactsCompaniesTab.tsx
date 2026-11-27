@@ -1,6 +1,8 @@
 'use client';
 
 import { CannotDeleteModal } from './CannotDeleteModal';
+import ContactFieldSelect from './ContactFieldSelect';
+import { CONTACT_DEPARTMENT_KIND, CONTACT_POSITION_KIND } from '../lib/contact-field-lists';
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -29,6 +31,7 @@ import { HubSpotCardEmailComposer, HubSpotRecordTasksSection } from './HubSpotEm
 import CrmRecordAuditHistory from './CrmRecordAuditHistory';
 import CrmRecordEmailSection from './email/CrmRecordEmailSection';
 import HubSpotTasksQueueView from './HubSpotTasksQueueView';
+import { displayContactEmail, contactEmailForRead } from '../../modules/data-health/invented-contact-email';
 import {
   BUYING_ROLE_OPTIONS,
   ICP_TIER_OPTIONS,
@@ -41,6 +44,7 @@ import {
   getLifecycleBadge,
   getScoreColorClasses,
 } from './ui-helpers';
+import PhoneInput from './PhoneInput';
 
 export interface EnrichedContactItem extends Contact {
   company?: Company | null;
@@ -82,6 +86,7 @@ interface ContactsCompaniesTabProps {
     lastName?: string;
     phone?: string;
     jobTitle?: string;
+    department?: string;
     lifecycleStage?: LifecycleStage;
     buyingRole?: BuyingRoleType;
     ownerName?: string;
@@ -223,6 +228,7 @@ export default function ContactsCompaniesTab({
   const [cEmail, setCEmail] = useState('');
   const [cPhone, setCPhone] = useState('');
   const [cJobTitle, setCJobTitle] = useState('');
+  const [cDepartment, setCDepartment] = useState('');
   const [cStage, setCStage] = useState<LifecycleStage>('LEAD');
   const [cBuyingRole, setCBuyingRole] = useState<BuyingRoleType>('DECISOR');
   const [cOwnerName, setCOwnerName] = useState('Marcelo Lopes Mira');
@@ -440,6 +446,7 @@ export default function ContactsCompaniesTab({
         lastName: cLastName.trim() || undefined,
         phone: cPhone.trim() || undefined,
         jobTitle: cJobTitle.trim() || undefined,
+        department: cDepartment.trim() || undefined,
         lifecycleStage: cStage,
         buyingRole: cBuyingRole,
         ownerName: cOwnerName.trim() || 'Marcelo Lopes Mira',
@@ -802,7 +809,7 @@ export default function ContactsCompaniesTab({
                         <div className="font-semibold text-slate-900 text-sm truncate">
                           {contact.firstName} {contact.lastName}
                         </div>
-                        <div className="text-xs text-slate-500 truncate">{contact.email}</div>
+                        <div className="text-xs text-slate-500 truncate">{displayContactEmail(contact.email)}</div>
                         <div className="text-xs font-semibold text-slate-700 truncate">
                           {contact.jobTitle || 'Sem cargo'} • {contact.company?.name || 'Sem empresa'}
                         </div>
@@ -902,7 +909,7 @@ export default function ContactsCompaniesTab({
                               )}
                             </div>
                             <div className="text-slate-500 flex items-center gap-2 mt-0.5">
-                              <span>{contact.email}</span>
+                              <span>{displayContactEmail(contact.email)}</span>
                               {contact.jobTitle && (
                                 <>
                                   <span>•</span>
@@ -1563,7 +1570,7 @@ export default function ContactsCompaniesTab({
                       contactId: companyDetail.contacts?.[0]?.id || null,
                     }}
                     recordKind="company"
-                    defaultTo={companyDetail.contacts?.[0]?.email || ''}
+                    defaultTo={contactEmailForRead(companyDetail.contacts?.[0]?.email)}
                     recordLabel={companyDetail.name}
                     suggestions={(companyDetail.contacts || []).map((c) => c.email)}
                     contact={companyDetail.contacts?.[0] ? {
@@ -1607,7 +1614,7 @@ export default function ContactsCompaniesTab({
                                 {c.firstName} {c.lastName}
                               </div>
                               <div className="text-slate-500">
-                                {c.jobTitle || 'Sem cargo'} • {c.email}
+                                {c.jobTitle || 'Sem cargo'} • {displayContactEmail(c.email)}
                               </div>
                             </div>
                             <button
@@ -1729,24 +1736,36 @@ export default function ContactsCompaniesTab({
                   <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
                     Telefone / WhatsApp
                   </label>
-                  <input
-                    type="text"
+                  <PhoneInput
+                    kind="phone"
                     value={cPhone}
-                    onChange={(e) => setCPhone(e.target.value)}
-                    placeholder="(11) 98888-7766"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
+                    onChange={(v) => setCPhone(v)}
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
-                    Cargo Executivo
+                    Posição
                   </label>
-                  <input
-                    type="text"
+                  <ContactFieldSelect
+                    kind={CONTACT_POSITION_KIND}
                     value={cJobTitle}
-                    onChange={(e) => setCJobTitle(e.target.value)}
-                    placeholder="Ex: Diretora de Operações"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm text-slate-900"
+                    onChange={setCJobTitle}
+                    ariaLabel="Posição"
+                    testId="contact-create-position"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-slate-600 mb-1">
+                    Área
+                  </label>
+                  <ContactFieldSelect
+                    kind={CONTACT_DEPARTMENT_KIND}
+                    value={cDepartment}
+                    onChange={setCDepartment}
+                    ariaLabel="Área"
+                    testId="contact-create-department"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm text-slate-900"
                   />
                 </div>
               </div>

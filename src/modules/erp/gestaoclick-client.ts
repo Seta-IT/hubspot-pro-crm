@@ -34,6 +34,7 @@ import {
   inferGcContractMonths,
   inferGcProposalBudgetType,
 } from './gc-proposal-budget-type';
+import { priceTablesFromGcValores } from '../../app/lib/proposal-item-grid';
 
 export interface GestaoClickCnpjEntity {
   id: string;
@@ -461,16 +462,25 @@ export function mapGcOrcamentoToProposal(
     const totalItem = Number(g.valor_total || qty * unitPrice);
     const name = String((kind === 'P' ? g.nome_produto : g.nome_servico) || '').trim() || (kind === 'P' ? 'Item' : 'Serviço');
     const isRecurring = budgetType === 'LOCACAO' || (budgetType === 'SERVICOS' && contractMonths > 1);
+    const details = String(g.detalhes || '').trim();
+    const discPct = Number(g.desconto_porcentagem || 0);
+    const discAmt = Number(g.desconto_valor || 0);
+    const tipoDesconto = String(g.tipo_desconto || '').trim();
     items.push({
       id: `gc-prop-item-${gcId}-${idx}`,
       sku: String((kind === 'P' ? g.produto_id : g.servico_id) || `GC-${idx + 1}`),
-      description: `${name}${g.detalhes ? ` — ${String(g.detalhes)}` : ''}`,
+      description: `${name}${details ? ` — ${details}` : ''}`,
       itemType: kind === 'S' ? 'SERVICE' : 'PRODUCT',
       fiscalNature: kind === 'S' && budgetType !== 'LOCACAO' ? 'SERVICO_TECNICO_TI_TELECOM' : nature,
-      ncmOrServiceCode: String(g.detalhes || ''),
+      ncmOrServiceCode: details,
+      details,
+      priceTableId: String(g.tipo_valor_id || '').trim() || undefined,
+      priceTableName: String(g.nome_tipo_valor || '').trim() || undefined,
       quantity: qty,
       unitPrice,
-      discountPercent: Number(g.desconto_porcentagem || 0),
+      discountPercent: discPct,
+      discountAmount: discAmt,
+      discountType: tipoDesconto || (discPct > 0 ? 'PERCENT' : 'BRL'),
       isRecurring,
       totalMonthly: totalItem,
     });
@@ -779,6 +789,9 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
     const monthlyRent = Math.max(120, Math.round((salePrice / 18) * 100) / 100);
     const fiscalObj = (p.fiscal || {}) as { ncm?: string };
     const ncm = String(fiscalObj.ncm || '').trim() || '8517.62.59';
+    const priceTables = priceTablesFromGcValores(p.valores);
+    const varejo = priceTables.find((t) => t.name.toLowerCase() === 'varejo')?.price;
+    const atacado = priceTables.find((t) => t.name.toLowerCase().includes('atacado'))?.price;
 
     mappedCatalog.push({
       id: `cat-gc-prod-${gcId}`,
@@ -792,7 +805,9 @@ export async function fetchLiveGestaoClickSnapshot(options?: {
       stockAvailable: Math.max(2, Number(p.estoque || 4)),
       stockRentedInClients: 6,
       monthlyRentalPrice: monthlyRent,
-      saleOrSetupPrice: salePrice,
+      saleOrSetupPrice: varejo ?? salePrice,
+      wholesalePrice: atacado,
+      priceTables: priceTables.length > 0 ? priceTables : undefined,
       isActive: String(p.ativo || '1') === '1',
     });
   }

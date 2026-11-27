@@ -52,7 +52,7 @@ export async function handleEmailTrackRequest(
   // Fora do limite: mesma resposta, sem gravar (abertura => pixel; clique => origem do STI-hub).
   const parsed = signed && limiter.hit(`track:${clientIp}`) ? signed : null;
   if (!parsed && signed?.kind === 'CLICK') {
-    return new NextResponse(null, { status: 302, headers: { ...NO_STORE, Location: publicOrigin() } });
+    return new NextResponse(null, { status: 302, headers: { ...NO_STORE, Location: publicOrigin() || '/' } });
   }
   if (!parsed || parsed.kind === 'OPEN') {
     if (parsed) {
@@ -80,6 +80,6 @@ export async function handleEmailTrackRequest(
   } catch {
     // classificacao nunca muda a resposta
   }
-  const location = isSafeRedirectTarget(target) ? target : publicOrigin();
+  const location = isSafeRedirectTarget(target) ? target : (publicOrigin() || '/');
   return new NextResponse(null, { status: 302, headers: { ...NO_STORE, Location: location } });
 }

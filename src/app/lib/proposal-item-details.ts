@@ -14,11 +14,17 @@ export function isAutomaticFiscalDetail(value: string | null | undefined): boole
   return AUTOMATIC_NCM.test(text) || AUTOMATIC_LC116.test(text) || BARE_NCM.test(text);
 }
 
+/**
+ * Texto da coluna Detalhes. Ordem: lineDetails (grade atual) → details (gravado pela grade da
+ * release Cloud Run de 26/11) → texto antigo em ncmOrServiceCode que não seja NCM/LC 116 automático.
+ */
 export function proposalLineDetailsText(item: {
   lineDetails?: string | null;
+  details?: string | null;
   ncmOrServiceCode?: string | null;
 }): string {
   if (typeof item.lineDetails === 'string') return item.lineDetails;
+  if (typeof item.details === 'string' && item.details.trim() !== '') return item.details;
   const stored = String(item.ncmOrServiceCode || '').trim();
   return isAutomaticFiscalDetail(stored) ? '' : stored;
 }
@@ -26,9 +32,11 @@ export function proposalLineDetailsText(item: {
 /** Texto digitado que estava no campo antigo, para não perdê-lo quando o NCM fiscal é trocado. */
 export function keptUserLineDetails(item: {
   lineDetails?: string | null;
+  details?: string | null;
   ncmOrServiceCode?: string | null;
 }): string | undefined {
   if (typeof item.lineDetails === 'string') return item.lineDetails;
+  if (typeof item.details === 'string' && item.details.trim() !== '') return item.details;
   const stored = String(item.ncmOrServiceCode || '').trim();
   if (!stored || isAutomaticFiscalDetail(stored)) return undefined;
   return stored;
