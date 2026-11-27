@@ -312,7 +312,8 @@ export default function StiHubAdminRbacPanel({
       const res = await fetch('/api/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...patch, iamUsersOverride: loadClientIamUsersOverride(), iamDeletedUsersOverride: loadClientDeletedUsersOverride() }),
+        // t198u: Dados da Empresa e demais configurações não levam a cópia local de usuários/permissões.
+        body: JSON.stringify(patch),
       });
       if (res.ok) {
         const json = await res.json();
@@ -420,6 +421,15 @@ export default function StiHubAdminRbacPanel({
   useEffect(() => {
     setSubView(initialSubView);
   }, [initialSubView]);
+
+  // t198u: a ficha do usuário (cadastro + permissões) pertence só à aba Usuários. Ao trocar para
+  // Dados da Empresa (ou qualquer outra aba), ela fecha, para não aparecer junto com outra tela.
+  useEffect(() => {
+    if (subView !== 'USERS_RBAC') {
+      setEditingUser(null);
+      setModalTotpPreview(null);
+    }
+  }, [subView]);
 
   const roles = rbacState?.roles || [];
   const deletedSet = new Set(
@@ -2412,7 +2422,7 @@ export default function StiHubAdminRbacPanel({
       )}
 
       {/* Modal: Edit Existing User (IAM: 2FA + Escopo Modular + Painel 1 CRM + Painel 2 ERP) */}
-      {editingUser && (() => {
+      {subView === 'USERS_RBAC' && editingUser && (() => {
         const userMods: StiHubMacroModule[] =
           Array.isArray(editingUser.enabledModules) && editingUser.enabledModules.length > 0
             ? editingUser.enabledModules
