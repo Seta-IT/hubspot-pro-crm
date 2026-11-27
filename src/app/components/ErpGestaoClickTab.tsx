@@ -84,6 +84,13 @@ import {
 } from '../../db/types';
 import { formatBRL } from './ui-helpers';
 import ErpFinanceiroAndBanksView from './ErpFinanceiroAndBanksView';
+import { todayInSaoPaulo } from '../../modules/erp/dashboard-metrics';
+import {
+  isOpenExpiringContract,
+  isOpenExpiringInvoice,
+  isOpenExpiringProposal,
+} from '../../modules/erp/upcoming-expirations';
+
 import {
   recordDeletedCatalogItem,
   recordDeletedCompany,
@@ -514,7 +521,14 @@ export default function ErpGestaoClickTab({
   };
   const [isCreatingProposalModal, setIsCreatingProposalModal] = useState<boolean>(false);
   const [proposalsSearch, setProposalsSearch] = useState<string>(initialSection === "ORCAMENTOS" ? (initialListSearch || "") : "");
-  const [proposalsStatusFilter, setProposalsStatusFilter] = useState<string>(initialSection === "ORCAMENTOS" && initialListStatus && initialListStatus !== "TODOS" ? initialListStatus : "TODOS");
+  const [proposalsStatusFilter, setProposalsStatusFilter] = useState<string>(
+    initialSection === "ORCAMENTOS" && initialListStatus && initialListStatus !== "TODOS" && initialListStatus !== "A_VENCER_30"
+      ? initialListStatus
+      : "TODOS"
+  );
+  const [proposalsValidityFilter, setProposalsValidityFilter] = useState<string>(
+    initialSection === "ORCAMENTOS" && initialListStatus === "A_VENCER_30" ? "A_VENCER_30" : ""
+  );
   const [proposalsViewMode, setProposalsViewMode] = useState<"CARDS" | "TABLE">("TABLE");
   // Modo tabela: pagina corrente da lista (busca/situacao/tipo filtrados no servidor).
   const PROPOSALS_PAGE_SIZE = 50;
@@ -550,7 +564,7 @@ export default function ErpGestaoClickTab({
     activeSubId === 'ORC_PRODUTOS' ? 'PRODUTOS' : activeSubId === 'ORC_LOCACAO' ? 'LOCACAO' : activeSubId === 'ORC_SERVICOS' ? 'SERVICOS' : activeSubId === 'ORC_SPARE_PARTS' ? 'SPARE_PARTS' : 'TODOS';
   React.useEffect(() => {
     setProposalsOffset(0);
-  }, [proposalsSearch, proposalsStatusFilter, proposalsTypeParam]);
+  }, [proposalsSearch, proposalsStatusFilter, proposalsValidityFilter, proposalsTypeParam]);
   React.useEffect(() => {
     if (proposalsStatusFilter === 'TODOS') return;
     const allowed = proposalStatusOptions(proposalStatusFamilyForListTab(activeSubId)).map((o) => o.value as string);
@@ -566,6 +580,7 @@ export default function ErpGestaoClickTab({
         status: proposalsStatusFilter,
         type: proposalsTypeParam,
       });
+      if (proposalsValidityFilter === 'A_VENCER_30') qs.set('validade', 'A_VENCER_30');
       if (proposalsSearch.trim()) qs.set('q', proposalsSearch.trim());
       setProposalsPageLoading(true);
       const epoch = proposalListEpochRef.current;
@@ -601,7 +616,7 @@ export default function ErpGestaoClickTab({
       clearTimeout(t);
     };
     // erpData muda a cada onRefresh() => recarrega a pagina depois de salvar/excluir.
-  }, [proposalsTableMode, proposalsOffset, proposalsSearch, proposalsStatusFilter, proposalsTypeParam, erpData]);
+  }, [proposalsTableMode, proposalsOffset, proposalsSearch, proposalsStatusFilter, proposalsValidityFilter, proposalsTypeParam, erpData]);
   // Painel em tempo real (19/11/2026): Início e fluxo de caixa calculados pelo servidor com os
   // dados do STI-hub (GET /api/erp/dashboard). Nunca usa o dashboardSummary congelado do seed.
   const [liveDashboard, setLiveDashboard] = useState<ErpLiveDashboard | null>(null);
@@ -768,7 +783,12 @@ export default function ErpGestaoClickTab({
   const [contractsSearchQuery, setContractsSearchQuery] = useState<string>(initialSection === "CONTRATOS" ? (initialListSearch || "") : "");
   const [contractsStatusFilter, setContractsStatusFilter] = useState<string>(initialSection === "CONTRATOS" && initialListStatus && initialListStatus !== "TODOS" ? initialListStatus : "TODOS");
   const [invoicesSearchQuery, setInvoicesSearchQuery] = useState<string>("");
-  const [invoicesStatusFilter, setInvoicesStatusFilter] = useState<string>("TODOS");
+  const [invoicesStatusFilter, setInvoicesStatusFilter] = useState<string>(
+    initialSection === "FISCAL" && initialListStatus && initialListStatus !== "TODOS" ? initialListStatus : "TODOS"
+  );
+  const [financeDueFilter, setFinanceDueFilter] = useState<string>(
+    initialSection === "FINANCEIRO" && initialListStatus === "A_VENCER_30" ? "A_VENCER_30" : ""
+  );
   const [syncingGc, setSyncingGc] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -859,19 +879,46 @@ export default function ErpGestaoClickTab({
     if (initialSubId) {
       setActiveSubId(initialSubId);
     }
-  }, [initialSection, initialSubId, navigationTrigger]);
+    if (initialSection === 'ORCAMENTOS') {
+      if (initialListStatus === 'A_VENCER_30') {
+        setProposalsValidityFilter('A_VENCER_30');
+        setProposalsStatusFilter('TODOS');
+      } else {
+        setProposalsValidityFilter('');
+        setProposalsStatusFilter(initialListStatus && initialListStatus !== 'TODOS' ? initialListStatus : 'TODOS');
+      }
+      setProposalsSearch(initialListSearch || '');
+    }
+    if (initialSection === 'CONTRATOS') {
+      setContractsStatusFilter(initialListStatus && initialListStatus !== 'TODOS' ? initialListStatus : 'TODOS');
+      setContractsSearchQuery(initialListSearch || '');
+    }
+    if (initialSection === 'FISCAL') {
+      setInvoicesStatusFilter(initialListStatus && initialListStatus !== 'TODOS' ? initialListStatus : 'TODOS');
+    }
+    if (initialSection === 'FINANCEIRO') {
+      setFinanceDueFilter(initialListStatus === 'A_VENCER_30' ? 'A_VENCER_30' : '');
+    }
+  }, [initialSection, initialSubId, initialListStatus, initialListSearch, navigationTrigger]);
 
   React.useEffect(() => {
     if (!onListFiltersChange) return;
     if (activeSection === 'ORCAMENTOS') {
-      onListFiltersChange({ search: proposalsSearch, status: proposalsStatusFilter });
+      onListFiltersChange({
+        search: proposalsSearch,
+        status: proposalsValidityFilter === 'A_VENCER_30' ? 'A_VENCER_30' : proposalsStatusFilter,
+      });
     } else if (activeSection === 'CONTRATOS') {
       onListFiltersChange({ search: contractsSearchQuery, status: contractsStatusFilter });
+    } else if (activeSection === 'FISCAL') {
+      onListFiltersChange({ search: invoicesSearchQuery, status: invoicesStatusFilter });
+    } else if (activeSection === 'FINANCEIRO') {
+      onListFiltersChange({ search: '', status: financeDueFilter || 'TODOS' });
     } else {
       onListFiltersChange({ search: '', status: 'TODOS' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSection, proposalsSearch, proposalsStatusFilter, contractsSearchQuery, contractsStatusFilter]);
+  }, [activeSection, proposalsSearch, proposalsStatusFilter, proposalsValidityFilter, contractsSearchQuery, contractsStatusFilter, invoicesSearchQuery, invoicesStatusFilter, financeDueFilter]);
 
   React.useEffect(() => {
     onSectionChange?.(activeSection);
@@ -2840,6 +2887,7 @@ export default function ErpGestaoClickTab({
     const statusFilterOptions = proposalStatusOptions(proposalStatusFamilyForListTab(effectiveOrcTab));
     const filteredProposals = tabFiltered.filter((p) => {
       if (!proposalMatchesStatusFilter(p, proposalsStatusFilter)) return false;
+      if (proposalsValidityFilter === 'A_VENCER_30' && !isOpenExpiringProposal(p, todayInSaoPaulo())) return false;
       if (!proposalsSearch.trim()) return true;
       const q = normErp(proposalsSearch);
       const qDigits = proposalsSearch.replace(/\D+/g, '');
@@ -2959,12 +3007,18 @@ export default function ErpGestaoClickTab({
                     </option>
                   ))}
                 </select>
-                {(proposalsSearch.trim() !== '' || proposalsStatusFilter !== 'TODOS' || effectiveOrcTab !== 'TODOS') && (
+                {proposalsValidityFilter === 'A_VENCER_30' && (
+                  <span className="px-2 py-1 rounded bg-amber-50 text-amber-900 border border-amber-200 text-[11px] font-semibold">
+                    Validade nos próximos 30 dias
+                  </span>
+                )}
+                {(proposalsSearch.trim() !== '' || proposalsStatusFilter !== 'TODOS' || proposalsValidityFilter === 'A_VENCER_30' || effectiveOrcTab !== 'TODOS') && (
                   <button
                     type="button"
                     onClick={() => {
                       setProposalsSearch('');
                       setProposalsStatusFilter('TODOS');
+                      setProposalsValidityFilter('');
                       setActiveSubId('ORC_TODOS');
                     }}
                     className="px-1 py-1.5 text-xs text-slate-500 hover:text-slate-800 hover:underline cursor-pointer"
@@ -3634,6 +3688,8 @@ export default function ErpGestaoClickTab({
         if (contractsStatusFilter === "VENCENDO") {
           const vInfo = computeContractValidityInfo(ctr.endDate, ctr.status);
           if (!vInfo.isWarning && ctr.status !== "RENOVACAO_PROXIMA") return false;
+        } else if (contractsStatusFilter === "VENCE_30") {
+          if (!isOpenExpiringContract(ctr, todayInSaoPaulo())) return false;
         } else if (ctr.status !== contractsStatusFilter) {
           return false;
         }
@@ -3809,6 +3865,7 @@ export default function ErpGestaoClickTab({
                 <option value="FATURAMENTO">Faturamento ({baseTabContracts.filter((c) => c.status === "FATURAMENTO").length})</option>
                 <option value="EM_IMPLANTACAO">Em Implantação ({baseTabContracts.filter((c) => c.status === "EM_IMPLANTACAO").length})</option>
                 <option value="VENCENDO">Renovação Próxima ({baseTabContracts.filter((c) => c.status === "RENOVACAO_PROXIMA" || computeContractValidityInfo(c.endDate, c.status).isWarning).length})</option>
+                <option value="VENCE_30">Vencendo em 30 dias ({baseTabContracts.filter((c) => isOpenExpiringContract(c, todayInSaoPaulo())).length})</option>
                 <option value="ENCERRADO">Encerrado ({baseTabContracts.filter((c) => c.status === "ENCERRADO").length})</option>
               </select>
               <div className="relative inline-flex items-center">
@@ -4767,7 +4824,9 @@ export default function ErpGestaoClickTab({
       filteredInvoices = invoices.filter((i) => i.documentType === "NFCE_CONSUMIDOR");
     }
 
-    if (invoicesStatusFilter !== "TODOS") {
+    if (invoicesStatusFilter === "A_VENCER_30") {
+      filteredInvoices = filteredInvoices.filter((i) => isOpenExpiringInvoice(i, todayInSaoPaulo()));
+    } else if (invoicesStatusFilter !== "TODOS") {
       filteredInvoices = filteredInvoices.filter((i) => i.status === invoicesStatusFilter);
     }
     if (invoicesSearchQuery.trim()) {
@@ -5193,6 +5252,7 @@ export default function ErpGestaoClickTab({
                 <option value="EMITIDA">Emitidas / Em Aberto ({invoices.filter((i) => i.status === "EMITIDA").length})</option>
                 <option value="PAGA">Pagas / Liquidadas ({invoices.filter((i) => i.status === "PAGA").length})</option>
                 <option value="VENCIDA">Vencidas ({invoices.filter((i) => i.status === "VENCIDA").length})</option>
+                <option value="A_VENCER_30">Vencendo em 30 dias ({invoices.filter((i) => isOpenExpiringInvoice(i, todayInSaoPaulo())).length})</option>
                 <option value="ENTRADA_REGISTRADA">Notas de entrada registradas ({invoices.filter((i) => i.status === "ENTRADA_REGISTRADA").length})</option>
               </select>
               {(invoicesSearchQuery.trim() !== "" || invoicesStatusFilter !== "TODOS" || effectiveFiscalTab !== "FIS_TODAS") && (
@@ -7202,6 +7262,8 @@ export default function ErpGestaoClickTab({
             <ErpFinanceiroAndBanksView
               activeSubId={activeSubId}
               onSelectSubId={(sub) => setActiveSubId(sub)}
+              dueWindowFilter={financeDueFilter === 'A_VENCER_30'}
+              onClearDueWindowFilter={() => setFinanceDueFilter('')}
               bankAccounts={bankAccounts}
               financialEntries={financialEntries}
               invoices={invoices}

@@ -35,6 +35,8 @@ import {
   recordUsageTotal,
 } from '../../modules/erp/record-in-use';
 import { CannotDeleteModal } from './CannotDeleteModal';
+import { todayInSaoPaulo } from '../../modules/erp/dashboard-metrics';
+import { isOpenExpiringFinancial } from '../../modules/erp/upcoming-expirations';
 
 export interface ErpFinanceiroAndBanksViewProps {
   activeSubId: string;
@@ -58,6 +60,8 @@ export interface ErpFinanceiroAndBanksViewProps {
   setEmailModalPayload: (payload: any) => void;
   setSelectedInvoiceForPrint: (inv: ErpFiscalInvoice | null) => void;
   setShowNewInvoiceModal: (show: boolean) => void;
+  dueWindowFilter?: boolean;
+  onClearDueWindowFilter?: () => void;
 }
 
 // Navegação entre as subtelas fica só na sidebar (GestaoClickSidebar).
@@ -158,6 +162,8 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
     setEmailModalPayload,
     setSelectedInvoiceForPrint,
     setShowNewInvoiceModal,
+    dueWindowFilter,
+    onClearDueWindowFilter,
   } = props;
 
   const sub = SUB_IDS.includes(activeSubId) ? activeSubId : 'FIN_FLUXO';
@@ -422,9 +428,13 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
       if (statusFilter !== 'TODOS' && e.status !== statusFilter) return false;
       if (bankFilter !== 'TODAS' && entryBank(e) !== bankFilter) return false;
       if (q && !`${e.description} ${e.companyName} ${e.costCenter}`.toLowerCase().includes(q)) return false;
+      if (dueWindowFilter) {
+        const kind = e.type === 'PAGAR' ? 'PAGAR' : 'RECEBER';
+        if (!isOpenExpiringFinancial(e, kind, todayInSaoPaulo())) return false;
+      }
       return true;
     });
-  }, [financialEntries, typeFilter, sub, statusFilter, bankFilter, search]);
+  }, [financialEntries, typeFilter, sub, statusFilter, bankFilter, search, dueWindowFilter]);
 
   const kpis = useMemo(() => {
     const sum = (arr: ErpFinancialEntry[]) => arr.reduce((a, e) => a + (e.amount || 0), 0);
@@ -581,6 +591,16 @@ export default function ErpFinanceiroAndBanksView(props: ErpFinanceiroAndBanksVi
           <select value={bankFilter} onChange={(e) => setBankFilter(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 bg-white">
             {BANK_FILTERS.map((b) => <option key={b} value={b}>{b === 'TODAS' ? 'Todas as contas' : b}</option>)}
           </select>
+          {dueWindowFilter && (
+            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-amber-50 text-amber-900 border border-amber-200 font-semibold">
+              Vencendo em 30 dias
+              {onClearDueWindowFilter && (
+                <button type="button" onClick={onClearDueWindowFilter} className="underline hover:no-underline cursor-pointer">
+                  Limpar
+                </button>
+              )}
+            </span>
+          )}
         </div>
         <div className="bg-white rounded-md border border-slate-200 overflow-x-auto">
           <table className="w-full text-xs">

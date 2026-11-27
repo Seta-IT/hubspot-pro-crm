@@ -312,6 +312,8 @@ import {
 import { bodyExceedsMaxBytes, bodyExceedsMaxDepth, deepRedactProposalLinkTokens, hasDangerousBodyKey, MAX_BODY_DEPTH, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
 import { requestBodyCapFor } from '../app/lib/request-body-cap';
 import { auditCertificateMutationDenied, CERT_UPLOAD_FAILURE_LIMIT, handleCertificateRoute, isCertificateMutation, isCertificateRoute } from './certificate-routes';
+import { handleUpcomingExpirationsRoute } from './upcoming-expirations-routes';
+import { expirationUntilDate } from '../modules/erp/upcoming-expirations';
 import {
   type CertificateStore,
   CertEncKeyMissingError,
@@ -2889,6 +2891,8 @@ export class CrmApiRouter {
     // API v1/MCP (Fase 2 / Lote 1): carteira restrita do conector, SO no contexto interno.
     const integrationOwner = CrmApiRouter.integrationProposalOwner(query, ctx);
     if (integrationOwner) owner = integrationOwner;
+    const validade = String(query.validade || query.vencimento || '').toUpperCase();
+    const validityUntil = validade === 'A_VENCER_30' || validade === '30' ? expirationUntilDate(todayInSaoPaulo()) : undefined;
     const page = await listProposalsPage(this.proposalsDb(), {
       q: query.q ?? query.search,
       status: query.status,
@@ -2896,6 +2900,7 @@ export class CrmApiRouter {
       companyId: query.companyId,
       dealId: query.dealId,
       owner,
+      validityUntil,
       limit: query.limit ? Number(query.limit) : 50,
       offset: query.offset ? Number(query.offset) : 0,
     });
@@ -8996,6 +9001,27 @@ export class CrmApiRouter {
       // ======================================================================
       if (cleanPath === '/api/erp/dashboard' && method === 'GET') {
         return await this.erpLiveDashboard(query, ctx);
+      }
+
+      if (cleanPath === '/api/erp/vencimentos' && method === 'GET') {
+        return await handleUpcomingExpirationsRoute(
+          {
+            repo: this.repo,
+            certificateStore: this.certificateStore,
+            proposalsTableEnabled: Boolean(this.proposalTableCtx),
+            proposalsDb: this.proposalTableCtx ? () => this.proposalsDb() : undefined,
+            proposalOwner: (q, c) => {
+              const sc = this.proposalScope(q, c);
+              if (sc.kind === 'session' && sc.restricted) {
+                return { id: String(sc.access.user.id || ''), email: String(sc.access.user.email || '') };
+              }
+              return CrmApiRouter.integrationProposalOwner(q, c);
+            },
+            proposalScopeDenied: (q, c) => this.proposalScope(q, c).kind === 'denied',
+          },
+          query,
+          ctx
+        );
       }
 
       if (cleanPath === '/api/erp/overview' && method === 'GET') {

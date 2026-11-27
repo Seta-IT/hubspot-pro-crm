@@ -295,9 +295,18 @@ export interface ProposalListFilters {
   companyId?: string;
   dealId?: string;
   owner?: { id: string; email: string } | null; // escopo restrito (PROPRIOS/EQUIPE)
+  /** Validade comercial até esta data (AAAA-MM-DD), inclusive já vencidas. */
+  validityUntil?: string;
   limit?: number;
   offset?: number;
 }
+
+/** Normaliza data->>'validUntil' (AAAA-MM-DD, ISO ou DD/MM/AAAA) para AAAA-MM-DD. */
+export const PROPOSAL_VALID_UNTIL_YMD_SQL = `CASE
+  WHEN data->>'validUntil' ~ '^\d{4}-\d{2}-\d{2}' THEN left(data->>'validUntil', 10)
+  WHEN data->>'validUntil' ~ '^\d{2}/\d{2}/\d{4}' THEN to_char(to_date(left(data->>'validUntil', 10), 'DD/MM/YYYY'), 'YYYY-MM-DD')
+  ELSE NULL
+END`;
 
 /** Campos pesados fora da lista (vem no GET por id). */
 export const PROPOSAL_SUMMARY_OMIT = ['versionHistory', 'statusHistory', 'introductionText', 'technicalClauses', 'commercialNotes', 'internalNotes', 'digitalSignature'] as const;
@@ -353,6 +362,13 @@ function buildWhere(f: ProposalListFilters, params: unknown[], opts: { skipStatu
     where.push(
       `((coalesce(seller_user_id,'') <> '' AND lower(trim(seller_user_id)) = $${pi} AND $${pi} <> '') OR (coalesce(seller_user_id,'') = '' AND coalesce(seller_email,'') <> '' AND lower(trim(seller_email)) = $${pe} AND $${pe} <> '') OR coalesce(data->>'createdByServiceAccount','') = 'true' OR position('criada por assistente de vendas' in lower(coalesce(data->>'commercialNotes',''))) > 0)`
     );
+  }
+  if (f.validityUntil) {
+    params.push(f.validityUntil);
+    where.push(`(${PROPOSAL_VALID_UNTIL_YMD_SQL}) IS NOT NULL AND (${PROPOSAL_VALID_UNTIL_YMD_SQL}) <= $${params.length}`);
+    if (!opts.skipStatus && (!f.status || f.status === 'TODOS')) {
+      where.push(`status IN ('RASCUNHO','ENVIADA','EM_NEGOCIACAO','FATURAMENTO')`);
+    }
   }
   return where.length ? `WHERE ${where.join(' AND ')}` : '';
 }
@@ -460,6 +476,18 @@ export async function listDashboardProposalRows(
 export async function countProposals(db: PgQ): Promise<{ total: number; open: number }> {
   const r = await db.query(`SELECT count(*)::int AS n, count(*) FILTER (WHERE status IN ('ENVIADA','EM_NEGOCIACAO','APROVADA'))::int AS o FROM erp_proposals`);
   return { total: Number(r.rows?.[0]?.n) || 0, open: Number(r.rows?.[0]?.o) || 0 };
+}
+
+/** Contagem agregada: propostas abertas com validade até `until` (AAAA-MM-DD), no escopo opcional. */
+export async function countProposalsExpiringUntil(
+  db: PgQ,
+  until: string,
+  owner?: { id: string; email: string } | null
+): Promise<number> {
+  const params: unknown[] = [];
+  const where = buildWhere({ owner: owner || null, validityUntil: until }, params);
+  const r = await db.query(`SELECT count(*)::int AS n FROM erp_proposals ${where}`, params);
+  return Number(r.rows?.[0]?.n) || 0;
 }
 
 // ---------------------------------------------------------------------------
