@@ -206,6 +206,7 @@ export function buildNfeXmlForTransmission(draft: ProductNfeDraft, totals: Produ
     tag('finNFe', g.finNFe) +
     tag('indFinal', g.indFinal) +
     tag('indPres', g.indPres) +
+    tag('indIntermed', g.indIntermed || '0') +
     tag('procEmi', '0') +
     tag('verProc', VER_PROC) +
     nfRef +
@@ -468,6 +469,11 @@ export function buildNfeXmlForTransmission(draft: ProductNfeDraft, totals: Produ
   const vPag = tPag === '90' ? 0 : tr.payment?.amount ?? totals.vNF;
   const pag = '<pag><detPag>' + tag('tPag', tPag) + tag('vPag', fmt2(vPag)) + '</detPag></pag>';
 
+  const infIntermed =
+    g.indIntermed === '1' && g.intermediary
+      ? '<infIntermed>' + tag('CNPJ', onlyDigits(g.intermediary.cnpj)) + txt('idCadIntTran', g.intermediary.idCadIntTran, 60) + '</infIntermed>'
+      : '';
+
   const fisco = draft.additionalInfo.fisco.trim();
   const cpl = draft.additionalInfo.complementary.trim();
   const infAdic = fisco || cpl ? '<infAdic>' + (fisco ? txt('infAdFisco', fisco, 2000) : '') + (cpl ? txt('infCpl', cpl, MOC.infCpl) : '') + '</infAdic>' : '';
@@ -489,6 +495,7 @@ export function buildNfeXmlForTransmission(draft: ProductNfeDraft, totals: Produ
     total +
     transp +
     pag +
+    infIntermed +
     infAdic +
     infRespTec +
     '</infNFe>' +

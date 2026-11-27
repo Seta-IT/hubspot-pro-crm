@@ -33,7 +33,7 @@ import {
 import type { Company, ErpCatalogItem, ErpFiscalInvoice, ErpSupplierRecord } from '../../db/types';
 import { formatBRL } from './ui-helpers';
 import ProductNfeForm from './ProductNfeForm';
-import { PRODUCT_NFE_SEFAZ_PENDING_HINT } from '../../modules/erp/product-nfe-engine';
+import { PRODUCT_NFE_SEFAZ_PENDING_HINT, type ProductNfeDraftInput } from '../../modules/erp/product-nfe-engine';
 import {
   TRANSMIT_CONFIRMATION_TEXT,
   describeSefazError,
@@ -119,6 +119,12 @@ export interface ProductNfeWorkspaceProps {
   onOpenCertificate: () => void;
   /** Pré-visualização/impressão do DANFE já existente no ERP. */
   onPrintInvoice: (inv: ErpFiscalInvoice) => void;
+  /** Abre já no formulário Adicionar NF-e, pré-preenchido a partir de uma venda. */
+  initialDraft?: ProductNfeDraftInput;
+  sourceSaleOrderId?: string;
+  forceDuplicate?: boolean;
+  mappingWarnings?: string[];
+  onCancelAdd?: () => void;
 }
 
 export default function ProductNfeWorkspace({
@@ -130,8 +136,13 @@ export default function ProductNfeWorkspace({
   onShowToast,
   onOpenCertificate,
   onPrintInvoice,
+  initialDraft,
+  sourceSaleOrderId,
+  forceDuplicate,
+  mappingWarnings,
+  onCancelAdd,
 }: ProductNfeWorkspaceProps) {
-  const [mode, setMode] = useState<'LIST' | 'ADD'>('LIST');
+  const [mode, setMode] = useState<'LIST' | 'ADD'>(initialDraft ? 'ADD' : 'LIST');
   const [month, setMonth] = useState<string>(currentMonthKey());
   const [monthMenu, setMonthMenu] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -344,12 +355,20 @@ export default function ProductNfeWorkspace({
         companies={companies}
         suppliers={suppliers}
         catalog={catalog}
-        onCancel={() => setMode('LIST')}
+        initialDraft={initialDraft}
+        sourceSaleOrderId={sourceSaleOrderId}
+        forceDuplicate={forceDuplicate}
+        mappingWarnings={mappingWarnings}
+        onCancel={() => {
+          setMode('LIST');
+          onCancelAdd?.();
+        }}
         onShowToast={onShowToast}
         onCreated={async (inv) => {
           await onRefresh();
           setMonth(monthKeyOf(inv.issueDate));
           setMode('LIST');
+          onCancelAdd?.();
         }}
       />
     );

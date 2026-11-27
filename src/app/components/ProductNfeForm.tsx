@@ -66,6 +66,7 @@ import {
   productNfeWarnings,
   suggestCfop,
   suggestIcmsCode,
+  type ProductNfeDraftInput,
 } from '../../modules/erp/product-nfe-engine';
 
 const NAVY = '#1e3a6e';
@@ -354,6 +355,13 @@ export interface ProductNfeFormProps {
   onCancel: () => void;
   onCreated: (inv: ErpFiscalInvoice) => void | Promise<void>;
   onShowToast: (msg: string) => void;
+  /** Pré-preenchimento (GET /api/erp/vendas/:id/nfe). */
+  initialDraft?: ProductNfeDraftInput | (ProductNfeDraftInput & { recipient?: { taxpayerType?: string } });
+  /** Quando presente, o cadastro vai para POST /api/erp/vendas/:id/nfe e vincula a venda. */
+  sourceSaleOrderId?: string;
+  /** Confirma o cadastro mesmo se já existir NF-e ativa da venda. */
+  forceDuplicate?: boolean;
+  mappingWarnings?: string[];
 }
 
 type Party = { kind: 'CLIENTE'; c: Company } | { kind: 'FORNECEDOR'; s: ErpSupplierRecord };
@@ -367,7 +375,18 @@ const NAT_OP_SUGGESTIONS = [
   'REMESSA EM BONIFICACAO',
 ];
 
-export default function ProductNfeForm({ companies, suppliers, catalog, onCancel, onCreated, onShowToast }: ProductNfeFormProps) {
+export default function ProductNfeForm({
+  companies,
+  suppliers,
+  catalog,
+  onCancel,
+  onCreated,
+  onShowToast,
+  initialDraft,
+  sourceSaleOrderId,
+  forceDuplicate = false,
+  mappingWarnings = [],
+}: ProductNfeFormProps) {
   const [ctx, setCtx] = useState<NfeContext | null>(null);
   const [ctxError, setCtxError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -390,6 +409,8 @@ export default function ProductNfeForm({ companies, suppliers, catalog, onCancel
   const [indPres, setIndPres] = useState('1');
   const [hasRef, setHasRef] = useState(false);
   const [refKeys, setRefKeys] = useState('');
+  const [indIntermed, setIndIntermed] = useState('0');
+  const [intermediary, setIntermediary] = useState({ cnpj: '', idCadIntTran: '' });
 
   // Destinatário
   const [partySearch, setPartySearch] = useState('');
@@ -474,6 +495,106 @@ export default function ProductNfeForm({ companies, suppliers, catalog, onCancel
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!initialDraft) return;
+    const g = initialDraft.general || ({} as ProductNfeDraftInput['general']);
+    const r = initialDraft.recipient || ({} as ProductNfeDraftInput['recipient']);
+    const tr = initialDraft.transport || {};
+    const dt = String(g.issueDateTime || '');
+    const [d, t] = dt.includes('T') ? dt.split('T') : ['', ''];
+    if (g.natOp) setNatOp(g.natOp);
+    if (d) setIssueDate(d);
+    if (t) setIssueTime(t.slice(0, 5));
+    if (g.tpNF) setTpNF(g.tpNF);
+    if (g.indFinal) setIndFinal(g.indFinal);
+    if (g.saida) setSaida(g.saida);
+    if (g.exitDateTime) setExitDateTime(g.exitDateTime);
+    if (g.finNFe) setFinNFe(g.finNFe);
+    if (g.tpEmis) setTpEmis(g.tpEmis);
+    if (g.idDest) setIdDest(g.idDest);
+    if (g.indPres) setIndPres(g.indPres);
+    if (g.indIntermed) setIndIntermed(g.indIntermed);
+    if (g.intermediary) setIntermediary({ cnpj: g.intermediary.cnpj || '', idCadIntTran: g.intermediary.idCadIntTran || '' });
+    setHasRef(Boolean(g.hasReferencedNfe));
+    if (g.referencedKeys?.length) setRefKeys(g.referencedKeys.join('\n'));
+    setCompanyId(r.companyId || null);
+    setSupplierId(r.supplierId || null);
+    if (r.documentType) setDocType(r.documentType);
+    if (r.document) setDoc(formatDoc(String(r.document), r.documentType || 'CNPJ'));
+    if (r.name) setName(r.name);
+    setTaxpayerType(String((r as { taxpayerType?: string }).taxpayerType || ''));
+    setIe(r.ie || '');
+    setSuframa(r.suframa || '');
+    setIm(r.im || '');
+    const a = r.address || {};
+    setAddr({
+      document: '',
+      name: '',
+      cep: formatCep(String(a.cep || '')),
+      street: String(a.street || ''),
+      number: String(a.number || ''),
+      complement: String(a.complement || ''),
+      district: String(a.district || ''),
+      city: String(a.city || ''),
+      uf: String(a.uf || '').toUpperCase().slice(0, 2),
+      cityIbge: onlyDigits(a.cityIbge).slice(0, 7),
+    });
+    setPhone(r.phone || '');
+    setEmail(r.email || '');
+    setHasDelivery(Boolean(r.hasDeliveryAddress));
+    if (r.deliveryAddress) {
+      const da = r.deliveryAddress;
+      setDelivery({
+        document: String(da.document || ''),
+        name: String(da.name || ''),
+        cep: formatCep(String(da.cep || '')),
+        street: String(da.street || ''),
+        number: String(da.number || ''),
+        complement: String(da.complement || ''),
+        district: String(da.district || ''),
+        city: String(da.city || ''),
+        uf: String(da.uf || '').toUpperCase().slice(0, 2),
+        cityIbge: onlyDigits(da.cityIbge).slice(0, 7),
+      });
+    }
+    setHasPickup(Boolean(r.hasPickupAddress));
+    setPartySearch(r.name || '');
+    const mappedItems = (initialDraft.items || []).map((it) => ({
+      key: Math.random().toString(36).slice(2),
+      catalogItemId: it.catalogItemId || null,
+      code: it.code || '',
+      description: it.description || '',
+      ncm: it.ncm || '',
+      cfop: it.cfop || '',
+      unit: it.unit || 'UN',
+      quantity: fmtNum(Number(it.quantity || 0)),
+      unitValue: fmtNum(Number(it.unitValue || 0)),
+      origin: it.origin || '0',
+      icmsCode: it.icmsCode || suggestIcmsCode(ctx?.taxRegime),
+      icmsRatePercent: it.icmsRatePercent != null ? String(it.icmsRatePercent) : '',
+      ipiRatePercent: it.ipiRatePercent != null ? String(it.ipiRatePercent) : '0',
+      ean: it.ean || '',
+    }));
+    if (mappedItems.length) setItems(mappedItems);
+    if (tr.modFrete) setModFrete(tr.modFrete);
+    if (tr.volumes) {
+      setVolumes({
+        quantity: String(tr.volumes.quantity ?? 0),
+        species: tr.volumes.species || '',
+        netWeightKg: String(tr.volumes.netWeightKg ?? 0),
+        grossWeightKg: String(tr.volumes.grossWeightKg ?? 0),
+        brand: tr.volumes.brand || '',
+        numbering: tr.volumes.numbering || '',
+      });
+    }
+    if (typeof tr.freightValue === 'number') setFreight(fmtNum(tr.freightValue));
+    setHasPayment(Boolean(tr.hasPayment));
+    if (tr.payment) setPayment({ tPag: tr.payment.tPag, amount: tr.payment.amount != null ? fmtNum(tr.payment.amount) : '' });
+    if (initialDraft.additionalInfo?.complementary) setInfCpl(initialDraft.additionalInfo.complementary);
+    if (initialDraft.additionalInfo?.fisco) setInfFisco(initialDraft.additionalInfo.fisco);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hidrata uma vez a partir do pré-preenchimento da venda
+  }, [initialDraft]);
 
   const taxRegime: ErpTaxRegime = ctx?.taxRegime || 'LUCRO_PRESUMIDO';
   const crt = crtFromRegime(taxRegime);
@@ -602,6 +723,8 @@ export default function ProductNfeForm({ companies, suppliers, catalog, onCancel
       tpEmis,
       idDest,
       indPres,
+      indIntermed,
+      ...(indIntermed === '1' ? { intermediary: { cnpj: intermediary.cnpj, idCadIntTran: intermediary.idCadIntTran } } : {}),
       hasReferencedNfe: hasRef,
       referencedKeys: hasRef ? refKeys.split(/[\s,;]+/).map(onlyDigits).filter(Boolean) : [],
     },
@@ -689,13 +812,18 @@ export default function ProductNfeForm({ companies, suppliers, catalog, onCancel
 
   const submit = async () => {
     setServerIssues([]);
-    const body = buildPayload();
-    if (!body.items.length) return onShowToast('Inclua ao menos um produto.');
+    const payload = buildPayload();
+    if (!payload.items.length) return onShowToast('Inclua ao menos um produto.');
+    if (!taxpayerType) return onShowToast('Tipo de contribuinte é obrigatório.');
     if (!docValid) return onShowToast(`${docType} do destinatário inválido (dígito verificador).`);
     setSaving(true);
     try {
-      const res = await fetch('/api/erp/nfe-produtos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const j = (await res.json().catch(() => null)) as { data?: ErpFiscalInvoice; error?: string; issues?: Array<{ path: string; message: string }>; warnings?: string[] } | null;
+      const url = sourceSaleOrderId
+        ? `/api/erp/vendas/${encodeURIComponent(sourceSaleOrderId)}/nfe`
+        : '/api/erp/nfe-produtos';
+      const body = sourceSaleOrderId ? { draft: payload, force: Boolean(forceDuplicate) } : payload;
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const j = (await res.json().catch(() => null)) as { data?: ErpFiscalInvoice; error?: string; issues?: Array<{ path: string; message: string }>; warnings?: string[]; code?: string } | null;
       if (!res.ok || !j?.data) {
         if (j?.issues) setServerIssues(j.issues);
         onShowToast(j?.error || `Não foi possível cadastrar a NF-e (${res.status}).`);
@@ -733,6 +861,15 @@ export default function ProductNfeForm({ companies, suppliers, catalog, onCancel
       </div>
 
       {ctxError && <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded p-2">{ctxError}</p>}
+      {mappingWarnings.length > 0 && (
+        <ul className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded p-2 space-y-0.5" data-testid="sale-nfe-mapping-warnings">
+          {mappingWarnings.map((w) => (
+            <li key={w} className="flex items-start gap-1">
+              <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" /> {w}
+            </li>
+          ))}
+        </ul>
+      )}
       {ctx && (
         <div className={`text-[11px] rounded border p-2 flex items-start gap-2 ${isHomolog ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-900'}`} data-testid="product-nfe-env-banner">
           {isHomolog ? <FlaskConical className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
@@ -834,13 +971,20 @@ export default function ProductNfeForm({ companies, suppliers, catalog, onCancel
             <input aria-label="Razão social" className={inputCls} maxLength={60} value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="Tipo de contribuinte" required>
-            <select aria-label="Tipo de contribuinte" className={inputCls} value={taxpayerType} onChange={(e) => setTaxpayerType(e.target.value)}>
+            <select
+              aria-label="Tipo de contribuinte"
+              className={`${inputCls} ${!taxpayerType ? 'border-rose-500 text-rose-700' : ''}`}
+              value={taxpayerType}
+              onChange={(e) => setTaxpayerType(e.target.value)}
+            >
+              <option value="">Selecione</option>
               {NFE_CONTRIBUINTE_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
               ))}
             </select>
+            {!taxpayerType && <p className="text-[10px] text-rose-600 mt-0.5">Obrigatório.</p>}
           </Field>
           <Field label="Inscr. estadual" required={taxpayerType === '1'}>
             <input aria-label="Inscrição estadual" className={inputCls} value={ie} onChange={(e) => setIe(e.target.value)} />
@@ -1143,7 +1287,37 @@ export default function ProductNfeForm({ companies, suppliers, catalog, onCancel
         )}
       </Section>
 
-      {/* 6. INFORMAÇÕES ADICIONAIS */}
+      {/* 6. INTERMEDIADOR */}
+      <Section icon={<Store className="w-4 h-4" />} lead="Informe o" strong="intermediador" tail="da operação" subtitle="Marketplace ou plataforma. O padrão é operação sem intermediador.">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={`px-3 py-1.5 rounded border text-xs font-semibold ${indIntermed === '0' ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]' : 'bg-white border-slate-300 text-slate-700'}`}
+            onClick={() => setIndIntermed('0')}
+          >
+            Operação sem intermediador
+          </button>
+          <button
+            type="button"
+            className={`px-3 py-1.5 rounded border text-xs font-semibold ${indIntermed === '1' ? 'bg-[#1e3a6e] text-white border-[#1e3a6e]' : 'bg-white border-slate-300 text-slate-700'}`}
+            onClick={() => setIndIntermed('1')}
+          >
+            Operação com intermediador
+          </button>
+        </div>
+        {indIntermed === '1' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Field label="CNPJ do intermediador" required>
+              <input aria-label="CNPJ do intermediador" className={inputCls} value={intermediary.cnpj} onChange={(e) => setIntermediary({ ...intermediary, cnpj: formatDoc(e.target.value, 'CNPJ') })} />
+            </Field>
+            <Field label="Identificador no intermediador" required>
+              <input aria-label="Identificador no intermediador" className={inputCls} maxLength={60} value={intermediary.idCadIntTran} onChange={(e) => setIntermediary({ ...intermediary, idCadIntTran: e.target.value })} />
+            </Field>
+          </div>
+        )}
+      </Section>
+
+      {/* 7. INFORMAÇÕES ADICIONAIS */}
       <Section icon={<Info className="w-4 h-4" />} lead="Insira as" strong="informações adicionais" tail="da nota" subtitle="Textos impressos no DANFE e enviados à Sefaz junto com a nota.">
         <Field label="Informações complementares">
           <textarea aria-label="Informações complementares" className={`${inputCls} h-20`} maxLength={5000} value={infCpl} onChange={(e) => setInfCpl(e.target.value)} />

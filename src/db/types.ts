@@ -1566,6 +1566,8 @@ export interface ErpFiscalInvoice {
   rentalContractId: string | null;
   proposalId: string | null;
   dealId: string | null;
+  /** Venda de origem quando a NF-e de produtos foi emitida por ⋮ > Emitir > NF-e. */
+  saleOrderId?: string | null;
   grossAmount: number;
   discountAmount: number;
   netAmount: number;
@@ -1783,6 +1785,30 @@ export interface ErpDashboardSummary {
   }>;
 }
 
+export interface ErpSaleOrderAddress {
+  cep?: string;
+  street?: string;
+  number?: string;
+  complement?: string;
+  district?: string;
+  city?: string;
+  uf?: string;
+  cityIbge?: string;
+  country?: string;
+}
+
+export interface ErpSaleOrderItem {
+  catalogItemId?: string | null;
+  code?: string;
+  description: string;
+  ncm?: string;
+  cfop?: string;
+  unit?: string;
+  quantity: number;
+  unitValue: number;
+  origin?: string;
+}
+
 export interface ErpSaleOrder {
   id: string;
   code: string;
@@ -1795,6 +1821,31 @@ export interface ErpSaleOrder {
   paymentMethod?: string;
   saleType?: 'PRODUTO' | 'SERVICO' | 'BALCAO' | 'DEVOLUCAO';
   commissionAmount?: number;
+  /** Campos opcionais para o Emitir NF-e (preenchidos pelo módulo de Vendas quando disponíveis). */
+  companyId?: string;
+  companyCnpj?: string;
+  companyLegalName?: string;
+  taxpayerType?: '1' | '2' | '9' | '';
+  ie?: string;
+  suframa?: string;
+  im?: string;
+  email?: string;
+  phone?: string;
+  address?: ErpSaleOrderAddress;
+  deliveryAddress?: ErpSaleOrderAddress;
+  pickupAddress?: ErpSaleOrderAddress;
+  items?: ErpSaleOrderItem[];
+  /** Código modFrete da NF-e (0-4, 9) ou rótulo (CIF, FOB, Sem frete...). */
+  freightModality?: string;
+  freightValue?: number;
+  volumes?: {
+    quantity?: number;
+    species?: string;
+    netWeightKg?: number;
+    grossWeightKg?: number;
+    brand?: string;
+    numbering?: string;
+  };
 }
 
 export interface ErpServiceOrderStatusEntry {

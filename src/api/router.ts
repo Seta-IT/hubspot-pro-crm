@@ -409,6 +409,15 @@ import {
   toFiscalSettingsView,
 } from '../modules/erp/fiscal-settings';
 import { crtFromRegime, validateProductNfeDraft } from '../modules/erp/product-nfe-engine';
+import {
+  SALE_NFE_PATH_RE,
+  createSaleNfeBodySchema,
+  findCompanyForSale,
+  mapSaleToProductNfeDraft,
+  prefillTaxpayerType,
+  saleNfeEligibility,
+  saleSummary,
+} from '../modules/erp/sale-to-product-nfe';
 import { ErpImportDeclarationInfo } from '../db/types';
 import type { ErpCommercialProposal, ErpServiceOrder } from '../db/types';
 import {
@@ -3327,6 +3336,7 @@ export class CrmApiRouter {
       else if (cleanPath === '/api/erp/rental-contracts/batch-billing') reason = 'faturamento em lote';
       else if (cleanPath === '/api/erp/nfe-importacao/emit') reason = 'NF-e de importacao';
       else if (cleanPath === '/api/erp/nfe-produtos') reason = 'NF-e de produtos (rascunho)';
+      else if (SALE_NFE_PATH_RE.test(cleanPath)) reason = 'NF-e de produtos a partir da venda';
       else if (/^\/api\/erp\/nfe-produtos\/[^/]+\/sefaz\/(?:transmitir|consultar|cancelar|carta-correcao)$/.test(cleanPath)) reason = 'NF-e de produtos na SEFAZ (homologacao)';
       else if (
         /^\/api\/erp\/(?:rental-contracts|contracts)\/[^/]+\/partial-return$/.test(cleanPath) &&
@@ -9662,6 +9672,143 @@ export class CrmApiRouter {
       //  - DELETE /api/erp/nfe-produtos/:id: só rascunho
       //  Sessão só por query (_sessionToken). Nenhuma chamada à SEFAZ.
       // ======================================================================
+      // ======================================================================
+      // NF-e A PARTIR DA VENDA — contrato para o módulo de Vendas
+      //   GET  /api/erp/vendas/:vendaId/nfe   pré-preenche (não grava)
+      //   POST /api/erp/vendas/:vendaId/nfe   cadastra rascunho e vincula saleOrderId
+      // Alçada: canIssueFiscalDocuments + 2FA (mesma de POST /api/erp/nfe-produtos).
+      // ======================================================================
+      const saleNfeMatch = cleanPath.match(SALE_NFE_PATH_RE);
+      if (saleNfeMatch && (method === 'GET' || method === 'POST')) {
+        const salePriv = this.fiscalIssuancePrivilege(query, ctx);
+        if (!salePriv.allowed) {
+          return this.denyFiscalIssuance(method, cleanPath, query, salePriv, 'NF-e de produtos a partir da venda');
+        }
+        const vendaId = decodeURIComponent(saleNfeMatch[1] || '').trim().slice(0, 80);
+        if (!vendaId) return { status: 404, body: { error: 'Venda não encontrada.', code: 'SALE_NOT_FOUND' } };
+        const sale = this.repo.getSaleOrder(vendaId);
+        if (!sale) return { status: 404, body: { error: 'Venda não encontrada.', code: 'SALE_NOT_FOUND' } };
+        const eligible = saleNfeEligibility(sale);
+        if (!eligible.ok) return { status: 422, body: { error: eligible.error, code: eligible.code } };
+
+        const fsSettings = this.repo.getFiscalDocumentSettings();
+        const env = fsSettings.nfe.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
+        const serie = fsSettings.nfe.serie || '1';
+        const gc = this.repo.getErpOverview().gestaoClickConfig;
+        const company = findCompanyForSale(sale, this.repo.listCompanies());
+        const prefill = mapSaleToProductNfeDraft(sale, {
+          taxRegime: gc.taxRegime,
+          emitterUf: 'SP',
+          serie,
+          additionalInfo: fsSettings.nfe.additionalInfo || '',
+          company,
+          catalog: this.repo.getErpOverview().catalog || [],
+          invoices: this.repo.getErpOverview().invoices || [],
+        });
+        const taxpayerPrefill = prefillTaxpayerType(sale, company);
+        const context = {
+          environment: env,
+          serie,
+          nextNumber: this.repo.peekNextFiscalNumber('55', serie, env),
+          taxRegime: gc.taxRegime,
+          crt: crtFromRegime(gc.taxRegime),
+          emitterUf: 'SP',
+          additionalInfo: fsSettings.nfe.additionalInfo || '',
+          canIssue: true,
+          sefazIntegration: false,
+        };
+        const prefillBody = {
+          sale: saleSummary(sale),
+          draft: {
+            ...prefill.draft,
+            recipient: { ...prefill.draft.recipient, taxpayerType: taxpayerPrefill },
+          },
+          context,
+          existing: prefill.existing,
+          warnings: prefill.warnings,
+          missingRequired: prefill.missingRequired,
+          readyToCreate: prefill.readyToCreate,
+        };
+
+        if (method === 'GET') {
+          return { status: 200, body: { data: prefillBody } };
+        }
+
+        const parsedBody = createSaleNfeBodySchema.safeParse(body && typeof body === 'object' && !Array.isArray(body) ? body : {});
+        if (!parsedBody.success) {
+          const issues = parsedBody.error.issues.slice(0, 30).map((i) => ({ path: i.path.join('.'), message: i.message }));
+          return {
+            status: 400,
+            body: {
+              error: `Dados inválidos: ${issues.map((i) => `${i.path || 'corpo'}: ${i.message}`).join('; ')}`.slice(0, 800),
+              code: 'SALE_NFE_INVALID_INPUT',
+              issues,
+            },
+          };
+        }
+        if (prefill.existing && !parsedBody.data.force) {
+          return {
+            status: 409,
+            body: {
+              error: `Já existe a NF-e ${prefill.existing.nNF} - série ${prefill.existing.serie} vinculada à venda #${sale.code}. Envie force: true para cadastrar outra.`,
+              code: 'SALE_NFE_ALREADY_EXISTS',
+              existing: prefill.existing,
+              data: prefillBody,
+            },
+          };
+        }
+        let draftToSave = parsedBody.data.draft;
+        if (!draftToSave) {
+          if (!prefill.readyToCreate) {
+            return {
+              status: 400,
+              body: {
+                error: `A venda não tem todos os dados obrigatórios da NF-e: ${prefill.missingRequired.map((i) => i.message).join(' ')}`.slice(0, 800),
+                code: 'SALE_NFE_INCOMPLETE',
+                issues: prefill.missingRequired,
+                warnings: prefill.warnings,
+                data: prefillBody,
+              },
+            };
+          }
+          const mapped = validateProductNfeDraft(prefill.draft);
+          if (!mapped.ok) {
+            return { status: 400, body: { error: mapped.error, code: 'SALE_NFE_INCOMPLETE', issues: mapped.issues, warnings: prefill.warnings } };
+          }
+          draftToSave = mapped.data;
+        }
+        const actor = salePriv.email || this.sessionActorName(query) || 'sistema';
+        await this.ensureCompanyEmitterHydrated();
+        const created = this.repo.createProductNfeDraft(draftToSave, actor, this.draftEmitterAddress(), sale.id);
+        if (!created.ok) {
+          return {
+            status: 409,
+            body: {
+              error: `O número ${draftToSave.general.number} da série ${created.serie} já foi usado em ${created.environment === 'PRODUCAO' ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}. Próximo disponível: ${created.nextAvailable}.`,
+              code: 'PRODUCT_NFE_NUMBER_IN_USE',
+              nextAvailable: created.nextAvailable,
+            },
+          };
+        }
+        const pn = created.invoice.productNfe!;
+        try {
+          this.repo.appendSecurityAuditLog({
+            actorEmail: salePriv.email || 'sistema',
+            actorName: salePriv.name || 'Sistema STI-hub',
+            actorRole: salePriv.roleId || 'SISTEMA',
+            action: 'ERP_PRODUCT_NFE_DRAFT_CREATED',
+            module: 'ERP',
+            resource: `POST ${cleanPath}`,
+            status: 'SUCCESS',
+            ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+            details: `NF-e ${pn.nNF} série ${pn.serie} gravada como RASCUNHO em ${pn.environment} a partir da venda #${sale.code} (${sale.id}), CRT ${pn.crt}, vNF ${pn.totals.vNF.toFixed(2)}. Sem transmissão à SEFAZ.`,
+          });
+        } catch {
+          // auditoria nunca derruba a resposta
+        }
+        return { status: 201, body: { data: created.invoice, warnings: pn.warnings } };
+      }
+
       if (cleanPath === '/api/erp/nfe-produtos/context' && method === 'GET') {
         const npSess = ctx.trustedInternal || !query._sessionToken ? null : this.repo.resolveSessionFromToken(query._sessionToken);
         if (!ctx.trustedInternal && !(npSess && npSess.authenticated)) {
@@ -9693,13 +9840,41 @@ export class CrmApiRouter {
       if (cleanPath === '/api/erp/nfe-produtos' && method === 'POST') {
         const npPriv = this.fiscalIssuancePrivilege(query, ctx);
         if (!npPriv.allowed) return this.denyFiscalIssuance(method, cleanPath, query, npPriv, 'NF-e de produtos (rascunho)');
-        const validated = validateProductNfeDraft(body);
+        const rawBody = body && typeof body === 'object' && !Array.isArray(body) ? { ...(body as Record<string, unknown>) } : {};
+        const sourceSaleOrderId = typeof rawBody.sourceSaleOrderId === 'string' ? String(rawBody.sourceSaleOrderId).trim().slice(0, 80) : '';
+        const forceFromSale = rawBody.force === true;
+        delete rawBody.sourceSaleOrderId;
+        delete rawBody.force;
+        const validated = validateProductNfeDraft(rawBody);
         if (!validated.ok) {
           return { status: 400, body: { error: validated.error, code: 'PRODUCT_NFE_INVALID_INPUT', issues: validated.issues } };
         }
+        if (sourceSaleOrderId) {
+          const saleForLink = this.repo.getSaleOrder(sourceSaleOrderId);
+          if (!saleForLink) return { status: 404, body: { error: 'Venda não encontrada.', code: 'SALE_NOT_FOUND' } };
+          const already = this.repo.listProductNfesForSale(saleForLink.id, saleForLink.code).find((inv) => inv.status !== 'CANCELADA' && inv.productNfe?.sefaz?.status !== 'CANCELADA');
+          if (already && !forceFromSale) {
+            return {
+              status: 409,
+              body: {
+                error: `Já existe a NF-e ${already.productNfe?.nNF} - série ${already.productNfe?.serie} vinculada à venda #${saleForLink.code}. Envie force: true para cadastrar outra.`,
+                code: 'SALE_NFE_ALREADY_EXISTS',
+                existing: {
+                  id: already.id,
+                  nNF: already.productNfe?.nNF ?? null,
+                  serie: already.productNfe?.serie ?? null,
+                  status: already.status,
+                  sefazStatus: already.productNfe?.sefaz?.status ?? null,
+                  documentNumber: already.documentNumber,
+                  environment: already.productNfe?.environment ?? null,
+                },
+              },
+            };
+          }
+        }
         const actor = npPriv.email || this.sessionActorName(query) || 'sistema';
         await this.ensureCompanyEmitterHydrated();
-        const created = this.repo.createProductNfeDraft(validated.data, actor, this.draftEmitterAddress());
+        const created = this.repo.createProductNfeDraft(validated.data, actor, this.draftEmitterAddress(), sourceSaleOrderId || null);
         if (!created.ok) {
           return {
             status: 409,
