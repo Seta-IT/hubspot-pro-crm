@@ -155,6 +155,9 @@ import ImportFilePicker from './ImportFilePicker';
 import FiscalSettingsPanel from './FiscalSettingsPanel';
 import ProposalNoteDefaultsPage from './ProposalNoteDefaultsPage';
 import ProductNfeWorkspace from './ProductNfeWorkspace';
+import ProductNfeForm from './ProductNfeForm';
+import SaleEmitFiscalMenu, { nfeLabelForSale } from './SaleEmitFiscalMenu';
+import type { ProductNfeDraftInput } from '../../modules/erp/product-nfe-engine';
 import { decodeImportFileBytes, MAX_IMPORT_FILE_BYTES } from '../../modules/erp/sebrae-nfe-import-engine';
 import { defaultIssuerAddressLine } from '../lib/company-issuer-address';
 import StiHubAdminRbacPanel from './StiHubAdminRbacPanel';
@@ -679,6 +682,13 @@ export default function ErpGestaoClickTab({
   const [cadastrosSearch, setCadastrosSearch] = useState<string>("");
   const [itensSearch, setItensSearch] = useState<string>("");
   const [vendasSearch, setVendasSearch] = useState<string>("");
+  const [saleNfePrefill, setSaleNfePrefill] = useState<{
+    saleId: string;
+    saleCode: string;
+    draft: ProductNfeDraftInput;
+    warnings: string[];
+    force: boolean;
+  } | null>(null);
   const [pdvCustomerName, setPdvCustomerName] = useState<string>(
     companies[0]?.name || "CONSUMIDOR FINAL / BALCÃO SETA TELECOM"
   );
@@ -1113,6 +1123,47 @@ export default function ErpGestaoClickTab({
   const openIssuedInvoiceEmail = (inv: (typeof invoices)[number]) => {
     const contract = findLinkedRentalContract(inv, rentalContracts);
     setEmailModalPayload(buildIssuedInvoiceEmailPayload(inv, { contract, remessaDocs: invoices }));
+  };
+
+  const handleEmitNfeFromSale = async (sale: ErpSaleOrder) => {
+    try {
+      const res = await fetch(`/api/erp/vendas/${encodeURIComponent(sale.id)}/nfe`, { cache: 'no-store' });
+      const j = (await res.json().catch(() => null)) as {
+        error?: string;
+        data?: {
+          draft: ProductNfeDraftInput;
+          warnings?: string[];
+          existing?: { nNF?: number | null; serie?: string | null } | null;
+        };
+      } | null;
+      if (res.status === 401 || res.status === 403) {
+        onShowToast(j?.error || 'Você precisa da alçada fiscal e do 2FA para emitir NF-e.');
+        return;
+      }
+      if (!res.ok || !j?.data) {
+        onShowToast(j?.error || `Não foi possível preparar a NF-e desta venda (${res.status}).`);
+        return;
+      }
+      if (j.data.existing) {
+        const ok = window.confirm(
+          `Já existe a NF-e #${j.data.existing.nNF} série ${j.data.existing.serie} para a venda #${sale.code}. Deseja cadastrar outra?`
+        );
+        if (!ok) {
+          setActiveSection('FISCAL');
+          setActiveSubId('FIS_PRODUTOS');
+          return;
+        }
+      }
+      setSaleNfePrefill({
+        saleId: sale.id,
+        saleCode: sale.code,
+        draft: j.data.draft,
+        warnings: j.data.warnings || [],
+        force: Boolean(j.data.existing),
+      });
+    } catch (e) {
+      onShowToast(e instanceof Error ? e.message : 'Falha ao preparar a NF-e da venda.');
+    }
   };
 
   const handleGenerateInvoiceLink = async (inv: (typeof invoices)[number]) => {
@@ -6560,7 +6611,25 @@ export default function ErpGestaoClickTab({
             );
           })()}
 
-          {activeSection === 'VENDAS' && (() => {
+          {activeSection === 'VENDAS' && saleNfePrefill && (
+            <ProductNfeForm
+              companies={companies}
+              suppliers={suppliers}
+              catalog={catalog}
+              initialDraft={saleNfePrefill.draft}
+              sourceSaleOrderId={saleNfePrefill.saleId}
+              forceDuplicate={saleNfePrefill.force}
+              mappingWarnings={saleNfePrefill.warnings}
+              onCancel={() => setSaleNfePrefill(null)}
+              onShowToast={onShowToast}
+              onCreated={async () => {
+                setSaleNfePrefill(null);
+                await onRefresh();
+              }}
+            />
+          )}
+
+          {activeSection === 'VENDAS' && !saleNfePrefill && (() => {
             const isReturnOrder = (v: ErpSaleOrder) =>
               v.saleType === 'DEVOLUCAO' || /cancelad|devol|estorn/i.test(v.status || '');
             const isServiceSale = (v: ErpSaleOrder) =>
@@ -6708,7 +6777,7 @@ export default function ErpGestaoClickTab({
                     </div>
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] border-b">
-                        <tr><th className="py-2 px-3">Código</th><th className="py-2 px-3">Cliente</th><th className="py-2 px-3">Vendedor</th><th className="py-2 px-3">Data</th><th className="py-2 px-3">Situação</th><th className="py-2 px-3 text-right">Valor Total</th><th className="py-2 px-3 text-right">Ações</th></tr>
+                        <tr><th className="py-2 px-3">Código</th><th className="py-2 px-3">Cliente</th><th className="py-2 px-3">Vendedor</th><th className="py-2 px-3">Data</th><th className="py-2 px-3">Situação</th><th className="py-2 px-3">NF-e</th><th className="py-2 px-3 text-right">Valor Total</th><th className="py-2 px-3 text-right">Ações</th></tr>
                       </thead>
                       <tbody className="divide-y">
                         {filteredSales.map((v) => (
@@ -6718,8 +6787,32 @@ export default function ErpGestaoClickTab({
                             <td className="py-2 px-3">{v.sellerName}</td>
                             <td className="py-2 px-3">{v.date}</td>
                             <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isReturnOrder(v) ? 'bg-rose-100 text-rose-800' : 'bg-slate-50 text-slate-800'}`}>{v.status}</span></td>
+                            <td className="py-2 px-3">
+                              {(() => {
+                                const linked = nfeLabelForSale(invoices, v);
+                                if (!linked) return <span className="text-slate-400">—</span>;
+                                return (
+                                  <button
+                                    type="button"
+                                    className="font-semibold text-[#1e3a6e] underline cursor-pointer"
+                                    onClick={() => {
+                                      setActiveSection('FISCAL');
+                                      setActiveSubId('FIS_PRODUTOS');
+                                    }}
+                                  >
+                                    {linked.label}
+                                  </button>
+                                );
+                              })()}
+                            </td>
                             <td className="py-2 px-3 text-right font-semibold">{formatBRL(v.totalAmount)}</td>
                             <td className="py-2 px-3 text-right space-x-1">
+                              <SaleEmitFiscalMenu
+                                sale={v}
+                                invoices={invoices}
+                                onEmitNfe={(s) => void handleEmitNfeFromSale(s)}
+                                onSoon={(kind) => onShowToast(kind === 'NFCE' ? 'Emissão de NFC-e: em breve.' : 'Emissão de NFS-e: em breve.')}
+                              />
                               <button
                                 type="button"
                                 onClick={() =>

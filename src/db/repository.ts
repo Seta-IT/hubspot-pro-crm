@@ -7358,7 +7358,9 @@ export class CrmRepository {
     draft: ProductNfeDraft,
     actor: string,
     /** Endereço do emitente (Configurações > Empresa). Sem ele o XML de rascunho marca o endereço como PENDENTE. */
-    emitterAddress: DraftEmitterAddress | null = null
+    emitterAddress: DraftEmitterAddress | null = null,
+    /** Venda de origem (⋮ > Emitir > NF-e). */
+    saleOrderId: string | null = null
   ): { ok: true; invoice: ErpFiscalInvoice } | { ok: false; code: 'NUMBER_IN_USE'; nextAvailable: number; environment: FiscalEnvironment; serie: string } {
     const erp = this.ensureErp();
     const settings = this.ensureFiscalDocumentSettings();
@@ -7410,6 +7412,7 @@ export class CrmRepository {
       rentalContractId: null,
       proposalId: null,
       dealId: null,
+      saleOrderId: saleOrderId ? String(saleOrderId).slice(0, 80) : null,
       grossAmount: totals.vProd,
       discountAmount: totals.vDesc,
       netAmount: totals.vNF,
@@ -7498,6 +7501,34 @@ export class CrmRepository {
   getProductNfeInvoice(id: string): ErpFiscalInvoice | null {
     const inv = this.ensureErp().invoices.find((i) => i.id === id);
     return inv && inv.productNfe ? (JSON.parse(JSON.stringify(inv)) as ErpFiscalInvoice) : null;
+  }
+
+  /** Venda por id ou, se não houver id, pelo código (cópia). */
+  getSaleOrder(idOrCode: string): ErpSaleOrder | null {
+    const key = String(idOrCode || '').trim();
+    if (!key) return null;
+    const list = this.ensureErp().salesOrders || [];
+    const found = list.find((s) => s.id === key) || list.find((s) => s.code === key);
+    return found ? (JSON.parse(JSON.stringify(found)) as ErpSaleOrder) : null;
+  }
+
+  upsertSaleOrder(sale: ErpSaleOrder): ErpSaleOrder {
+    const erp = this.ensureErp();
+    if (!erp.salesOrders) erp.salesOrders = [];
+    const copy = JSON.parse(JSON.stringify(sale)) as ErpSaleOrder;
+    const idx = erp.salesOrders.findIndex((s) => s.id === copy.id);
+    if (idx >= 0) erp.salesOrders[idx] = copy;
+    else erp.salesOrders.unshift(copy);
+    this.save();
+    return JSON.parse(JSON.stringify(copy)) as ErpSaleOrder;
+  }
+
+  listProductNfesForSale(saleId: string, saleCode?: string): ErpFiscalInvoice[] {
+    const ids = new Set([String(saleId || '').trim(), String(saleCode || '').trim()].filter(Boolean));
+    if (!ids.size) return [];
+    return this.ensureErp()
+      .invoices.filter((inv) => inv.productNfe && inv.saleOrderId && ids.has(inv.saleOrderId))
+      .map((inv) => JSON.parse(JSON.stringify(inv)) as ErpFiscalInvoice);
   }
 
   /**

@@ -224,6 +224,15 @@ export const productNfeDraftSchema = z
         tpEmis: z.enum(['1']).default('1'),
         idDest: z.enum(['1', '2', '3']).default('1'),
         indPres: z.enum(['0', '1', '2', '3', '4', '5', '9']).default('1'),
+        /** 0 = operação sem intermediador (padrão); 1 = com intermediador/marketplace. */
+        indIntermed: z.enum(['0', '1']).default('0'),
+        intermediary: z
+          .object({
+            cnpj: txt(18),
+            idCadIntTran: txt(60),
+          })
+          .strict()
+          .optional(),
         hasReferencedNfe: z.boolean().default(false),
         referencedKeys: z.array(z.string().regex(/^\d{44}$/, 'Chave referenciada deve ter 44 dígitos')).max(20).optional().default([]),
       })
@@ -330,6 +339,16 @@ export const productNfeDraftSchema = z
     }
     if (v.general.hasReferencedNfe && v.general.referencedKeys.length === 0) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['general', 'referencedKeys'], message: 'Informe ao menos uma NF-e referenciada.' });
+    }
+    if (v.general.indIntermed === '1') {
+      const inter = v.general.intermediary;
+      const cnpj = String(inter?.cnpj || '').replace(/\D/g, '');
+      if (!inter || cnpj.length !== 14) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['general', 'intermediary', 'cnpj'], message: 'Operação com intermediador exige o CNPJ do intermediador.' });
+      }
+      if (!String(inter?.idCadIntTran || '').trim()) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['general', 'intermediary', 'idCadIntTran'], message: 'Informe o identificador cadastrado no intermediador.' });
+      }
     }
   });
 
@@ -770,6 +789,15 @@ export function generateProductNfeXml(
   const tPag = tr.hasPayment && tr.payment ? tr.payment.tPag : '90';
   const vPag = tPag === '90' ? 0 : tr.payment?.amount ?? totals.vNF;
 
+  const infIntermed =
+    draft.general.indIntermed === '1' && draft.general.intermediary
+      ? `      <infIntermed>
+        <CNPJ>${onlyDigits(draft.general.intermediary.cnpj)}</CNPJ>
+        <idCadIntTran>${x(draft.general.intermediary.idCadIntTran, 60)}</idCadIntTran>
+      </infIntermed>
+`
+      : '';
+
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <!-- ${SEFAZ_XML_DRAFT_NOTICE} -->
 <NFe xmlns="http://www.portalfiscal.inf.br/nfe">
@@ -793,6 +821,7 @@ export function generateProductNfeXml(
         <finNFe>${draft.general.finNFe}</finNFe>
         <indFinal>${draft.general.indFinal}</indFinal>
         <indPres>${draft.general.indPres}</indPres>
+        <indIntermed>${draft.general.indIntermed || '0'}</indIntermed>
         <procEmi>0</procEmi>
         <verProc>STI-HUB-ERP-1.0</verProc>${nfRef}
       </ide>
@@ -811,7 +840,7 @@ ${renderEmitterXml(ctx.emitter, crt)}
           <xPais>BRASIL</xPais>${onlyDigits(r.phone) ? `\n          <fone>${onlyDigits(r.phone).slice(0, 14)}</fone>` : ''}
         </enderDest>
         <indIEDest>${r.taxpayerType}</indIEDest>${r.taxpayerType === '1' ? `\n        <IE>${onlyDigits(r.ie)}</IE>` : ''}${onlyDigits(r.suframa) ? `\n        <ISUF>${onlyDigits(r.suframa)}</ISUF>` : ''}${r.im ? `\n        <IM>${x(r.im, 15)}</IM>` : ''}${r.email ? `\n        <email>${x(r.email, MOC.email)}</email>` : ''}
-      </dest>${r.hasPickupAddress ? place('retirada', r.pickupAddress) : ''}${r.hasDeliveryAddress ? place('entrega', r.deliveryAddress) : ''}
+      </dest>${r.hasPickupAddress ? place('retirada', r.pickupAddress) : ''}${r.hasDeliveryAddress ? place('entrega', r.deliveryAddress) : ''}${infIntermed}
 ${det}
       <total>
         <ICMSTot>
