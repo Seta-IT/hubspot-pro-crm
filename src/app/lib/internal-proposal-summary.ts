@@ -18,6 +18,7 @@ import { displayProposalTitle } from './proposal-title';
 import { buildInternalProposalSheet, type InternalProposalIssuerInput, type InternalProposalSheet } from './internal-proposal-sheet';
 import { formatClientProposalViews } from './proposal-client-view';
 import { proposalStatusLabel } from './proposal-status';
+import { proposalLineDetailsText } from './proposal-item-details';
 
 export const INTERNAL_PROPOSAL_PATH_PREFIX = '/interno/proposta';
 export const INTERNAL_FIELD_MISSING = 'não definido';
@@ -379,7 +380,7 @@ export function toInternalProposalSummary(
     lines: (proposal.items || []).map((item) => ({
       id: item.id,
       description: String(item.description || '').trim() || INTERNAL_FIELD_MISSING,
-      detail: [item.sku, item.ncmOrServiceCode].map((v) => String(v || '').trim()).filter(Boolean).join(' · '),
+      detail: [item.sku, proposalLineDetailsText(item)].map((v) => String(v || '').trim()).filter(Boolean).join(' · '),
       quantityLabel: formatQty(Number(item.quantity || 0)),
       unitLabel: formatBrl(Number(item.unitPrice || 0)),
       lineLabel: formatBrl(lineMonthly(item)),
