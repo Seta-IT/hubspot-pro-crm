@@ -352,7 +352,13 @@ export function toFiscalSettingsView(settings: FiscalDocumentSettings, cfg: Gest
     },
     nfse: { ...settings.nfse, numbering: numbering(FISCAL_MODEL_RPS, settings.nfse.rpsSerie, peek) },
     xmlDownloadAuthorizations: settings.xmlDownloadAuthorizations.map((d) => ({ document: d, formatted: formatCpfOrCnpj(d), type: d.length === 11 ? 'CPF' : 'CNPJ' })),
-    certificate: { ...settings.certificate, uploadEnabled: false as const, note: 'Upload do certificado digital A1 (.pfx): em breve.' },
+    // Upload real na tela própria (Configurações > Certificado digital, /api/erp/certificate):
+    // .pfx + senha, administrador com 2FA, cifrado em repouso (AES-256-GCM, STI_HUB_CERT_ENC_KEY).
+    certificate: {
+      ...settings.certificate,
+      uploadEnabled: true as const,
+      note: 'Envie o certificado A1 (.pfx + senha) em Configurações > Certificado digital (administrador com 2FA; arquivo e senha cifrados).',
+    },
     emitter: {
       // Somente leitura: CNPJ, regime e município não são alterados por esta tela.
       companyLegalName: cfg?.companyLegalName || '',

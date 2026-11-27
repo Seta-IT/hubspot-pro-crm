@@ -96,7 +96,8 @@ describe('Configurações Fiscais — ambiente padrão HOMOLOGAÇÃO', () => {
     assert.equal(v.nfse.specialRegime, 'MEEPP');
     assert.match(v.nfe.additionalInfo, /optante pelo simples nacional/i);
     assert.equal(v.certificate.status, 'NAO_CONFIGURADO');
-    assert.equal(v.certificate.uploadEnabled, false);
+    assert.equal(v.certificate.uploadEnabled, true, 'upload na tela Configurações > Certificado digital');
+    assert.match(String((v.certificate as { note?: string }).note), /Certificado digital/);
     assert.equal(v.emitter.readOnly, true);
     assert.equal(v.emitter.taxRegimeNote, 'aguardando confirmação');
     assert.match(v.productionWarning, /ERP de origem deve PARAR de emitir na mesma série/);

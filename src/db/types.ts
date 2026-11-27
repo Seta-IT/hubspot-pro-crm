@@ -2112,11 +2112,12 @@ export type NfseSpecialRegime =
 export type NfseTaxApportionment = '' | 'SN_FEDERAIS_E_MUNICIPAL' | 'SN_FEDERAIS_ISSQN_FORA' | 'FORA_DO_SN';
 
 export interface FiscalDigitalCertificateInfo {
-  /** Upload ainda não disponível: nenhum .pfx nem senha é armazenado. */
+  /** Resumo nas Configurações Fiscais; o .pfx/senha ficam só no cofre de /api/erp/certificate (cifrados). */
   status: 'NAO_CONFIGURADO' | 'VALIDO' | 'VENCIDO';
   validUntil: string | null;
   certificateCnpj: string | null;
-  uploadEnabled: false;
+  /** Persistido sempre false (nada de .pfx aqui); a visão do GET devolve true: o upload é na tela própria. */
+  uploadEnabled: boolean;
 }
 
 export interface FiscalDocumentSettings {
