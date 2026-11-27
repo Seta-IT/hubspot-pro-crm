@@ -671,7 +671,9 @@ export async function resolverEmpresa(nome: string, api: ApiCaller): Promise<Res
   let r = await buscar(`/api/companies?search=${encodeURIComponent(termo)}&limit=20`);
   if ('erro' in r) return { ok: false, candidatos: [], result: apiError(r.erro, 'consultar o cadastro de empresas') };
   let list = r.list;
-  const filtra = (l: any[]) => l.filter((c) => c && (buscaCombina(termo, [c.name, c.tradeName, c.legalName]) || (cnpj && digits(c.cnpj) === cnpj)));
+  // Cidade entra na busca: "MK Jacuipe" = MK BR S.A de Conceição do Jacuípe (t195u); com mais de
+  // uma unidade (CNPJ) na cidade, o usuário escolhe (Trava Fiscal: nunca mistura CNPJs).
+  const filtra = (l: any[]) => l.filter((c) => c && (buscaCombina(termo, [c.name, c.tradeName, c.legalName]) || buscaCombina(termo, [c.name, c.tradeName, c.city]) || (cnpj && digits(c.cnpj) === cnpj)));
   let cands = filtra(list);
   const porCnpjEm = (l: any[]) => (cnpj ? l.filter((c) => digits(c?.cnpj) === cnpj) : []);
   // Com CNPJ, se a busca por nome não trouxer a empresa certa, amplia para a lista visível.
@@ -971,6 +973,8 @@ const criarRascunhoProposta: AssistenteTool<PropostaArgs> = {
       ok: true,
       mensagem: `Rascunho de proposta ${p.code ? `#${p.code} ` : ''}(${ROTULO_TIPO_PROPOSTA[a.tipo_proposta]}) criado para ${cut(emp.company.name, 60)}. Nada foi enviado ao cliente.`,
       registro: { tipo: 'proposta', id: String(p.id || ''), codigo: p.code ? String(p.code) : undefined },
+      // t195u: depois do Confirmar, os links do rascunho (abrir, Versão contrato, PDF) já aparecem.
+      acoes: acoesProposta({ ...p, status: p.status || 'RASCUNHO' }),
       resumoParaModelo: `Rascunho de proposta criado (código ${p.code || 'n/d'}, tipo ${a.tipo_proposta}). Não crie outra para o mesmo pedido.`,
     };
   },

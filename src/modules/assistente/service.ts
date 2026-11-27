@@ -27,7 +27,8 @@ import {
 import { signActionToken, verifyActionToken } from './confirmation';
 import { rotearPergunta, hojeIso } from './roteador';
 import { resumoConhecimentoParaPrompt } from './conhecimento';
-import { avancarFluxo, fluxoSchema, selecaoSchema, textoMemoriaSugestao, type SaidaFluxo } from './fluxo-proposta';
+import { exemplosDialogoParaPrompt } from './treinamento';
+import { avancarFluxo, fluxoSchema, respostaCurtaDeCampo, selecaoSchema, textoMemoriaSugestao, type SaidaFluxo } from './fluxo-proposta';
 import { RESPOSTA_LICAO_CNPJS, RESPOSTA_LICAO_SEGREDO, blocoMemoriasParaPrompt, detectarLicao, respostaLicaoGravada, selecionarMemorias } from './memoria';
 import type { MemoriaAprendida, RegraAcessorio, TipoMemoria } from './conversas-store';
 import { PERGUNTA_QUAL_REGISTRO, marcaContexto, registroEmContexto, rotaDoContexto, termoGenerico, type RegistroContexto } from './contexto';
@@ -126,6 +127,8 @@ function systemPrompt(user: AssistenteUser, now: number, memorias = ''): string 
     'Datas sempre no formato AAAA-MM-DD nos argumentos.',
     'Fora do seu escopo: emitir nota fiscal, emitir recibo, dar baixa em pagamento, aprovar ou converter proposta, enviar e-mail, WhatsApp ou qualquer mensagem a clientes, excluir registros e alterar usuários ou permissões. Se pedirem, explique que ainda não está disponível e indique a tela do sistema.',
     'Nunca peça nem repita senhas, tokens ou chaves.',
+    'Rascunho em andamento: use o histórico inteiro da conversa. Não pergunte de novo o que já foi respondido (tipo, cliente, itens, prazo, valor, forma, reajuste). Se o usuário repetir o pedido, reaproveite o que já foi dito e pergunte só o que falta. Valores como 45,00/mês, 45,00/mes, 45 mensal ou com erro de digitação ("45,00/m6es") são a mensalidade; "por 24 meses" é o prazo do contrato.',
+    exemplosDialogoParaPrompt(),
     'Base de conhecimento do STI-hub (use para dúvidas de "como faço", regras e erros; responda em texto, sem ferramenta):',
     resumoConhecimentoParaPrompt(),
     ...(memorias ? [memorias] : []),
@@ -265,7 +268,12 @@ export async function handleChat(rawBody: unknown, deps: AssistenteDeps): Promis
     const respostaQual = !!anterior && anterior.papel === 'assistente' && anterior.texto.trim() === PERGUNTA_QUAL_REGISTRO && /^\s*(?:n[ºo°]?\s*)?#?\d{1,7}\s*$/i.test(last.texto);
     const textoRota = respostaQual ? `orçamento ${last.texto.replace(/\D+/g, '')}` : last.texto;
     // Pedido de proposta nova com dados: vai ao modelo (que monta o rascunho), nunca vira consulta.
-    rota = pedidoNovaProposta(last.texto) ? null : rotearPergunta(textoRota, { agora: deps.now(), respondendoPergunta, contexto });
+    // t195u: resposta curta a uma pergunta do rascunho ("boleto", "IGP-M", "sim") também nunca
+    // vira consulta (antes "boleto" abria "Consultar faturas").
+    const respostaDoRascunho = !!anterior && anterior.papel === 'assistente' && respostaCurtaDeCampo(last.texto) &&
+      anterior.texto.trim() !== PERGUNTA_QUAL_REGISTRO &&
+      (ehPerguntaFluxoProposta(anterior.texto) || /forma de pagamento|reajuste|prazo do contrato|rascunho/i.test(anterior.texto));
+    rota = pedidoNovaProposta(last.texto) || respostaDoRascunho ? null : rotearPergunta(textoRota, { agora: deps.now(), respondendoPergunta, contexto });
   } catch {
     rota = null;
   }
