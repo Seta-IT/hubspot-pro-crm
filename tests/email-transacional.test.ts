@@ -99,17 +99,24 @@ describe('E-mail transacional: nada de link ou codigo nas respostas', () => {
       const challengeId = signMfaChallengeToken({ cid: 'MFA-T2', uid: 'usr-seta-01', email: ADMIN, mfaMethod: 'TOTP_AUTHENTICATOR', totpSecret: '', iat: Date.now(), exp: Date.now() + 60_000 });
       const res = await router.dispatch({ method: 'POST', path: '/api/auth/send-email-otp', query: { _fromHttpBridge: '1' }, body: { email: ADMIN, challengeId } });
       assert.equal(res.status, 200);
-      const code = String(calls[0].subject).match(/(\d{6})/)?.[1];
-      assert.ok(code);
-      assert.match(String(calls[0].subject), /^\d{6} é seu código de acesso STI HUB$/, 'codigo no inicio do assunto');
-      assert.equal(JSON.stringify(res.body).includes(code!), false);
+      const subject = String(calls[0].subject);
+      const textBody = String(calls[0].text || '');
+      const code = textBody.match(/>>> (\d{6}) <<</)?.[1];
+      assert.ok(code, 'o codigo OTP precisa ir no corpo do e-mail');
+      assert.equal(subject, 'Seu código de acesso STI HUB');
+      assert.equal(/\d{6}/.test(subject), false, 'assunto nao pode conter o codigo OTP');
+      assert.equal(subject.includes(code), false);
+      assert.ok(textBody.includes(`>>> ${code} <<<`));
+      assert.equal(JSON.stringify(res.body).includes(code), false);
     });
   });
 });
 
-describe('E-mail de codigo OTP: codigo visivel no assunto', () => {
-  it('assunto comeca com o codigo e usa a marca STI HUB', () => {
-    assert.equal(buildEmailOtpSubject('123456'), '123456 é seu código de acesso STI HUB');
-    assert.equal(buildEmailOtpSubject(' 004213 '), '004213 é seu código de acesso STI HUB');
+describe('E-mail de codigo OTP: assunto generico, codigo so no corpo', () => {
+  it('o assunto e fixo e nunca inclui o codigo', () => {
+    assert.equal(buildEmailOtpSubject('123456'), 'Seu código de acesso STI HUB');
+    assert.equal(buildEmailOtpSubject(' 004213 '), 'Seu código de acesso STI HUB');
+    assert.equal(/\d/.test(buildEmailOtpSubject('999999')), false);
+    assert.equal(buildEmailOtpSubject('123456').includes('123456'), false);
   });
 });

@@ -547,10 +547,13 @@ let resendKeyFormatWarned = false;
 /** NODE_ENV=test, VITEST ou JEST: nunca usar chave Resend real (so dummies "re_test_..." com fetch mockado). */
 /**
  * Assunto do e-mail de codigo OTP/MFA (login, reenvio e reverificacao em Minha Conta).
- * O codigo vem primeiro para ser lido na notificacao, sem abrir o e-mail (pedido 26/11/2026).
+ * Assunto generico: o codigo NUNCA vai no assunto (aparece em notificacoes e pre-visualizacoes).
+ * O codigo permanece somente no corpo da mensagem.
  */
-export function buildEmailOtpSubject(otpCode: string): string {
-  return `${String(otpCode || '').trim()} é seu código de acesso STI HUB`;
+export const EMAIL_OTP_SUBJECT = 'Seu código de acesso STI HUB';
+
+export function buildEmailOtpSubject(_otpCode?: string): string {
+  return EMAIL_OTP_SUBJECT;
 }
 
 export function isTestRuntime(): boolean {
