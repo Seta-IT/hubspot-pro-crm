@@ -14,6 +14,42 @@ function round2(val: number): number {
   return Math.round((val + Number.EPSILON) * 100) / 100;
 }
 
+/**
+ * Revisão fiscal #14 — Simples Nacional (CRT=1) na NF-e de venda e na NFC-e: CSOSN 102 por padrão,
+ * sem destaque de ICMS, PIS e COFINS (recolhidos no DAS). O ICMS só é destacado se a alíquota vier
+ * explícita (CSOSN 101/201/900, informada no item). O total estimado é o DAS de referência abaixo
+ * (mesmos 6,75% que o motor somava antes por componente), até a alíquota efetiva do Simples
+ * (RBT12/Anexo) ser configurada.
+ */
+export const SIMPLES_DAS_REFERENCE_RATE_PERCENT = 6.75;
+
+function simplesGoodsBreakdown(base: number, explicitIcmsRate: number | undefined, notice: string): ErpTaxBreakdown {
+  const icmsRate = explicitIcmsRate !== undefined && Number.isFinite(explicitIcmsRate) ? explicitIcmsRate : 0;
+  const icmsAmount = round2((base * icmsRate) / 100);
+  return {
+    taxRegime: 'SIMPLES_NACIONAL',
+    issRatePercent: 0,
+    issAmount: 0,
+    issWithheld: false,
+    pisRatePercent: 0,
+    pisAmount: 0,
+    cofinsRatePercent: 0,
+    cofinsAmount: 0,
+    irpjEstimatedAmount: 0,
+    csllEstimatedAmount: 0,
+    irrfWithheldRatePercent: 0,
+    irrfWithheldAmount: 0,
+    csrfWithheldRatePercent: 0,
+    csrfWithheldAmount: 0,
+    icmsRatePercent: icmsRate,
+    icmsAmount,
+    totalTaxesEstimated: round2((base * SIMPLES_DAS_REFERENCE_RATE_PERCENT) / 100),
+    totalWithheld: 0,
+    netReceivableAmount: round2(base),
+    legalExemptionNotice: notice,
+  };
+}
+
 export function calculateBrazilianTaxBreakdown(params: {
   grossAmount: number;
   discountAmount?: number;
@@ -122,16 +158,23 @@ export function calculateBrazilianTaxBreakdown(params: {
 
   // 2. NFE_VENDA_PRODUTO (NF-e Modelo 55 - Venda de Mercadoria / Equipamento CFOP 5.102 / 6.102)
   if (params.documentType === 'NFE_VENDA_PRODUTO') {
+    if (taxRegime === 'SIMPLES_NACIONAL') {
+      return simplesGoodsBreakdown(
+        base,
+        params.icmsRatePercent,
+        'DANFE NF-e Modelo 55 — Venda de Mercadoria/Equipamento (CFOP 5.102 Operação Interna / 6.102 Interestadual). Emitente optante pelo Simples Nacional (CRT=1): CSOSN 102 sem destaque de ICMS, PIS e COFINS (CST 49), tributos recolhidos no DAS (LC 123/2006). Sem retenção na fonte de IRRF/CSRF.'
+      );
+    }
     const icmsRate =
-      params.icmsRatePercent ?? (taxRegime === 'SIMPLES_NACIONAL' ? 3.95 : 18.0);
+      params.icmsRatePercent ?? 18.0;
     const pisRate =
-      taxRegime === 'LUCRO_REAL' ? 1.65 : taxRegime === 'SIMPLES_NACIONAL' ? 0.35 : 0.65;
+      taxRegime === 'LUCRO_REAL' ? 1.65 : 0.65;
     const cofinsRate =
-      taxRegime === 'LUCRO_REAL' ? 7.6 : taxRegime === 'SIMPLES_NACIONAL' ? 1.6 : 3.0;
+      taxRegime === 'LUCRO_REAL' ? 7.6 : 3.0;
     const irpjRate =
-      taxRegime === 'SIMPLES_NACIONAL' ? 0.5 : taxRegime === 'LUCRO_REAL' ? 1.5 : 1.2; // 8% presunção comércio * 15%
+      taxRegime === 'LUCRO_REAL' ? 1.5 : 1.2; // 8% presunção comércio * 15%
     const csllRate =
-      taxRegime === 'SIMPLES_NACIONAL' ? 0.35 : 1.08; // 12% presunção comércio * 9%
+      1.08; // 12% presunção comércio * 9%
 
     const icmsAmount = round2((base * icmsRate) / 100);
     const pisAmount = round2((base * pisRate) / 100);
@@ -169,14 +212,21 @@ export function calculateBrazilianTaxBreakdown(params: {
 
   // 3. NFCE_CONSUMIDOR (NFC-e Modelo 65 - Nota Fiscal de Consumidor Eletrônica - Venda Balcão CFOP 5.102)
   if (params.documentType === 'NFCE_CONSUMIDOR') {
+    if (taxRegime === 'SIMPLES_NACIONAL') {
+      return simplesGoodsBreakdown(
+        base,
+        params.icmsRatePercent,
+        'DANFE NFC-e Modelo 65 (Ajuste SINIEF 19/16) — venda presencial a consumidor final (CFOP 5.102). Emitente optante pelo Simples Nacional (CRT=1): CSOSN 102 sem destaque de ICMS, PIS e COFINS; tributos recolhidos no DAS. Tributos aproximados conforme Lei 12.741/2012.'
+      );
+    }
     const icmsRate =
-      params.icmsRatePercent ?? (taxRegime === 'SIMPLES_NACIONAL' ? 3.95 : 18.0);
+      params.icmsRatePercent ?? 18.0;
     const pisRate =
-      taxRegime === 'LUCRO_REAL' ? 1.65 : taxRegime === 'SIMPLES_NACIONAL' ? 0.35 : 0.65;
+      taxRegime === 'LUCRO_REAL' ? 1.65 : 0.65;
     const cofinsRate =
-      taxRegime === 'LUCRO_REAL' ? 7.6 : taxRegime === 'SIMPLES_NACIONAL' ? 1.6 : 3.0;
-    const irpjRate = taxRegime === 'SIMPLES_NACIONAL' ? 0.5 : 1.2;
-    const csllRate = taxRegime === 'SIMPLES_NACIONAL' ? 0.35 : 1.08;
+      taxRegime === 'LUCRO_REAL' ? 7.6 : 3.0;
+    const irpjRate = 1.2;
+    const csllRate = 1.08;
 
     const icmsAmount = round2((base * icmsRate) / 100);
     const pisAmount = round2((base * pisRate) / 100);
@@ -310,7 +360,8 @@ export function calculateBrazilianTaxBreakdown(params: {
 
   // Retenções federais na fonte (IRRF 1,5% + CSRF 4,65% quando aplicável)
   const rawIrrf = taxRegime === 'SIMPLES_NACIONAL' ? 0 : round2(base * 0.015);
-  const irrfWithheldAmount = rawIrrf >= 10 ? rawIrrf : 0;
+  // Revisão fiscal #13: retenção de IRRF de até R$ 10,00 é dispensada (Lei 9.430/96, art. 67).
+  const irrfWithheldAmount = rawIrrf > 10 ? rawIrrf : 0;
   const irrfWithheldRatePercent = irrfWithheldAmount > 0 ? 1.5 : 0;
 
   // Art. 31 da Lei 10.833/2003: CSRF 4,65% retida quando valor > R$ 215,05 (gerando retenção >= R$ 10,00)

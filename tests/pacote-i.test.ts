@@ -62,7 +62,7 @@ describe('Pacote I (D2): PATCH/POST /api/erp/gestaoclick/config', () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
     const prevIss = cfgOf(repo).defaultIssRatePercent;
-    const r = await send(router, { defaultIssRatePercent: 2.5, taxRegime: 'LUCRO_REAL', storeName: 'Matriz I', companyCnpj: '14.806.925/0001-32', municipalRegistration: '123', stateRegistration: 'ISENTO', companyLegalName: 'SETA TELECOM LTDA' }, A());
+    const r = await send(router, { defaultIssRatePercent: 2.5, taxRegime: 'LUCRO_REAL', storeName: 'Matriz I', companyCnpj: '09.449.088/0001-06', municipalRegistration: '123', stateRegistration: 'ISENTO', companyLegalName: 'STI SOLUCOES EM TI' }, A());
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const cfg = cfgOf(repo);
     assert.equal(cfg.defaultIssRatePercent, 2.5);
@@ -108,8 +108,8 @@ describe('Pacote I (D2): PATCH/POST /api/erp/gestaoclick/config', () => {
       [{ defaultIssRatePercent: 42 }, 'GESTAOCLICK_CONFIG_INVALID'],
       [{ defaultIssRatePercent: '2' }, 'GESTAOCLICK_CONFIG_INVALID'],
       [{ taxRegime: 'MEI' }, 'GESTAOCLICK_CONFIG_INVALID'],
-      [{ companyCnpj: '11.222.333/0001-81' }, 'GESTAOCLICK_CONFIG_INVALID'],
-      [{ companyCnpj: '14.806.925/0001-00' }, 'GESTAOCLICK_CONFIG_INVALID'],
+      [{ companyCnpj: '11.222.333/0001-82' }, 'GESTAOCLICK_CONFIG_INVALID'], // DV invalido (sem raiz fixa no codigo)
+      [{ companyCnpj: '14.806.925/0001-32' }, 'GESTAOCLICK_CONFIG_INVALID'], // antigo CNPJ fixo: DV invalido
       [{}, 'GESTAOCLICK_CONFIG_EMPTY'],
     ];
     for (const [body, code] of bodies) {
@@ -155,7 +155,7 @@ describe('Pacote I (D2): PATCH/POST /api/erp/gestaoclick/config', () => {
       const j = JSON.stringify(v);
       assert.ok(!j.includes('218b7f') && !j.includes('d5402c') && !j.includes('826f0'), 'sem pedaco do token');
       assert.ok(!j.includes('gc.user@exemplo.com') && !j.includes('api.gestaoclick.example'));
-      assert.equal(v.companyCnpj, '14.806.925/0001-32', 'dados fiscais continuam visiveis');
+      assert.equal(v.companyCnpj, '09449088000106', 'dados fiscais continuam visiveis');
     }
     for (const v of await reads(A())) {
       const j = JSON.stringify(v);

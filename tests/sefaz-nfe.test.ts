@@ -509,11 +509,6 @@ async function routeSetup(opts: { emitterReady?: boolean; withCert?: boolean } =
   const store = new MemoryCertificateStore();
   const fake: FakeSefaz = { calls: [], mode: 'autoriza' };
   const router = new CrmApiRouter(repo, { certificateStore: store, sefaz: { transportFactory: fakeTransport(fake), sleep: async () => undefined, retAutorizacaoDelayMs: 0 } });
-  if (opts.withCert !== false) {
-    const f = makeFakePfx();
-    const up = await router.dispatch({ method: 'POST', path: '/api/erp/certificate', query: admin(), body: { pfxBase64: f.pfxBase64, password: f.password } });
-    assert.ok(up.status === 201 || up.status === 200, JSON.stringify(up.body));
-  }
   if (opts.emitterReady !== false) {
     const r = await router.dispatch({
       method: 'PUT',
@@ -522,6 +517,18 @@ async function routeSetup(opts: { emitterReady?: boolean; withCert?: boolean } =
       body: { companyEmitter: { cnpj: '14.806.925/0001-39', cep: '13010-000', taxRegime: 'LUCRO_PRESUMIDO' } },
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
+  }
+  if (opts.withCert !== false) {
+    // o e-CNPJ tem de ser da empresa configurada em Configurações > Empresa
+    const f = makeFakePfx({ cnpj: opts.emitterReady !== false ? TEST_CNPJ : '09449088000106' });
+    const up = await router.dispatch({ method: 'POST', path: '/api/erp/certificate', query: admin(), body: { pfxBase64: f.pfxBase64, password: f.password } });
+    assert.ok(up.status === 201 || up.status === 200, JSON.stringify(up.body));
+  }
+  if (opts.emitterReady === false) {
+    // dados pendentes: Configurações Fiscais com CNPJ de DV inválido e CEP vazio na Empresa
+    // (o antigo -32 fixo é migrado na carga para o CNPJ configurado, por isso outro DV inválido aqui)
+    repo.updateGestaoClickConfig({ companyCnpj: '11222333000182' });
+    (router as unknown as { companyEmitter: { cep: string } }).companyEmitter.cep = '';
   }
   const created = await router.dispatch({ method: 'POST', path: '/api/erp/nfe-produtos', query: admin(), body: draftInput() });
   assert.equal(created.status, 201, JSON.stringify(created.body));
@@ -635,7 +642,7 @@ describe('SEFAZ — rotas (homologação, alçada fiscal + 2FA)', () => {
     const r = (await a.call('transmitir')) as R;
     assert.equal(r.status, 422, JSON.stringify(r.body));
     assert.equal(r.body.code, 'NFE_EMITTER_DATA_INCOMPLETE');
-    assert.ok(r.body.details!.some((d) => /dígito verificador/.test(d)));
+    assert.ok(r.body.details!.some((d) => /dígito verificador/.test(d)), JSON.stringify(r.body));
     assert.equal(a.fake.calls.length, 0);
     const b = await routeSetup({ withCert: false });
     const r2 = (await b.call('transmitir')) as R;

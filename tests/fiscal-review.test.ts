@@ -518,7 +518,6 @@ describe('Revisão Fiscal #21 / #24 — NFS-e no Simples, retenção de R$ 10 e 
 
   it(
     'IRRF de exatamente R$ 10,00 é dispensado (Lei 9.430/96, art. 67: retenção <= R$ 10)',
-    { todo: 'depende do item #13 (erp-tax-engine usa ">= 10"), fora do escopo desta correção' },
     () => {
       const tax = calculateBrazilianTaxBreakdown({ grossAmount: 666.67, documentType: 'NFSE_SERVICO', taxRegime: 'LUCRO_PRESUMIDO' });
       assert.equal(Math.round(666.67 * 0.015 * 100) / 100, 10);

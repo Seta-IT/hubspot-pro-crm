@@ -30,11 +30,8 @@ export const GestaoClickConfigPatchSchema = z
   .object({
     companyLegalName: text(2, 200).optional(),
     companyCnpj: text(14, 18)
-      // Mesma trava de /api/admin/settings: CNPJ valido e da raiz oficial da Seta (14.806.925).
-      .refine((v) => {
-        const c = validateCnpj(v);
-        return c.isValid && Boolean(c.digits?.startsWith('14806925'));
-      }, { message: 'CNPJ inválido ou fora da raiz 14.806.925' })
+      // Mesma regra de /api/admin/settings: CNPJ valido (modulo 11); sem raiz fixa no codigo.
+      .refine((v) => validateCnpj(v).isValid, { message: 'CNPJ inválido (dígito verificador não confere)' })
       // Pacote J (D-I3): gravado normalizado, so os 14 digitos (pontuado/espacado => mesmo valor).
       .transform((v) => String(validateCnpj(v).digits || v.replace(/\D+/g, '')))
       .optional(),

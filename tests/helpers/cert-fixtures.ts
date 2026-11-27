@@ -49,7 +49,7 @@ export function makeFakePfx(o: FakeCertOptions = {}): { pfxBase64: string; passw
   const now = Date.now();
   cert.validity.notBefore = o.notBefore || new Date(now - 24 * 3600 * 1000);
   cert.validity.notAfter = o.notAfter || new Date(now + 365 * 24 * 3600 * 1000);
-  const cnpj = o.cnpj === undefined ? '14806925000132' : o.cnpj;
+  const cnpj = o.cnpj === undefined ? '09449088000106' : o.cnpj;
   cert.setSubject([
     { shortName: 'C', value: 'BR' },
     { shortName: 'O', value: 'ICP-Brasil' },

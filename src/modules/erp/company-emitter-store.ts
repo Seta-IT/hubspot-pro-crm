@@ -7,6 +7,7 @@
 import { ensurePostgresSchema, getPostgresPool, isPostgresEnabled } from '../../db/postgres';
 import {
   DEFAULT_COMPANY_EMITTER_SETTINGS,
+  LEGACY_INVALID_COMPANY_CNPJ_DIGITS,
   type StiHubCompanyEmitterSettings,
 } from './daily-sync-service';
 
@@ -65,9 +66,20 @@ export function getDefaultCompanyEmitterStore(): CompanyEmitterStore {
 export function mergeCompanyEmitter(
   stored: Partial<StiHubCompanyEmitterSettings> | null | undefined
 ): StiHubCompanyEmitterSettings {
+  const rec: Partial<StiHubCompanyEmitterSettings> = stored && typeof stored === 'object' ? { ...stored } : {};
+  // Gravado com o antigo CNPJ fixo (nunca foi o da Seta): os dados fiscais voltam aos padrões
+  // confirmados (Configurações > Empresa); endereço e demais campos salvos são mantidos.
+  if (LEGACY_INVALID_COMPANY_CNPJ_DIGITS.includes(String(rec.cnpj || '').replace(/\D+/g, ''))) {
+    delete rec.cnpj;
+    delete rec.legalName;
+    delete rec.stateRegistration;
+    delete rec.municipalRegistration;
+    delete rec.taxRegime;
+    delete rec.cnaeMain;
+  }
   return {
     ...DEFAULT_COMPANY_EMITTER_SETTINGS,
-    ...(stored && typeof stored === 'object' ? stored : {}),
+    ...rec,
   };
 }
 

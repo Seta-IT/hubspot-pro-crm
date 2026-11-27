@@ -269,7 +269,7 @@ describe('Link interno: locação, serviço, produtos e URL estável', () => {
 
     const blank = (first.body as { data: { sheet: { contractNumber: string; issuerCnpj: string } } }).data.sheet;
     assert.equal(blank.contractNumber, '');
-    assert.equal(blank.issuerCnpj, '14.806.925/0001-32');
+    assert.equal(blank.issuerCnpj, '09.449.088/0001-06', 'emitente = Configurações > Empresa (CNPJ real da Seta)');
     repo.createRentalContract({
       title: 'Locação estável',
       companyName: 'Via Itália',
@@ -285,7 +285,8 @@ describe('Link interno: locação, serviço, produtos e URL estável', () => {
     });
     const sheet = (linked.body as { data: { sheet: { contractNumber: string; issuerCnpj: string } } }).data.sheet;
     assert.equal(sheet.contractNumber, 'GC-8841');
-    assert.doesNotMatch(sheet.issuerCnpj, /09\.449\.088/);
+    assert.equal(sheet.issuerCnpj, '09.449.088/0001-06');
+    assert.doesNotMatch(sheet.issuerCnpj, /14\.806\.925/);
   });
 });
 
@@ -412,12 +413,12 @@ describe('Visão interna: sem observações e com PDF', () => {
     const html = buildInternalProposalPrintHtml(model).replace(/\u00A0/g, ' ');
     assert.doesNotMatch(html, /Observações internas|Visão interna do orçamento|LINK INTERNO ESTÁVEL|STI-HUB/);
     assert.doesNotMatch(html, /Empresa não encontrada/);
-    assert.doesNotMatch(html, /09\.449\.088\/0001-06/);
+    assert.doesNotMatch(html, /14\.806\.925\/0001-32/, 'o antigo CNPJ fixo não aparece mais');
     assert.match(html, /ORÇAMENTO Nº 4711/);
     assert.match(html, /Locação/);
     assert.match(html, /Via Itália/);
     assert.match(html, /R\$ 4\.490,00/);
-    assert.match(html, /14\.806\.925\/0001-32/);
+    assert.match(html, /09\.449\.088\/0001-06/);
     assert.match(html, /0\.5px solid #e5e9f0/);
     assert.match(html, /class="conds"/);
     assert.equal(model.sheet.summaryRows[0]?.label, 'Proposta');
@@ -441,7 +442,7 @@ describe('Visão interna: sem observações e com PDF', () => {
         { id: 'b', sku: 'FAP-231F', description: 'FortiAP 231F', fiscalNature: 'LOCACAO_BENS_MOVEIS', ncmOrServiceCode: '', quantity: 6, unitPrice: 215, discountPercent: 0, isRecurring: true, totalMonthly: 1290 },
         { id: 'c', sku: 'WS-C3850-48P', description: 'Switch Cisco Catalyst', fiscalNature: 'LOCACAO_BENS_MOVEIS', ncmOrServiceCode: '', quantity: 4, unitPrice: 410, discountPercent: 0, isRecurring: true, totalMonthly: 1640 },
       ],
-    }), { origin: 'https://sti-hub.vercel.app', issuer: { legalName: 'TEMPLATE', cnpj: '09.449.088/0001-06', city: 'São Paulo', state: 'SP' } });
+    }), { origin: 'https://sti-hub.vercel.app', issuer: { legalName: 'STI SOLUCOES EM TI COMERCIAL IMPORTADORA E EXPORTADORA LTDA', cnpj: '09.449.088/0001-06', city: 'Campinas', state: 'SP' } });
     const pdfBytes = buildInternalProposalPdf(tainted);
     const rawPdf = Buffer.from(pdfBytes).toString('latin1');
     const extracted = extractPdfText(Buffer.from(pdfBytes)).replace(/\u00A0/g, ' ');
@@ -450,8 +451,8 @@ describe('Visão interna: sem observações e com PDF', () => {
     assert.match(extracted, /Locação/);
     assert.match(extracted, /Via Itália/);
     assert.match(extracted, /R\$ 4\.490,00/);
-    assert.match(extracted, /14\.806\.925\/0001-32/);
-    assert.doesNotMatch(extracted, /09\.449\.088/);
+    assert.match(extracted, /09\.449\.088\/0001-06/, 'o emitente configurado é impresso (não é mais tratado como template)');
+    assert.doesNotMatch(extracted, /14\.806\.925/);
     assert.doesNotMatch(extracted, /NOTA_INTERNA_SECRETA_4711/);
     assert.doesNotMatch(extracted, /Visão interna do orçamento|LINK INTERNO/);
     assert.match(rawPdf, /\/Encoding \/WinAnsiEncoding/);

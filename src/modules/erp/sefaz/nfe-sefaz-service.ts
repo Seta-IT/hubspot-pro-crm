@@ -74,6 +74,7 @@ export interface EmitterSources {
     tradeName?: string;
     cnpj?: string;
     stateRegistration?: string;
+    taxRegime?: ErpTaxRegime;
     cep?: string;
     addressStreet?: string;
     addressNumber?: string;
@@ -97,10 +98,13 @@ export function resolveSefazEmitter(src: EmitterSources): { emitter: NfeEmitterD
   const problems: string[] = [];
   const gcCnpj = onlyDigits(src.gc.companyCnpj);
   const coCnpj = onlyDigits(c.cnpj);
-  if (gcCnpj && coCnpj && gcCnpj !== coCnpj) problems.push(`CNPJ divergente entre Configurações Fiscais (${gcCnpj}) e Dados da Empresa (${coCnpj})`);
+  if (gcCnpj && coCnpj && gcCnpj !== coCnpj) problems.push(`CNPJ divergente entre Configurações Fiscais (${gcCnpj}) e Dados da Empresa (${coCnpj}): salve Configurações > Dados da Empresa e Fiscal`);
   const gcIe = onlyDigits(src.gc.stateRegistration);
   const coIe = onlyDigits(c.stateRegistration);
   if (gcIe && coIe && gcIe !== coIe) problems.push('inscrição estadual divergente entre Configurações Fiscais e Dados da Empresa');
+  if (src.gc.taxRegime && c.taxRegime && src.gc.taxRegime !== c.taxRegime) {
+    problems.push(`regime tributário divergente entre Configurações Fiscais (${src.gc.taxRegime}) e Dados da Empresa (${c.taxRegime}): salve Configurações > Dados da Empresa e Fiscal`);
+  }
   const emitter: NfeEmitterData = {
     cnpj: gcCnpj || coCnpj,
     ie: gcIe || coIe,

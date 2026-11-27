@@ -16,7 +16,7 @@ import {
   toCertificateView,
   certStatusOf,
 } from '../src/modules/erp/certificate-a1';
-import { cnpjCheckDigitsValidMod11, resolveExpectedCompanyCnpj, SETA_CANONICAL_CNPJ_DIGITS } from '../src/api/certificate-routes';
+import { certificateMatchesCompanyCnpj, cnpjCheckDigitsValidMod11, resolveExpectedCompanyCnpj } from '../src/api/certificate-routes';
 import { validateCnpj } from '../src/modules/data-health/validators';
 import { sanitizeApiResponseBody } from '../src/db/iam-security';
 import { makeFakePfx } from './helpers/cert-fixtures';
@@ -68,7 +68,7 @@ describe('Pacote N (1): POST/GET/DELETE /api/erp/certificate', () => {
     const b = r.body as Body;
     const d = b.data!;
     assert.equal(d.present, true);
-    assert.equal(d.cnpj, '14806925000132');
+    assert.equal(d.cnpj, '09449088000106');
     assert.equal(d.icpBrasil, true);
     assert.equal(d.status, 'VALIDO');
     assert.equal(d.uploadedBy, ADMIN_EMAIL);
@@ -92,7 +92,7 @@ describe('Pacote N (1): POST/GET/DELETE /api/erp/certificate', () => {
     assert.throws(() => decryptCertField(cur.pfxEnc, cur.id, 'pfx', crypto.randomBytes(32)), 'outra chave nao decifra');
     const up = logs('ERP_CERT_UPLOADED');
     assert.equal(up.length, 1);
-    assert.match(up[0].details, /fingerprintSha256=[0-9A-F]{64}; titular=SETA TELECOM LTDA:14806925000132; cnpj=14806925000132/);
+    assert.match(up[0].details, /fingerprintSha256=[0-9A-F]{64}; titular=SETA TELECOM LTDA:09449088000106; cnpj=09449088000106/);
     assert.ok(!up[0].details.includes(f.password) && !up[0].details.includes(f.pfxBase64.slice(0, 40)));
     // uso futuro (NF-e): so servidor
     const forSign = await loadCertificateForSigning(store);
@@ -154,7 +154,7 @@ describe('Pacote N (1): POST/GET/DELETE /api/erp/certificate', () => {
     }
   });
 
-  it('CNPJ divergente => 422 CERT_CNPJ_MISMATCH auditado; mostra a fonte e o DV mod 11 (32 x 39)', async () => {
+  it('CNPJ de outra empresa (outra raiz) => 422 CERT_CNPJ_MISMATCH auditado; mostra a fonte (Configurações > Empresa) e o DV', async () => {
     const { call, logs, store } = setup();
     const f = makeFakePfx({ cnpj: '14806925000139' });
     const r = await call('POST', A(), { pfxBase64: f.pfxBase64, password: f.password });
@@ -164,42 +164,71 @@ describe('Pacote N (1): POST/GET/DELETE /api/erp/certificate', () => {
     assert.deepEqual(b.cnpjCheck, {
       certificateCnpj: '14806925000139',
       certificateCnpjSource: 'OID_2.16.76.1.3.3',
-      expectedCnpj: '14806925000132',
-      expectedCnpjSource: 'erp.gestaoClickConfig.companyCnpj',
-      sameRoot: true,
+      expectedCnpj: '09449088000106',
+      expectedCnpjSource: 'companyEmitter.cnpj',
+      sameRoot: false,
       certificateCnpjCheckDigitsValidMod11: true,
-      expectedCnpjCheckDigitsValidMod11: false,
+      expectedCnpjCheckDigitsValidMod11: true,
     });
     assert.equal(await store.load(), null);
     assert.ok(logs('ERP_CERT_UPLOAD_FAILED').some((l) => /CERT_CNPJ_MISMATCH/.test(l.details) && /certificado=14806925000139/.test(l.details)));
-    const other = makeFakePfx({ cnpj: '11222333000181' });
-    assert.equal(((await call('POST', A(), { pfxBase64: other.pfxBase64, password: other.password })).body as Body).code, 'CERT_CNPJ_MISMATCH');
+    // o antigo CNPJ fixo 14.806.925/0001-32 tambem e recusado
+    const old = makeFakePfx({ cnpj: '14806925000132' });
+    assert.equal(((await call('POST', A(), { pfxBase64: old.pfxBase64, password: old.password })).body as Body).code, 'CERT_CNPJ_MISMATCH');
     // CNPJ so no CN "NOME:CNPJ" tambem vale (e-CNPJ legado)
-    const cnOnly = makeFakePfx({ cnpj: null, cn: 'SETA TELECOM LTDA:14806925000132' });
+    const cnOnly = makeFakePfx({ cnpj: null, cn: 'STI SOLUCOES EM TI:09449088000106' });
     const ok = await call('POST', A(), { pfxBase64: cnOnly.pfxBase64, password: cnOnly.password });
     assert.equal(ok.status, 201, JSON.stringify(ok.body));
     assert.equal((ok.body as Body).cnpjCheck!.certificateCnpjSource, 'CN');
   });
 
-  it('fonte do CNPJ comparado: so duraveis (gestaoClickConfig persistido > canonico do validators); nunca o companyEmitter em memoria', async () => {
+  it('e-CNPJ de filial da mesma raiz (09.449.088) e aceito, como a SEFAZ (regra 213)', async () => {
+    const { call } = setup();
+    assert.equal(certificateMatchesCompanyCnpj('09449088000289', '09449088000106'), true);
+    assert.equal(certificateMatchesCompanyCnpj('14806925000139', '09449088000106'), false);
+    const filial = makeFakePfx({ cnpj: '09449088000289' });
+    const r = await call('POST', A(), { pfxBase64: filial.pfxBase64, password: filial.password });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal((r.body as Body).cnpjCheck!.sameRoot, true);
+  });
+
+  it('fonte do CNPJ comparado: Configurações > Empresa > Configurações Fiscais; nenhum CNPJ fixo no código', async () => {
     const repo = createInMemoryRepository();
-    assert.deepEqual(resolveExpectedCompanyCnpj({ repo }), { digits: '14806925000132', source: 'erp.gestaoClickConfig.companyCnpj' });
-    for (const v of ['', '11.222.333/0001-81', '123']) {
+    // so o gestaoClickConfig (sem companyEmitter)
+    assert.deepEqual(resolveExpectedCompanyCnpj({ repo }), { digits: '09449088000106', source: 'erp.gestaoClickConfig.companyCnpj' });
+    // companyEmitter tem prioridade
+    assert.deepEqual(resolveExpectedCompanyCnpj({ repo, companyCnpj: () => '11.222.333/0001-81' }), { digits: '11222333000181', source: 'companyEmitter.cnpj' });
+    // sem fonte valida (vazio, DV errado, curto) => null, nunca um valor inventado
+    for (const v of ['', '14.806.925/0001-32', '123']) {
       const fake = { getErpOverview: () => ({ gestaoClickConfig: { companyCnpj: v } }) } as unknown as CrmRepository;
-      assert.deepEqual(resolveExpectedCompanyCnpj({ repo: fake }), { digits: SETA_CANONICAL_CNPJ_DIGITS, source: 'validators.canonical' });
+      assert.equal(resolveExpectedCompanyCnpj({ repo: fake, companyCnpj: () => v }), null);
     }
-    // o canonico e o mesmo valor da excecao do validators.ts (que continua la, sem alteracao)
-    assert.equal(validateCnpj(SETA_CANONICAL_CNPJ_DIGITS).isValid, true);
-    assert.equal(cnpjCheckDigitsValidMod11('14806925000139'), true);
-    assert.equal(cnpjCheckDigitsValidMod11('14806925000132'), false);
-    // /api/admin/settings com o DV 39 grava no gestaoClickConfig (duravel) e a trava passa a exigir ...39
-    const { call, router } = setup();
+    assert.equal(validateCnpj('14806925000132').isValid, false, 'a excecao fixa do validators.ts foi removida');
+    assert.equal(cnpjCheckDigitsValidMod11('09449088000106'), true);
+    // /api/admin/settings troca o CNPJ da empresa; o certificado passa a ser comparado com o novo
+    const { call, router, logs } = setup();
     const st = await router.dispatch({ method: 'POST', path: '/api/admin/settings', query: A(), body: { companyEmitter: { cnpj: '14.806.925/0001-39' } } });
     assert.equal(st.status, 200, JSON.stringify(st.body));
+    assert.ok(logs('FISCAL_COMPANY_CNPJ_CHANGED').some((l) => /09449088000106 -> 14806925000139/.test(l.details)));
     const f39 = makeFakePfx({ cnpj: '14806925000139' });
     const ok = await call('POST', A(), { pfxBase64: f39.pfxBase64, password: f39.password });
     assert.equal(ok.status, 201, JSON.stringify(ok.body));
-    assert.equal((ok.body as Body).cnpjCheck!.expectedCnpjSource, 'erp.gestaoClickConfig.companyCnpj');
+    assert.equal((ok.body as Body).cnpjCheck!.expectedCnpjSource, 'companyEmitter.cnpj');
+  });
+
+  it('sem CNPJ da empresa configurado => 409 CERT_COMPANY_CNPJ_NOT_CONFIGURED (não compara com valor fixo)', async () => {
+    const repo = createInMemoryRepository();
+    repo.updateGestaoClickConfig({ companyCnpj: '' });
+    const store = new MemoryCertificateStore();
+    const router = new CrmApiRouter(repo, { certificateStore: store });
+    const internals = router as unknown as { companyEmitter: { cnpj: string }; companyEmitterHydrated: boolean };
+    internals.companyEmitter.cnpj = '';
+    internals.companyEmitterHydrated = true;
+    const f = makeFakePfx({});
+    const r = await router.dispatch({ method: 'POST', path: '/api/erp/certificate', query: A(), body: { pfxBase64: f.pfxBase64, password: f.password } });
+    assert.equal(r.status, 409, JSON.stringify(r.body));
+    assert.equal((r.body as Body).code, 'CERT_COMPANY_CNPJ_NOT_CONFIGURED');
+    assert.equal(await store.load(), null);
   });
 
   it('canManage no GET (e no POST/DELETE): true so para admin com 2FA', async () => {

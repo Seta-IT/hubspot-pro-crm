@@ -14,6 +14,7 @@ import {
 import { RecordIdConflictError, assertNewRecordId, formatProposalCode, nextFreeCode, occupiedRefs, refKey } from './record-id-guard';
 import { stripLeanMarker } from '../modules/bootstrap/lean-payload';
 import { parseBillingRecipientEmails } from '../modules/erp/billing-recipient-emails';
+import { DEFAULT_COMPANY_EMITTER_SETTINGS, LEGACY_INVALID_COMPANY_CNPJ_DIGITS } from '../modules/erp/daily-sync-service';
 import { isLegacyProposalCode, migrateLegacyProposalCodes, nextGcProposalNumber } from '../app/lib/proposal-number';
 import { DEFAULT_PROPOSAL_INTRODUCTION, displayProposalTitle } from '../app/lib/proposal-title';
 import { applyProposalCommercialNotesDefault, proposalNoteDefaultTypeKey } from '../app/lib/proposal-note-defaults';
@@ -4706,11 +4707,19 @@ export class CrmRepository {
         return seedMatch ? { ...seedMatch, ...po, cfopEntrada: po.cfopEntrada || seedMatch.cfopEntrada, supplierCnpj: po.supplierCnpj || seedMatch.supplierCnpj, nfeAccessKey: po.nfeAccessKey || seedMatch.nfeAccessKey, itemsSummary: po.itemsSummary || seedMatch.itemsSummary, costCenter: po.costCenter || seedMatch.costCenter, icmsCreditAmount: po.icmsCreditAmount ?? seedMatch.icmsCreditAmount, pisCofinsCreditAmount: po.pisCofinsCreditAmount ?? seedMatch.pisCofinsCreditAmount } : po;
       });
     }
-    if (
-      this.state.erp.gestaoClickConfig &&
-      this.state.erp.gestaoClickConfig.companyCnpj === '18.456.789/0001-90'
-    ) {
-      this.state.erp.gestaoClickConfig.companyCnpj = '14.806.925/0001-32';
+    // Emitente legado fictício (18.456.789/0001-90) ou o antigo CNPJ fixo 14.806.925/0001-32 (DV inválido,
+    // nunca foi o da Seta): troca pelos dados confirmados pelo Marcéllo em 27/11/2026 (Configurações > Empresa).
+    if (this.state.erp.gestaoClickConfig) {
+      const gcDigits = String(this.state.erp.gestaoClickConfig.companyCnpj || '').replace(/\D+/g, '');
+      if (LEGACY_INVALID_COMPANY_CNPJ_DIGITS.includes(gcDigits)) {
+        Object.assign(this.state.erp.gestaoClickConfig, {
+          companyLegalName: DEFAULT_COMPANY_EMITTER_SETTINGS.legalName,
+          companyCnpj: DEFAULT_COMPANY_EMITTER_SETTINGS.cnpj.replace(/\D+/g, ''),
+          stateRegistration: DEFAULT_COMPANY_EMITTER_SETTINGS.stateRegistration,
+          municipalRegistration: DEFAULT_COMPANY_EMITTER_SETTINGS.municipalRegistration,
+          taxRegime: DEFAULT_COMPANY_EMITTER_SETTINGS.taxRegime,
+        });
+      }
     }
     // Pacote L (2): dado legado de contrato com equipments nao-array ou com itens nao-objeto
     // (ex.: [null]) derrubava /api/bootstrap e /api/erp/overview para todos (500). Leitura tolerante:
@@ -10934,7 +10943,7 @@ export class CrmRepository {
       reconciledAt: nowIso,
       bankCode: detectedBankCode,
       bankName,
-      companyCnpj: erp.gestaoClickConfig.companyCnpj || "14.806.925/0001-32",
+      companyCnpj: erp.gestaoClickConfig.companyCnpj || "",
       totalTransactionsParsed: processedTransactions.length,
       reconciledEntriesCount,
       createdEntriesCount,
@@ -11181,8 +11190,8 @@ export class CrmRepository {
     ];
 
     return {
-      companyLegalName: erp.gestaoClickConfig.companyLegalName || "SETA TELECOM LTDA",
-      companyCnpj: erp.gestaoClickConfig.companyCnpj || "14.806.925/0001-32",
+      companyLegalName: erp.gestaoClickConfig.companyLegalName || "",
+      companyCnpj: erp.gestaoClickConfig.companyCnpj || "",
       storeId: erp.gestaoClickConfig.storeId || "118887",
       taxRegime,
       competenceMonth: comp,
@@ -11454,8 +11463,8 @@ export class CrmRepository {
       scheduleCron: "0 12 * * * (Diário às 07:00 America/New_York • Incremental Loja Matriz #118887)",
       storeId: cfg.storeId || "118887",
       storeName: cfg.storeName || "Matriz",
-      companyLegalName: cfg.companyLegalName || "SETA TELECOM LTDA",
-      companyCnpj: cfg.companyCnpj || "14.806.925/0001-32",
+      companyLegalName: cfg.companyLegalName || "",
+      companyCnpj: cfg.companyCnpj || "",
       liveConnected: cfg.connected,
       mcpStatus: cfg.mcpStatus || "ONLINE",
       fictitiousDataPurged: true,

@@ -64,41 +64,57 @@ export function cnpjCheckDigitsValidMod11(digits: string): boolean {
   return Number(digits[12]) === d1 && Number(digits[13]) === d2;
 }
 
-export type ExpectedCnpjSource = 'erp.gestaoClickConfig.companyCnpj' | 'validators.canonical';
-
-/**
- * CNPJ canonico da Seta: o MESMO valor da excecao fixa de validateCnpj (validators.ts:369), que
- * NAO e alterada aqui (duvida em aberto 32 x 39; o modulo 11 puro da 14806925000139).
- */
-export const SETA_CANONICAL_CNPJ_DIGITS = '14806925000132';
-export const SETA_CNPJ_ROOT = '14806925';
+export type ExpectedCnpjSource = 'companyEmitter.cnpj' | 'erp.gestaoClickConfig.companyCnpj';
 
 export interface CertificateRouteDeps {
   repo: CrmRepository;
   store: CertificateStore;
   failureLimiter: SlidingWindowRateLimiter;
+  /** CNPJ salvo em Configurações > Empresa (Dados da Empresa / emitente), lido do roteador. */
+  companyCnpj?: () => string | null | undefined;
+}
+
+function validCnpjDigits(value: unknown): string {
+  const d = String(value ?? '').replace(/\D+/g, '');
+  return d.length === 14 && !/^(\d)\1{13}$/.test(d) && cnpjCheckDigitsValidMod11(d) ? d : '';
 }
 
 /**
- * CNPJ da empresa comparado com o do certificado (so digitos). So fontes DURAVEIS:
- * 1) erp.gestaoClickConfig.companyCnpj, no estado persistido (crm_state_v1). E gravado por
- *    PATCH /api/erp/gestaoclick/config e por POST/PUT /api/admin/settings (este repassa o CNPJ via
- *    updateGestaoClickConfig); os dois exigem validateCnpj valido e a raiz 14.806.925.
- * 2) Sem valor valido da raiz Seta => SETA_CANONICAL_CNPJ_DIGITS (excecao do validators.ts).
- * O companyEmitter de /api/admin/settings e persistido em crm_kv_store (erp_company_emitter_v1); o CNPJ fiscal usado no certificado continua vindo de erp.gestaoClickConfig.
+ * CNPJ da empresa comparado com o do certificado (so digitos). Nenhum CNPJ fixo no codigo:
+ * 1) Configurações > Empresa (companyEmitter.cnpj, persistido em crm_kv_store erp_company_emitter_v1);
+ * 2) senão, erp.gestaoClickConfig.companyCnpj (Configurações Fiscais, sincronizado pelo item 1).
+ * Só vale CNPJ com 14 dígitos e DV módulo 11 corretos. Sem nenhum => null (envio bloqueado com
+ * CERT_COMPANY_CNPJ_NOT_CONFIGURED, em vez de comparar com um valor inventado).
  */
-export function resolveExpectedCompanyCnpj(deps: Pick<CertificateRouteDeps, 'repo'>): {
+export function resolveExpectedCompanyCnpj(deps: Pick<CertificateRouteDeps, 'repo' | 'companyCnpj'>): {
   digits: string;
   source: ExpectedCnpjSource;
-} {
+} | null {
+  let co = '';
+  try {
+    co = validCnpjDigits(deps.companyCnpj?.());
+  } catch {
+    co = '';
+  }
+  if (co) return { digits: co, source: 'companyEmitter.cnpj' };
   let gc = '';
   try {
-    gc = String(deps.repo.getErpOverview().gestaoClickConfig?.companyCnpj ?? '').replace(/\D+/g, '');
+    gc = validCnpjDigits(deps.repo.getErpOverview().gestaoClickConfig?.companyCnpj);
   } catch {
     gc = '';
   }
-  if (gc.length === 14 && gc.startsWith(SETA_CNPJ_ROOT)) return { digits: gc, source: 'erp.gestaoClickConfig.companyCnpj' };
-  return { digits: SETA_CANONICAL_CNPJ_DIGITS, source: 'validators.canonical' };
+  if (gc) return { digits: gc, source: 'erp.gestaoClickConfig.companyCnpj' };
+  return null;
+}
+
+/**
+ * Regra da SEFAZ (rejeição 213): a raiz (8 primeiros dígitos) do CNPJ do certificado tem de ser a
+ * mesma do CNPJ do emitente. O e-CNPJ da matriz assina as notas das filiais da mesma raiz.
+ */
+export function certificateMatchesCompanyCnpj(certCnpj: string, companyCnpj: string): boolean {
+  const c = String(certCnpj || '').replace(/\D+/g, '');
+  const e = String(companyCnpj || '').replace(/\D+/g, '');
+  return c.length === 14 && e.length === 14 && c.slice(0, 8) === e.slice(0, 8);
 }
 
 interface Actor {
@@ -289,16 +305,24 @@ export async function handleCertificateRoute(
   }
 
   const expected = resolveExpectedCompanyCnpj(deps);
+  if (!expected) {
+    return fail(
+      409,
+      'CERT_COMPANY_CNPJ_NOT_CONFIGURED',
+      'Cadastre e salve o CNPJ da empresa em Configurações > Dados da Empresa e Fiscal antes de enviar o certificado.',
+      `CNPJ da empresa nao configurado (ou invalido) em Configuracoes > Empresa; certificado=${cert.cnpj}`
+    );
+  }
   const cnpjCheck = {
     certificateCnpj: cert.cnpj,
     certificateCnpjSource: cert.cnpjSource,
     expectedCnpj: expected.digits,
     expectedCnpjSource: expected.source,
-    sameRoot: cert.cnpj.slice(0, 12) === expected.digits.slice(0, 12),
+    sameRoot: cert.cnpj.slice(0, 8) === expected.digits.slice(0, 8),
     certificateCnpjCheckDigitsValidMod11: cnpjCheckDigitsValidMod11(cert.cnpj),
     expectedCnpjCheckDigitsValidMod11: cnpjCheckDigitsValidMod11(expected.digits),
   };
-  if (cert.cnpj !== expected.digits) {
+  if (!certificateMatchesCompanyCnpj(cert.cnpj, expected.digits)) {
     return fail(
       422,
       'CERT_CNPJ_MISMATCH',
