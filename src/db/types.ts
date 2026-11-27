@@ -943,6 +943,13 @@ export interface ErpProposalItem {
   unitPrice: number;
   discountPercent: number;
   discountAmount?: number;
+  /** Tipo do desconto na linha: reais (BRL) ou percentual (PERCENT), como no GestãoClick. */
+  discountType?: 'BRL' | 'PERCENT' | string;
+  /** Detalhes livres da linha (campo Detalhes do GestãoClick). NCM fica em ncmOrServiceCode. */
+  details?: string;
+  /** Tabela de preço (Varejo, Atacado, ou lista do item). */
+  priceTableId?: string;
+  priceTableName?: string;
   subtotal?: number;
   isRecurring: boolean;
   totalMonthly: number;
@@ -1658,6 +1665,8 @@ export interface ErpCatalogItem {
   stockRentedInClients: number;
   monthlyRentalPrice: number;
   saleOrSetupPrice: number;
+  /** Tabelas de preço do item (valores[] do GestãoClick). Sem isso, valem Varejo e Atacado. */
+  priceTables?: Array<{ id: string; name: string; price: number }>;
   isActive: boolean;
   // Aba 1: Dados
   barcodeEan?: string;
@@ -2381,7 +2390,7 @@ export interface StiHubUserRecord {
 
 export interface StiHubSubdomainRecord {
   domain: string;
-  type: "PRIMARY_VERCEL" | "CORPORATE_CNAME" | "ERP_ALIAS";
+  type: "PRIMARY" | "PRIMARY_VERCEL" | "CORPORATE_CNAME" | "ERP_ALIAS";
   cnameTarget: string;
   sslStatus: "ACTIVE_TLS_1_3" | "PENDING_DNS";
   isDefaultPublicProposalDomain: boolean;

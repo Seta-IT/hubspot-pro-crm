@@ -8,10 +8,11 @@ import { CrmApiRouter } from '../../api/router';
 import { RouterDataPort, type IntegrationDataPort } from './data-port';
 import type { IntegrationStore } from './store';
 import { PostgresIntegrationStore } from './store-postgres';
+import { isProductionRuntime as platformIsProductionRuntime } from '../../lib/platform';
 
-/** Producao = NODE_ENV=production ou VERCEL=1 (preview/producao na Vercel). */
+/** Producao = NODE_ENV=production, VERCEL=1, VERCEL_ENV prod/preview ou Cloud Run. */
 export function isProductionRuntime(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.NODE_ENV === 'production' || env.VERCEL === '1';
+  return platformIsProductionRuntime(env);
 }
 
 export interface IntegrationLimits {

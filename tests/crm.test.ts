@@ -1087,7 +1087,7 @@ describe('10. Persistência Multi-Camada, Criação de 2 Contatos Seguidos, Busc
     assert.equal(res2.status, 201);
     const contact2 = (res2.body as { data: { id: string; firstName: string; email: string } }).data;
     assert.equal(contact2.firstName, 'Cláudia');
-    assert.ok(contact2.email.includes('@contato.setatelecom.com.br'));
+    assert.equal(contact2.email, '', 'Sem e-mail real o campo fica vazio; o sistema não inventa endereço');
 
     // Verificar que ambos estão no TOPO de GET /api/contacts
     const listRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT, method: 'GET', path: '/api/contacts' });
@@ -1531,7 +1531,7 @@ describe('13. Segurança Corporativa STI-hub: Login com MFA 2FA, Proteção de R
     assert.equal(rbacData.roles.length, 9);
     assert.ok(rbacData.users.length >= 22);
     assert.equal(rbacData.securityConfig.enforceMfaOnAllLogins, true);
-    assert.ok(rbacData.securityConfig.subdomains.some((s) => s.domain === 'sti-hub.vercel.app'));
+    assert.ok(rbacData.securityConfig.subdomains.some((s) => s.domain === 'sti-hub.setatelecom.com.br'));
     assert.ok(rbacData.securityConfig.subdomains.some((s) => s.domain === 'stihub.setatelecom.com.br'));
     assert.ok(rbacData.securityConfig.customProperties.some((p) => p.internalName === 'hs_buying_role'));
 
@@ -2282,9 +2282,11 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
     assert.ok(gridSrc.includes('Produtos') || gridSrc.includes('Serviços') || gridSrc.includes('do orçamento'));
     assert.ok(gridSrc.includes('bg-[#1b2559] text-white'), 'linha destacada navy no autocomplete');
     assert.ok(gridSrc.includes('Adicionar novo'));
-    assert.ok(gridSrc.includes('bg-[#e9ecef]'));
-    // Sem coluna Tipo*: natureza derivada do Tipo de Orcamento da proposta
-    assert.equal(gridSrc.includes('Tipo<span'), false, 'coluna Tipo* removida');
+    assert.ok(gridSrc.includes('Adicionar {nounSingular}'));
+    assert.ok(gridSrc.includes('Total de {noun}'));
+    assert.ok(gridSrc.includes('tabela de preço'));
+    // Coluna Tipo* = tabela de preço (Varejo / Atacado), não mais a natureza fiscal da linha.
+    assert.ok(gridSrc.includes('Tipo<span'), 'coluna Tipo* (tabela de preço) presente');
     assert.equal(gridSrc.includes('<option value="VENDA">Venda</option>'), false);
     assert.ok(modalsSrc.includes('applyBudgetTypeToItems(merged.items, merged.budgetType, merged.serviceType, catalog)'));
   });

@@ -15,7 +15,7 @@ import { RecordIdConflictError, assertNewRecordId, formatProposalCode, nextFreeC
 import { stripLeanMarker } from '../modules/bootstrap/lean-payload';
 import { parseBillingRecipientEmails } from '../modules/erp/billing-recipient-emails';
 import { isLegacyProposalCode, migrateLegacyProposalCodes, nextGcProposalNumber } from '../app/lib/proposal-number';
-import { displayProposalTitle } from '../app/lib/proposal-title';
+import { DEFAULT_PROPOSAL_INTRODUCTION, displayProposalTitle } from '../app/lib/proposal-title';
 import { applyProposalCommercialNotesDefault, proposalNoteDefaultTypeKey } from '../app/lib/proposal-note-defaults';
 import { calendarDaysBetween, parseIsoDate } from '../app/lib/br-date';
 import { resolveProposalValidityForSave } from '../app/lib/proposal-validity';
@@ -23,6 +23,7 @@ import { buildDefaultTechnicalSupportClauses, isTechnicalSupportProposal } from 
 import { burnPasswordVerification, hashPasswordScrypt, isScryptPasswordHash, LOGIN_GENERIC_ERROR, verifyStoredPassword } from './password-hash';
 import fs from 'fs';
 import path from 'path';
+import { usesEphemeralFilesystem } from '../lib/platform';
 import crypto from 'crypto';
 import {
   applyServiceOrderStatusChange,
@@ -228,7 +229,8 @@ import {
   mergeGestaoClickContracts,
   upsertRecordsById,
 } from '../modules/erp/gestaoclick-merge';
-import { normalizeAndValidatePhone, normalizeCorporateDomain, validateCnpj, validateEmail } from '../modules/data-health/validators';
+import { normalizeAndValidatePhone, normalizeCorporateDomain, storedPhoneFromValidation, validateCnpj, validateEmail } from '../modules/data-health/validators';
+import { isInventedContactEmail, presentContactEmail } from '../modules/data-health/invented-contact-email';
 import {
   calculateLeadScore,
   computeContactNextBestAction,
@@ -1900,7 +1902,7 @@ export class CrmRepository {
       list = list.filter((c) => {
         const comp = c.companyId ? companyMap.get(c.companyId) : null;
         const fullName = normalizeSearchText(`${c.firstName} ${c.lastName}`);
-        const emailNorm = normalizeSearchText(c.email);
+        const emailNorm = normalizeSearchText(presentContactEmail(c).email);
         const jobNorm = normalizeSearchText(c.jobTitle);
         const deptNorm = normalizeSearchText(c.department);
         const ownerNorm = normalizeSearchText(
@@ -1941,11 +1943,12 @@ export class CrmRepository {
         return false;
       });
     }
-    return list;
+    return list.map((c) => presentContactEmail(c));
   }
 
   getContactById(id: string): Contact | undefined {
-    return this.state.contacts.find((c) => c.id === id);
+    const found = this.state.contacts.find((c) => c.id === id);
+    return found ? presentContactEmail(found) : undefined;
   }
 
   createContact(
@@ -1961,14 +1964,10 @@ export class CrmRepository {
     const now = new Date().toISOString();
     const cleanFirstName = (input.firstName || "Novo").trim();
     const cleanLastName = (input.lastName || "").trim();
-    const slugName =
-      normalizeSearchText(`${cleanFirstName}.${cleanLastName}`)
-        .replace(/[^a-z0-9.]+/g, "")
-        .replace(/^\.+|\.+$/g, "") || "contato";
     const rawEmail =
-      input.email && String(input.email).trim()
+      input.email && String(input.email).trim() && !isInventedContactEmail(input.email)
         ? String(input.email).trim()
-        : `${slugName}.${Date.now().toString(36).slice(-4)}@contato.setatelecom.com.br`;
+        : "";
 
     const emailVal = validateEmail(rawEmail);
     const phoneVal = input.phone ? normalizeAndValidatePhone(input.phone) : null;
@@ -2007,10 +2006,11 @@ export class CrmRepository {
 
     const draft: Contact = {
       id: input.id || `cont-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      email: emailVal.normalizedEmail || rawEmail.toLowerCase(),
+      email: emailVal.isValid ? emailVal.normalizedEmail : "",
       firstName: cleanFirstName,
       lastName: cleanLastName,
-      phone: phoneVal?.isValid && phoneVal.formatted ? phoneVal.formatted : input.phone ?? null,
+      // 26/11/2026: telefone gravado normalizado em E.164 (+ramal); texto nao interpretavel fica como veio.
+      phone: storedPhoneFromValidation(phoneVal) ?? input.phone ?? null,
       normalizedPhone: phoneVal?.e164 ?? null,
       jobTitle: jobInfo.normalizedTitle || input.jobTitle || null,
       seniority: input.seniority || jobInfo.seniority,
@@ -2085,6 +2085,18 @@ export class CrmRepository {
 
     const nextEmail = patch.email !== undefined ? String(patch.email) : existing.email;
     const emailVal = validateEmail(nextEmail);
+    const storedEmail =
+      patch.email === undefined
+        ? existing.email
+        : isInventedContactEmail(nextEmail)
+          ? ""
+          : !String(nextEmail).trim()
+            ? isInventedContactEmail(existing.email)
+              ? existing.email
+              : ""
+            : emailVal.isValid
+              ? emailVal.normalizedEmail
+              : nextEmail.trim().toLowerCase();
 
     const nextPhone = patch.phone !== undefined ? patch.phone : existing.phone;
     const phoneVal = nextPhone ? normalizeAndValidatePhone(nextPhone) : null;
@@ -2105,12 +2117,10 @@ export class CrmRepository {
       id: existing.id,
       firstName: patch.firstName !== undefined ? String(patch.firstName).trim() : existing.firstName,
       lastName: patch.lastName !== undefined ? String(patch.lastName).trim() : existing.lastName,
-      email: emailVal.normalizedEmail || nextEmail.trim().toLowerCase(),
+      email: storedEmail,
       phone:
         patch.phone !== undefined
-          ? phoneVal?.isValid && phoneVal.formatted
-            ? phoneVal.formatted
-            : patch.phone
+          ? storedPhoneFromValidation(phoneVal) ?? patch.phone
           : existing.phone,
       jobTitle: rawJobTitle !== undefined ? (jobInfo.normalizedTitle || rawJobTitle || null) : existing.jobTitle,
       seniority: patch.seniority !== undefined ? patch.seniority : (jobInfo.seniority || existing.seniority),
@@ -2951,8 +2961,8 @@ export class CrmRepository {
       lastAssignedSellerIndex: input.lastAssignedSellerIndex || 0,
       nurtureTargetCampaignId: input.nurtureTargetCampaignId ?? 'cmp-1',
       highIntentUrls: input.highIntentUrls || [
-        'https://sti-hub.vercel.app/proposta',
-        'https://sti-hub.vercel.app/lp/locacao-equipamentos-ti-telecom-sv31',
+        'https://sti-hub.setatelecom.com.br/proposta',
+        'https://sti-hub.setatelecom.com.br/lp/locacao-equipamentos-ti-telecom-sv31',
       ],
       steps: input.steps || [],
       enrolledCount: input.enrolledCount || 0,
@@ -3630,6 +3640,14 @@ export class CrmRepository {
         (c) => c.id === contactIdOrEmail || c.email.toLowerCase() === clean
       ) || null;
     const emailToCheck = contact ? contact.email.toLowerCase() : clean;
+
+    if (!emailToCheck || isInventedContactEmail(emailToCheck)) {
+      return {
+        allowed: false,
+        reason: 'E-mail inventado ou ausente. Informe um e-mail real para envio.',
+        contact,
+      };
+    }
 
     const suppressed = this.listSuppressionEntries().find(
       (s) => s.email.toLowerCase() === emailToCheck || (contact && s.contactId === contact.id)
@@ -5055,6 +5073,17 @@ export class CrmRepository {
             ? 'LOCACAO'
             : 'PRODUTOS');
 
+    // Cópia/cliente não pode herdar o negócio de outra proposta.
+    const requestedDealId = String(input.dealId || '').trim();
+    let dealId: string | null = requestedDealId || null;
+    if (dealId) {
+      const existingDeal = this.getDealById(dealId);
+      const linked = existingDeal ? linkedProposalIdFromDeal(existingDeal) : null;
+      if (!existingDeal || (linked && linked !== newId)) {
+        dealId = null;
+      }
+    }
+
     const proposal: ErpCommercialProposal = {
       ...input,
       id: newId,
@@ -5083,7 +5112,7 @@ export class CrmRepository {
         (contact ? `${contact.firstName} ${contact.lastName}`.trim() : 'Decisor Comercial'),
       introductionText:
         input.introductionText ||
-        'Apresentamos a seguir nossa proposta técnico-comercial personalizada com equipamentos homologados Seta Telecom e garantia de alta disponibilidade.',
+        DEFAULT_PROPOSAL_INTRODUCTION,
       internalNotes: input.internalNotes || '',
       setupFee: explicitSetupFee,
       templateStyle: input.templateStyle || 'CLEAN_CORPORATE_LIGHT',
@@ -5106,7 +5135,7 @@ export class CrmRepository {
         input.contactName ||
         (contact ? `${contact.firstName} ${contact.lastName}`.trim() : 'Decisor Comercial'),
       contactEmail: input.contactEmail || contact?.email || undefined,
-      dealId: input.dealId || null,
+      dealId,
       sellerName: input.sellerName || 'Marcelo Lopes Mira',
       sellerEmail: input.sellerEmail || 'marcelo.mira@setatelecom.com.br',
       sellerPhone: input.sellerPhone || '(11) 99999-4929',
@@ -9608,7 +9637,7 @@ export class CrmRepository {
 
   createUserInvite(
     userOrEmail: string,
-    baseOrigin = "https://sti-hub.vercel.app",
+    baseOrigin = "",
     resetTotp = true
   ): {
     ok: boolean;
@@ -9669,7 +9698,7 @@ export class CrmRepository {
       exp: expMs,
     });
 
-    const cleanOrigin = String(baseOrigin || "https://sti-hub.vercel.app").replace(/\/+$/, "");
+    const cleanOrigin = String(baseOrigin || "").replace(/\/+$/, "");
     const inviteUrl = `${cleanOrigin}/login?invite=${encodeURIComponent(inviteToken)}`;
     const conviteUrl = `${cleanOrigin}/convite?token=${encodeURIComponent(inviteToken)}`;
 
@@ -11452,7 +11481,7 @@ let singletonRepo: CrmRepository | null = null;
 
 export function getRepository(): CrmRepository {
   if (!singletonRepo) {
-    const defaultStorePath = process.env.VERCEL
+    const defaultStorePath = usesEphemeralFilesystem()
       ? '/tmp/crm-store.json'
       : path.join(process.cwd(), '.data', 'crm-store.json');
     const storePath = process.env.CRM_STORE_PATH || defaultStorePath;

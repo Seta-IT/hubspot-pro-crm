@@ -12,6 +12,7 @@
 import crypto from 'crypto';
 import forge from 'node-forge';
 import { ensurePostgresSchema, getPostgresPool, isPostgresEnabled } from '../../db/postgres';
+import { isProductionRuntime } from '../../lib/platform';
 
 export const CERT_KV_KEY = 'erp_certificate_a1_v1';
 export const CERT_MAX_PFX_BYTES = 64 * 1024; // 64 KiB do .pfx decodificado
@@ -445,8 +446,9 @@ export class PostgresCertificateStore implements CertificateStore {
 }
 
 function isDeployedRuntime(): boolean {
-  const v = String((typeof process !== 'undefined' && process.env.VERCEL_ENV) || '').toLowerCase();
-  return v === 'production' || v === 'preview';
+  // Producao/preview Vercel OU Cloud Run / NODE_ENV=production: sem Postgres, falha fechada
+  // (nunca MemoryCertificateStore com o certificado A1 em memoria).
+  return isProductionRuntime();
 }
 
 /** Postgres quando DATABASE_URL existe; em producao/Preview sem banco => falha fechada; local/teste => memoria. */

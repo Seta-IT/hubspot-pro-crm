@@ -8,6 +8,7 @@
 
 import QRCode from 'qrcode';
 import { INITIAL_STIHUB_USERS, StiHubRole } from './rbac';
+import { isSecretProductionRuntime } from '../../lib/platform';
 import type {
   StiHubCrmPermissions,
   StiHubErpPermissions,
@@ -630,10 +631,9 @@ export class StiHubSigningSecretMissingError extends Error {
 }
 
 function isStiHubProductionRuntime(): boolean {
-  if (typeof process === 'undefined' || !process.env) return false;
-  const vercelEnv = String(process.env.VERCEL_ENV || '').toLowerCase();
-  if (vercelEnv === 'production' || vercelEnv === 'preview') return true;
-  return process.env.NODE_ENV === 'production' && process.env.STI_HUB_ALLOW_DEV_SECRET !== 'true';
+  // Delegado a src/lib/platform.ts (VERCEL_ENV, Cloud Run / K_SERVICE, NODE_ENV).
+  // STI_HUB_ALLOW_DEV_SECRET=true continua liberando o segredo so em runtime local.
+  return isSecretProductionRuntime();
 }
 
 // ============================================================================

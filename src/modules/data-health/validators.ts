@@ -2,6 +2,8 @@
 // Data Health & Hygiene - Validators & Normalizers
 // ============================================================================
 
+import { isInventedContactEmail } from './invented-contact-email';
+
 const DISPOSABLE_EMAIL_DOMAINS = new Set([
   'mailinator.com',
   'tempmail.com',
@@ -64,6 +66,18 @@ export function validateEmail(rawEmail: string | null | undefined): EmailValidat
       isFreeProvider: false,
       isCorporate: false,
       reason: 'EMPTY_EMAIL',
+    };
+  }
+
+  if (isInventedContactEmail(rawEmail)) {
+    return {
+      isValid: false,
+      normalizedEmail: '',
+      domain: null,
+      isDisposable: false,
+      isFreeProvider: false,
+      isCorporate: false,
+      reason: 'INVENTED_EMAIL',
     };
   }
 
@@ -142,6 +156,8 @@ export interface PhoneValidationResult {
   areaCode: string | null;
   isMobile: boolean;
   reason?: string;
+  /** Ramal informado (";ext=12", "ramal 12"...), fora do E.164. */
+  extension?: string | null;
 }
 
 const VALID_BR_DDDS = new Set([
@@ -156,7 +172,30 @@ const VALID_BR_DDDS = new Set([
   '91', '92', '93', '94', '95', '96', '97', '98', '99',
 ]);
 
+/** Ramal no fim do valor: ";ext=12", "ramal 12", "r. 12", "ext 12", "x12", "#12". */
+const PHONE_EXTENSION_RE = /\s*(?:;\s*ext\s*=\s*|,?\s*(?:ramal|ram\.?|r\.|ext\.?|extens[aã]o|x|#)\s*:?\s*)(\d{1,6})\s*$/i;
+
 export function normalizeAndValidatePhone(
+  rawPhone: string | null | undefined,
+  defaultCountry: 'BR' | 'INTL' = 'BR'
+): PhoneValidationResult {
+  if (typeof rawPhone === 'string') {
+    const m = rawPhone.match(PHONE_EXTENSION_RE);
+    if (m && m.index !== undefined && rawPhone.slice(0, m.index).replace(/\D/g, '').length >= 8) {
+      const base = normalizeAndValidatePhoneCore(rawPhone.slice(0, m.index), defaultCountry);
+      return { ...base, extension: m[1] };
+    }
+  }
+  return normalizeAndValidatePhoneCore(rawPhone, defaultCountry);
+}
+
+/** Valor para gravar: E.164 + ";ext=NN" quando valido; senao null (o chamador mantem o texto). */
+export function storedPhoneFromValidation(v: PhoneValidationResult | null | undefined): string | null {
+  if (!v || !v.isValid || !v.e164) return null;
+  return v.extension ? `${v.e164};ext=${v.extension}` : v.e164;
+}
+
+function normalizeAndValidatePhoneCore(
   rawPhone: string | null | undefined,
   defaultCountry: 'BR' | 'INTL' = 'BR'
 ): PhoneValidationResult {

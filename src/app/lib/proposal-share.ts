@@ -1,3 +1,4 @@
+import { splitExtension } from './phone-format';
 import {
   ErpCommercialProposal,
   ErpProposalDigitalSignature,
@@ -7,6 +8,7 @@ import {
   ErpProposalVersionSnapshot,
 } from '../../db/types';
 import { displayProposalTitle } from './proposal-title';
+import { proposalItemDetails } from './proposal-item-grid';
 
 export interface ProposalSlaOptionSpec {
   id: string;
@@ -295,7 +297,7 @@ export function buildProposalVersionShortUrl(
 ): string {
   const baseOrigin =
     options?.origin ||
-    (typeof window !== "undefined" ? window.location.origin : "https://sti-hub.vercel.app");
+    (typeof window !== "undefined" ? window.location.origin : "");
   const url = `${baseOrigin}/proposta/${encodeURIComponent(proposalId)}/v/${Math.max(1, Math.floor(Number(version) || 1))}`;
   return options?.autoPrint ? `${url}?print=1` : url;
 }
@@ -469,7 +471,8 @@ const PLACEHOLDER_SELLER_PHONES = new Set(['(11) 99999-4929']);
 
 /** "(11) 3958-4929" => "551139584929" (DDI 55 quando vier so DDD + numero). */
 export function proposalPhoneDigits(phone: string | undefined): string {
-  const d = String(phone || '').replace(/\D/g, '');
+  // Ramal (";ext=12", "ramal 12") nao entra no link tel:/wa.me.
+  const d = splitExtension(String(phone || '')).number.replace(/\D/g, '');
   if (!d) return '';
   return d.length === 10 || d.length === 11 ? `55${d}` : d;
 }
@@ -1500,6 +1503,7 @@ export interface CompactProposalPayload {
     un?: string; // unit
     fn: string; // fiscalNature
     nc: string; // ncmOrServiceCode
+    dt?: string; // details (texto livre, nao NCM)
     sk?: string; // serviceKind (tipo de servico da linha)
     q: number; // quantity
     u: number; // unitPrice
@@ -1576,6 +1580,7 @@ export function encodeProposalToQueryParam(prop: ErpCommercialProposal): string 
         un: normalizeProposalItemUnit(item.unit, inferProposalItemType(item)),
         fn: item.fiscalNature,
         nc: item.ncmOrServiceCode,
+        dt: proposalItemDetails(item) || undefined,
         sk: (item as ProposalGridItem).serviceKind || undefined,
         q: item.quantity,
         u: item.unitPrice,
@@ -1643,6 +1648,7 @@ export function decodeProposalFromQueryParam(encoded: string | null | undefined)
             unit: normalizeProposalItemUnit(it.un, itemType),
             fiscalNature: fn,
             ncmOrServiceCode: it.nc || 'NCM 8517.62.59',
+            ...(it.dt ? { details: String(it.dt) } : {}),
             ...(it.sk ? { serviceKind: it.sk } : {}),
             quantity: qty,
             unitPrice,
@@ -1742,7 +1748,7 @@ export function buildInternalProposalUrl(
 ): string {
   const baseOrigin =
     options?.origin ||
-    (typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.vercel.app');
+    (typeof window !== 'undefined' ? window.location.origin : '');
   const qs = options?.autoPrint ? '?print=1' : '';
   return `${baseOrigin}/proposta/${encodeURIComponent(prop.id)}${qs}`;
 }

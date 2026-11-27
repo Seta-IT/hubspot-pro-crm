@@ -16,6 +16,8 @@ import type {
 import { displayPaymentConditionText, proposalPaymentMethodLabel } from './proposal-payment-method';
 import { displayProposalPaymentCondition, isMonthlyBillingBudgetType } from './proposal-monthly-billing';
 
+import { proposalItemDetails } from './proposal-item-grid';
+import { displayShippingCarrier } from './proposal-shipping-carrier';
 
 export interface PublicProposalItemDto {
   description: string;
@@ -30,6 +32,8 @@ export interface PublicProposalItemDto {
   subtotal: number;
   totalMonthly: number;
   isRecurring: boolean;
+  /** Texto livre do campo Detalhes (nunca NCM/SKU). */
+  details: string | null;
 }
 
 export interface PublicProposalInstallmentDto {
@@ -162,6 +166,7 @@ export function toPublicProposalDto(p: ErpCommercialProposal): PublicProposalDto
       subtotal: num(it.subtotal ?? it.totalMonthly),
       totalMonthly: num(it.totalMonthly),
       isRecurring: it.isRecurring !== false,
+      details: optStr(proposalItemDetails(it)),
     })),
     installments: isMonthlyBillingBudgetType(p.budgetType)
       ? []
@@ -187,7 +192,7 @@ export function toPublicProposalDto(p: ErpCommercialProposal): PublicProposalDto
     deliveryLeadTime: optStr(p.deliveryLeadTime),
     deliveryForecast: optStr(p.deliveryForecast),
     deliveryDays: optNum(p.deliveryDays),
-    shippingCarrier: optStr(p.shippingCarrier),
+    shippingCarrier: optStr(displayShippingCarrier(p.shippingCarrier)),
     slaTier: optStr(p.slaTier),
     slaResponseHours: optNum(p.slaResponseHours),
     slaAvailabilityPercent: optStr(p.slaAvailabilityPercent),
@@ -271,6 +276,7 @@ export function publicDtoToRenderableProposal(dto: PublicProposalDto, routeId: s
       subtotal: it.subtotal,
       isRecurring: it.isRecurring,
       totalMonthly: it.totalMonthly,
+      details: it.details ?? undefined,
     })),
     monthlyRecurringTotal: dto.monthlyRecurringTotal,
     oneTimeSetupTotal: dto.oneTimeSetupTotal,

@@ -16,6 +16,9 @@ import CertificateA1UploadCard from './CertificateA1UploadCard';
 import ErpGeneralSettingsPage from './ErpGeneralSettingsPage';
 import { useErpConfigAccess } from './useErpConfigAccess';
 import { canOpenAdminCentral, gestaoClickDeniedMessage, type ErpConfigAccess } from '../lib/erp-config-access';
+import ContactFieldListsSettings from './ContactFieldListsSettings';
+import ContactFieldSelect from './ContactFieldSelect';
+import { CONTACT_DEPARTMENT_KIND, CONTACT_POSITION_KIND } from '../lib/contact-field-lists';
 import {
   buildDefaultCrmItemPermissions,
   buildDefaultErpItemPermissions,
@@ -54,6 +57,7 @@ import {
   Mail,
   Globe,
   Database,
+  Sliders,
   CheckCircle2,
   Plus,
   Send,
@@ -101,6 +105,7 @@ import {
   StiHubCompanyEmitterSettings,
   StiHubGeneralSystemParameters,
 } from '../../modules/erp/daily-sync-service';
+import PhoneInput from './PhoneInput';
 
 export type AdminSubView =
   | 'USERS_RBAC'
@@ -113,7 +118,8 @@ export type AdminSubView =
   | 'CUSTOM_PROPERTIES'
   | 'DAILY_SYNC_LOGS'
   | 'MIGRATION_CHECKLIST'
-  | 'SUBDOMAIN_SECURITY';
+  | 'SUBDOMAIN_SECURITY'
+  | 'CONTACT_FIELD_LISTS';
 
 interface StiHubAdminRbacPanelProps {
   rbacState: StiHubRbacState | null;
@@ -677,7 +683,7 @@ export default function StiHubAdminRbacPanel({
 
   const handleGenerateUserInvite = async (user: StiHubUserRecord) => {
     const origin =
-      typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.vercel.app';
+      typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.setatelecom.com.br';
     const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/invite`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -856,7 +862,7 @@ export default function StiHubAdminRbacPanel({
         mfaMethod: newUserMfaMethod,
         totpConfigured: false,
         password: newUserPassword.trim().length >= NEW_PASSWORD_MIN_LENGTH ? newUserPassword.trim() : undefined,
-        origin: typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.vercel.app',
+        origin: typeof window !== 'undefined' ? window.location.origin : 'https://sti-hub.setatelecom.com.br',
       }),
     });
     if (res.ok) {
@@ -908,7 +914,7 @@ export default function StiHubAdminRbacPanel({
           to: testRecipient.trim(),
           cc: 'comercial@setatelecom.com.br',
           subject: '[STI-hub Mailer • Teste Validado] Proposta Comercial #4695 & Link PDF A4',
-          body: `Olá,\n\nEste é um disparo de validação oficial do STI-hub Mailer (Seta Telecom LTDA • CNPJ 14.806.925/0001-32).\n\n• Link Público PDF A4: https://sti-hub.vercel.app/proposta/prop-gc-4695\n• Enquadramento Fiscal: 0% ISS (LC 116/03 + Súmula Vinculante 31 STF).\n\nAtenciosamente,\nMarcelo Lopes Mira • STI-hub`,
+          body: `Olá,\n\nEste é um disparo de validação oficial do STI-hub Mailer (Seta Telecom LTDA • CNPJ 14.806.925/0001-32).\n\n• Link Público PDF A4: https://sti-hub.setatelecom.com.br/proposta/prop-gc-4695\n• Enquadramento Fiscal: 0% ISS (LC 116/03 + Súmula Vinculante 31 STF).\n\nAtenciosamente,\nMarcelo Lopes Mira • STI-hub`,
           companyName: 'Seta Telecom Homologação',
           documentCode: '4695',
           amountBrl: 14800,
@@ -1053,6 +1059,11 @@ export default function StiHubAdminRbacPanel({
             id: 'CUSTOM_PROPERTIES' as const,
             label: 'Campos Customizáveis',
             icon: Database,
+          },
+          {
+            id: 'CONTACT_FIELD_LISTS' as const,
+            label: 'Posição e Área',
+            icon: Sliders,
           },
           {
             id: 'MIGRATION_CHECKLIST' as const,
@@ -1535,6 +1546,10 @@ export default function StiHubAdminRbacPanel({
         </div>
       )}
 
+      {subView === 'CONTACT_FIELD_LISTS' && (
+        <ContactFieldListsSettings onShowToast={onShowToast} />
+      )}
+
       {subView === 'CUSTOM_PROPERTIES' && (
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1643,7 +1658,7 @@ export default function StiHubAdminRbacPanel({
                 <code className="font-mono font-semibold">cname.vercel-dns.com</code> | TTL: Automático.
               </p>
               <p className="text-slate-600">
-                • Todos os links públicos de propostas comerciais (<code>/proposta/[id]</code>) utilizam automaticamente o domínio ativo da sessão ou <code>https://sti-hub.vercel.app</code>.
+                • Todos os links públicos de propostas comerciais (<code>/proposta/[id]</code>) utilizam automaticamente o domínio ativo da sessão ou <code>https://sti-hub.setatelecom.com.br</code>.
               </p>
             </div>
           </div>
@@ -2491,12 +2506,25 @@ export default function StiHubAdminRbacPanel({
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Departamento / Cargo</label>
-                    <input
-                      type="text"
-                      value={editingUser.jobTitle}
-                      onChange={(e) => setEditingUser({ ...editingUser, jobTitle: e.target.value })}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    <label className="block font-semibold text-slate-700 mb-1">Posição</label>
+                    <ContactFieldSelect
+                      kind={CONTACT_POSITION_KIND}
+                      value={editingUser.jobTitle || ''}
+                      onChange={(jobTitle) => setEditingUser({ ...editingUser, jobTitle })}
+                      ariaLabel="Posição"
+                      testId="user-edit-position"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Área</label>
+                    <ContactFieldSelect
+                      kind={CONTACT_DEPARTMENT_KIND}
+                      value={editingUser.department || ''}
+                      onChange={(department) => setEditingUser({ ...editingUser, department })}
+                      ariaLabel="Área"
+                      testId="user-edit-department"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm"
                     />
                   </div>
                 </div>
@@ -3235,32 +3263,35 @@ export default function StiHubAdminRbacPanel({
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Telefone</label>
-                  <input
-                    type="text"
+                  <PhoneInput
+                    kind="phone"
                     value={newUserPhone}
-                    onChange={(e) => setNewUserPhone(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    onChange={(v) => setNewUserPhone(v)}
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Departamento</label>
-                  <input
-                    type="text"
+                  <label className="block font-semibold text-slate-700 mb-1">Área</label>
+                  <ContactFieldSelect
+                    kind={CONTACT_DEPARTMENT_KIND}
                     value={newUserDept}
-                    onChange={(e) => setNewUserDept(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    onChange={setNewUserDept}
+                    ariaLabel="Área"
+                    testId="user-create-department"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Cargo</label>
-                  <input
-                    type="text"
+                  <label className="block font-semibold text-slate-700 mb-1">Posição</label>
+                  <ContactFieldSelect
+                    kind={CONTACT_POSITION_KIND}
                     value={newUserTitle}
-                    onChange={(e) => setNewUserTitle(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                    onChange={setNewUserTitle}
+                    ariaLabel="Posição"
+                    testId="user-create-position"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm"
                   />
                 </div>
                 <div>

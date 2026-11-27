@@ -178,6 +178,7 @@ import {
 } from '../lib/erp-config-access';
 import { useErpConfigAccess } from './useErpConfigAccess';
 import GestaoClickCompanyModal from './GestaoClickCompanyModal';
+import { planOpenErpCustomer } from '../lib/open-erp-customer';
 import DataHealthTab from './DataHealthTab';
 import { CrmEmailTemplate, StiHubRbacState, StiHubUserRecord } from '../../db/types';
 import {
@@ -218,6 +219,7 @@ import {
   PartialEquipmentReturnProRataModal,
 } from './GestaoClickEnrichedModals';
 
+import { formatPhoneForDisplay } from '../lib/phone-format';
 export interface ErpOverviewPayload {
   kpis: {
     monthlyRentalMrr: number;
@@ -276,6 +278,10 @@ interface ErpGestaoClickTabProps {
   onSelectActiveUser?: (user: StiHubUserRecord) => void;
   canAccessCrm?: boolean;
   onOpenLinkedDeal?: (dealId: string) => void;
+  /** Busca e situação restauradas da URL (F5 na lista de orçamentos/contratos). */
+  initialListSearch?: string;
+  initialListStatus?: string;
+  onListFiltersChange?: (filters: { search: string; status: string }) => void;
 }
 
 export type GestaoClickMenuSection =
@@ -429,6 +435,9 @@ export default function ErpGestaoClickTab({
   onSelectActiveUser,
   canAccessCrm = false,
   onOpenLinkedDeal,
+  initialListSearch,
+  initialListStatus,
+  onListFiltersChange,
 }: ErpGestaoClickTabProps) {
   const [activeSection, setActiveSection] = useState<GestaoClickMenuSection>(
     initialSection || "INICIO"
@@ -504,8 +513,8 @@ export default function ErpGestaoClickTab({
       .catch(() => onShowToast('Não foi possível abrir o orçamento completo. Tente de novo.'));
   };
   const [isCreatingProposalModal, setIsCreatingProposalModal] = useState<boolean>(false);
-  const [proposalsSearch, setProposalsSearch] = useState<string>("");
-  const [proposalsStatusFilter, setProposalsStatusFilter] = useState<string>("TODOS");
+  const [proposalsSearch, setProposalsSearch] = useState<string>(initialSection === "ORCAMENTOS" ? (initialListSearch || "") : "");
+  const [proposalsStatusFilter, setProposalsStatusFilter] = useState<string>(initialSection === "ORCAMENTOS" && initialListStatus && initialListStatus !== "TODOS" ? initialListStatus : "TODOS");
   const [proposalsViewMode, setProposalsViewMode] = useState<"CARDS" | "TABLE">("TABLE");
   // Modo tabela: pagina corrente da lista (busca/situacao/tipo filtrados no servidor).
   const PROPOSALS_PAGE_SIZE = 50;
@@ -756,8 +765,8 @@ export default function ErpGestaoClickTab({
   const [osDragId, setOsDragId] = useState<string | null>(null);
   const [osDragOverCol, setOsDragOverCol] = useState<string | null>(null);
   const [customerStatusFilter, setCustomerStatusFilter] = useState<string>("TODOS");
-  const [contractsSearchQuery, setContractsSearchQuery] = useState<string>("");
-  const [contractsStatusFilter, setContractsStatusFilter] = useState<string>("TODOS");
+  const [contractsSearchQuery, setContractsSearchQuery] = useState<string>(initialSection === "CONTRATOS" ? (initialListSearch || "") : "");
+  const [contractsStatusFilter, setContractsStatusFilter] = useState<string>(initialSection === "CONTRATOS" && initialListStatus && initialListStatus !== "TODOS" ? initialListStatus : "TODOS");
   const [invoicesSearchQuery, setInvoicesSearchQuery] = useState<string>("");
   const [invoicesStatusFilter, setInvoicesStatusFilter] = useState<string>("TODOS");
   const [syncingGc, setSyncingGc] = useState(false);
@@ -851,6 +860,18 @@ export default function ErpGestaoClickTab({
       setActiveSubId(initialSubId);
     }
   }, [initialSection, initialSubId, navigationTrigger]);
+
+  React.useEffect(() => {
+    if (!onListFiltersChange) return;
+    if (activeSection === 'ORCAMENTOS') {
+      onListFiltersChange({ search: proposalsSearch, status: proposalsStatusFilter });
+    } else if (activeSection === 'CONTRATOS') {
+      onListFiltersChange({ search: contractsSearchQuery, status: contractsStatusFilter });
+    } else {
+      onListFiltersChange({ search: '', status: 'TODOS' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, proposalsSearch, proposalsStatusFilter, contractsSearchQuery, contractsStatusFilter]);
 
   React.useEffect(() => {
     onSectionChange?.(activeSection);
@@ -2722,20 +2743,16 @@ export default function ErpGestaoClickTab({
 
 
   const handleOpenErpCustomerByCompany = (companyId?: string | null, companyName?: string, companyCnpj?: string) => {
-    const matched = companies.find(
-      (c) =>
-        (companyId && c.id === companyId) ||
-        (companyCnpj && c.cnpj && c.cnpj.replace(/\D+/g, "") === companyCnpj.replace(/\D+/g, "")) ||
-        (companyName && c.name.toLowerCase() === companyName.toLowerCase())
-    );
-    if (matched) {
-      setEditingCustomerModal({ company: matched, isNew: false, readOnly: true });
-    } else {
-      setCadastrosSubTab("CLIENTES");
-      setActiveSubId("CAD_CLIENTES");
-      setCadastrosSearch(companyName || companyCnpj || "");
-      setActiveSection("CADASTROS");
+    const plan = planOpenErpCustomer(companies, { companyId, companyName, companyCnpj });
+    if (plan.action === 'open-edit') {
+      setEditingCustomerModal({ company: plan.company, isNew: false, readOnly: false });
+      return;
     }
+    if (plan.action === 'hydrate-edit') {
+      setEditingCustomerModal({ company: plan.stub, isNew: false, readOnly: false });
+      return;
+    }
+    onShowToast(plan.toast);
   };
 
   const handleNavigateToContractFromDoc = (contractIdOrNumber?: string | null, companyName?: string) => {
@@ -5969,7 +5986,7 @@ export default function ErpGestaoClickTab({
                       >
                         <td className="py-2 px-3 font-semibold text-[#1e3a6e] underline">{sup.name}</td>
                         <td className="py-2 px-3 font-mono">{sup.cnpj}</td>
-                        <td className="py-2 px-3">{sup.phone}</td>
+                        <td className="py-2 px-3">{formatPhoneForDisplay(sup.phone)}</td>
                         <td className="py-2 px-3">{sup.email}</td>
                         <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="inline-flex items-center justify-end gap-1.5">
@@ -6048,7 +6065,7 @@ export default function ErpGestaoClickTab({
                         <td className="py-2 px-3 font-semibold text-[#1e3a6e] underline">{emp.name}</td>
                         <td className="py-2 px-3">{emp.role}</td>
                         <td className="py-2 px-3">{emp.email}</td>
-                        <td className="py-2 px-3">{emp.phone}</td>
+                        <td className="py-2 px-3">{formatPhoneForDisplay(emp.phone)}</td>
                         <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="inline-flex items-center justify-end gap-1.5">
                             <button
@@ -6118,7 +6135,7 @@ export default function ErpGestaoClickTab({
                           <td className="py-2 px-3 font-mono">{trp.cnpj}</td>
                           <td className="py-2 px-3">{trp.modalFrete || 'Rodoviário / Aéreo B2B (ANTT)'}</td>
                           <td className="py-2 px-3">{trp.cityState || 'São Paulo/SP'}</td>
-                          <td className="py-2 px-3">{trp.phone || trp.email}</td>
+                          <td className="py-2 px-3">{trp.phone ? formatPhoneForDisplay(trp.phone) : trp.email}</td>
                           <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                             <div className="inline-flex items-center justify-end gap-1.5">
                               <button

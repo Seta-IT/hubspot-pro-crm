@@ -258,12 +258,13 @@ describe('Pacote G (5): menores', () => {
     assert.equal(eq.status, 400);
     assert.deepEqual(eq, diff);
   });
-  it('(c) IP confiavel: x-vercel-forwarded-for > x-real-ip; XFF so fora da Vercel', () => {
+  it('(c) IP confiavel: x-vercel-forwarded-for > x-real-ip; XFF ignorado no modo vercel e no modo none', () => {
     const h = (o: Record<string, string>) => ({ get: (k: string) => o[k.toLowerCase()] ?? null });
     assert.equal(resolveTrustedClientIp(h({ 'x-vercel-forwarded-for': '203.0.113.9', 'x-forwarded-for': '6.6.6.6' }), true), '203.0.113.9');
     assert.equal(resolveTrustedClientIp(h({ 'x-real-ip': '203.0.113.10', 'x-forwarded-for': '6.6.6.6' }), true), '203.0.113.10');
     assert.equal(resolveTrustedClientIp(h({ 'x-forwarded-for': '6.6.6.6' }), true), undefined);
-    assert.equal(resolveTrustedClientIp(h({ 'x-forwarded-for': '192.0.2.1, 10.0.0.1' }), false), '192.0.2.1');
+    assert.equal(resolveTrustedClientIp(h({ 'x-forwarded-for': '192.0.2.1, 10.0.0.1' }), false), undefined);
+    assert.equal(resolveTrustedClientIp(h({ 'x-forwarded-for': '8.8.8.8, 192.0.2.1' }), 'cloudrun'), '192.0.2.1');
     assert.equal(resolveTrustedClientIp(h({ 'x-vercel-forwarded-for': '<script>' }), true), undefined);
     assert.match(src('src/app/api/_bridge.ts'), /resolveTrustedClientIp\(req\.headers\)/);
   });

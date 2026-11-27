@@ -29,7 +29,20 @@ let schemaEnsuring: Promise<void> | null = null;
 /** Pools/clientes externos (testes, scripts) que ja receberam o DDL neste processo. */
 let ensuredExecutors = new WeakSet<object>();
 
+/** Migracoes/DDL usam a conexao direta do Neon (sem PgBouncer), quando existir. */
+let preferDirectDatabaseUrl = false;
+
+/**
+ * Chamado so pelos CLIs de migracao: passa a usar DATABASE_URL_UNPOOLED (conexao
+ * direta, sem "-pooler") quando definida. O app continua no DATABASE_URL (pooled).
+ */
+export function useDirectDatabaseUrlForMigrations(): void {
+  preferDirectDatabaseUrl = true;
+}
+
 export function getDatabaseUrl(): string | null {
+  const direct = preferDirectDatabaseUrl ? (process.env.DATABASE_URL_UNPOOLED || "").trim() : "";
+  if (direct.length > 0) return direct;
   const url = process.env.DATABASE_URL || process.env.DATABASE_POSTGRES_URL || "";
   return url.trim().length > 0 ? url.trim() : null;
 }

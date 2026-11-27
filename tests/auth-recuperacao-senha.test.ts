@@ -1,5 +1,5 @@
 // STI-hub — Esqueci minha senha, OTP por e-mail (chave Resend) e pareamento TOTP so apos a senha do convite
-import { describe, it } from 'node:test';
+import { before, after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryRepository } from '../src/db/repository';
 import { CrmApiRouter, normalizeResendApiKey } from '../src/api/router';
@@ -112,6 +112,16 @@ describe('Convite: pareamento TOTP so depois da senha', () => {
 });
 
 describe('Esqueci minha senha', () => {
+  let prevOriginDescribe: string | undefined;
+  before(() => {
+    prevOriginDescribe = process.env.STI_HUB_PUBLIC_ORIGIN;
+    process.env.STI_HUB_PUBLIC_ORIGIN = 'https://sti-hub.setatelecom.com.br';
+  });
+  after(() => {
+    if (prevOriginDescribe === undefined) delete process.env.STI_HUB_PUBLIC_ORIGIN;
+    else process.env.STI_HUB_PUBLIC_ORIGIN = prevOriginDescribe;
+  });
+
   it('rotas publicas so as telas necessarias', () => {
     assert.equal(isPublicStiHubPath('/esqueci-senha'), true);
     assert.equal(isPublicStiHubPath('/redefinir-senha'), true);
@@ -121,6 +131,9 @@ describe('Esqueci minha senha', () => {
   });
 
   it('resposta generica e identica para e-mail existente, inexistente e inativo; nunca expoe token/link', async () => {
+    const prevOrigin = process.env.STI_HUB_PUBLIC_ORIGIN;
+    process.env.STI_HUB_PUBLIC_ORIGIN = 'https://sti-hub.setatelecom.com.br';
+    try {
     await withResend({}, async (calls) => {
       const repo = createInMemoryRepository();
       repo.upsertRbacUser({ id: 'usr-seta-03', active: false });
@@ -141,16 +154,28 @@ describe('Esqueci minha senha', () => {
       assert.ok(String(calls[0].html).includes('Redefinir senha'));
       assert.ok(String(calls[0].html).includes('30 minutos'));
       assert.ok(String(calls[0].html).startsWith('<!doctype html>'));
-      assert.ok(String(calls[0].html).includes('https://sti-hub.vercel.app/redefinir-senha?token='));
+      assert.ok(String(calls[0].html).includes('https://sti-hub.setatelecom.com.br/redefinir-senha?token='));
     });
+    } finally {
+      if (prevOrigin === undefined) delete process.env.STI_HUB_PUBLIC_ORIGIN;
+      else process.env.STI_HUB_PUBLIC_ORIGIN = prevOrigin;
+    }
   });
 
   it('link usa origem fixa do servidor (ignora _origin/Host da requisicao)', async () => {
+    const prevOrigin = process.env.STI_HUB_PUBLIC_ORIGIN;
+    process.env.STI_HUB_PUBLIC_ORIGIN = 'https://sti-hub.setatelecom.com.br';
+    try {
     await withResend({}, async (calls) => {
       const router = new CrmApiRouter(createInMemoryRepository());
       await http(router, 'POST', '/api/auth/forgot-password', { email: ADMIN }, { ip: '10.2.0.1', _origin: 'https://evil.example' });
       assert.equal(String(calls[0].html).includes('evil.example'), false);
+      assert.ok(String(calls[0].html).includes('https://sti-hub.setatelecom.com.br/redefinir-senha?token='));
     });
+    } finally {
+      if (prevOrigin === undefined) delete process.env.STI_HUB_PUBLIC_ORIGIN;
+      else process.env.STI_HUB_PUBLIC_ORIGIN = prevOrigin;
+    }
   });
 
   it('rate-limit por e-mail (3/15min) e por IP (10/15min)', async () => {

@@ -1159,6 +1159,16 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     keywords: ['campos', 'customizáveis', 'propriedades'],
   },
   {
+    id: 'data-contact-lists',
+    label: 'Posição e Área',
+    group: 'DADOS',
+    groupLabel: 'Gerenciamento de dados',
+    adminSubView: 'CONTACT_FIELD_LISTS',
+    requiresAdmin: true,
+    screenKey: 'settings:CONTACT_FIELD_LISTS',
+    keywords: ['posição', 'posicao', 'área', 'area', 'cargo', 'departamento', 'listas'],
+  },
+  {
     id: 'tools-inbox',
     label: 'Caixa de entrada',
     group: 'FERRAMENTAS',

@@ -1,12 +1,19 @@
 // ============================================================================
-// Pacote G (5c): IP do cliente para rate-limit/auditoria (portal, login, reset...).
-// Ordem de confianca:
-//   1. x-vercel-forwarded-for — definido pela borda da Vercel (o cliente nao consegue injetar);
-//   2. x-real-ip — tambem definido pela Vercel;
-//   3. x-forwarded-for (1o item) — SO fora da Vercel (dev local / proxy proprio). Na Vercel e
-//      ignorado como fallback, para nao depender de um cabecalho que um cliente pode tentar forjar;
-//   4. undefined => o chamador usa o balde 'sem-ip' (rate-limit compartilhado, mais restritivo).
+// Pacote G (5c) + preparacao Cloud Run: IP do cliente para rate-limit/auditoria.
+//
+// TRUSTED_PROXY_MODE (ver src/lib/platform.ts):
+//   vercel   — x-vercel-forwarded-for, depois x-real-ip. X-Forwarded-For e ignorado
+//              (o cliente pode forjar a parte esquerda). Compativel com VERCEL=1.
+//   cloudrun — SOMENTE X-Forwarded-For, entrada contada a partir da DIREITA pelo
+//              numero de proxies confiaveis (TRUSTED_PROXY_HOPS, padrao 1).
+//              O Google Front End acrescenta o IP do par TCP no final. A primeira
+//              entrada e controlada pelo cliente e nunca e usada. Nunca confia em
+//              X-Real-IP nem em outro cabecalho forjavel.
+//   none     — nenhum cabecalho de proxy e confiavel (fail-closed => undefined;
+//              o chamador usa o balde 'sem-ip').
 // ============================================================================
+import { resolveTrustedProxyHops, resolveTrustedProxyMode, type TrustedProxyMode } from '../lib/platform';
+
 type HeaderGetter = { get(name: string): string | null };
 
 const IP_RE = /^[0-9a-fA-F:.]{2,64}$/;
@@ -16,12 +23,48 @@ function firstIp(v: string | null | undefined): string | undefined {
   return ip && IP_RE.test(ip) ? ip : undefined;
 }
 
-export function resolveTrustedClientIp(headers: HeaderGetter, onVercel = process.env.VERCEL === '1'): string | undefined {
-  return (
-    firstIp(headers.get('x-vercel-forwarded-for')) ||
-    firstIp(headers.get('x-real-ip')) ||
-    (onVercel ? undefined : firstIp(headers.get('x-forwarded-for')))
-  );
+/**
+ * IP na posicao `hops` a partir da direita de X-Forwarded-For.
+ * Se houver menos entradas do que hops, falha fechado (undefined) — nunca
+ * recua para a primeira entrada, que o cliente controla.
+ */
+export function clientIpFromForwardedFor(xff: string | null | undefined, hops: number): string | undefined {
+  const n = Number(hops);
+  if (!Number.isFinite(n) || n < 1) return undefined;
+  const parts = String(xff || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length < n) return undefined;
+  const ip = parts[parts.length - n];
+  return ip && IP_RE.test(ip) ? ip : undefined;
+}
+
+function normalizeMode(mode?: TrustedProxyMode | boolean): TrustedProxyMode {
+  if (mode === true) return 'vercel';
+  if (mode === false) return 'none';
+  if (mode === 'vercel' || mode === 'cloudrun' || mode === 'none') return mode;
+  return resolveTrustedProxyMode();
+}
+
+/**
+ * @param headers  cabecalhos da requisicao (NextRequest.headers ou equivalente)
+ * @param mode     'vercel' | 'cloudrun' | 'none'. `true`/`false` permanecem
+ *                 como alias de vercel/none (testes antigos do pacote G).
+ *                 Sem argumento, usa TRUSTED_PROXY_MODE / VERCEL=1 / K_SERVICE.
+ */
+export function resolveTrustedClientIp(
+  headers: HeaderGetter,
+  mode?: TrustedProxyMode | boolean
+): string | undefined {
+  const resolved = normalizeMode(mode);
+  if (resolved === 'vercel') {
+    return firstIp(headers.get('x-vercel-forwarded-for')) || firstIp(headers.get('x-real-ip'));
+  }
+  if (resolved === 'cloudrun') {
+    return clientIpFromForwardedFor(headers.get('x-forwarded-for'), resolveTrustedProxyHops());
+  }
+  return undefined;
 }
 
 /**

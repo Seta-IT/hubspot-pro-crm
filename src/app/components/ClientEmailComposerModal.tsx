@@ -144,7 +144,7 @@ function defaultProposalPdfLink(p: ClientEmailInitialPayload): string {
     p.publicPdfUrl ||
     (typeof window !== 'undefined'
       ? `${window.location.origin}/proposta/${encodeURIComponent(p.proposalId || code)}`
-      : `https://sti-hub.vercel.app/proposta/${encodeURIComponent(p.proposalId || code)}`)
+      : `https://sti-hub.setatelecom.com.br/proposta/${encodeURIComponent(p.proposalId || code)}`)
   );
 }
 
@@ -159,7 +159,7 @@ function buildDefaultBody(p: ClientEmailInitialPayload, docType: StiHubEmailDocT
     : (p.publicPdfUrl ||
       (typeof window !== 'undefined'
         ? `${window.location.origin}/proposta/${encodeURIComponent(p.proposalId || code)}`
-        : `https://sti-hub.vercel.app/proposta/${encodeURIComponent(p.proposalId || code)}`));
+        : `https://sti-hub.setatelecom.com.br/proposta/${encodeURIComponent(p.proposalId || code)}`));
   const greeting = buildClientEmailGreeting(p);
 
   if (docType === 'PROPOSAL') {

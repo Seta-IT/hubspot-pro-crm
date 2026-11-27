@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
+import ContactFieldSelect from './ContactFieldSelect';
+import { CONTACT_DEPARTMENT_KIND, CONTACT_POSITION_KIND } from '../lib/contact-field-lists';
 import { useErpConfigAccess } from './useErpConfigAccess';
 import {
   Mail,
@@ -1243,8 +1245,14 @@ export default function AdminSettingsCenterTab({
                     <input type="email" value={selectedUserProfile.email} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, email: e.target.value })} className="w-full px-3 py-2 rounded border border-slate-300 font-mono" />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Departamento</label>
-                    <input type="text" value={selectedUserProfile.department} onChange={(e) => setSelectedUserProfile({ ...selectedUserProfile, department: e.target.value })} className="w-full px-3 py-2 rounded border border-slate-300" />
+                    <label className="block font-semibold text-slate-700 mb-1">Área</label>
+                    <ContactFieldSelect
+                      kind={CONTACT_DEPARTMENT_KIND}
+                      value={selectedUserProfile.department || ''}
+                      onChange={(department) => setSelectedUserProfile({ ...selectedUserProfile, department })}
+                      ariaLabel="Área"
+                      className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-sm"
+                    />
                   </div>
                 </div>
 
@@ -1411,12 +1419,23 @@ export default function AdminSettingsCenterTab({
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-700 mb-1">Cargo / Departamento</label>
-                        <input
-                          type="text"
+                        <label className="block font-semibold text-slate-700 mb-1">Área</label>
+                        <ContactFieldSelect
+                          kind={CONTACT_DEPARTMENT_KIND}
                           value={newUserDept}
-                          onChange={(e) => setNewUserDept(e.target.value)}
-                          className="w-full px-3 py-2 rounded border border-slate-300"
+                          onChange={setNewUserDept}
+                          ariaLabel="Área"
+                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-700 mb-1">Posição</label>
+                        <ContactFieldSelect
+                          kind={CONTACT_POSITION_KIND}
+                          value={newUserJobTitle}
+                          onChange={setNewUserJobTitle}
+                          ariaLabel="Posição"
+                          className="w-full px-3 py-2 rounded border border-slate-300 bg-white text-sm"
                         />
                       </div>
                     </div>
@@ -1633,7 +1652,7 @@ export default function AdminSettingsCenterTab({
                 Subdomínios Oficiais Configurados — STI-hub (Seta Telecom)
               </h2>
               <p className="text-slate-500">
-                Subdomínios ativos na Vercel com certificado SSL/TLS automático e proteção de rotas via Middleware MFA.
+                Domínio público oficial (STI_HUB_PUBLIC_ORIGIN no servidor) com HTTPS e proteção de rotas via Middleware MFA.
               </p>
             </div>
             <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-semibold">
@@ -1642,26 +1661,29 @@ export default function AdminSettingsCenterTab({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[
+            {(() => {
+              const liveOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+              let liveHost = 'domínio da sessão';
+              try {
+                if (liveOrigin) liveHost = new URL(liveOrigin).hostname;
+              } catch {
+                /* origem da janela ausente no SSR */
+              }
+              return [
               {
-                domain: 'sti-hub.vercel.app',
-                role: 'Subdomínio Principal STI-hub (CRM + ERP)',
+                domain: liveHost,
+                role: 'Domínio público oficial da sessão (STI_HUB_PUBLIC_ORIGIN no servidor)',
                 status: 'ATIVO • PRODUÇÃO',
-                url: 'https://sti-hub.vercel.app',
+                url: liveOrigin || '/',
               },
               {
-                domain: 'hubspot-pro-crm-nu.vercel.app',
-                role: 'Espelho de Produção Vercel',
-                status: 'ATIVO • PRODUÇÃO',
-                url: 'https://hubspot-pro-crm-nu.vercel.app',
+                domain: 'sti-hub.setatelecom.com.br',
+                role: 'Domínio corporativo customizado',
+                status: 'HTTPS',
+                url: 'https://sti-hub.setatelecom.com.br',
               },
-              {
-                domain: 'stihub.setatelecom.com.br',
-                role: 'Subdomínio Corporativo Customizado (CNAME)',
-                status: 'CNAME PRONTO: cname.vercel-dns.com',
-                url: 'https://sti-hub.vercel.app',
-              },
-            ].map((d) => (
+            ];
+            })().map((d) => (
               <div key={d.domain} className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
                 <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold">
                   {d.status}
