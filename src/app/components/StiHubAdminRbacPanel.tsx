@@ -321,7 +321,19 @@ export default function StiHubAdminRbacPanel({
         if (json?.data?.generalParameters) setGeneralParameters(json.data.generalParameters);
         onShowToast(successMsg);
         await onRefresh();
+      } else {
+        // Antes a recusa (ex.: CNPJ inválido) era silenciosa e a tela parecia salva.
+        let reason = '';
+        try {
+          const err = await res.json();
+          reason = typeof err?.error === 'string' ? err.error.slice(0, 200) : '';
+        } catch {
+          reason = '';
+        }
+        onShowToast(`Não foi possível salvar as configurações${reason ? `: ${reason}` : ` (HTTP ${res.status})`}`);
       }
+    } catch {
+      onShowToast('Não foi possível salvar as configurações (falha de conexão).');
     } finally {
       setSavingSettings(false);
     }

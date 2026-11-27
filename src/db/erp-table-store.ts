@@ -31,8 +31,8 @@ export interface PgQ {
 export type ErpStorageMode = 'json' | 'dual' | 'table';
 export type AnyRec = Record<string, any>;
 
-/** CNPJ da Seta Telecom LTDA (Loja Matriz #118887): emitente padrao quando o registro nao traz outro. */
-export const SETA_CNPJ_EMITENTE = '14806925000132';
+/** CNPJ da Seta (STI SOLUCOES EM TI, 09.449.088/0001-06, confirmado em 27/11/2026): emitente padrao quando o registro nao traz outro. */
+export const SETA_CNPJ_EMITENTE = '09449088000106';
 
 /** Chave do GUC que os scripts de manutencao usam para desligar a guarda (SET LOCAL). */
 export const ERP_STORAGE_GUARD_GUC = 'stihub.erp_storage_guard';

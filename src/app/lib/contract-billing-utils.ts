@@ -7,6 +7,7 @@ import {
   cclSummaryHtml,
 } from './proposal-sheet-theme';
 import { defaultIssuerAddressLine } from './company-issuer-address';
+import { DEFAULT_COMPANY_EMITTER_SETTINGS } from '../../modules/erp/daily-sync-service';
 import { setaBankTransferLine } from './company-bank-details';
 import {
   PROPOSAL_TEMPLATE_STYLE_OPTIONS,
@@ -356,6 +357,24 @@ function formatMoneyBr(val: number | undefined | null): string {
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+function formatCnpjLine(value: string): string {
+  const d = String(value || '').replace(/\D+/g, '');
+  return d.length === 14 ? `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}` : String(value || '').trim();
+}
+
+/** Linha fiscal do cabeçalho da fatura: CNPJ/IE/IM/regime da configuração da empresa (nada fixo). */
+export function issuerFiscalLine(
+  issuer: StandaloneInvoiceHtmlOptions['issuerFiscal'],
+  invoiceRegime?: string | null
+): string {
+  const d = DEFAULT_COMPANY_EMITTER_SETTINGS;
+  const cnpj = formatCnpjLine(issuer?.cnpj || d.cnpj);
+  const ie = String(issuer?.stateRegistration || d.stateRegistration || '').trim();
+  const im = String(issuer?.municipalRegistration || d.municipalRegistration || '').trim().replace(/^CCM\s+/i, '');
+  const regime = String(issuer?.taxRegime || invoiceRegime || d.taxRegime || '').trim();
+  return [cnpj && `CNPJ: ${cnpj}`, ie && `IE: ${ie}`, im && `IM: ${im}`, regime && `Regime: ${regime}`].filter(Boolean).join(' • ');
+}
+
 export interface StandaloneInvoiceHtmlOptions {
   /** Rascunho / pré-visualização: marca d'água, faixa "NÃO É DOCUMENTO FISCAL" e sem toolbar. */
   draft?: boolean;
@@ -365,6 +384,8 @@ export interface StandaloneInvoiceHtmlOptions {
   embedded?: boolean;
   /** Endereço completo da emitente no cabeçalho (t142u/t143u). */
   issuerAddress?: string;
+  /** Dados fiscais da emitente (Configurações > Empresa). Ausente => padrões de Configurações > Empresa. */
+  issuerFiscal?: { cnpj?: string; stateRegistration?: string; municipalRegistration?: string; taxRegime?: string } | null;
   /** Folha publica do cliente: omite centro de custo, plano de contas e destinatarios internos. */
   publicClient?: boolean;
 }
@@ -548,7 +569,7 @@ ${CCL_SHEET_CSS}
     ${cclLetterheadHtml({
       eyebrow: 'FATURA / RECIBO DE LOCAÇÃO',
       docNumber: `Nº ${invoice.documentNumber}`,
-      companyLine: `CNPJ: 14.806.925/0001-32 • IE: 149.882.110.112 • IM: 4.112.890-1 • Regime: ${invoice.taxBreakdown?.taxRegime || 'LUCRO_PRESUMIDO'}`,
+      companyLine: issuerFiscalLine(htmlOptions?.issuerFiscal, invoice.taxBreakdown?.taxRegime),
       companyAddress: htmlOptions?.issuerAddress || defaultIssuerAddressLine(),
       metaLinesHtml: [
         ...(contractHeader ? [`<strong>${escHtml(contractHeader)}</strong>`] : []),

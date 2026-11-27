@@ -376,15 +376,24 @@ export const INITIAL_MIGRATION_CHECKLIST_11_MODULES: MigrationChecklistModuleIte
   },
 ];
 
+/**
+ * CNPJs de emitente que já estiveram fixos no código e nunca foram da Seta: 18.456.789/0001-90 (fictício)
+ * e 14.806.925/0001-32 (DV inválido). Valor salvo igual a um deles é tratado como "não configurado".
+ */
+export const LEGACY_INVALID_COMPANY_CNPJ_DIGITS: readonly string[] = ['18456789000190', '14806925000132'];
+
 export const DEFAULT_COMPANY_EMITTER_SETTINGS: StiHubCompanyEmitterSettings = {
-  legalName: 'SETA TELECOM LTDA',
-  tradeName: 'SETA IT & TELECOM (LOJA MATRIZ #118887)',
-  cnpj: '14.806.925/0001-32',
-  stateRegistration: '149.882.410.114',
+  // Valores iniciais de Configurações > Dados da Empresa e Fiscal (confirmados pelo Marcéllo em 27/11/2026).
+  // A fonte de verdade é o que for salvo na tela (crm_kv_store erp_company_emitter_v1); estes só
+  // valem enquanto nada foi salvo. A lógica fiscal lê sempre a configuração, nunca estas constantes.
+  legalName: 'STI SOLUCOES EM TI COMERCIAL IMPORTADORA E EXPORTADORA LTDA',
+  tradeName: 'SETA TELECOM',
+  cnpj: '09.449.088/0001-06',
+  stateRegistration: '137.493.048.111',
   municipalRegistration: 'CCM 4.891.203-1',
-  cnaeMain: '61.10-8-03 — Serviços de Comunicação Multimídia (SCM) e Locação de Equipamentos',
-  taxRegime: 'LUCRO_PRESUMIDO',
-  cep: '',
+  cnaeMain: '62.09-1-00',
+  taxRegime: 'SIMPLES_NACIONAL',
+  cep: '13098-322',
   addressStreet: 'Rua Guapuruvu',
   addressNumber: '242',
   addressComplement: 'Sala 31',
@@ -399,8 +408,8 @@ export const DEFAULT_COMPANY_EMITTER_SETTINGS: StiHubCompanyEmitterSettings = {
 };
 
 export const DEFAULT_CERTIFICATE_SERIES_SETTINGS: StiHubCertificateAndSeriesSettings = {
-  certificateFileName: 'certificado_a1_seta_telecom_14806925000132.pfx',
-  certificateSubjectCnpj: '14.806.925/0001-32 — SETA TELECOM LTDA',
+  certificateFileName: '',
+  certificateSubjectCnpj: '',
   certificateIssuer: 'AC Certisign RFB G5 — ICP-Brasil (Tipo A1)',
   validUntil: '2027-10-15',
   certificateStatus: 'VALIDO_ATIVO',

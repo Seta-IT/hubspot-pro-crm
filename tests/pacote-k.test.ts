@@ -235,25 +235,26 @@ describe('Pacote K (D-I2): generateNextInvoiceOnSave exige a alcada fiscal de /g
 });
 
 describe('Pacote K: /api/admin/settings grava companyEmitter.cnpj so com digitos', () => {
-  it('formatado, com espacos ou so digitos => 14806925000132 no emitente e na config; nao-texto/vazio => 400; outra raiz => 400', async () => {
+  it('formatado, com espacos ou so digitos => 09449088000106 no emitente e na config; nao-texto/vazio => 400; DV invalido => 400', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
-    for (const cnpj of ['14.806.925/0001-32', ' 14806925000132 ', '14 806 925 0001 32']) {
+    for (const cnpj of ['09.449.088/0001-06', ' 09449088000106 ', '09 449 088 0001 06']) {
       const r = await router.dispatch({ method: 'PUT', path: '/api/admin/settings', query: A(), body: { companyEmitter: { cnpj } } });
       assert.equal(r.status, 200, JSON.stringify(r.body));
-      assert.equal(((r.body as Body).data as { companyEmitter: { cnpj: string } }).companyEmitter.cnpj, '14806925000132');
-      assert.equal(repo.getErpOverview().gestaoClickConfig.companyCnpj, '14806925000132');
+      assert.equal(((r.body as Body).data as { companyEmitter: { cnpj: string } }).companyEmitter.cnpj, '09449088000106');
+      assert.equal(repo.getErpOverview().gestaoClickConfig.companyCnpj, '09449088000106');
       const g = await router.dispatch({ method: 'GET', path: '/api/admin/settings', query: A() });
-      assert.equal(((g.body as Body).data as { companyEmitter: { cnpj: string } }).companyEmitter.cnpj, '14806925000132');
+      assert.equal(((g.body as Body).data as { companyEmitter: { cnpj: string } }).companyEmitter.cnpj, '09449088000106');
     }
-    for (const cnpj of [14806925000132, '', '   ', null, { a: 1 }]) {
+    for (const cnpj of [9449088000106, '', '   ', null, { a: 1 }]) {
       const r = await router.dispatch({ method: 'PATCH', path: '/api/admin/settings', query: A(), body: { companyEmitter: { cnpj } } });
       assert.equal(r.status, 400, JSON.stringify(cnpj));
     }
-    const other = await router.dispatch({ method: 'PUT', path: '/api/admin/settings', query: A(), body: { companyEmitter: { cnpj: '07.228.550/0001-19' } } });
-    assert.equal(other.status, 400);
-    assert.equal(repo.getErpOverview().gestaoClickConfig.companyCnpj, '14806925000132');
-    const seller = await router.dispatch({ method: 'PUT', path: '/api/admin/settings', query: S(), body: { companyEmitter: { cnpj: '14.806.925/0001-32' } } });
+    const bad = await router.dispatch({ method: 'PUT', path: '/api/admin/settings', query: A(), body: { companyEmitter: { cnpj: '14.806.925/0001-32' } } });
+    assert.equal(bad.status, 400, 'antigo CNPJ fixo (DV invalido) recusado');
+    assert.equal((bad.body as Body).code, 'COMPANY_EMITTER_CNPJ_INVALID');
+    assert.equal(repo.getErpOverview().gestaoClickConfig.companyCnpj, '09449088000106');
+    const seller = await router.dispatch({ method: 'PUT', path: '/api/admin/settings', query: S(), body: { companyEmitter: { cnpj: '09.449.088/0001-06' } } });
     assert.equal(seller.status, 403);
   });
 });
@@ -355,12 +356,12 @@ describe('Pacote K: POST /api/tickets com id existente (documentado: 201 com id 
   });
 });
 
-describe('Pacote K: excecao do CNPJ -32 intacta (aguarda confirmacao na Receita)', () => {
-  it('14.806.925/0001-32 continua valido; -33 e outra raiz com -32 invalidos; a linha da excecao nao mudou', () => {
-    assert.equal(validateCnpj('14.806.925/0001-32').isValid, true);
-    assert.equal(validateCnpj('14.806.925/0001-33').isValid, false);
-    assert.equal(validateCnpj('11.222.333/0001-32').isValid, false);
+describe('Pacote K: sem excecao fixa de CNPJ no validador (27/11/2026)', () => {
+  it('14.806.925/0001-32 (antigo CNPJ fixo, DV errado) agora e invalido; 09.449.088/0001-06 e valido', () => {
+    assert.equal(validateCnpj('14.806.925/0001-32').isValid, false);
+    assert.equal(validateCnpj('14.806.925/0001-39').isValid, true);
+    assert.equal(validateCnpj('09.449.088/0001-06').isValid, true);
     const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'modules', 'data-health', 'validators.ts'), 'utf8');
-    assert.ok(src.includes("digits !== '14806925000132'"));
+    assert.ok(!src.includes("digits !== '14806925000132'"));
   });
 });

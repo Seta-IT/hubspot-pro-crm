@@ -837,8 +837,9 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
     }).data;
     assert.equal(nfeVenda.documentType, 'NFE_VENDA_PRODUTO');
     assert.ok(nfeVenda.cfop.includes('5.102'));
-    assert.equal(nfeVenda.taxBreakdown.icmsRatePercent, 18);
-    assert.equal(nfeVenda.taxBreakdown.icmsAmount, 1800);
+    // Regime configurado: Simples Nacional (CRT=1) => CSOSN 102, sem destaque de ICMS (revisão fiscal #14).
+    assert.equal(nfeVenda.taxBreakdown.icmsRatePercent, 0);
+    assert.equal(nfeVenda.taxBreakdown.icmsAmount, 0);
     assert.equal(nfeVenda.taxBreakdown.totalWithheld, 0);
     assert.equal(nfeVenda.netAmount, 10000);
 
@@ -859,10 +860,11 @@ describe('9. Fase 4 — ERP Brasil, Propostas Comerciais, Contratos de Locação
         taxBreakdown: { irrfWithheldAmount: number; csrfWithheldAmount: number; totalWithheld: number };
       };
     }).data;
-    assert.equal(nfse.taxBreakdown.irrfWithheldAmount, 150);
-    assert.equal(nfse.taxBreakdown.csrfWithheldAmount, 465);
-    assert.equal(nfse.taxBreakdown.totalWithheld, 615);
-    assert.equal(nfse.netAmount, 9385);
+    // Prestador optante pelo Simples Nacional (regime configurado): sem retenção de IRRF nem de CSRF.
+    assert.equal(nfse.taxBreakdown.irrfWithheldAmount, 0);
+    assert.equal(nfse.taxBreakdown.csrfWithheldAmount, 0);
+    assert.equal(nfse.taxBreakdown.totalWithheld, 0);
+    assert.equal(nfse.netAmount, 10000);
 
     // 5. Criar Nota de Compra / Entrada de Ativo Imobilizado (CFOP 1.551) em /api/erp/records/purchaseOrders
     const poRes = await router.dispatch({ context: TRUSTED_INTERNAL_CONTEXT,
@@ -1779,7 +1781,7 @@ DATA:OFXSGML
       };
     };
     assert.equal(ofxBody.data.bankCode, '077');
-    assert.equal(ofxBody.data.companyCnpj, '14.806.925/0001-32');
+    assert.equal(ofxBody.data.companyCnpj, '09449088000106');
     assert.equal(ofxBody.data.totalTransactionsParsed, 2);
     assert.equal(ofxBody.data.totalCreditsBrl, 6600);
     assert.equal(ofxBody.data.totalDebitsBrl, 843.15);
@@ -1807,7 +1809,7 @@ DATA:OFXSGML
         lines: Array<{ code: string; label: string; monthlyBrl: number }>;
       };
     }).data;
-    assert.equal(dreData.companyCnpj, '14.806.925/0001-32');
+    assert.equal(dreData.companyCnpj, '09449088000106');
     assert.equal(dreData.storeId, '118887');
     assert.ok(dreData.grossRevenueRentalSv31 > 0);
     assert.ok(dreData.grossRevenueServicesLc116 > 0);
@@ -1906,7 +1908,7 @@ DATA:OFXSGML
       data: { storeId: string; companyCnpj: string; fictitiousDataPurged: boolean };
     }).data;
     assert.equal(syncData.storeId, '118887');
-    assert.equal(syncData.companyCnpj, '14.806.925/0001-32');
+    assert.equal(syncData.companyCnpj, '09449088000106');
     assert.equal(syncData.fictitiousDataPurged, true);
   });
 });
@@ -2373,8 +2375,9 @@ describe('15. Hardening CISO: 2FA Real (Google Authenticator RFC 6238 TOTP + E-m
       "Botões de seleção (Editar Selecionado / Desmarcar) e coluna de checkbox devem estar removidos da tabela de Orçamentos"
     );
 
-    // Verifica que o CNPJ canônico da Matriz Seta Telecom (14.806.925/0001-32) é aceito e CNPJs incorretos continuam rejeitados
-    assert.equal(validateDocumentByPersonType('14.806.925/0001-32', 'Pessoa Jurídica').isValid, true);
+    // CNPJ da Seta (09.449.088/0001-06) é aceito; o antigo fixo 14.806.925/0001-32 (DV errado) e outros incorretos são rejeitados
+    assert.equal(validateDocumentByPersonType('09.449.088/0001-06', 'Pessoa Jurídica').isValid, true);
+    assert.equal(validateDocumentByPersonType('14.806.925/0001-32', 'Pessoa Jurídica').isValid, false);
     assert.equal(validateDocumentByPersonType('14.806.925/0001-99', 'Pessoa Jurídica').isValid, false);
   });
 

@@ -82,7 +82,7 @@ describe('E0: base comum (erp-table-store)', () => {
     assert.match(ddl, /CREATE TABLE IF NOT EXISTS erp_service_orders/);
     assert.match(ddl, /id TEXT PRIMARY KEY/);
     assert.match(ddl, /row_version INTEGER NOT NULL DEFAULT 1/);
-    assert.match(ddl, /cnpj_emitente CHAR\(14\) NOT NULL DEFAULT '14806925000132'/);
+    assert.match(ddl, /cnpj_emitente CHAR\(14\) NOT NULL DEFAULT '09449088000106'/);
     assert.match(ddl, /CHECK \(cnpj_emitente ~ '\^\[0-9\]\{14\}\$'\)/);
     assert.match(ddl, /CREATE UNIQUE INDEX IF NOT EXISTS ux_erp_service_orders_id_lower ON erp_service_orders \(lower\(id\)\)/);
     // Nenhum UNIQUE por CNPJ de cliente (matriz e filiais ficam separadas) nem por codigo nesta etapa.

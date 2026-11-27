@@ -12,12 +12,10 @@ import {
 } from './proposal-technical-clauses';
 import { formatProposalValidUntilPtBr, isProposalEffectiveValidityExpired, effectiveProposalValidUntil } from './proposal-validity';
 import {
-  FORBIDDEN_TEMPLATE_CNPJ,
   SETA_INTERNAL_BRAND_TITLE,
   SETA_INTERNAL_CLAUSES,
   SETA_INTERNAL_CONFIDENTIALITY,
   SETA_INTERNAL_PROPOSAL_NOTICES,
-  isForbiddenTemplateCnpj,
 } from './internal-proposal-copy';
 import type { InternalProposalKind } from './internal-proposal-summary';
 import { proposalLineDetailsText } from './proposal-item-details';
@@ -264,11 +262,9 @@ export function resolveInternalIssuer(input?: InternalProposalIssuerInput | null
   phone: string;
 } {
   const fallback = DEFAULT_COMPANY_EMITTER_SETTINGS;
-  const tainted =
-    !input ||
-    isForbiddenTemplateCnpj(input.cnpj) ||
-    isForbiddenTemplateCnpj(JSON.stringify(input));
-  const src = tainted ? fallback : input;
+  // Emitente = Configurações > Dados da Empresa (09.449.088/0001-06 é o CNPJ real da Seta, confirmado
+  // pelo Marcéllo em 27/11/2026; a antiga trava que o tratava como "template" foi removida).
+  const src = input || fallback;
   const street = formatIssuerAddress({
     addressStreet: src.addressStreet || fallback.addressStreet,
     addressNumber: src.addressNumber || fallback.addressNumber,
@@ -282,7 +278,7 @@ export function resolveInternalIssuer(input?: InternalProposalIssuerInput | null
   return {
     legalName: String(src.legalName || fallback.legalName),
     cnpj: String(src.cnpj || fallback.cnpj),
-    street: street.replace(FORBIDDEN_TEMPLATE_CNPJ, '').trim(),
+    street: street.trim(),
     city: [cityOnly, uf].filter(Boolean).join('/'),
     phone: String(src.phone || fallback.phone || ''),
   };

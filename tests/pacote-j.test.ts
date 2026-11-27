@@ -289,14 +289,16 @@ describe('Pacote J (6): config GestaoClick (D-I2, D-I3)', () => {
     assert.ok(log && log.details.includes('"field":"autoGenerateMonthlyRentalInvoices"'));
   });
 
-  it('CNPJ gravado so com digitos (pontuado, espacado ou cru => mesmo valor); excecao de DV da Seta intacta', async () => {
+  it('CNPJ gravado so com digitos (pontuado, espacado ou cru => mesmo valor); sem excecao de DV', async () => {
     const repo = createInMemoryRepository();
     const router = new CrmApiRouter(repo);
-    for (const v of ['14.806.925/0001-32', '14 806 925 0001 32', '14806925000132']) {
+    for (const v of ['09.449.088/0001-06', '09 449 088 0001 06', '09449088000106']) {
       const r = await router.dispatch({ method: 'PATCH', path: '/api/erp/gestaoclick/config', query: A(), body: { companyCnpj: v } });
       assert.equal(r.status, 200, v);
-      assert.equal(repo.getErpOverview().gestaoClickConfig.companyCnpj, '14806925000132', v);
+      assert.equal(repo.getErpOverview().gestaoClickConfig.companyCnpj, '09449088000106', v);
     }
+    const old = await router.dispatch({ method: 'PATCH', path: '/api/erp/gestaoclick/config', query: A(), body: { companyCnpj: '14.806.925/0001-32' } });
+    assert.equal(old.status, 400, 'o antigo CNPJ fixo (DV invalido) e recusado');
   });
 });
 

@@ -26,10 +26,10 @@ describe('Proposta e documentos - endereco da emitente', () => {
   it('cadastro padrao sem Campinas repetido no bairro', () => {
     assert.equal(formatIssuerAddress(SETA_ISSUER_ADDRESS_DEFAULT), EXPECTED);
     assert.equal(defaultIssuerAddressLine(), EXPECTED);
-    assert.equal(formatIssuerAddress(DEFAULT_COMPANY_EMITTER_SETTINGS), EXPECTED);
+    assert.equal(formatIssuerAddress(DEFAULT_COMPANY_EMITTER_SETTINGS), `${EXPECTED} - CEP 13098-322`);
     assert.equal(DEFAULT_COMPANY_EMITTER_SETTINGS.neighborhood, 'Loteamento Alphaville');
     assert.equal(DEFAULT_COMPANY_EMITTER_SETTINGS.ibgeCode, '3509502');
-    assert.equal(DEFAULT_COMPANY_EMITTER_SETTINGS.cep, '');
+    assert.equal(DEFAULT_COMPANY_EMITTER_SETTINGS.cep, '13098-322');
   });
 
   it('remove cidade repetida no final do bairro (valor antigo persistido)', () => {
@@ -94,7 +94,7 @@ describe('Proposta e documentos - endereco da emitente', () => {
     const root = process.cwd();
     const r = readFileSync(join(root, 'src/api/router.ts'), 'utf8');
     assert.equal((r.match(/issuerAddress: formatIssuerAddress\(this\.companyEmitter\)/g) || []).length, 4);
-    assert.match(r, /saveCompanyEmitterSettings\(this\.companyEmitter\)/);
+    assert.match(r, /saveCompanyEmitterSettings\(this\.companyEmitter, this\.companyEmitterStore\)/);
     assert.match(r, /ensureCompanyEmitterHydrated/);
     assert.match(r, /parseCompanyEmitterPatch\(body\.companyEmitter\)/);
 

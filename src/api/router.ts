@@ -379,8 +379,12 @@ import {
 } from '../modules/erp/record-in-use';
 import { formatIssuerAddress } from '../app/lib/company-issuer-address';
 import {
+  type CompanyEmitterStore,
+  getDefaultCompanyEmitterStore,
   loadCompanyEmitterSettings,
+  MemoryCompanyEmitterStore,
   parseCompanyEmitterPatch,
+  PostgresCompanyEmitterStore,
   saveCompanyEmitterSettings,
 } from '../modules/erp/company-emitter-store';
 import { validateCnpj, validateCpf, validateDocumentByPersonType } from '../modules/data-health/validators';
@@ -1237,6 +1241,7 @@ export class CrmApiRouter {
   private companyEmitter = structuredClone(DEFAULT_COMPANY_EMITTER_SETTINGS);
   /** t143u: Dados da Empresa carregados do crm_kv_store (erp_company_emitter_v1) uma vez por instancia. */
   private companyEmitterHydrated = false;
+  private readonly companyEmitterStore: CompanyEmitterStore;
   private certificateSettings = structuredClone(DEFAULT_CERTIFICATE_SERIES_SETTINGS);
   private generalParameters = structuredClone(DEFAULT_GENERAL_PARAMETERS);
 
@@ -1255,13 +1260,17 @@ export class CrmApiRouter {
 
   constructor(
     repo?: CrmRepository,
-    options?: { certificateStore?: CertificateStore; sefaz?: SefazRouterOptions; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike; marketing?: MarketingRouterOptions; workflows?: WorkflowsRouterOptions; signalStore?: SignalStore; enterprise?: { experiments?: ExperimentStore; ai?: AiSuggestionStore; llm?: LlmClient | null } }
+    options?: { certificateStore?: CertificateStore; companyEmitterStore?: CompanyEmitterStore; sefaz?: SefazRouterOptions; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike; marketing?: MarketingRouterOptions; workflows?: WorkflowsRouterOptions; signalStore?: SignalStore; enterprise?: { experiments?: ExperimentStore; ai?: AiSuggestionStore; llm?: LlmClient | null } }
   ) {
     this.isSingletonRepo = !repo;
     this.repo = repo || getRepository();
     this.certificateStore =
       options?.certificateStore ||
       (!repo ? getDefaultCertificateStore() : isPostgresEnabled() ? new PostgresCertificateStore() : new MemoryCertificateStore());
+    // Mesmo padrão do certificado: repo injetado (testes) => armazenamento próprio, sem vazar entre roteadores.
+    this.companyEmitterStore =
+      options?.companyEmitterStore ||
+      (!repo ? getDefaultCompanyEmitterStore() : isPostgresEnabled() ? new PostgresCompanyEmitterStore() : new MemoryCompanyEmitterStore());
     this.mailboxStore = options?.mailboxStore || (!repo ? getDefaultMailboxStore() : new MemoryMailboxStore());
     this.mailboxFetch = options?.mailboxFetch || ((input, init) => fetch(input, init));
     this.marketingOptions = options?.marketing || {};
@@ -1689,7 +1698,7 @@ export class CrmApiRouter {
   private async ensureCompanyEmitterHydrated(): Promise<void> {
     if (this.companyEmitterHydrated) return;
     try {
-      this.companyEmitter = await loadCompanyEmitterSettings();
+      this.companyEmitter = await loadCompanyEmitterSettings(this.companyEmitterStore);
     } catch {
       // mantem DEFAULT em memoria
     }
@@ -6131,6 +6140,7 @@ export class CrmApiRouter {
             repo: this.repo,
             store: this.certificateStore,
             failureLimiter: this.certUploadFailureLimiter,
+            companyCnpj: () => this.companyEmitter?.cnpj,
           },
           method,
           query,
@@ -10792,7 +10802,7 @@ export class CrmApiRouter {
             data: {
               storeId: '118887',
               storeName: 'Matriz — Seta Telecom LTDA',
-              companyCnpj: '14.806.925/0001-32',
+              companyCnpj: this.companyEmitter.cnpj,
               totalMcpEndpoints: GESTAOCLICK_ALL_76_ENDPOINTS.length,
               liveTotalsStore118887: GESTAOCLICK_STORE_118887_TOTALS,
               detailedTableSchemas: schemas,
@@ -13124,6 +13134,7 @@ export class CrmApiRouter {
             }
             const incomingEmitter = { ...parsedEmitter.patch } as Record<string, unknown>;
             const incomingCnpj = incomingEmitter.cnpj;
+            let cnpjChange: { from: string; to: string } | null = null;
             // Pacote K: cnpj presente precisa ser texto nao vazio (antes numero/objeto/"" passavam sem validacao).
             if (Object.prototype.hasOwnProperty.call(incomingEmitter, 'cnpj') && (typeof incomingCnpj !== 'string' || !incomingCnpj.trim())) {
               return {
@@ -13132,28 +13143,41 @@ export class CrmApiRouter {
               };
             }
             if (typeof incomingCnpj === 'string' && incomingCnpj.trim()) {
+              // CNPJ do emitente = o informado em Configurações > Empresa (sem raiz fixa no código).
+              // Exige CNPJ válido (módulo 11); a troca fica registrada na auditoria (antes -> depois).
               const cnpjCheck = validateCnpj(incomingCnpj);
-              if (!cnpjCheck.isValid || !cnpjCheck.digits?.startsWith('14806925')) {
+              if (!cnpjCheck.isValid) {
                 this.repo.appendSecurityAuditLog({
-                  action: 'FISCAL_MATRIZ_CNPJ_CHANGE_BLOCKED',
+                  action: 'FISCAL_COMPANY_CNPJ_CHANGE_BLOCKED',
                   module: 'FISCAL_A1',
                   resource: '/api/admin/settings',
                   status: 'BLOCKED',
-                  details: `Tentativa bloqueada de substituir CNPJ Matriz 14.806.925/0001-32 por "${incomingCnpj}".`,
+                  details: `CNPJ do emitente recusado (dígito verificador inválido): "${String(incomingCnpj).slice(0, 40)}".`,
                 });
                 return {
                   status: 400,
                   body: {
-                    error: 'Trava Fiscal Anti-Fraude: O CNPJ emissor da Seta Telecom LTDA deve pertencer à raiz oficial 14.806.925/0001-32 (validado em Módulo-11).',
-                    code: 'MATRIZ_CNPJ_PROTECTED_LOCK',
+                    error: 'CNPJ do emitente inválido (dígito verificador não confere).',
+                    code: 'COMPANY_EMITTER_CNPJ_INVALID',
                   },
                 };
               }
+              const prevDigits = String(this.companyEmitter.cnpj || '').replace(/\D+/g, '');
+              if (prevDigits !== cnpjCheck.digits) cnpjChange = { from: prevDigits, to: String(cnpjCheck.digits) };
             }
             if (typeof incomingCnpj === 'string' && incomingCnpj.trim()) {
               // Pacote K (D-I3): grava so os digitos, como PATCH /api/erp/gestaoclick/config.
               incomingEmitter.cnpj = String(validateCnpj(incomingCnpj).digits || incomingCnpj.replace(/\D+/g, ''));
             }
+            const prevCompanyEmitter = this.companyEmitter;
+            const prevGc = this.repo.getErpOverview().gestaoClickConfig;
+            const prevGcFiscal = {
+              companyLegalName: prevGc.companyLegalName,
+              companyCnpj: prevGc.companyCnpj,
+              stateRegistration: prevGc.stateRegistration,
+              municipalRegistration: prevGc.municipalRegistration,
+              taxRegime: prevGc.taxRegime,
+            };
             this.companyEmitter = {
               ...this.companyEmitter,
               ...(incomingEmitter as Partial<StiHubCompanyEmitterSettings>),
@@ -13166,9 +13190,21 @@ export class CrmApiRouter {
               taxRegime: this.companyEmitter.taxRegime,
             });
             try {
-              await saveCompanyEmitterSettings(this.companyEmitter);
+              await saveCompanyEmitterSettings(this.companyEmitter, this.companyEmitterStore);
               this.companyEmitterHydrated = true;
+              if (cnpjChange) {
+                this.repo.appendSecurityAuditLog({
+                  action: 'FISCAL_COMPANY_CNPJ_CHANGED',
+                  module: 'FISCAL_A1',
+                  resource: '/api/admin/settings',
+                  status: 'SUCCESS',
+                  details: `CNPJ do emitente alterado em Configurações > Empresa: ${cnpjChange.from || '(vazio)'} -> ${cnpjChange.to}.`,
+                });
+              }
             } catch {
+              // Não gravou: o emitente em memória volta ao anterior (o certificado e a SEFAZ não usam um valor não salvo).
+              this.companyEmitter = prevCompanyEmitter;
+              this.repo.updateGestaoClickConfig(prevGcFiscal);
               return {
                 status: 503,
                 body: {

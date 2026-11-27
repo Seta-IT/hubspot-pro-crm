@@ -1,9 +1,7 @@
 /**
  * Textos fixos da folha interna aprovada (modelo v3).
- * O CNPJ 09.449.088/0001-06 é de um template antigo e nunca pode ser impresso.
+ * O CNPJ do emitente vem de Configurações > Dados da Empresa (nada fixo aqui).
  */
-export const FORBIDDEN_TEMPLATE_CNPJ = '09.449.088/0001-06';
-export const FORBIDDEN_TEMPLATE_CNPJ_DIGITS = '09449088000106';
 
 export const SETA_INTERNAL_BRAND_TITLE = 'SETA TELECOM | STI IT';
 
@@ -45,6 +43,3 @@ export function cnpjDigits(value: unknown): string {
   return String(value || '').replace(/\D+/g, '');
 }
 
-export function isForbiddenTemplateCnpj(value: unknown): boolean {
-  return cnpjDigits(value) === FORBIDDEN_TEMPLATE_CNPJ_DIGITS;
-}
