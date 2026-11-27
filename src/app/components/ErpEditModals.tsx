@@ -699,8 +699,8 @@ export function ProposalEditModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-[#f3f5f8] rounded-lg border border-slate-300 shadow-md max-w-6xl w-full overflow-hidden my-4">
+    <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-start sm:items-center justify-center p-2 sm:p-4 overflow-y-auto overflow-x-hidden">
+      <div className="bg-[#f3f5f8] rounded-lg border border-slate-300 shadow-md max-w-6xl w-full min-w-0 overflow-hidden my-4">
         {/* CABEÇALHO ÚNICO: título, versão (texto), histórico de versões, breadcrumb e fechar */}
         <div className="bg-white px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-3">
@@ -753,7 +753,7 @@ export function ProposalEditModal({
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs max-h-[82vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} data-testid="proposal-edit-form" className="p-4 sm:p-5 space-y-4 text-xs max-h-[82vh] min-w-0 overflow-y-auto overflow-x-hidden">
           {/* BLOCO 1: INFORME OS DADOS DO ORÇAMENTO (FIEL AO PRINT GESTÃOCLICK [t62u]) */}
           <div className="bg-white rounded-md border border-slate-200 shadow-2xs overflow-visible">
             <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 space-y-3">
@@ -1494,13 +1494,13 @@ export function ProposalEditModal({
                     {formatBRL(draft.servicesSubtotal || 0)}
                   </strong>
                 </div>
-                <div className="col-span-2 sm:col-span-2 min-w-[11rem]">
+                <div className="col-span-2 sm:col-span-2 min-w-0 sm:min-w-[11rem]">
                   <span className="text-[10px] uppercase font-semibold text-slate-500 block">
                     Desconto
                   </span>
                   <div
                     data-testid="proposal-discount-inputs"
-                    className="flex items-center gap-1 mt-0.5 flex-nowrap whitespace-nowrap"
+                    className="flex flex-wrap items-center gap-1 mt-0.5 sm:flex-nowrap sm:whitespace-nowrap"
                   >
                     <span className="text-[10px] text-slate-500 shrink-0 leading-none">R$</span>
                     <input

@@ -1012,7 +1012,7 @@ function PublicProposalPrintContent() {
   const issSavedMonthly = Math.round(locacaoTotal * 0.05 * 100) / 100;
 
   return (
-    <div data-system="crm" className={`min-h-screen ${pageOuterBgClass} py-6 px-3 sm:px-6 print:bg-white print:p-0`}>
+    <div data-system="crm" data-testid="proposal-public-page" className={`min-h-screen max-w-full overflow-x-hidden ${pageOuterBgClass} py-6 px-3 sm:px-6 print:bg-white print:p-0 print:overflow-visible`}>
       {/* TOP ACTION BAR (HIDDEN ON PRINT) */}
       <div className="max-w-4xl mx-auto mb-5 bg-white text-slate-700 rounded-lg border border-slate-200 px-4 py-2.5 flex flex-col gap-2.5 print:hidden">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1039,7 +1039,7 @@ function PublicProposalPrintContent() {
           <button
             type="button"
             onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold transition cursor-pointer"
+            className="inline-flex items-center justify-center gap-1.5 min-h-11 sm:min-h-0 px-3.5 py-1.5 rounded-md bg-[#1e3a6e] hover:bg-[#162b54] text-white text-xs font-semibold transition cursor-pointer"
           >
             <Printer className="w-3.5 h-3.5" />
             Imprimir / Salvar em PDF
@@ -1170,7 +1170,7 @@ function PublicProposalPrintContent() {
                 }
                 setShowIcpSignatureModal(true);
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-1.5 min-h-11 sm:min-h-0 px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
             >
               <ShieldCheck className="w-3.5 h-3.5" />
               {approvingContract ? "Assinando..." : "Assinar ICP-Brasil & Aprovar"}
@@ -1692,20 +1692,20 @@ function PublicProposalPrintContent() {
       {/* A4 DOCUMENT CONTAINER */}
       <div
         id="proposal-printable-sheet"
-        className={`max-w-4xl mx-auto bg-white shadow-sm border ${sheetBorderClass} overflow-hidden print:overflow-visible print:shadow-none print:border-0 print:rounded-none`}
+        className={`max-w-4xl min-w-0 mx-auto bg-white shadow-sm border ${sheetBorderClass} overflow-hidden print:overflow-visible print:shadow-none print:border-0 print:rounded-none`}
       >
         {proposalIsExpired && (
           <div
             data-testid="proposal-expired-banner"
             role="status"
-            className="px-7 py-2 print:px-3.5 print:py-1.5 text-[11px] font-semibold leading-relaxed text-[#1e3a6e] bg-[#eef2fa] border-b border-[#c7d2e8]"
+            className="px-4 sm:px-7 print:px-3.5 py-2 print:py-1.5 text-[11px] font-semibold leading-relaxed text-[#1e3a6e] bg-[#eef2fa] border-b border-[#c7d2e8]"
           >
             <p>Proposta vencida</p>
             <p>Esta proposta está vencida desde {expiredSinceLabel} e precisa ser revalidada. Fale com seu consultor Seta Telecom.</p>
           </div>
         )}
         {/* BLOCO 1: CABEÇALHO LEVE TIMBRADO SETA TELECOM / SETA | IT */}
-        <div className={`${headerBgClass} print-avoid-break px-7 py-5 print:px-3.5 print:py-2 space-y-3.5 print:space-y-1.5 rounded-t-lg print:rounded-none`}>
+        <div className={`${headerBgClass} print-avoid-break px-4 sm:px-7 print:px-3.5 py-5 print:py-2 space-y-3.5 print:space-y-1.5 rounded-t-lg print:rounded-none`}>
           <div className="flex flex-col sm:flex-row print:flex-row sm:items-center print:items-center justify-between gap-4 print:gap-3 pb-3.5 print:pb-1.5 border-b border-slate-200/80">
             <div className="flex items-center gap-3.5 min-w-0">
               {/* OFFICIAL SETA | IT LOGO CARD */}
@@ -1802,7 +1802,7 @@ function PublicProposalPrintContent() {
         </div>
 
         {/* DOCUMENT BODY */}
-        <div className="p-7 print:px-3.5 print:py-2 space-y-4 print:space-y-2 text-slate-800 print:block">
+        <div className="p-4 sm:p-7 print:px-3.5 print:py-2 space-y-4 print:space-y-2 text-slate-800 print:block min-w-0">
           {/* BLOCO 2: APRESENTAÇÃO INSTITUCIONAL RESUMIDA + TÓPICOS DE SERVIÇOS DO SITE SETATELECOM.COM.BR */}
           <div className={`rounded-lg p-4 print:p-2.5 space-y-3 print:space-y-1.5 ${instCardClass}`}>
             <div className="print-keep-with-next">
@@ -2058,12 +2058,31 @@ function PublicProposalPrintContent() {
           </div>
           ) : null}
 
-          <div className={`border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
+          <div className={`border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white min-w-0`}>
             <div className={`${tableHeaderBgClass} print-avoid-break print-keep-with-next px-4 py-2.5 print:py-2 flex items-center justify-between text-[11px] font-semibold tracking-wide`}>
               <span className="uppercase">Descrição</span>
               <span>VALORES EM REAIS (BRL)</span>
             </div>
-            <table className="w-full text-left text-xs border-collapse">
+            <div className="sm:hidden print:hidden divide-y divide-slate-200" data-testid="proposal-items-cards">
+              {proposal.items.map((item, idx) => {
+                const hasDisc = (item.discountPercent || 0) > 0 || (item.discountAmount || 0) > 0;
+                const itemDetails = proposalItemDetails(item);
+                return (
+                  <article key={item.id || idx} className="px-3 py-3 space-y-1">
+                    {item.sku ? <div className="font-mono text-[11px] font-semibold text-[#1e3a6e] break-all">{item.sku}</div> : null}
+                    <div className="font-semibold text-slate-900 leading-snug break-words">{item.description}</div>
+                    {itemDetails ? <div className="text-[11px] text-slate-600 leading-snug whitespace-pre-wrap">{itemDetails}</div> : null}
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 pt-1 text-[11px] text-slate-700">
+                      <span>Qtd. {item.quantity}</span>
+                      <span className="text-right">Unit. {formatBRL(item.unitPrice)}</span>
+                      <span>{hasDisc ? `Desc. ${(item.discountPercent || 0) > 0 ? `${item.discountPercent}% ` : ''}${(item.discountAmount || 0) > 0 ? `(-${formatBRL(item.discountAmount || 0)})` : ''}` : 'Sem desconto'}</span>
+                      <span className="text-right font-semibold text-[#1e3a6e]">{formatBRL(item.subtotal ?? item.totalMonthly)}</span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            <table className="hidden w-full text-left text-xs border-collapse sm:table print:table">
               <thead className={`${tableColHeadClass} uppercase text-[10px]`}>
                 <tr className="print-avoid-break">
                   <th className="py-2 print:py-1.5 px-2.5 w-24 font-semibold">Código</th>
@@ -2237,15 +2256,26 @@ function PublicProposalPrintContent() {
 
           {/* BLOCO 7: CRONOGRAMA DE PARCELAS (QUANDO PRESENTE) */}
           {!isMonthlyBillingBudgetType(proposal.budgetType) && Array.isArray(proposal.installments) && proposal.installments.length > 0 && (
-            <div className={`print-avoid-break border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white`}>
-              <div className={`${tableHeaderBgClass} px-4 py-2 flex items-center justify-between text-xs font-semibold`}>
+            <div className={`print-avoid-break border ${tableCardBorderClass} rounded-lg overflow-hidden print:overflow-visible bg-white min-w-0`}>
+              <div className={`${tableHeaderBgClass} px-4 py-2 flex flex-col gap-1 sm:flex-row print:flex-row sm:items-center print:items-center sm:justify-between text-xs font-semibold`}>
                 <span className="inline-flex items-center gap-1.5">
-                  <Landmark className="w-4 h-4 text-[#1e3a6e]" />
+                  <Landmark className="w-4 h-4 text-[#1e3a6e] shrink-0" />
                   CONDIÇÕES DE PAGAMENTO E CRONOGRAMA DE PARCELAS ({proposal.installments.length}x)
                 </span>
-                <span className="text-[11px] text-slate-600">{displayPaymentCondition}</span>
+                <span className="text-[11px] text-slate-600 break-words">{displayPaymentCondition}</span>
               </div>
-              <table className="w-full text-left text-xs border-collapse">
+              <div className="sm:hidden print:hidden divide-y divide-slate-200" data-testid="proposal-installments-cards">
+                {proposal.installments.map((inst, idx) => (
+                  <article key={idx} className="px-3 py-3 space-y-1 text-[12px]">
+                    <div className="font-mono font-semibold text-[#1e3a6e]">{inst.number}ª parcela</div>
+                    <div className="text-slate-800">{isoToBrDate(inst.dueDate) || inst.dueDate}</div>
+                    <div className="text-slate-700">{proposalPaymentMethodLabel(inst.paymentMethod)}</div>
+                    <div className="font-semibold text-[#1e3a6e]">{formatBRL(inst.amount)}</div>
+                    <div className="text-slate-600">{inst.notes ? displayPaymentConditionText(inst.notes) : '—'}</div>
+                  </article>
+                ))}
+              </div>
+              <table className="hidden w-full text-left text-xs border-collapse sm:table print:table">
                 <thead className={`${tableColHeadClass} uppercase text-[10px]`}>
                   <tr className="print-avoid-break">
                     <th className="py-2 px-3 w-20 font-semibold">Parcela</th>
@@ -2446,7 +2476,7 @@ function PublicProposalPrintContent() {
                         }
                         setShowIcpSignatureModal(true);
                       }}
-                      className="px-3 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-semibold cursor-pointer print:hidden"
+                      className="min-h-11 sm:min-h-0 px-3 py-1 rounded bg-[#1e3a6e] hover:bg-[#162b54] text-white text-[11px] font-semibold cursor-pointer print:hidden"
                     >
                       Assinar com ICP-Brasil
                     </button>
