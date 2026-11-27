@@ -141,7 +141,7 @@ describe('Cobrança mensal em locação, serviço e spare parts', () => {
     });
     const dto = toPublicProposalDto(withInstallments);
     assert.equal(dto.installments.length, 0);
-    assert.equal(dto.paymentCondition, 'Mensal • 6 meses • Boleto • vencimento a cada 30 dias');
+    assert.equal(dto.paymentCondition, 'Boleto • 6 mensalidades • 1º vencimento 10/12/2026');
     assert.equal(dto.paymentCondition.includes('a_vista'), false);
 
     const produtos = toPublicProposalDto(
@@ -155,16 +155,16 @@ describe('Cobrança mensal em locação, serviço e spare parts', () => {
       })
     );
     assert.equal(produtos.installments.length, 2);
-    assert.equal(produtos.paymentCondition, 'Parcelado em 2x');
+    assert.equal(produtos.paymentCondition, 'Boleto • 2x • 1º vencimento 10/12/2026');
 
     const summary = toInternalProposalSummary(withInstallments);
     const payment = summary.conditions.find((c) => c.testId === 'internal-proposal-payment');
-    assert.equal(payment?.value, 'Mensal • 6 meses • Boleto • vencimento a cada 30 dias');
+    assert.equal(payment?.value, 'Boleto • 6 mensalidades • 1º vencimento 10/12/2026');
     assert.equal(String(payment?.value || '').includes('a_vista'), false);
 
     const sheet = buildInternalProposalSheet(withInstallments, 'LOCACAO');
     assert.equal(sheet.paymentRows.length >= 1, true);
-    assert.equal(sheet.paymentRows[0].method, 'Mensal • 6 meses • Boleto • vencimento a cada 30 dias');
+    assert.equal(sheet.paymentRows[0].method, 'Boleto • 6 mensalidades • 1º vencimento 10/12/2026');
     assert.equal(sheet.paymentRows.some((row) => /parcela 2/i.test(row.note + row.due)), false);
   });
 
@@ -180,7 +180,7 @@ describe('Cobrança mensal em locação, serviço e spare parts', () => {
         installments: [{ number: 1, dueDate: '2026-12-15', amount: 200, paymentMethod: 'PIX' }],
       })
     );
-    assert.equal(servico, 'Mensal • 12 meses • Pix • vencimento no dia 15');
+    assert.equal(servico, 'Pix • 12 mensalidades • 1º vencimento 15/12/2026');
 
     const pecas = displayProposalPaymentCondition(
       proposal({
@@ -191,7 +191,7 @@ describe('Cobrança mensal em locação, serviço e spare parts', () => {
         installments: [{ number: 1, dueDate: '2026-12-15', amount: 340, paymentMethod: 'TED' }],
       })
     );
-    assert.equal(pecas, 'Mensal • 1 mês • Ted • vencimento a cada 30 dias');
+    assert.equal(pecas, 'Ted • 1 mensalidade • 1º vencimento 15/12/2026');
 
     const router = src('src/api/router.ts');
     assert.match(router, /'billingDueRule', 'billingDueDay', 'billingFirstDueDate'/);
