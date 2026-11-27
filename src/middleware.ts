@@ -116,6 +116,7 @@ export function isAlwaysProtectedApiPath(pathname: string, method = 'GET'): bool
   if (matchesApiPrefix(clean, '/api/companies')) return true;
   if (matchesApiPrefix(clean, '/api/erp/financial')) return true;
   if (matchesApiPrefix(clean, '/api/erp/dashboard')) return true;
+  if (matchesApiPrefix(clean, '/api/erp/vencimentos')) return true;
   if (isProposalMutationPath(clean, method)) return true;
   return false;
 }

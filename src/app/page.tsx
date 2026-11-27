@@ -37,6 +37,8 @@ import AutomationsSequencesTab from './components/AutomationsSequencesTab';
 import FormsBuilderTab, { FormsSummary, HubSpotMigrationReport } from './components/FormsBuilderTab';
 import ServiceDeskTab, { EnrichedServiceTicket, ServiceDeskKpis } from './components/ServiceDeskTab';
 import ErpGestaoClickTab, { ErpOverviewPayload, GestaoClickMenuSection } from './components/ErpGestaoClickTab';
+import VencimentosStrip from './components/VencimentosStrip';
+import type { ExpirationNavTarget } from '../modules/erp/upcoming-expirations';
 import { EnrichedEnrollment } from './components/SequencesSection';
 import StiHubAdminRbacPanel from './components/StiHubAdminRbacPanel';
 import { useErpConfigAccess } from './components/useErpConfigAccess';
@@ -1488,6 +1490,21 @@ export default function HubSpotProCrmApp() {
     [openSettingsHub]
   );
 
+  const handleExpirationNavigate = useCallback(
+    (target: ExpirationNavTarget) => {
+      if (target.type === 'settings') {
+        openSettingsHub(target.itemId);
+        return;
+      }
+      setErpListStatus(target.status || 'TODOS');
+      setErpInitialSection(target.section);
+      setErpInitialSubId(target.subId);
+      setErpNavigationTrigger((n) => n + 1);
+      setActiveModule('ERP_GESTAOCLICK');
+    },
+    [openSettingsHub]
+  );
+
   const navLocation = {
     module: activeModule,
     contactsSub: contactsInitialSubView,
@@ -1683,7 +1700,8 @@ export default function HubSpotProCrmApp() {
       {/* ====================================================================
           OFFICIAL STI-HUB (SETA TELECOM CRM & ERP) TOP GLOBAL NAVIGATION BAR (#213343)
       ==================================================================== */}
-      <header data-testid="sti-header" data-system={headerSystem} style={{ backgroundImage: `var(--sti-header-${headerSystem})` }} className="sticky top-0 z-40 text-white border-b border-white/10 shadow-sm select-none">
+      <div className="sticky top-0 z-40">
+      <header data-testid="sti-header" data-system={headerSystem} style={{ backgroundImage: `var(--sti-header-${headerSystem})` }} className="text-white border-b border-white/10 shadow-sm select-none">
         {/* Top Primary Bar */}
         <div className="max-w-[1680px] mx-auto px-3 sm:px-5 h-13 flex items-center justify-between gap-3 py-2">
           {/* Brand + Portal Switcher */}
@@ -2127,6 +2145,8 @@ export default function HubSpotProCrmApp() {
           </div>
         </div>
       </header>
+      <VencimentosStrip onNavigate={handleExpirationNavigate} />
+      </div>
 
       {/* ====================================================================
           STI-HUB CLEAN CONTEXTUAL SUB-HEADER (ISOLADO POR SISTEMA: CRM | ERP | CHAMADOS)
