@@ -42,4 +42,28 @@ describe('Datas do orçamento em dd/mm/aaaa', () => {
     assert.match(src('src/app/lib/internal-proposal-sheet.ts'), /proposalDateLabel: formatIsoDatePt/);
     assert.match(src('src/app/lib/internal-proposal-pdf.ts'), /sheet\.proposalDateLabel/);
   });
+
+  it('o calendário abre no portal, acima do overflow, e sobe quando falta espaço', () => {
+    const input = src('src/app/components/BrDateInput.tsx');
+    assert.match(input, /FixedPortalMenu/);
+    assert.match(input, /createPortal|FixedPortalMenu/);
+    assert.match(input, /estimatedHeight=\{260\}/);
+    assert.match(input, /align="stretch"/);
+    assert.doesNotMatch(input, /className="absolute z-30/);
+    const menu = src('src/app/components/FixedPortalMenu.tsx');
+    assert.match(menu, /createPortal/);
+    assert.match(menu, /openUp = spaceBelow < desiredHeight && spaceAbove > spaceBelow/);
+
+    const form = src('src/app/components/ErpEditModals.tsx');
+    const proposal = form.slice(
+      form.indexOf('export function ProposalEditModal'),
+      form.indexOf('export function ContractEditModal')
+    );
+    assert.equal([...proposal.matchAll(/testId="proposal-date"/g)].length, 1);
+    assert.equal([...proposal.matchAll(/testId="proposal-first-due"/g)].length, 2);
+    assert.match(proposal, /aria-label="Dia do mês"/);
+    const dayFixed = proposal.slice(proposal.indexOf('Dia fixo'), proposal.indexOf('Dia fixo') + 800);
+    assert.match(dayFixed, /type="number"/);
+    assert.doesNotMatch(dayFixed, /BrDateInput/);
+  });
 });

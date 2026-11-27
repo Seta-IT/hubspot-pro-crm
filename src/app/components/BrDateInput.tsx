@@ -11,6 +11,7 @@ import {
   isoYearMonth,
   maskBrDateInput,
 } from '../lib/br-date';
+import { FixedPortalMenu } from './FixedPortalMenu';
 
 type BrDateInputProps = {
   value: string;
@@ -51,20 +52,56 @@ export function BrDateInput({
     setMonth(next.month);
   }, [open, value]);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [open]);
-
   const shiftMonth = (delta: number) => {
     const next = new Date(Date.UTC(year, month - 1 + delta, 1));
     setYear(next.getUTCFullYear());
     setMonth(next.getUTCMonth() + 1);
   };
+
+  const calendar = (
+    <div id={listId} data-testid={testId ? `${testId}-calendar` : 'br-date-calendar'}>
+      <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-[#1e3a6e]">
+        <button type="button" className="px-1 cursor-pointer" onClick={() => shiftMonth(-1)} aria-label="Mês anterior">
+          ‹
+        </button>
+        <span className="capitalize">
+          {BR_MONTHS[month - 1]} {year}
+        </span>
+        <button type="button" className="px-1 cursor-pointer" onClick={() => shiftMonth(1)} aria-label="Próximo mês">
+          ›
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] text-slate-500">
+        {BR_WEEKDAYS.map((label) => (
+          <span key={label}>{label}</span>
+        ))}
+      </div>
+      <div className="mt-1 grid grid-cols-7 gap-0.5">
+        {brMonthGrid(year, month).map((cell, index) =>
+          cell ? (
+            <button
+              key={cell.iso}
+              type="button"
+              onClick={() => {
+                onChange(cell.iso);
+                setText(isoToBrDate(cell.iso));
+                setOpen(false);
+              }}
+              className={`h-6 rounded text-[11px] cursor-pointer ${
+                cell.iso === String(value || '').slice(0, 10)
+                  ? 'bg-[#1e3a6e] text-white'
+                  : 'text-slate-800 hover:bg-slate-100'
+              }`}
+            >
+              {cell.day}
+            </button>
+          ) : (
+            <span key={`empty-${index}`} />
+          )
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div ref={rootRef} className="relative">
@@ -118,53 +155,19 @@ export function BrDateInput({
           <Calendar className="w-3.5 h-3.5" />
         </button>
       </div>
-      {open && (
-        <div
-          id={listId}
-          className="absolute z-30 mt-1 w-56 rounded border border-slate-200 bg-white p-2 shadow-md"
-        >
-          <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-[#1e3a6e]">
-            <button type="button" className="px-1 cursor-pointer" onClick={() => shiftMonth(-1)} aria-label="Mês anterior">
-              ‹
-            </button>
-            <span className="capitalize">
-              {BR_MONTHS[month - 1]} {year}
-            </span>
-            <button type="button" className="px-1 cursor-pointer" onClick={() => shiftMonth(1)} aria-label="Próximo mês">
-              ›
-            </button>
-          </div>
-          <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] text-slate-500">
-            {BR_WEEKDAYS.map((label) => (
-              <span key={label}>{label}</span>
-            ))}
-          </div>
-          <div className="mt-1 grid grid-cols-7 gap-0.5">
-            {brMonthGrid(year, month).map((cell, index) =>
-              cell ? (
-                <button
-                  key={cell.iso}
-                  type="button"
-                  onClick={() => {
-                    onChange(cell.iso);
-                    setText(isoToBrDate(cell.iso));
-                    setOpen(false);
-                  }}
-                  className={`h-6 rounded text-[11px] cursor-pointer ${
-                    cell.iso === String(value || '').slice(0, 10)
-                      ? 'bg-[#1e3a6e] text-white'
-                      : 'text-slate-800 hover:bg-slate-100'
-                  }`}
-                >
-                  {cell.day}
-                </button>
-              ) : (
-                <span key={`empty-${index}`} />
-              )
-            )}
-          </div>
-        </div>
-      )}
+      <FixedPortalMenu
+        open={open}
+        onClose={() => setOpen(false)}
+        anchorRef={rootRef}
+        width={224}
+        estimatedHeight={260}
+        align="stretch"
+        lockWidth
+        role="dialog"
+        className="p-2"
+      >
+        {calendar}
+      </FixedPortalMenu>
     </div>
   );
 }
