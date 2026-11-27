@@ -5864,8 +5864,16 @@ export class CrmApiRouter {
       // Contencao 29/10/2026: antes da autenticacao so sao aceitos registros IAM SELADOS
       // pelo servidor (iamSeal). Override "cru" do cliente so depois da sessao MFA e com
       // permissao canManageUsersRbac (ver abaixo).
-      const rawIamOverride = (body as Record<string, unknown>)?.iamUsersOverride;
-      const rawIamDeleted = (body as Record<string, unknown>)?.iamDeletedUsersOverride;
+      // t198u: Configurações > Dados da Empresa / Gerais / Certificado (/api/admin/settings) não
+      // carregam usuários nem permissões. A cópia de usuários do navegador que vier junto é
+      // ignorada, para que salvar a empresa nunca regrave o cadastro ou as permissões de alguém.
+      const isCompanySettingsPath = normalizeApiPathForAuthz(cleanPath) === '/api/admin/settings';
+      const rawIamOverride = isCompanySettingsPath ? undefined : (body as Record<string, unknown>)?.iamUsersOverride;
+      const rawIamDeleted = isCompanySettingsPath ? undefined : (body as Record<string, unknown>)?.iamDeletedUsersOverride;
+      if (isCompanySettingsPath && body && typeof body === 'object') {
+        delete (body as Record<string, unknown>).iamUsersOverride;
+        delete (body as Record<string, unknown>).iamDeletedUsersOverride;
+      }
       if (Array.isArray(rawIamOverride)) {
         this.repo.applySealedIamOverrides(rawIamOverride);
       }
@@ -13113,7 +13121,7 @@ export class CrmApiRouter {
                 generalParameters: this.generalParameters,
                 migrationChecklist: this.migrationChecklist,
                 syncLogs: this.syncLogs,
-                rbac: this.repo.getRbacState(),
+                // t198u: usuários e permissões ficam só em /api/admin/rbac e /api/admin/users.
               },
             },
           };
