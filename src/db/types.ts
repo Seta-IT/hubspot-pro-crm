@@ -934,7 +934,10 @@ export interface ErpProposalItem {
   itemType?: 'PRODUCT' | 'SERVICE';
   unit?: string;
   fiscalNature: ErpFiscalNature;
+  /** NCM ou item da LC 116. Uso fiscal. Não é o texto da coluna Detalhes. */
   ncmOrServiceCode: string;
+  /** Texto livre da coluna Detalhes. Ausente nas propostas antigas. */
+  lineDetails?: string;
   serialNumber?: string;
   quantity: number;
   unitPrice: number;

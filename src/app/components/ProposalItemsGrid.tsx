@@ -6,6 +6,7 @@ import type { ErpCatalogItem, ErpCommercialProposal, ErpProposalItem } from '../
 import { formatBRL } from './ui-helpers';
 import { CatalogItemPicker, CATALOG_GRID_INPUT } from './CatalogItemPicker';
 import { catalogPriceFor, isServiceCatalogItem } from '../lib/catalog-search';
+import { keptUserLineDetails, proposalLineDetailsText } from '../lib/proposal-item-details';
 import { inferProposalItemType, normalizeProposalItemUnit, PROPOSAL_SERVICE_PILL_OPTIONS, resolveProposalServiceType } from '../lib/proposal-share';
 import type { ProposalGridItem } from '../lib/proposal-share';
 
@@ -91,6 +92,7 @@ export function replaceProposalGridItem(
   const quantity = Math.max(1, Number(current.quantity || 1));
   const discountPercent = Number(current.discountPercent || 0);
   const discountAmount = Number(current.discountAmount || 0);
+  const lineDetails = keptUserLineDetails(current);
   if (opts.kind === 'PRODUCT') {
     const rental = isRentalBudget(opts.budgetType);
     return {
@@ -101,6 +103,7 @@ export function replaceProposalGridItem(
       unit: normalizeProposalItemUnit(found.unitOfMeasure, 'PRODUCT'),
       fiscalNature: rental ? 'LOCACAO_BENS_MOVEIS' : 'VENDA_EQUIPAMENTO',
       ncmOrServiceCode: found.ncmOrLc116 || current.ncmOrServiceCode,
+      ...(lineDetails !== undefined ? { lineDetails } : {}),
       quantity,
       unitPrice: catalogPriceFor(found, 'PRODUCT', rental),
       discountPercent,
@@ -120,6 +123,7 @@ export function replaceProposalGridItem(
         ? 'SERVICO_COMUNICACAO_SCM_SVA'
         : 'SERVICO_TECNICO_TI_TELECOM',
     ncmOrServiceCode: found.ncmOrLc116 || current.ncmOrServiceCode,
+    ...(lineDetails !== undefined ? { lineDetails } : {}),
     serviceKind: defaultServiceKind(opts.budgetType, opts.serviceType),
     quantity,
     unitPrice: catalogPriceFor(found, 'SERVICE', true),
@@ -326,8 +330,8 @@ export function ProposalItemsGrid({
                     <td className={td}>
                       <input
                         type="text"
-                        value={item.ncmOrServiceCode || ''}
-                        onChange={(e) => patchRow(idx, { ncmOrServiceCode: e.target.value })}
+                        value={proposalLineDetailsText(item)}
+                        onChange={(e) => patchRow(idx, { lineDetails: e.target.value })}
                         placeholder="Detalhes"
                         className={inputBase}
                       />

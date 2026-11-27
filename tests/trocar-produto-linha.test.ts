@@ -5,7 +5,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ErpCatalogItem, ErpProposalItem } from '../src/db/types';
 import { replaceProposalGridItem } from '../src/app/components/ProposalItemsGrid';
+import { isAutomaticFiscalDetail, proposalLineDetailsText } from '../src/app/lib/proposal-item-details';
 import { computeProposalTotals } from '../src/app/lib/proposal-share';
+import { buildInternalProposalSheet } from '../src/app/lib/internal-proposal-sheet';
 
 function product(patch: Partial<ErpCatalogItem> = {}): ErpCatalogItem {
   return {
@@ -63,6 +65,8 @@ describe('Troca de produto numa linha existente', () => {
     assert.equal(replaced.sku, '47411662');
     assert.equal(replaced.description, 'WS-C3850-48F-S');
     assert.equal(replaced.ncmOrServiceCode, 'NCM 8517.62.59');
+    assert.equal(proposalLineDetailsText(replaced), '');
+    assert.equal(replaced.lineDetails, undefined);
     assert.equal(replaced.unit, 'UN');
     assert.equal(replaced.unitPrice, 2500);
     assert.notEqual(replaced.description, 'Switch antigo');
@@ -135,5 +139,48 @@ describe('Troca de produto numa linha existente', () => {
     assert.equal(empty.includes('onSelectItem'), false);
     assert.match(picker, /onPointerDown=\{keepOpenOnTouch\}/);
     assert.match(picker, /onSelectItem/);
+    assert.match(grid, /proposalLineDetailsText\(item\)/);
+    assert.match(grid, /lineDetails: e\.target\.value/);
+    assert.equal(grid.includes('value={item.ncmOrServiceCode'), false);
+  });
+
+  it('Detalhes não mostra o NCM automático; o texto digitado permanece', () => {
+    assert.equal(isAutomaticFiscalDetail('NCM 8517.62.59'), true);
+    assert.equal(isAutomaticFiscalDetail('NCM 8517.62.14 (0% ISS — SV 31 STF)'), true);
+    assert.equal(isAutomaticFiscalDetail('LC 116/03 Item 01.07'), true);
+    assert.equal(isAutomaticFiscalDetail('8517.62.59'), true);
+    assert.equal(isAutomaticFiscalDetail('rack 2U, cor preta'), false);
+
+    const old = line();
+    assert.equal(proposalLineDetailsText(old), '');
+    assert.equal(old.ncmOrServiceCode, 'NCM 1111.11.11');
+
+    const typed = line({ ncmOrServiceCode: 'NCM 8517.62.59', lineDetails: 'rack 2U' });
+    assert.equal(proposalLineDetailsText(typed), 'rack 2U');
+
+    const legacyNote = line({ ncmOrServiceCode: 'instalação no térreo' });
+    assert.equal(proposalLineDetailsText(legacyNote), 'instalação no térreo');
+
+    const swapped = replaceProposalGridItem(legacyNote, product({ ncmOrLc116: 'NCM 8517.62.59', gestaoClickCode: '47411662', name: 'Switch novo' }), {
+      kind: 'PRODUCT',
+      budgetType: 'PRODUTOS',
+    });
+    assert.equal(swapped.ncmOrServiceCode, 'NCM 8517.62.59');
+    assert.equal(swapped.lineDetails, 'instalação no térreo');
+    assert.equal(proposalLineDetailsText(swapped), 'instalação no térreo');
+
+    const sheet = buildInternalProposalSheet({
+      id: 'prop-1',
+      code: '4726',
+      title: 'Teste',
+      budgetType: 'PRODUTOS',
+      status: 'RASCUNHO',
+      companyName: 'Cliente',
+      items: [old, typed],
+    } as never, 'PRODUTOS');
+    assert.equal(sheet.lines[0].detail, '');
+    assert.equal(sheet.lines[1].detail, 'rack 2U');
+    assert.equal(JSON.stringify(sheet).includes('NCM 1111.11.11'), false);
+    assert.equal(JSON.stringify(sheet).includes('NCM 8517.62.59'), false);
   });
 });
