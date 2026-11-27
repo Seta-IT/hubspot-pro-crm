@@ -17,6 +17,8 @@ export interface EntradaConhecimento {
   /** Expressoes sem acento e minusculas. Cada uma que aparecer soma o peso. */
   chaves: Array<string | [string, number]>;
   resposta: string;
+  /** Versão curta para o prompt do modelo (quando a resposta é longa). */
+  resumo?: string;
 }
 
 export const BASE_CONHECIMENTO: EntradaConhecimento[] = [
@@ -122,6 +124,7 @@ export const BASE_CONHECIMENTO: EntradaConhecimento[] = [
     chaves: [['tipos de proposta', 6], ['tipo de proposta', 6], ['tipos de orcamento', 6], ['gerar proposta', 5], ['gerar orcamento', 5], ['criar orcamento', 5], ['novo orcamento', 5], ['fazer orcamento', 5], ['criar proposta', 5], ['nova proposta', 5], ['fazer proposta', 5], ['montar proposta', 5], ['como faco um orcamento', 6], ['como faco uma proposta', 6]],
     resposta:
       'Para criar: Orçamentos / Propostas → escolha o tipo → "Novo". O tipo vem primeiro, porque muda os campos: Produtos (itens, quantidades, valor unitário, frete e prazo de entrega); Serviços pontual (descrição e valor do serviço, pagamento único, sem "/mês"); Serviços mensal (prazo em meses, valor mensal, setup/implantação opcional e índice de reajuste); Locação (equipamentos, prazo em meses, mensalidade, setup/ativação cobrado à parte e índice de reajuste: IPCA, IGP-M, IST ou fixo). Em todos: cliente (nome ou CNPJ) e forma de pagamento, só Boleto, Pix ou Ted / Transferência. Eu também monto o rascunho: o tipo sai da frase (venda = Produtos; instalação = Serviço pontual; suporte/monitoramento = Serviço mensal; alugar = Locação) e pergunto o tipo só quando não der para saber. Para produto (ex.: "gere uma proposta de 1 switch cisco 3850"), mostro os modelos do cadastro com código, preço e estoque para você escolher e sugiro acessórios compatíveis que existem no cadastro (fontes, ópticos, módulos de uplink). Frete (a definir), prazo de entrega (conforme disponibilidade) e forma (Boleto) usam o padrão e aparecem na tela de confirmação para ajuste. Pode responder em linhas numeradas (ex.: "3 incluso", "5 Boleto"). O rascunho passa pelo seu "Confirmar" e não é enviado ao cliente.',
+    resumo: 'Orçamentos / Propostas → tipo → Novo. Tipo primeiro: Produtos (itens, quantidade, valor, frete, prazo de entrega); Serviço pontual (pagamento único); Serviço mensal (meses, valor mensal, setup opcional, reajuste); Locação (equipamentos, meses, mensalidade, setup à parte, reajuste IPCA/IGP-M/IST/fixo). Forma: Boleto, Pix ou Ted. Eu infiro o tipo da frase, busco itens no cadastro, sugiro acessórios compatíveis e o rascunho só é criado no Confirmar.',
   },
   {
     id: 'editar-orcamento',
@@ -222,12 +225,77 @@ export const BASE_CONHECIMENTO: EntradaConhecimento[] = [
     resposta:
       'Quando algo "não é localizado", normalmente é: (1) link colado sem a assinatura do cliente (use "Copiar link do cliente" na lista); (2) seu perfil só vê os registros da sua carteira; (3) registro do ERP de origem ainda não sincronizado; ou (4) número digitado diferente. Me mande o número, o código prop-..., o link, o CNPJ ou o nome do cliente que eu procuro em todo o sistema.',
   },
+  // ---------------- Catálogo e regras de negócio (t195u, 27/11/2026; conferido no sistema) ----------------
+  {
+    id: 'glossario-rede',
+    titulo: 'Sinônimos de rede no cadastro de produtos',
+    chaves: [['sfp', 3], ['gbic', 4], ['mini gbic', 4], ['minigbic', 4], ['transceiver', 3], ['transceptor', 3], ['cabo stack', 6], ['stack', 3], ['empilhamento', 4], ['stackwise', 4], ['stackpower', 4], ['fonte redundante', 6], ['fonte', 2], ['uplink', 4], ['modulo de uplink', 5], ['qsfp', 3], ['sfp+', 3], ['o que e', 1], ['qual codigo', 3], ['part number', 4]],
+    resposta:
+      'Como os itens aparecem no cadastro de produtos: SFP / mini-GBIC 1G = GLC-* (ex.: GLC-SX-MMD, GLC-LH-SMD, GLC-TE); SFP+ 10G = SFP-10G-* (SFP-10G-SR, SFP-10G-LR, SFP-10G-ER); GBIC antigo = WS-G5484 / WS-G5486; também há QSFP. ' +
+      'Cabo stack: STACK-T1-50CM e STACK-T1-1M (StackWise-480 do Catalyst 3850), CAB-STACK-50CM (StackWise do 3750), CAB-STK-E-0.5M (FlexStack do 2960-S/X/XR), STACK-T3-50CM e STACK-T3-3M (C9300L); cabo de energia StackPower = CAB-SPWR-30CM. ' +
+      'Fonte redundante: PWR-C1-* (Config 1 do 3850 e do 9300: 350W, 715W, 1100W), PWR-C2-* (3650), C3KX-PWR-* (3750-X); Dell: D495E-S1, E750E-S1, D750E-S6. Uplink: módulos C3850-NM-4-1G, C3850-NM-2-10G e C3850-NM-4-10G. Rack: RCKMNT-T1 e C3850-4PT-KIT. ' +
+      'Modelos: Cisco Catalyst WS-C3850, WS-C3650, WS-C3750-X, WS-C2960, C9200 e C9300, além de roteadores ISR/ASR; Dell PowerEdge (R440, R630, R640, R720, R730XD, R740XD) e PowerVault ME5024; HPE ProLiant DL360 e DL380 Gen11, switches Aruba Instant On 1830/1930 e access points Aruba AP-505/AP-515; também Fortinet, Meraki e Ubiquiti. ' +
+      'Na proposta pelo assistente, escreva do seu jeito ("cabo stack 1m", "fonte redundante do 3850", "sfp 10g"): eu procuro pelo código e pelo nome no cadastro e só uso item que existe lá.',
+    resumo: 'SFP/mini-GBIC 1G = GLC-*; SFP+ = SFP-10G-*; GBIC = WS-G5484/5486; cabo stack = STACK-T1-* (3850), CAB-STACK-50CM (3750), CAB-STK-E (2960), STACK-T3 (C9300L); StackPower = CAB-SPWR-30CM; fonte redundante = PWR-C1-* (3850/9300), PWR-C2-* (3650), C3KX-PWR-* (3750-X); uplink = C3850-NM-*. Só use item que existe no cadastro.',
+  },
+  {
+    id: 'catalogo-produtos',
+    titulo: 'Cadastro de produtos e serviços',
+    chaves: [['cadastro de produtos', 5], ['catalogo', 4], ['codigo do produto', 4], ['preco de locacao', 4], ['preco de venda', 4], ['valor de locacao', 4], ['itens de servico', 4], ['servicos cadastrados', 4], ['estoque do item', 3]],
+    resposta:
+      'O cadastro de itens (Itens → Produtos e Serviços) tem cerca de 830 itens ativos, sincronizados com o GestãoClick: código, descrição, preço de venda, preço de locação por mês e estoque. A maioria é equipamento para locação; também há serviços técnicos (ex.: Instalação Remota, Instalação/Configuração ON Site, Suporte Técnico e Monitoramento de Redes, Dados e Voz, Contrato Spare 24x7x4) e itens de frete. ' +
+      'Na proposta, o valor do item vem do cadastro (venda em Produtos; locação/mês em Locação) e pode ser ajustado; item que não está no cadastro precisa ser cadastrado antes ou entra como descrição livre pelo modelo.',
+    resumo: 'Cerca de 830 itens ativos (código, descrição, venda, locação/mês, estoque), quase todos equipamento de locação, mais serviços técnicos e frete. Valor do item vem do cadastro e é editável.',
+  },
+  {
+    id: 'tipos-orcamento-cobranca',
+    titulo: 'Tipos de orçamento e como cobram',
+    chaves: [['tipos de orcamento', 5], ['spare parts', 6], ['hard parts', 6], ['orcamento conjunto', 5], ['cobranca mensal', 5], ['mensalidades', 4], ['parcelas', 4], ['parcelar', 6], ['parcelado', 5], ['posso parcelar', 7], ['vencimento', 2], ['dia fixo', 3], ['a cada 30 dias', 4]],
+    resposta:
+      'Tipos de orçamento na tela: Orçamento de Produtos, Orçamento de Serviços (pontual ou mensal), Spare Parts / Hard Parts, Orçamento conjunto e Locação. ' +
+      'Locação, Serviços e Spare Parts cobram por mês: não há lista de parcelas, a quantidade de mensalidades vem do prazo do contrato e o vencimento é a cada 30 dias ou em dia fixo. Setup e frete da locação ficam em linhas à parte, nunca rateados na mensalidade. ' +
+      'Produtos (e serviço avulso) têm pagamento único, que pode ser dividido em parcelas. Pelo assistente eu monto rascunho de Produtos, Serviço pontual, Serviço mensal e Locação; Spare Parts e conjunto são feitos na tela de Orçamentos.',
+    resumo: 'Produtos, Serviços (pontual/mensal), Spare Parts / Hard Parts, Conjunto e Locação. Locação, Serviços e Spare Parts cobram por mês (mensalidades = prazo; vencimento a cada 30 dias ou dia fixo; setup e frete à parte). Produtos e avulso: pagamento único, pode parcelar.',
+  },
+  {
+    id: 'indices-reajuste',
+    titulo: 'Índices de reajuste',
+    chaves: [['indices de reajuste', 8], ['indice de reajuste', 7], ['reajuste', 4], ['indice', 3], ['ipca', 4], ['igp-m', 4], ['igpm', 4], ['ist', 3], ['anatel', 3], ['sem reajuste', 4]],
+    resposta:
+      'Locação e serviço mensal têm índice de reajuste: IPCA (padrão), IGP-M, IST (Anatel) ou fixo (sem reajuste). Na proposta pelo assistente, basta responder "IGP-M", "IST" ou "fixo" que eu troco no rascunho.',
+    resumo: 'IPCA (padrão), IGP-M, IST (Anatel) ou fixo, em locação e serviço mensal.',
+  },
+  {
+    id: 'validade-padrao',
+    titulo: 'Validade da proposta',
+    chaves: [['validade padrao', 6], ['quantos dias de validade', 6], ['validade da proposta', 5], ['dias de validade', 5]],
+    resposta:
+      'A validade da proposta é a data do orçamento mais os dias de validade; sem dias informados, vale 15 dias. Vencida, ela continua abrindo com o aviso de revalidação; edite a validade para o cliente aceitar.',
+    resumo: 'Validade = data do orçamento + dias; padrão 15 dias.',
+  },
+  {
+    id: 'recibo-locacao-iss',
+    titulo: 'Recibo de Locação sem ISS',
+    chaves: [['iss', 4], ['issqn', 4], ['recibo de locacao', 6], ['fatura de locacao', 5], ['nota de locacao', 5], ['locacao tem iss', 6], ['imposto na locacao', 5]],
+    resposta:
+      'Locação de equipamentos não tem ISS: a cobrança sai como Fatura / Recibo de Locação de Bens Móveis (0% ISS, item 3.01 da LC 116/2003 vetado e Súmula Vinculante 31 do STF), vinculada à NF-e de remessa CFOP 5.908. Serviço técnico é que tem nota de serviço.',
+    resumo: 'Locação não tem ISS: Fatura / Recibo de Locação (0% ISS, LC 116/03 item 3.01 vetado, SV 31 STF), com NF-e de remessa CFOP 5.908.',
+  },
+  {
+    id: 'proposta-pelo-assistente',
+    titulo: 'Como montar proposta conversando',
+    chaves: [['montar proposta', 4], ['proposta pelo assistente', 6], ['responder curto', 4], ['continuar a proposta', 6], ['rascunho', 3], ['perdeu o contexto', 6]],
+    resposta:
+      'Pode pedir tudo numa frase ("gere uma proposta para a MK Jacuipe de locação de um cabo stack cisco de 1m por 24 meses no valor de 45,00/mês") ou em partes. Eu guardo o rascunho na conversa (inclusive ao reabrir): respostas curtas como "boleto", "pix", "ted", "IGP-M", "sim", "24 meses" ou linhas numeradas preenchem o que falta e não viram outra consulta. Se repetir o pedido, aproveito o que já foi dito e pergunto só o que falta. Frete, prazo de entrega, forma (Boleto) e reajuste (IPCA) usam o padrão e aparecem no cartão; o rascunho só é criado no seu Confirmar e então mostro os links (abrir, Versão contrato, PDF).',
+    resumo: 'O rascunho fica na conversa; respostas curtas (boleto, pix, ted, IGP-M, sim, 24 meses, linhas numeradas) preenchem o que falta; pedido repetido reaproveita o rascunho; padrões Boleto/IPCA/frete a definir aparecem no cartão.',
+  },
   {
     id: 'assistente-conversas',
     titulo: 'Conversas, histórico e aprendizado do assistente',
     chaves: [['historico', 4], ['conversas', 4], ['nova conversa', 6], ['apagar conversa', 6], ['encerrar conversa', 6], ['excluir conversa', 6], ['o que voce aprendeu', 6], ['aprendizado', 5], ['aprender', 3], ['memoria', 4], ['esquecer', 4]],
     resposta:
       'Cada conversa fica salva só para você, com título da primeira pergunta e data (ícone de relógio no topo do assistente; tem busca). "Nova conversa" começa outra; ao reabrir a página, a última conversa volta com os cartões e botões. "Encerrar" deixa a conversa só leitura (dá para reabrir e continuar); "Apagar" pede confirmação, só o dono apaga e a exclusão fica na auditoria; também dá para apagar todas as suas conversas. Eu aprendo com você: diga "sempre ...", "nunca ...", "prefiro ..." ou "não é assim, é ..." e use os botões de gostei / não gostei com o motivo. Veja, edite ou apague cada lição em "O que o assistente aprendeu" (ícone de cérebro). Nunca guardo senha, token ou cartão, e lição de um CNPJ só vale para ele (Trava Fiscal).',
+    resumo: 'Conversas salvas por usuário (título, data, busca); Nova conversa; Encerrar (só leitura, reabre); Apagar com confirmação e auditoria. Aprendo com "sempre/nunca/prefiro/não é assim" e gostei/não gostei; tela O que o assistente aprendeu. Nunca guardo segredos; lição de um CNPJ vale só para ele.',
   },
   {
     id: 'assistente-escopo',
@@ -239,7 +307,7 @@ export const BASE_CONHECIMENTO: EntradaConhecimento[] = [
 ];
 
 const PERGUNTA_RE =
-  /^(como|onde|posso|pode|podemos|aceita|aceitam|aceitamos|existe|tem como|da pra|da para|o que|oque|pra que|para que|por que|porque|pq|e possivel|devo|a seta|voce)\b|\b(como (faco|fazer|vejo|ver|crio|criar|gero|gerar|edito|editar|abro|abrir|envio|enviar|copio|copiar|revalido|revalidar|funciona)|o que (e|significa|quer dizer)|por que|porque|pq)\b/;
+  /^(?:qual|quais)\s+(?:e\s+|o\s+|a\s+|os\s+|as\s+)?(?:codigo|validade|indices?|tipos? de orcamento|formas? de pagamento|diferenca)\b|\btem iss\b|^(como|onde|posso|pode|podemos|aceita|aceitam|aceitamos|existe|tem como|da pra|da para|o que|oque|pra que|para que|por que|porque|pq|e possivel|devo|a seta|voce)\b|\b(como (faco|fazer|vejo|ver|crio|criar|gero|gerar|edito|editar|abro|abrir|envio|enviar|copio|copiar|revalido|revalidar|funciona)|o que (e|significa|quer dizer)|por que|porque|pq)\b/;
 
 /** Pontuacao de uma entrada para o texto normalizado (palavras inteiras). */
 function pontuar(texto: string, e: EntradaConhecimento): number {
@@ -286,5 +354,5 @@ export function responderConhecimento(texto: string): string | null {
 
 /** Resumo para o prompt de sistema: uma linha por assunto (sem dados de clientes). */
 export function resumoConhecimentoParaPrompt(): string {
-  return BASE_CONHECIMENTO.map((e) => `- ${e.titulo}: ${e.resposta}`).join('\n');
+  return BASE_CONHECIMENTO.map((e) => `- ${e.titulo}: ${e.resumo || e.resposta}`).join('\n');
 }

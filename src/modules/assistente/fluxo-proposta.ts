@@ -13,6 +13,12 @@
 //  - Estado do fluxo pendente por conversa (slot-filling): respostas curtas/numeradas
 //    ("1 Venda / 1 C3850 / 3 incluso / 4 ok / 5 Boleto") preenchem os campos e continuam
 //    a proposta. Só troca de intenção quando a mensagem é claramente um pedido novo.
+// Pedido do Marcéllo (t195u, 27/11/2026): "gere uma proposta para a MK Jacuipe de locação de um
+// cabo stack cisco de 1m por 24 meses no valor de 45,00/m6es" virou consulta de faturas depois de
+// "IGP-M" / "boleto". Agora o pedido detalhado também é guiado quando o item está no cadastro:
+// o rascunho (tipo, cliente, item, prazo, valor) fica no estado da conversa; respostas curtas
+// ("boleto", "pix", "IGP-M", "sim", número) preenchem o que falta e nunca viram outra intenção;
+// repetir o pedido reaproveita o rascunho; conversa antiga/reaberta é remontada pelo histórico.
 // A gravação continua só pelo cartão de confirmação (criar_rascunho_proposta).
 // ============================================================================
 import { z } from 'zod';
@@ -45,6 +51,10 @@ export const fluxoSchema = z.object({
   tipo: z.enum(TIPOS_PROPOSTA as unknown as [TipoProposta, ...TipoProposta[]]).nullable(),
   etapa: z.enum(ETAPAS_FLUXO),
   cliente: z.string().trim().max(160).optional(),
+  /** Como o usuário chamou o cliente (ex.: "MK Jacuipe"): repetir o pedido não reabre a escolha. */
+  clienteDito: z.string().trim().max(160).optional(),
+  /** Valor unitário dito antes de o item ser escolhido (aplicado ao item do cadastro). */
+  valor: z.number().min(0).max(100_000_000).optional(),
   clienteOk: z.string().trim().max(220).optional(),
   candidatos: z.array(z.object({ nome: z.string().max(160), cnpj: z.string().max(30).optional() })).max(5).optional(),
   termo: z.string().trim().max(80).optional(),
@@ -138,8 +148,44 @@ const PALAVRAS_RUIDO = new Set(
   ('gere gera gerar crie cria criar monte monta montar faca faz fazer elabore elaborar prepare preparar emita emitir quero queria gostaria preciso ' +
     'proposta propostas orcamento orcamentos cotacao uma um uns umas de do da dos das para pra pro com o a os as e em no na por favor pf ' +
     'venda vender vendas compra comprar produto produtos item itens equipamento equipamentos unidade unidades un pcs peca pecas ' +
-    'modelo modelos novo nova cisco switch switches roteador roteadores catalyst cliente empresa locacao aluguel alugar sim ok').split(' '),
+    'modelo modelos novo nova cisco switch switches roteador roteadores catalyst cliente empresa locacao aluguel alugar sim ok ' +
+    'mes meses mensal mensais mensalidade reais valor preco prazo contrato durante').split(' '),
 );
+
+/** Medida no nome do item (1m, 50cm, 3m, 715w, 10g): ajuda a escolher o item certo. */
+const MEDIDA_RE = /^\d+(?:[.,]\d+)?(?:m|cm|mm|w|g)$/;
+
+/**
+ * Sinônimos e abreviações de rede (pt/en) => trechos que aparecem nos códigos e nomes do cadastro.
+ * Ex.: "cabo stack 1m" acha STACK-T1-1M ("StackWise-480 1m stacking cable"). Só amplia a busca:
+ * o item continua tendo de existir no cadastro.
+ */
+export const SINONIMOS_PRODUTO: Record<string, string[]> = {
+  CABO: ['CABO', 'CABLE', 'CAB-', 'CBL'],
+  CABOS: ['CABO', 'CABLE', 'CAB-', 'CBL'],
+  STACK: ['STACK', 'STK'],
+  EMPILHAMENTO: ['STACK', 'STK'],
+  STACKWISE: ['STACKWISE', 'STACK-T'],
+  STACKPOWER: ['STACKPOWER', 'SPWR'],
+  FONTE: ['FONTE', 'PWR', 'POWERSUPPLY', 'POWER'],
+  FONTES: ['FONTE', 'PWR', 'POWERSUPPLY', 'POWER'],
+  REDUNDANTE: ['PWR', 'POWER', 'REDUNDANT', 'FONTE'],
+  SFP: ['SFP', 'GLC-'],
+  'SFP+': ['SFP-10G', 'SFP+'],
+  GBIC: ['GBIC', 'WS-G', 'GLC-', 'SFP'],
+  MINIGBIC: ['GBIC', 'GLC-', 'SFP'],
+  TRANSCEIVER: ['TRANSCEIVER', 'TRANSCEPTOR', 'SFP', 'GLC-'],
+  TRANSCEPTOR: ['TRANSCEIVER', 'TRANSCEPTOR', 'SFP', 'GLC-'],
+  OPTICO: ['SFP', 'GLC-', 'GBIC', 'TRANSCEIVER'],
+  UPLINK: ['-NM-', 'UPLINK', 'NETWORKMODULE'],
+  MODULO: ['MODULE', 'MODULO', '-NM-'],
+  RACK: ['RACK', 'RCKMNT'],
+  TRILHO: ['TRILHO', 'RAIL'],
+  TRILHOS: ['TRILHO', 'RAIL'],
+  SERVIDOR: ['SERVIDOR', 'SERVER', 'POWEREDGE', 'PROLIANT'],
+  LICENCA: ['LICENCA', 'LICENSE', 'LIC-'],
+  AP: ['AP-', 'ACCESSPOINT', 'AIR-'],
+};
 
 /** Termo de produto a partir do texto livre (tira verbos, quantidade, cliente e palavras genéricas). */
 export function termoProduto(texto: string): string {
@@ -147,24 +193,31 @@ export function termoProduto(texto: string): string {
     .replace(/\b(?:para|pra|pro)\s+(?:a|o)?\s*(?:cliente|empresa)?\s*[a-z0-9][^,;\n]*$/, ' ')
     .replace(/[^a-z0-9\-/ ]+/g, ' ');
   const palavras = t.split(/\s+/).filter(Boolean);
-  const fortes = palavras.filter((w) => /\d/.test(w) && /[a-z0-9]{3,}/.test(w) && !/^\d{1,2}$/.test(w));
+  const fortes = palavras.filter((w) => /\d/.test(w) && /[a-z0-9]{3,}/.test(w) && !/^\d{1,2}$/.test(w) && !MEDIDA_RE.test(w));
   if (fortes.length) return fortes.join(' ').slice(0, 80);
-  return palavras.filter((w) => w.length > 2 && !PALAVRAS_RUIDO.has(w) && !/^\d+$/.test(w)).join(' ').slice(0, 80);
+  // Sem part number: palavras descritivas + medida ("cabo stack 1m", "fonte 715w").
+  return palavras.filter((w) => MEDIDA_RE.test(w) || (w.length > 2 && !PALAVRAS_RUIDO.has(w) && !/^\d+$/.test(w))).join(' ').slice(0, 80);
 }
 
 /** Modelos do cadastro para o termo (só modelos base quando há regras para a família). */
 export function buscarModelos(catalogo: ProdutoCatalogo[], termo: string, regras: RegraAcessorio[], limite = 12): ProdutoCatalogo[] {
   const tokens = foldTexto(termo).split(/\s+/).filter(Boolean).map(compactPn);
   if (!tokens.length) return [];
-  const fortes = tokens.filter((w) => /\d/.test(w));
-  const usar = fortes.length ? fortes : tokens;
-  const achados = catalogo.filter((p) => usar.every((w) => p.busca.includes(w)));
+  const fortes = tokens.filter((w) => /\d/.test(w) && !MEDIDA_RE.test(w.toLowerCase()));
+  const casa = (p: ProdutoCatalogo, w: string) => (SINONIMOS_PRODUTO[w] || [w]).some((x) => p.busca.includes(x));
+  // 1) Todas as palavras (com sinônimos); 2) só os part numbers ditos (como antes).
+  let achados = catalogo.filter((p) => tokens.every((w) => casa(p, w)));
+  if (!achados.length && fortes.length) achados = catalogo.filter((p) => fortes.every((w) => p.busca.includes(w)));
   if (!achados.length) return [];
+  const usar = fortes.length ? fortes : tokens;
   const ativas = regras.filter((r) => r.ativa);
   const ehAcessorio = (p: ProdutoCatalogo) => ativas.some((r) => casaPadrao(p.pn, r.padrao));
   const ehBase = (p: ProdutoCatalogo) => ativas.some((r) => casaPadrao(p.pn, r.familia));
   const bases = achados.filter(ehBase);
-  const lista = bases.length ? bases : achados.filter((p) => !ehAcessorio(p)).length ? achados.filter((p) => !ehAcessorio(p)) : achados;
+  // Pedido de acessório ("cabo stack", "fonte 1100w"): lista os acessórios; pedido de modelo: só os modelos base.
+  const pediuAcessorio = tokens.some((w) => SINONIMOS_PRODUTO[w] && !['SERVIDOR', 'AP'].includes(w));
+  const naoAcessorios = achados.filter((p) => !ehAcessorio(p));
+  const lista = bases.length ? bases : pediuAcessorio || !naoAcessorios.length ? achados : naoAcessorios;
   const exato = (p: ProdutoCatalogo) => usar.some((w) => p.pn === w);
   return lista
     .sort((a, b) => Number(exato(b)) - Number(exato(a)) || Number(b.estoque > 0) - Number(a.estoque > 0) || a.codigo.localeCompare(b.codigo))
@@ -282,8 +335,20 @@ const num = (v: string): number | undefined => {
 };
 
 const ACEITAR_RE = /^(?:ok|okay|sim|s|pode ser|pode|padrao|o padrao|default|isso|beleza|blz|certo|confirmo|tanto faz|mantem|manter|manter padrao|aceito|esse mesmo|perfeito|segue|pode seguir)$/;
-const RECUSAR_RE = /^(?:nao|n|nenhum|nenhuma|sem acessorios?|nao quero|dispenso|pular|pula|seguir sem|sem)$/;
-const CLIENTE_FIM = String.raw`(?=\s+(?:com|frete|prazo|pagamento|forma|no boleto|via|valor|preco|de \d|\d+\s*(?:x|un)|e \d)\b|[,;.\n]|$)`;
+const RECUSAR_RE = /^(?:nao|n|nenhum|nenhuma|sem acessorios?|nao quero|dispenso|pular|pula|seguir sem|seguir sem acessorios?|sem nenhum acessorio|sem)$/;
+const CLIENTE_FIM = String.raw`(?=\s+(?:com|frete|prazo|pagamento|forma|no boleto|via|valor|preco|no valor|pelo valor|por \d|durante|de (?:loca|alug|venda|vender|servi|suporte|instala|um|uma|\d)|\d+\s*(?:x|un)|e \d)|[,;.\n]|$)`;
+
+/**
+ * "/mês", "/mes", "/m6es" (erro de digitação), "p/ mês", "ao mês", "mensais" => "por mes".
+ * Também "R$45,00" => "r$ 45,00". Entrada já sem acento e minúscula.
+ */
+export function normalizarMensal(t: string): string {
+  return t
+    .replace(/(\d)\s*\/\s*(?:m[a-z0-9]{0,4}s?|mensal)(?![a-z0-9])/g, '$1 por mes')
+    .replace(/\b(?:p\/|ao|por|pelo)\s*m[e0-9]{1,2}s\b/g, 'por mes')
+    .replace(/(\d)\s*(?:reais\s*)?(?:mensais|mensal|mensalmente)\b/g, '$1 por mes')
+    .replace(/r\$\s*(?=\d)/g, 'r$ ');
+}
 
 function prazoTexto(n: number, uteis: boolean): string {
   return `${n} ${n === 1 ? 'dia' : 'dias'}${uteis ? ' úteis' : ''} após o aceite`;
@@ -293,7 +358,7 @@ function prazoTexto(n: number, uteis: boolean): string {
 export function lerLinha(linhaBruta: string, campo?: CampoFluxo, etapa?: FluxoProposta['etapa'], tipoAtual?: TipoProposta | null): Slots {
   const s: Slots = {};
   const bruto = String(linhaBruta || '').trim();
-  let t = foldTexto(bruto).replace(/\s+/g, ' ').trim();
+  let t = normalizarMensal(foldTexto(bruto).replace(/\s+/g, ' ').trim());
   if (!t) return s;
   const consumir = (re: RegExp) => { t = t.replace(re, ' ').replace(/\s+/g, ' ').trim(); };
 
@@ -363,7 +428,12 @@ export function lerLinha(linhaBruta: string, campo?: CampoFluxo, etapa?: FluxoPr
   }
   // Valor unitário
   const vm = t.match(/\b(?:valor(?: unitario)?|preco(?: unitario)?|unitario|mensalidade|r\$)\s*(?:de\s*|:\s*)?(?:r\$\s*)?(\d[\d.,]*)/);
-  if (vm) { const v = num(vm[1]); if (v !== undefined) s.valor = v; consumir(/\b(?:valor(?: unitario)?|preco(?: unitario)?|unitario|mensalidade|r\$)\s*(?:de\s*|:\s*)?(?:r\$\s*)?\d[\d.,]*/g); }
+  if (vm) { const v = num(vm[1]); if (v !== undefined) s.valor = v; consumir(/\b(?:no |pelo )?(?:valor(?: unitario)?|preco(?: unitario)?|unitario|mensalidade|r\$)\s*(?:de\s*|:\s*)?(?:r\$\s*)?\d[\d.,]*(?:\s*por mes)?/g); }
+  else {
+    const vpm = t.match(/(?:^|\s)(\d[\d.,]*)\s*(?:reais\s*)?por mes\b/);
+    if (vpm) { const v = num(vpm[1]); if (v !== undefined) s.valor = v; consumir(/(?:^|\s)\d[\d.,]*\s*(?:reais\s*)?por mes\b/g); }
+  }
+  consumir(/\b(?:no |pelo )?(?:valor\s*)?por mes\b/g);
   // Cliente (CNPJ, "cliente X", "para a X")
   const cnpj = bruto.match(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/);
   if (cnpj) {
@@ -391,12 +461,12 @@ export function lerLinha(linhaBruta: string, campo?: CampoFluxo, etapa?: FluxoPr
     if (tp && (!tipoAtual || campo === 'tipo' || (curta && /^(?:proposta de |de |e )?(?:venda|vender|vendas|produtos?|locacao|aluguel|alugar|servicos?|instalacao|suporte|pontual|mensal)\b/.test(t)))) s.tipo = tp;
   }
   // Quantidade + produto no que sobrou
-  const qtd = t.match(/\b(?:qtd|quantidade)\s*[:=]?\s*(\d{1,5})\b/) || t.match(/(?:^|\s)(\d{1,5})\s*(?:x\s+|un\w*\s+|pecas?\s+|pcs\s+)?(?=[a-z])/);
+  const qtd = t.match(/\b(?:qtd|quantidade)\s*[:=]?\s*(\d{1,5})\b/) || t.match(/(?:^|\s)(\d{1,5})\s*(?:x\s+|un\w*\s+|pecas?\s+|pcs\s+)?(?=[a-z])(?!(?:m|cm|mm|w|g|gb|tb)\b)/);
   if (qtd) {
     const n = Number(qtd[1]);
     if (n > 0 && n <= 100000) s.quantidade = n;
     consumir(/\b(?:qtd|quantidade)\s*[:=]?\s*\d{1,5}\b/);
-    t = t.replace(new RegExp(String.raw`(?:^|\s)${qtd[1]}\s*(?:x\s+|un\w*\s+|pecas?\s+|pcs\s+)?(?=[a-z])`), ' ').trim();
+    t = t.replace(new RegExp(String.raw`(?:^|\s)${qtd[1]}\s*(?:x\s+|un\w*\s+|pecas?\s+|pcs\s+)?(?=[a-z])(?!(?:m|cm|mm|w|g|gb|tb)\b)`), ' ').trim();
   } else if (campo === 'quantidade' && /^\d{1,5}$/.test(t)) {
     s.quantidade = Number(t);
     t = '';
@@ -498,6 +568,53 @@ export function fluxoDoHistorico(mensagens: Msg[]): FluxoProposta | null {
   return f;
 }
 
+/** O pedido novo é o mesmo do rascunho atual (mesmo tipo, cliente e item)? */
+export function mesmoPedido(f: FluxoProposta, s: Slots): boolean {
+  if (s.tipo && s.tipo !== 'servico' && f.tipo && s.tipo !== f.tipo) return false;
+  const ditos = [f.clienteDito, f.cliente, f.clienteOk?.split(' — ')[0]];
+  if (s.cliente && !ditos.some((d) => mesmoTexto(s.cliente, d))) return false;
+  if (s.termo && !mesmoTexto(s.termo, f.termo) && !f.itens.some((i) => compactPn(i.codigo) === compactPn(s.termo))) return false;
+  return !!(s.cliente || s.termo);
+}
+
+/** Resposta curta de campo ("boleto", "pix", "IGP-M", "sim", "24 meses", "36")? */
+export function respostaCurtaDeCampo(texto: string): boolean {
+  const t = foldTexto(texto).replace(/[.!]+$/, '').trim();
+  if (!t || t.split(/\s+/).length > 5 || pedidoNovoForaDoFluxo(texto) || pedidoNovaProposta(texto)) return false;
+  if (/^\d[\d.,]*$/.test(t)) return true;
+  const s = lerLinha(texto, undefined, undefined, 'locacao');
+  return !!(s.forma || s.indice || s.aceitar || s.prazoMeses || s.valor !== undefined || s.freteIncluso || s.frete !== undefined || s.prazoEntrega || s.setup !== undefined || s.semSetup);
+}
+
+/**
+ * Conversa sem estado salvo (reaberta, ou de quando o pedido ia para o modelo): remonta o
+ * rascunho com o último pedido de proposta e as respostas dadas depois dele.
+ */
+export async function fluxoPendenteDoHistorico(texto: string, mensagens: Msg[], ctx: CtxFluxo): Promise<FluxoProposta | null> {
+  if (!respostaCurtaDeCampo(texto)) return null;
+  const respostas: string[] = [];
+  let pedido: string | null = null;
+  for (let k = mensagens.length - 2; k >= 0 && k >= mensagens.length - 20; k--) {
+    const m = mensagens[k];
+    if (m.papel === 'assistente') {
+      if (/rascunho de proposta[^\n]*criado/i.test(m.texto) || /\bcancelei esse rascunho\b/i.test(m.texto)) return null;
+      continue;
+    }
+    if (pedidoNovaProposta(m.texto)) { pedido = m.texto; break; }
+    if (pedidoNovoForaDoFluxo(m.texto)) return null;
+    respostas.unshift(m.texto);
+  }
+  if (!pedido) return null;
+  const base = await avancarFluxo({ texto: pedido, mensagens: [] }, { ...ctx, aprender: undefined });
+  if (!base || !('fluxo' in base) || !base.fluxo) return null;
+  const f = base.fluxo;
+  for (const r of respostas) {
+    const s = lerResposta(r, f);
+    aplicarSlots(f, { ...s, termo: undefined, escolha: undefined, aceitar: undefined, recusar: undefined, cliente: undefined });
+  }
+  return f;
+}
+
 // ---------------------------------------------------------------------------
 // Passo do fluxo
 // ---------------------------------------------------------------------------
@@ -540,13 +657,20 @@ export function pedidoDetalhado(texto: string): boolean {
 function aplicarSlots(f: FluxoProposta, s: Slots): string[] {
   const anotado: string[] = [];
   if (s.tipo && s.tipo !== 'servico' && s.tipo !== f.tipo) f.tipo = s.tipo;
-  if (s.cliente && s.cliente !== f.cliente) { f.cliente = s.cliente; delete f.clienteOk; delete f.candidatos; }
+  if (s.cliente && s.cliente !== f.cliente && !mesmoTexto(s.cliente, f.clienteDito) && !mesmoTexto(s.cliente, f.clienteOk?.split(' — ')[0])) {
+    f.cliente = s.cliente;
+    f.clienteDito = s.cliente.slice(0, 160);
+    delete f.clienteOk;
+    delete f.candidatos;
+  }
   if (s.quantidade) {
     f.quantidade = s.quantidade;
     if (f.itens.length && !s.termo) { f.itens[0].quantidade = s.quantidade; }
     anotado.push(`quantidade ${s.quantidade}`);
   }
-  if (s.valor !== undefined && f.itens.length) { f.itens[0].valor = s.valor; anotado.push(`valor unitário ${formatBRL(s.valor)}`); }
+  const sufixo = f.tipo === 'locacao' || f.tipo === 'servico_mensal' ? '/mês' : '';
+  if (s.valor !== undefined && f.itens.length) { f.itens[0].valor = s.valor; anotado.push(`valor unitário ${formatBRL(s.valor)}${sufixo}`); }
+  else if (s.valor !== undefined) { f.valor = s.valor; anotado.push(`valor ${formatBRL(s.valor)}${sufixo}`); }
   if (s.freteIncluso) { f.freteIncluso = true; delete f.frete; anotado.push('frete incluso'); }
   if (s.frete !== undefined) { f.frete = s.frete; delete f.freteIncluso; anotado.push(`frete ${formatBRL(s.frete)}`); }
   if (s.freteADefinir) { delete f.frete; delete f.freteIncluso; anotado.push('frete a definir'); }
@@ -558,6 +682,8 @@ function aplicarSlots(f: FluxoProposta, s: Slots): string[] {
   if (s.indice) { f.indice = s.indice; anotado.push(`reajuste ${s.indice}`); }
   return anotado;
 }
+
+const mesmoTexto = (a?: string, b?: string) => !!a && !!b && compactPn(foldTexto(a)) === compactPn(foldTexto(b));
 
 const anotacao = (a: string[]) => (a.length ? `Anotei: ${a.join(', ')}.\n` : '');
 
@@ -587,13 +713,16 @@ export async function avancarFluxo(e: EntradaFluxo, ctx: CtxFluxo): Promise<Said
   }
 
   const novaProposta = pedidoNovaProposta(texto) || (!f && /^(?:quero |preciso )?(?:vender|alugar)\b/.test(foldTexto(texto)));
-  if (novaProposta) {
-    const s = lerLinha(texto, undefined, undefined, null);
+  const sNova = novaProposta ? lerLinha(texto, undefined, undefined, null) : null;
+  // t195u: o mesmo pedido repetido (mesmo tipo, cliente e item) reaproveita o rascunho da conversa.
+  const repetido = !!(f && sNova && mesmoPedido(f, sNova));
+  if (novaProposta && sNova && !repetido) {
+    const s = sNova;
     if (s.tipo === 'servico' || s.tipo === 'servico_pontual' || s.tipo === 'servico_mensal') return { tipo: 'servico', tipoProposta: s.tipo };
-    if (pedidoDetalhado(texto)) return { tipo: 'legado' };
-    if (s.forma === 'cartao') return textoSaida(MENSAGEM_SEM_CARTAO, { ...novoFluxo(s.tipo ?? null), ...(s.cliente ? { cliente: s.cliente } : {}), ...(s.termo ? { termo: s.termo } : {}), ...(s.quantidade ? { quantidade: s.quantidade } : {}), pergunta: ['forma'] });
-    if (s.tipo === 'locacao') {
-      // Locação guiada só para equipamento do cadastro; item livre (servidor sob medida, nuvem) segue como antes.
+    if (s.forma === 'cartao') return textoSaida(MENSAGEM_SEM_CARTAO, { ...novoFluxo(s.tipo ?? null), ...(s.cliente ? { cliente: s.cliente, clienteDito: s.cliente } : {}), ...(s.termo ? { termo: s.termo } : {}), ...(s.quantidade ? { quantidade: s.quantidade } : {}), pergunta: ['forma'] });
+    if (s.tipo === 'locacao' || pedidoDetalhado(texto)) {
+      // Pedido com valores/prazo ou de locação: guiado quando o item está no cadastro (o rascunho
+      // fica no estado da conversa). Item livre (servidor sob medida, nuvem) segue com o modelo, como antes.
       const catalogo = s.termo ? await carregarCatalogo(ctx.api) : null;
       if (!s.termo || !catalogo || !buscarModelos(catalogo, s.termo, ctx.regras).length) return { tipo: 'legado' };
     }
@@ -602,16 +731,20 @@ export async function avancarFluxo(e: EntradaFluxo, ctx: CtxFluxo): Promise<Said
     if (s.termo) f.termo = s.termo;
     anotado = anotado.filter((a) => !a.startsWith('quantidade'));
   } else {
-    if (!f) {
+    if (!f && !novaProposta) {
       f = fluxoDoHistorico(e.mensagens);
       // Recuperação de conversa antiga só para Produtos (locação/serviço seguem com o modelo).
       if (f && f.tipo && f.tipo !== 'produtos') f = null;
+      // t195u: resposta curta ("boleto", "IGP-M", "sim", número) numa conversa sem estado salvo
+      // (reaberta ou de antes): remonta o rascunho a partir do pedido e das respostas anteriores.
+      if (!f) f = await fluxoPendenteDoHistorico(texto, e.mensagens, ctx);
     }
     if (!f) return null;
+
     const t = foldTexto(texto).replace(/[.!]+$/, '').trim();
     if (CANCELAR_RE.test(t)) return textoSaida('Ok, cancelei esse rascunho de proposta. Nada foi gravado.', null);
     if (pedidoNovoForaDoFluxo(texto)) return null;
-    const s = lerResposta(texto, f);
+    const s = repetido && sNova ? { ...sNova, tipo: undefined } : lerResposta(texto, f);
     // Etapa com resposta livre: o texto todo é o dado pedido.
     if (VAZIO(s)) {
       if (f.etapa === 'cliente' && texto.length >= 2 && texto.split(/\s+/).length <= 8) s.cliente = texto.slice(0, 160);
@@ -634,9 +767,16 @@ export async function avancarFluxo(e: EntradaFluxo, ctx: CtxFluxo): Promise<Said
       if (s.aceitar) return aplicarSelecao(f, { tipo: 'acessorios', itens: [], aceitarMarcados: true } as any, ctx);
     }
     if (f.etapa === 'pronto' && s.aceitar && VAZIO({ ...s, aceitar: undefined })) {
-      return textoSaida('O rascunho está pronto no cartão acima: confira e clique em Confirmar (ou me diga o que ajustar).', f);
+      // "sim"/"ok" com tudo preenchido: mostra o cartão de novo (a gravação continua no Confirmar).
+      return continuar(f, ctx, ['tudo certo; é só clicar em Confirmar']);
+    }
+    // Número solto sem pergunta pendente: não adivinha o campo (nem vira outra consulta).
+    if (VAZIO(s) && /^\d[\d.,]*$/.test(foldTexto(texto).trim()) && !f.pergunta?.length && (f.etapa === 'pronto' || f.etapa === 'acessorios')) {
+      const mensal = f.tipo === 'locacao' || f.tipo === 'servico_mensal';
+      return textoSaida(`"${texto.trim()}" é para qual campo? Diga, por exemplo: ${mensal ? '"24 meses", "valor 45,00"' : '"quantidade 2", "valor 3.500"'} ou "frete 150".`, f);
     }
     anotado = aplicarSlots(f, s);
+    if (repetido) anotado = ['reaproveitei o rascunho desta conversa'];
     // Produto novo dito (diferente do já escolhido): volta para a lista de modelos.
     if (s.termo) {
       const jaTem = f.itens.some((i) => compactPn(i.codigo).includes(compactPn(s.termo)) || compactPn(s.termo).includes(compactPn(i.codigo)));
@@ -680,7 +820,8 @@ async function aplicarSelecao(f: FluxoProposta, sel: SelecaoFluxo & { aceitarMar
     const p = achaNoCatalogo(catalogo, sel.codigo);
     if (!p) return textoSaida(`O código ${sel.codigo} não está no cadastro de produtos. Escolha um modelo da lista.`, f);
     const qtd = sel.quantidade || f.quantidade || 1;
-    f.itens = [itemDoProduto(p, qtd, f.tipo, sel.valor)];
+    f.itens = [itemDoProduto(p, qtd, f.tipo, sel.valor ?? f.valor)];
+    delete f.valor;
     f.base = p.codigo;
     delete f.opcoes;
     const sugestoes = sugerirAcessorios(p, catalogo, ctx.regras, ctx.memorias, f.tipo);
@@ -744,6 +885,18 @@ async function continuar(f: FluxoProposta, ctx: CtxFluxo, anotado: string[]): Pr
     f.etapa = 'tipo';
     f.pergunta = ['tipo'];
     return textoSaida(`${anotacao(anotado)}${PERGUNTA_TIPO_PROPOSTA}`, f);
+  }
+  // 2a) Item dito que só tem um modelo no cadastro (sem acessórios a sugerir): já entra no
+  //     rascunho, antes de perguntar a unidade do cliente (t195u: "cabo stack 1m" => STACK-T1-1M).
+  if (f.cliente && !f.clienteOk && !f.itens.length && f.termo) {
+    const catalogo = await carregarCatalogo(ctx.api);
+    const modelos = catalogo ? buscarModelos(catalogo, f.termo, ctx.regras) : [];
+    if (catalogo && modelos.length === 1 && !sugerirAcessorios(modelos[0], catalogo, ctx.regras, ctx.memorias, f.tipo).length) {
+      f.itens = [itemDoProduto(modelos[0], f.quantidade || 1, f.tipo, f.valor)];
+      f.base = modelos[0].codigo;
+      delete f.valor;
+      anotado = [...anotado, `item ${modelos[0].codigo}`];
+    }
   }
   // 2) Cliente dito: identifica no cadastro logo (se houver mais de um, lista para escolher).
   if (f.cliente && !f.clienteOk) {
