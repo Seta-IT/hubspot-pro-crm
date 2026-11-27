@@ -6,7 +6,7 @@ import type { ErpCatalogItem, ErpCommercialProposal, ErpProposalItem } from '../
 import { formatBRL } from './ui-helpers';
 import { CatalogItemPicker, CATALOG_GRID_INPUT } from './CatalogItemPicker';
 import { catalogPriceFor, isServiceCatalogItem } from '../lib/catalog-search';
-import { inferProposalItemType, PROPOSAL_SERVICE_PILL_OPTIONS, resolveProposalServiceType } from '../lib/proposal-share';
+import { inferProposalItemType, normalizeProposalItemUnit, PROPOSAL_SERVICE_PILL_OPTIONS, resolveProposalServiceType } from '../lib/proposal-share';
 import type { ProposalGridItem } from '../lib/proposal-share';
 
 /**
@@ -73,6 +73,60 @@ export function applyBudgetTypeToItems(
       ...(found && wasCatalogPrice ? { unitPrice: catalogPriceFor(found, 'PRODUCT', rental) } : {}),
     };
   });
+}
+
+/**
+ * Troca o produto/serviço de uma linha já preenchida.
+ * Mantém id, quantidade e desconto. Código, descrição, NCM, unidade e preço vêm do catálogo.
+ */
+export function replaceProposalGridItem(
+  current: ErpProposalItem,
+  found: ErpCatalogItem,
+  opts: {
+    kind: GridKind;
+    budgetType?: ErpCommercialProposal['budgetType'];
+    serviceType?: string;
+  }
+): ErpProposalItem {
+  const quantity = Math.max(1, Number(current.quantity || 1));
+  const discountPercent = Number(current.discountPercent || 0);
+  const discountAmount = Number(current.discountAmount || 0);
+  if (opts.kind === 'PRODUCT') {
+    const rental = isRentalBudget(opts.budgetType);
+    return {
+      ...current,
+      sku: found.gestaoClickCode || '',
+      description: found.name || current.description,
+      itemType: 'PRODUCT',
+      unit: normalizeProposalItemUnit(found.unitOfMeasure, 'PRODUCT'),
+      fiscalNature: rental ? 'LOCACAO_BENS_MOVEIS' : 'VENDA_EQUIPAMENTO',
+      ncmOrServiceCode: found.ncmOrLc116 || current.ncmOrServiceCode,
+      quantity,
+      unitPrice: catalogPriceFor(found, 'PRODUCT', rental),
+      discountPercent,
+      discountAmount,
+      isRecurring: rental,
+    };
+  }
+  const recurring = opts.budgetType !== 'PRODUTOS' && opts.budgetType !== 'SPARE_PARTS';
+  return {
+    ...current,
+    sku: found.gestaoClickCode || '',
+    description: found.name || current.description,
+    itemType: 'SERVICE',
+    unit: normalizeProposalItemUnit(found.unitOfMeasure, 'SERVICE'),
+    fiscalNature:
+      found.fiscalNature === 'SERVICO_COMUNICACAO_SCM_SVA'
+        ? 'SERVICO_COMUNICACAO_SCM_SVA'
+        : 'SERVICO_TECNICO_TI_TELECOM',
+    ncmOrServiceCode: found.ncmOrLc116 || current.ncmOrServiceCode,
+    serviceKind: defaultServiceKind(opts.budgetType, opts.serviceType),
+    quantity,
+    unitPrice: catalogPriceFor(found, 'SERVICE', true),
+    discountPercent,
+    discountAmount,
+    isRecurring: recurring,
+  } as ProposalGridItem;
 }
 
 function skuPrefix(item: ErpProposalItem): string {
@@ -256,16 +310,17 @@ export function ProposalItemsGrid({
                 <React.Fragment key={item.id || idx}>
                   <tr className="border-b border-slate-100">
                     <td className={td}>
-                      <input
-                        type="text"
-                        value={`${skuPrefix(item)}${item.description}`}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          const prefix = skuPrefix(item);
-                          patchRow(idx, { description: prefix && v.startsWith(prefix) ? v.slice(prefix.length) : v });
+                      <CatalogItemPicker
+                        catalog={pool}
+                        testIdPrefix={`proposal-grid-${noun}-row`}
+                        value={`${skuPrefix(item)}${item.description || ''}`}
+                        priceFor={(c) => catalogPriceFor(c, kind, isProduct ? defaultRental : true)}
+                        onAdd={() => undefined}
+                        onSelectItem={(found) => {
+                          const copy = [...items];
+                          copy[idx] = replaceProposalGridItem(item, found, { kind, budgetType, serviceType });
+                          onItemsChange(copy);
                         }}
-                        title={item.description}
-                        className={inputBase}
                       />
                     </td>
                     <td className={td}>

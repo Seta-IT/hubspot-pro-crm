@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import type { ErpCatalogItem } from '../../db/types';
 import { formatBRL } from './ui-helpers';
@@ -24,6 +24,12 @@ export interface CatalogItemPickerProps {
   priceFor: (item: ErpCatalogItem) => number;
   /** Adiciona a linha: item do catálogo, ou null para "Adicionar novo" com o texto digitado. */
   onAdd: (found: ErpCatalogItem | null, freeText: string) => void;
+  /**
+   * Linha já preenchida: o campo mostra este texto e, ao escolher outro item do catálogo,
+   * chama onSelectItem em vez de acrescentar uma linha.
+   */
+  value?: string;
+  onSelectItem?: (item: ErpCatalogItem) => void;
   /** Prefixo dos data-testid (ex.: proposal-grid-produtos, contract-products). */
   testIdPrefix: string;
   placeholder?: string;
@@ -42,16 +48,23 @@ export function CatalogItemPicker({
   catalog,
   priceFor,
   onAdd,
+  value,
+  onSelectItem,
   testIdPrefix,
   placeholder = 'Digite para buscar',
   disabled = false,
   invalid = false,
   maxResults = 8,
 }: CatalogItemPickerProps) {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(value ?? '');
   const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!focused) setQuery(value ?? '');
+  }, [value, focused]);
 
   const matches = useMemo(() => {
     const q = query.trim();
@@ -61,13 +74,24 @@ export function CatalogItemPicker({
   }, [catalog, query, maxResults]);
 
   const add = (found: ErpCatalogItem | null) => {
+    if (found && onSelectItem) {
+      onSelectItem(found);
+      setOpen(false);
+      setFocused(false);
+      setHighlight(0);
+      return;
+    }
     const text = query.trim();
     if (!found && !text) return;
     onAdd(found, text);
-    setQuery('');
+    setQuery(value ?? '');
     setOpen(false);
     setHighlight(0);
     setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const keepOpenOnTouch = (e: React.PointerEvent | React.MouseEvent) => {
+    e.preventDefault();
   };
 
   return (
@@ -83,8 +107,18 @@ export function CatalogItemPicker({
         role="combobox"
         aria-expanded={open}
         aria-autocomplete="list"
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onFocus={() => {
+          setFocused(true);
+          setOpen(true);
+          requestAnimationFrame(() => inputRef.current?.select());
+        }}
+        onBlur={() =>
+          setTimeout(() => {
+            setOpen(false);
+            setFocused(false);
+            if (value !== undefined) setQuery(value);
+          }, 200)
+        }
         onChange={(e) => {
           setQuery(e.target.value);
           setHighlight(0);
@@ -120,7 +154,8 @@ export function CatalogItemPicker({
               <li key={c.id || c.gestaoClickCode} role="option" aria-selected={i === highlight}>
                 <button
                   type="button"
-                  onMouseDown={(e) => e.preventDefault()}
+                  onPointerDown={keepOpenOnTouch}
+                  onMouseDown={keepOpenOnTouch}
                   onMouseEnter={() => setHighlight(i)}
                   onClick={() => add(c)}
                   className={`w-full text-left px-3 py-1.5 cursor-pointer ${
@@ -141,10 +176,12 @@ export function CatalogItemPicker({
               </li>
             ))}
           </ul>
+          {!onSelectItem && (
           <div className="p-1.5 border-t border-slate-100">
             <button
               type="button"
-              onMouseDown={(e) => e.preventDefault()}
+              onPointerDown={keepOpenOnTouch}
+              onMouseDown={keepOpenOnTouch}
               onClick={() => add(null)}
               disabled={!query.trim()}
               className="w-full inline-flex items-center justify-center gap-1 h-8 rounded-[3px] bg-[#28a745] hover:bg-[#218838] disabled:opacity-60 text-white text-[12px] font-semibold cursor-pointer"
@@ -152,6 +189,7 @@ export function CatalogItemPicker({
               <Plus className="w-3.5 h-3.5" /> Adicionar novo
             </button>
           </div>
+          )}
         </div>
       )}
     </div>
