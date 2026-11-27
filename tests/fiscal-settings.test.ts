@@ -96,7 +96,8 @@ describe('Configurações Fiscais — ambiente padrão HOMOLOGAÇÃO', () => {
     assert.equal(v.nfse.specialRegime, 'MEEPP');
     assert.match(v.nfe.additionalInfo, /optante pelo simples nacional/i);
     assert.equal(v.certificate.status, 'NAO_CONFIGURADO');
-    assert.equal(v.certificate.uploadEnabled, false);
+    assert.equal(v.certificate.uploadEnabled, true, 'upload na tela Configurações > Certificado digital');
+    assert.match(String((v.certificate as { note?: string }).note), /Certificado digital/);
     assert.equal(v.emitter.readOnly, true);
     assert.equal(v.emitter.taxRegimeNote, 'aguardando confirmação');
     assert.match(v.productionWarning, /ERP de origem deve PARAR de emitir na mesma série/);
@@ -271,8 +272,10 @@ describe('Configurações Fiscais — validação zod e campos protegidos', () =
     const tab = fs.readFileSync(path.join(ROOT, 'src/app/components/ErpGestaoClickTab.tsx'), 'utf8');
     assert.match(tab, /activeSubId === "FIS_CONFIGURACOES"/);
     const panel = fs.readFileSync(path.join(ROOT, 'src/app/components/FiscalSettingsPanel.tsx'), 'utf8');
-    assert.match(panel, /Em breve/);
-    assert.match(panel, /disabled aria-disabled/);
+    // certificado: status lido da tela própria (GET /api/erp/certificate) + atalho para ela; sem upload aqui
+    assert.match(panel, /CERT_A1_ENDPOINT/);
+    assert.match(panel, /Abrir Certificado digital/);
+    assert.equal(/pfxBase64/.test(panel), false);
     const router = fs.readFileSync(path.join(ROOT, 'src/api/router.ts'), 'utf8');
     assert.equal(/typeof body\._sessionToken/.test(router), false);
   });

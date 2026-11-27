@@ -1466,6 +1466,84 @@ export interface ErpTaxBreakdown {
   legalExemptionNotice: string;
 }
 
+/** Metadados da NF-e de produtos (modelo 55) cadastrada no ERP — padrão do emissor GestaoClick. */
+export interface ErpProductNfeMetadata {
+  environment: FiscalEnvironment;
+  modelo: '55';
+  serie: string;
+  nNF: number;
+  accessKey: string;
+  cNF: string;
+  cDV: string;
+  dhEmi: string;
+  /** CRT derivado do regime CONFIGURADO no momento do cadastro (1 = Simples Nacional, 3 = normal). */
+  crt: '1' | '3';
+  taxRegime: ErpTaxRegime;
+  /** Formulário validado (dados gerais, destinatário, produtos, transporte, totais, informações adicionais). */
+  form: Record<string, unknown>;
+  totals: {
+    vProd: number;
+    vDesc: number;
+    vFrete: number;
+    vSeg: number;
+    vOutro: number;
+    vBC: number;
+    vICMS: number;
+    vIPI: number;
+    vPIS: number;
+    vCOFINS: number;
+    vNF: number;
+    vTotTrib: number;
+  };
+  warnings: string[];
+  /** XML NF-e 4.00 de rascunho (sem assinatura, sem protocolo). */
+  xmlContent: string;
+  createdBy: string;
+  /** Transmissão à SEFAZ-SP (somente HOMOLOGAÇÃO). Ausente = nunca transmitida. */
+  sefaz?: ErpProductNfeSefazState;
+}
+
+export type ErpProductNfeSefazStatus = 'AUTORIZADA' | 'DENEGADA' | 'REJEITADA' | 'EM_PROCESSAMENTO' | 'ERRO' | 'CANCELADA';
+
+export interface ErpProductNfeSefazEvent {
+  kind: 'CANCELAMENTO' | 'CCE';
+  tpEvento: string;
+  nSeqEvento: number;
+  cStat: string;
+  xMotivo: string;
+  nProt: string;
+  dhRegEvento: string;
+  registered: boolean;
+  /** procEventoNFe (evento assinado + retEvento), só quando registrado. */
+  procXml: string;
+  at: string;
+  by: string;
+}
+
+/** Estado da NF-e na SEFAZ (homologação). XML assinado e nfeProc ficam aqui; nunca a chave privada. */
+export interface ErpProductNfeSefazState {
+  environment: 'HOMOLOGACAO';
+  status: ErpProductNfeSefazStatus;
+  accessKey: string;
+  cNF: string;
+  cDV: string;
+  dhEmi: string;
+  cStat: string;
+  xMotivo: string;
+  message: string;
+  nRec: string;
+  nProt: string;
+  dhRecbto: string;
+  /** NF-e assinada enviada (sem protocolo). */
+  signedXml: string;
+  /** nfeProc (NF-e + protNFe) quando autorizada/denegada. */
+  nfeProcXml: string;
+  attempts: number;
+  lastAttemptAt: string;
+  lastAttemptBy: string;
+  events: ErpProductNfeSefazEvent[];
+}
+
 export interface ErpFiscalInvoice {
   id: string;
   documentNumber: string;
@@ -1481,8 +1559,11 @@ export interface ErpFiscalInvoice {
   grossAmount: number;
   discountAmount: number;
   netAmount: number;
-  /** ENTRADA_REGISTRADA: nota fiscal de entrada (importação / retorno de locação), sem cobrança ou liquidação própria */
-  status: 'EMITIDA' | 'PAGA' | 'VENCIDA' | 'CANCELADA' | 'ENTRADA_REGISTRADA';
+  /**
+   * ENTRADA_REGISTRADA: nota fiscal de entrada (importação / retorno de locação), sem cobrança ou liquidação própria.
+   * RASCUNHO: NF-e de produtos cadastrada no ERP e ainda não transmitida à SEFAZ (sem financeiro, sem validade fiscal).
+   */
+  status: 'EMITIDA' | 'PAGA' | 'VENCIDA' | 'CANCELADA' | 'ENTRADA_REGISTRADA' | 'RASCUNHO';
   issueDate: string;
   dueDate: string;
   paidAt: string | null;
@@ -1505,6 +1586,8 @@ export interface ErpFiscalInvoice {
   }>;
   taxBreakdown: ErpTaxBreakdown;
   importMetadata?: ErpImportNfeMetadata;
+  /** NF-e de produtos (Fiscal > Notas de produtos): formulário, numeração por ambiente e XML de rascunho. */
+  productNfe?: ErpProductNfeMetadata;
   // Campos propagados do Contrato GestaoClick, Pedido do Cliente (PO) e Medicao (BM)
   contractNumber?: string | null;
   externalContractNumber?: string | null;
@@ -2029,11 +2112,12 @@ export type NfseSpecialRegime =
 export type NfseTaxApportionment = '' | 'SN_FEDERAIS_E_MUNICIPAL' | 'SN_FEDERAIS_ISSQN_FORA' | 'FORA_DO_SN';
 
 export interface FiscalDigitalCertificateInfo {
-  /** Upload ainda não disponível: nenhum .pfx nem senha é armazenado. */
+  /** Resumo nas Configurações Fiscais; o .pfx/senha ficam só no cofre de /api/erp/certificate (cifrados). */
   status: 'NAO_CONFIGURADO' | 'VALIDO' | 'VENCIDO';
   validUntil: string | null;
   certificateCnpj: string | null;
-  uploadEnabled: false;
+  /** Persistido sempre false (nada de .pfx aqui); a visão do GET devolve true: o upload é na tela própria. */
+  uploadEnabled: boolean;
 }
 
 export interface FiscalDocumentSettings {

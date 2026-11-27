@@ -3,7 +3,7 @@
 // ============================================================================
 // ERP > Fiscal > Configurações fiscais
 // Espelho da tela "Configurações > Fiscal" do GestaoClick: NF-e, NFC-e, NFS-e, autorização de
-// download do XML e certificado digital (upload "em breve").
+// download do XML e status do certificado digital (o envio fica em Configurações > Certificado digital).
 //  - Ambiente padrão: HOMOLOGAÇÃO. Produção exige confirmação explícita (modal) e alçada fiscal.
 //  - O CSC nunca chega em claro do servidor: só a máscara. Para trocar, digite um novo.
 //  - Emitente (CNPJ e regime) é só leitura; regime "aguardando confirmação".
@@ -36,6 +36,18 @@ import {
   normalizeCpfOrCnpj,
   type FiscalSettingsView,
 } from '../../modules/erp/fiscal-settings';
+import {
+  CERT_A1_ENDPOINT,
+  certificateErrorMessage,
+  certificateStatusBadge,
+  formatCertificateDate,
+  formatCnpj,
+  formatDaysToExpire,
+  readCertificateData,
+  readCertificateError,
+  shouldHideCertificateSection,
+  type CertificateA1Metadata,
+} from '../lib/certificate-a1-client';
 
 type DocKey = 'nfe' | 'nfce' | 'nfse';
 
@@ -231,7 +243,36 @@ function Card({ icon, title, subtitle, env, children }: { icon: React.ReactNode;
   );
 }
 
-export default function FiscalSettingsPanel({ onShowToast }: { onShowToast: (msg: string) => void }) {
+type CertState =
+  | { kind: 'loading' }
+  | { kind: 'hidden' }
+  | { kind: 'error'; message: string }
+  | { kind: 'ok'; meta: CertificateA1Metadata | null };
+
+export default function FiscalSettingsPanel({
+  onShowToast,
+  onOpenCertificate,
+}: {
+  onShowToast: (msg: string) => void;
+  /** Abre Configurações > Certificado digital (CFG_CERTIFICADO). */
+  onOpenCertificate?: () => void;
+}) {
+  const [certState, setCertState] = useState<CertState>({ kind: 'loading' });
+  useEffect(() => {
+    let alive = true;
+    fetch(CERT_A1_ENDPOINT, { method: 'GET', cache: 'no-store', credentials: 'same-origin' })
+      .then(async (res) => {
+        const j = await res.json().catch(() => null);
+        if (!alive) return;
+        if (shouldHideCertificateSection(res.status)) setCertState({ kind: 'hidden' });
+        else if (!res.ok) setCertState({ kind: 'error', message: certificateErrorMessage(res.status, readCertificateError(j).code) });
+        else setCertState({ kind: 'ok', meta: readCertificateData(j) });
+      })
+      .catch(() => alive && setCertState({ kind: 'error', message: certificateErrorMessage(0) }));
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [view, setView] = useState<FiscalSettingsView | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -590,30 +631,47 @@ export default function FiscalSettingsPanel({ onShowToast }: { onShowToast: (msg
         </div>
       </Card>
 
-      {/* Certificado digital (somente modelo de dados; upload em breve) */}
-      <Card icon={<KeyRound className="w-5 h-5" />} title={<>Certificado <span className="text-[#1e3a6e]">digital</span></>} subtitle="Certificado A1 (.pfx) usado para assinar as notas.">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-          <div>
-            <p className={labelCls}>Status</p>
-            <p className="font-semibold text-slate-800 flex items-center gap-1">
-              {view.certificate.status === 'VALIDO' ? <ShieldCheck className="w-4 h-4 text-emerald-600" /> : <ShieldAlert className="w-4 h-4 text-slate-400" />}
-              {view.certificate.status === 'VALIDO' ? 'Válido' : view.certificate.status === 'VENCIDO' ? 'Vencido' : 'Não configurado'}
-            </p>
+      {/* Certificado digital: status lido da tela própria (Configurações > Certificado digital, GET /api/erp/certificate) */}
+      <Card icon={<KeyRound className="w-5 h-5" />} title={<>Certificado <span className="text-[#1e3a6e]">digital</span></>} subtitle="Certificado A1 (.pfx) usado para assinar as notas. O envio do arquivo e da senha fica na tela própria, com armazenamento cifrado.">
+        {certState.kind === 'loading' ? (
+          <p className="text-xs text-slate-500">Consultando o certificado…</p>
+        ) : certState.kind === 'hidden' ? (
+          <p className="text-xs text-slate-500 flex items-center gap-1"><Lock className="w-3.5 h-3.5" /> Seu perfil não tem acesso ao certificado digital.</p>
+        ) : certState.kind === 'error' ? (
+          <p className="text-xs text-rose-600 flex items-center gap-1"><ShieldAlert className="w-3.5 h-3.5" /> {certState.message}</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+            <div>
+              <p className={labelCls}>Status</p>
+              {certState.meta?.present ? (
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] font-semibold ${certificateStatusBadge(certState.meta.status).className}`}>
+                  <ShieldCheck className="w-3.5 h-3.5" /> {certificateStatusBadge(certState.meta.status).label}
+                </span>
+              ) : (
+                <p className="font-semibold text-slate-800 flex items-center gap-1"><ShieldAlert className="w-4 h-4 text-slate-400" /> Não configurado</p>
+              )}
+            </div>
+            <div>
+              <p className={labelCls}>Validade</p>
+              <p className="font-semibold text-slate-800">{certState.meta?.present ? `${formatCertificateDate(certState.meta.notAfter)} (${formatDaysToExpire(certState.meta.daysToExpire)})` : '—'}</p>
+            </div>
+            <div>
+              <p className={labelCls}>CNPJ do certificado</p>
+              <p className="font-semibold text-slate-800">{certState.meta?.present && certState.meta.cnpj ? formatCnpj(certState.meta.cnpj) : '—'}</p>
+            </div>
+            <div>
+              <p className={labelCls}>Emissor</p>
+              <p className="font-semibold text-slate-800 truncate" title={certState.meta?.issuer || ''}>{certState.meta?.present ? certState.meta.issuer || '—' : '—'}</p>
+            </div>
           </div>
-          <div>
-            <p className={labelCls}>Validade</p>
-            <p className="font-semibold text-slate-800">{view.certificate.validUntil ? new Date(view.certificate.validUntil).toLocaleDateString('pt-BR') : '—'}</p>
-          </div>
-          <div>
-            <p className={labelCls}>CNPJ do certificado</p>
-            <p className="font-semibold text-slate-800">{view.certificate.certificateCnpj ? formatCpfOrCnpj(view.certificate.certificateCnpj) : '—'}</p>
-          </div>
-        </div>
+        )}
         <div className="mt-4 flex items-center gap-3">
-          <button type="button" disabled aria-disabled className="px-3 py-1.5 rounded border border-slate-300 bg-slate-100 text-slate-400 text-xs font-semibold cursor-not-allowed">
-            Enviar certificado (.pfx)
-          </button>
-          <span className="text-[11px] font-semibold text-slate-500">Em breve. Nenhum arquivo .pfx ou senha é armazenado nesta versão.</span>
+          {onOpenCertificate ? (
+            <button type="button" onClick={onOpenCertificate} className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-[#1e3a6e] text-[#1e3a6e] text-xs font-semibold hover:bg-slate-50">
+              <KeyRound className="w-3.5 h-3.5" /> Abrir Certificado digital
+            </button>
+          ) : null}
+          <span className="text-[11px] text-slate-500">Configurações &gt; Certificado digital: o .pfx e a senha ficam cifrados no servidor; esta tela só lê o status.</span>
         </div>
       </Card>
 

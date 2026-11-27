@@ -310,7 +310,37 @@ import {
 import { bodyExceedsMaxBytes, bodyExceedsMaxDepth, deepRedactProposalLinkTokens, hasDangerousBodyKey, MAX_BODY_DEPTH, redactProposalLinkTokens } from '../app/lib/proposal-link-redact';
 import { requestBodyCapFor } from '../app/lib/request-body-cap';
 import { auditCertificateMutationDenied, CERT_UPLOAD_FAILURE_LIMIT, handleCertificateRoute, isCertificateMutation, isCertificateRoute } from './certificate-routes';
-import { type CertificateStore, getDefaultCertificateStore, MemoryCertificateStore, PostgresCertificateStore } from '../modules/erp/certificate-a1';
+import {
+  type CertificateStore,
+  CertEncKeyMissingError,
+  CertValidationError,
+  getDefaultCertificateStore,
+  loadCertificateForSigning,
+  MemoryCertificateStore,
+  PostgresCertificateStore,
+} from '../modules/erp/certificate-a1';
+import { z } from 'zod';
+import type { ErpProductNfeSefazState } from '../db/types';
+import { SEFAZ_INUTILIZACAO_DISABLED_MESSAGE, SefazProductionBlockedError } from '../modules/erp/sefaz/sefaz-config';
+import { buildMtlsAgentOptions, createHttpsTransport, SefazTransportError, type SoapTransport } from '../modules/erp/sefaz/sefaz-soap-client';
+import {
+  consultProductNfe,
+  type EmitterSources,
+  SefazPreconditionError,
+  type SefazDeps,
+  sefazServiceStatus,
+  sendProductNfeEvent,
+  transmitProductNfe,
+} from '../modules/erp/sefaz/nfe-sefaz-service';
+import type { SigningMaterial } from '../modules/erp/sefaz/xml-signer';
+
+/** Opções da integração SEFAZ (testes injetam o transporte; nunca há rede real na suíte). */
+export interface SefazRouterOptions {
+  transportFactory?: (material: SigningMaterial) => SoapTransport;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => Date;
+  retAutorizacaoDelayMs?: number;
+}
 import { toPublicProposalDto } from '../app/lib/proposal-public-dto';
 import { toInternalProposalSummary } from '../app/lib/internal-proposal-summary';
 import { toPublicInvoiceDto } from '../app/lib/invoice-public-dto';
@@ -362,6 +392,7 @@ import {
   parseImportFileToSebraeDraft,
   RawImportItemDraft,
   utf8ByteLength,
+  type DraftEmitterAddress,
 } from '../modules/erp/sebrae-nfe-import-engine';
 import { validateImportNfeRequest } from '../modules/erp/nfe-import-validation';
 import {
@@ -371,6 +402,7 @@ import {
   parseFiscalSettingsUpdate,
   toFiscalSettingsView,
 } from '../modules/erp/fiscal-settings';
+import { crtFromRegime, validateProductNfeDraft } from '../modules/erp/product-nfe-engine';
 import { ErpImportDeclarationInfo } from '../db/types';
 import type { ErpCommercialProposal, ErpServiceOrder } from '../db/types';
 import {
@@ -1212,7 +1244,7 @@ export class CrmApiRouter {
 
   constructor(
     repo?: CrmRepository,
-    options?: { certificateStore?: CertificateStore; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike; marketing?: MarketingRouterOptions; workflows?: WorkflowsRouterOptions; signalStore?: SignalStore; enterprise?: { experiments?: ExperimentStore; ai?: AiSuggestionStore; llm?: LlmClient | null } }
+    options?: { certificateStore?: CertificateStore; sefaz?: SefazRouterOptions; mailboxStore?: MailboxStore; mailboxFetch?: FetchLike; marketing?: MarketingRouterOptions; workflows?: WorkflowsRouterOptions; signalStore?: SignalStore; enterprise?: { experiments?: ExperimentStore; ai?: AiSuggestionStore; llm?: LlmClient | null } }
   ) {
     this.isSingletonRepo = !repo;
     this.repo = repo || getRepository();
@@ -1229,7 +1261,11 @@ export class CrmApiRouter {
     this.experimentStore = options?.enterprise?.experiments || (!repo ? getDefaultExperimentStore() : new MemoryExperimentStore());
     this.aiSuggestionStore = options?.enterprise?.ai || (!repo ? getDefaultAiSuggestionStore() : new MemoryAiSuggestionStore());
     this.injectedLlm = options?.enterprise?.llm;
+    this.sefazOptions = options?.sefaz || {};
   }
+
+  /** SEFAZ: transporte/relógio injetáveis (testes). Padrão: https mTLS real, só homologação. */
+  private readonly sefazOptions: SefazRouterOptions;
 
   /** Fase 6: testes A/B, sugestoes de IA (aprovacao humana) e cliente do provedor de IA. */
   private readonly experimentStore: ExperimentStore;
@@ -3022,6 +3058,107 @@ export class CrmApiRouter {
     return { ...fiscal, allowed: admin };
   }
 
+  /** SEFAZ: operações em andamento por NF-e (evita envio duplicado no mesmo processo). */
+  private static sefazInFlight = new Set<string>();
+
+  /** Fontes do emitente para a SEFAZ: Configurações (CNPJ/IE/regime) + Dados da Empresa (endereço). */
+  private sefazEmitterSources(): EmitterSources {
+    const gc = this.repo.getErpOverview().gestaoClickConfig;
+    return {
+      gc: { companyLegalName: gc.companyLegalName, companyCnpj: gc.companyCnpj, stateRegistration: gc.stateRegistration, taxRegime: gc.taxRegime },
+      company: this.companyEmitter ? { ...this.companyEmitter } : null,
+    };
+  }
+
+  /** Endereço do emitente para os rascunhos (Configurações > Empresa) — sem valores padrão inventados. */
+  private draftEmitterAddress(): DraftEmitterAddress {
+    const c = this.companyEmitter;
+    return {
+      tradeName: c.tradeName,
+      street: c.addressStreet,
+      number: c.addressNumber,
+      complement: c.addressComplement,
+      district: c.neighborhood,
+      cityIbge: c.ibgeCode,
+      cityName: c.city,
+      uf: c.state,
+      cep: c.cep,
+      phone: c.phone,
+    };
+  }
+
+  /** Dependências da SEFAZ: certificado A1 decifrado só em memória; transporte mTLS real (ou injetado). */
+  private sefazDeps(): SefazDeps {
+    const opts = this.sefazOptions;
+    return {
+      loadCertificate: async () => {
+        const c = await loadCertificateForSigning(this.certificateStore);
+        return c ? { certificatePem: c.certificatePem, privateKeyPem: c.privateKeyPem, meta: { cnpj: c.meta.cnpj, notAfter: c.meta.notAfter } } : null;
+      },
+      transportFactory: opts.transportFactory || ((m) => createHttpsTransport(buildMtlsAgentOptions(m))),
+      ...(opts.sleep ? { sleep: opts.sleep } : {}),
+      ...(opts.now ? { now: opts.now } : {}),
+      ...(opts.retAutorizacaoDelayMs !== undefined ? { retAutorizacaoDelayMs: opts.retAutorizacaoDelayMs } : {}),
+    };
+  }
+
+  /** Erros da camada SEFAZ => resposta HTTP (sem stack, sem XML, sem dado do certificado). */
+  private sefazErrorResponse(
+    e: unknown,
+    method: string,
+    cleanPath: string,
+    query: Record<string, string | undefined>,
+    priv: { email?: string; name?: string; roleId?: string },
+    nNF: number | null
+  ): ApiResponse {
+    let status = 502;
+    let code = 'SEFAZ_ERROR';
+    let error = 'Falha na comunicação com a SEFAZ.';
+    let details: string[] | undefined;
+    if (e instanceof SefazProductionBlockedError) {
+      status = 403;
+      code = e.code;
+      error = e.message;
+    } else if (e instanceof SefazPreconditionError) {
+      status = e.httpStatus;
+      code = e.code;
+      error = e.message;
+      details = e.details.length ? e.details : undefined;
+    } else if (e instanceof CertEncKeyMissingError) {
+      status = 503;
+      code = e.code;
+      error = e.message;
+    } else if (e instanceof CertValidationError) {
+      status = 409;
+      code = e.code;
+      error = 'Certificado digital A1 inválido ou vencido.';
+    } else if (e instanceof SefazTransportError) {
+      status = e.code === 'SEFAZ_TIMEOUT' ? 504 : 502;
+      code = e.code;
+      error = e.message;
+    } else if (e instanceof Error && /^(XML_SIGNATURE_ERROR|SEFAZ_MESSAGE_INVALID)$/.test(String((e as { code?: string }).code))) {
+      status = 422;
+      code = String((e as { code?: string }).code);
+      error = e.message;
+    }
+    try {
+      this.repo.appendSecurityAuditLog({
+        actorEmail: priv.email || 'sistema',
+        actorName: priv.name || 'Sistema STI-hub',
+        actorRole: priv.roleId || 'SISTEMA',
+        action: status === 403 ? 'ERP_SEFAZ_PRODUCTION_BLOCKED' : 'ERP_PRODUCT_NFE_SEFAZ',
+        module: 'ERP',
+        resource: `${method} ${cleanPath}`.slice(0, 200),
+        status: status === 403 ? 'BLOCKED' : 'WARNING',
+        ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+        details: `SEFAZ ${nNF !== null ? `NF-e ${nNF} ` : ''}${code}: ${error}`.slice(0, 500),
+      });
+    } catch {
+      // auditoria nunca derruba a resposta
+    }
+    return { status, body: { error, code, ...(details ? { details } : {}) } };
+  }
+
   /** Pacote K (D-I2): negativa de emissao fiscal (403/401) sempre auditada como ERP_FISCAL_ISSUANCE_DENIED. */
   private denyFiscalIssuance(
     method: string,
@@ -3169,6 +3306,8 @@ export class CrmApiRouter {
       ) reason = 'emissao direta';
       else if (cleanPath === '/api/erp/rental-contracts/batch-billing') reason = 'faturamento em lote';
       else if (cleanPath === '/api/erp/nfe-importacao/emit') reason = 'NF-e de importacao';
+      else if (cleanPath === '/api/erp/nfe-produtos') reason = 'NF-e de produtos (rascunho)';
+      else if (/^\/api\/erp\/nfe-produtos\/[^/]+\/sefaz\/(?:transmitir|consultar|cancelar|carta-correcao)$/.test(cleanPath)) reason = 'NF-e de produtos na SEFAZ (homologacao)';
       else if (
         /^\/api\/erp\/(?:rental-contracts|contracts)\/[^/]+\/partial-return$/.test(cleanPath) &&
         (b.emitReturnNfe !== false || b.emitProRataInvoice !== false)
@@ -9487,6 +9626,243 @@ export class CrmApiRouter {
         }
       }
 
+      // ======================================================================
+      // NF-e DE PRODUTOS (Fiscal > Notas de produtos) — padrão do emissor GestaoClick
+      //  - GET  /api/erp/nfe-produtos/context: ambiente, série/próximo número, regime CONFIGURADO
+      //  - POST /api/erp/nfe-produtos: zod .strict(); alçada fiscal (canIssueFiscalDocuments + 2FA);
+      //         grava RASCUNHO no ambiente das Configurações Fiscais (padrão HOMOLOGAÇÃO)
+      //  - DELETE /api/erp/nfe-produtos/:id: só rascunho
+      //  Sessão só por query (_sessionToken). Nenhuma chamada à SEFAZ.
+      // ======================================================================
+      if (cleanPath === '/api/erp/nfe-produtos/context' && method === 'GET') {
+        const npSess = ctx.trustedInternal || !query._sessionToken ? null : this.repo.resolveSessionFromToken(query._sessionToken);
+        if (!ctx.trustedInternal && !(npSess && npSess.authenticated)) {
+          return { status: 401, body: { error: 'Sessão obrigatória para a NF-e de produtos.', code: 'PRODUCT_NFE_AUTH_REQUIRED' } };
+        }
+        const fsSettings = this.repo.getFiscalDocumentSettings();
+        const env = fsSettings.nfe.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
+        const serie = fsSettings.nfe.serie || '1';
+        const gc = this.repo.getErpOverview().gestaoClickConfig;
+        const priv = this.fiscalIssuancePrivilege(query, ctx);
+        return {
+          status: 200,
+          body: {
+            data: {
+              environment: env,
+              serie,
+              nextNumber: this.repo.peekNextFiscalNumber('55', serie, env),
+              taxRegime: gc.taxRegime,
+              crt: crtFromRegime(gc.taxRegime),
+              emitterUf: 'SP',
+              additionalInfo: fsSettings.nfe.additionalInfo || '',
+              canIssue: priv.allowed,
+              sefazIntegration: false,
+            },
+          },
+        };
+      }
+
+      if (cleanPath === '/api/erp/nfe-produtos' && method === 'POST') {
+        const npPriv = this.fiscalIssuancePrivilege(query, ctx);
+        if (!npPriv.allowed) return this.denyFiscalIssuance(method, cleanPath, query, npPriv, 'NF-e de produtos (rascunho)');
+        const validated = validateProductNfeDraft(body);
+        if (!validated.ok) {
+          return { status: 400, body: { error: validated.error, code: 'PRODUCT_NFE_INVALID_INPUT', issues: validated.issues } };
+        }
+        const actor = npPriv.email || this.sessionActorName(query) || 'sistema';
+        await this.ensureCompanyEmitterHydrated();
+        const created = this.repo.createProductNfeDraft(validated.data, actor, this.draftEmitterAddress());
+        if (!created.ok) {
+          return {
+            status: 409,
+            body: {
+              error: `O número ${validated.data.general.number} da série ${created.serie} já foi usado em ${created.environment === 'PRODUCAO' ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}. Próximo disponível: ${created.nextAvailable}.`,
+              code: 'PRODUCT_NFE_NUMBER_IN_USE',
+              nextAvailable: created.nextAvailable,
+            },
+          };
+        }
+        const pn = created.invoice.productNfe!;
+        try {
+          this.repo.appendSecurityAuditLog({
+            actorEmail: npPriv.email || 'sistema',
+            actorName: npPriv.name || 'Sistema STI-hub',
+            actorRole: npPriv.roleId || 'SISTEMA',
+            action: 'ERP_PRODUCT_NFE_DRAFT_CREATED',
+            module: 'ERP',
+            resource: `POST ${cleanPath}`,
+            status: 'SUCCESS',
+            ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+            details: `NF-e ${pn.nNF} série ${pn.serie} gravada como RASCUNHO em ${pn.environment} (CRT ${pn.crt}, vNF ${pn.totals.vNF.toFixed(2)}). Sem transmissão à SEFAZ.`,
+          });
+        } catch {
+          // auditoria nunca derruba a resposta
+        }
+        return { status: 201, body: { data: created.invoice, warnings: pn.warnings } };
+      }
+
+      // ======================================================================
+      // NF-e DE PRODUTOS NA SEFAZ-SP — SOMENTE HOMOLOGAÇÃO (tpAmb=2)
+      //  - GET  /api/erp/sefaz/nfe/status                       NFeStatusServico4
+      //  - POST /api/erp/nfe-produtos/:id/sefaz/transmitir       NFeAutorizacao4 (indSinc=1) + fallback RetAutorizacao
+      //  - POST /api/erp/nfe-produtos/:id/sefaz/consultar        NFeConsultaProtocolo4
+      //  - POST /api/erp/nfe-produtos/:id/sefaz/cancelar         evento 110111
+      //  - POST /api/erp/nfe-produtos/:id/sefaz/carta-correcao   evento 110110
+      //  - GET  /api/erp/nfe-produtos/:id/sefaz/xml              nfeProc (ou NF-e assinada)
+      //  - POST /api/erp/nfe-produtos/sefaz/inutilizar           410 (descontinuada em SP em 11/11/2026)
+      //  Alçada fiscal (canIssueFiscalDocuments + 2FA), sessão só por query, auditoria de tudo.
+      //  PRODUÇÃO bloqueada no código (SefazProductionBlockedError => 403).
+      // ======================================================================
+      if (cleanPath === '/api/erp/nfe-produtos/sefaz/inutilizar' && method === 'POST') {
+        const inPriv = this.fiscalIssuancePrivilege(query, ctx);
+        if (!inPriv.allowed) return this.denyFiscalIssuance(method, cleanPath, query, inPriv, 'inutilizacao NF-e');
+        return { status: 410, body: { error: SEFAZ_INUTILIZACAO_DISABLED_MESSAGE, code: 'SEFAZ_INUTILIZACAO_DISCONTINUED' } };
+      }
+      if (cleanPath === '/api/erp/sefaz/nfe/status' && method === 'GET') {
+        const stPriv = this.fiscalIssuancePrivilege(query, ctx);
+        if (!stPriv.allowed) return this.denyFiscalIssuance(method, cleanPath, query, stPriv, 'status SEFAZ');
+        await this.ensureCompanyEmitterHydrated();
+        try {
+          const st = await sefazServiceStatus(
+            { currentEnvironment: this.repo.getFiscalDocumentSettings().nfe.environment, emitterSources: this.sefazEmitterSources() },
+            this.sefazDeps()
+          );
+          return { status: 200, body: { data: { ...st, environment: 'HOMOLOGACAO', uf: 'SP' } } };
+        } catch (e) {
+          return this.sefazErrorResponse(e, method, cleanPath, query, stPriv, null);
+        }
+      }
+      const sefazMatch = cleanPath.match(/^\/api\/erp\/nfe-produtos\/([^/]+)\/sefaz\/(transmitir|consultar|cancelar|carta-correcao|xml)$/);
+      if (sefazMatch && ((sefazMatch[2] === 'xml' && method === 'GET') || (sefazMatch[2] !== 'xml' && method === 'POST'))) {
+        const action = sefazMatch[2];
+        const sfPriv = this.fiscalIssuancePrivilege(query, ctx);
+        if (!sfPriv.allowed) return this.denyFiscalIssuance(method, cleanPath, query, sfPriv, `NF-e SEFAZ (${action})`);
+        const sfId = decodeURIComponent(sefazMatch[1]);
+        const inv = this.repo.getProductNfeInvoice(sfId);
+        if (!inv) return { status: 404, body: { error: 'NF-e de produtos não encontrada.', code: 'PRODUCT_NFE_NOT_FOUND' } };
+        if (action === 'xml') {
+          const sz = inv.productNfe!.sefaz;
+          const xml = sz?.nfeProcXml || sz?.signedXml || '';
+          if (!xml) return { status: 404, body: { error: 'A NF-e ainda não foi transmitida.', code: 'PRODUCT_NFE_NOT_TRANSMITTED' } };
+          return { status: 200, body: { data: { accessKey: sz!.accessKey, kind: sz!.nfeProcXml ? 'nfeProc' : 'NFe', status: sz!.status, xml } } };
+        }
+        const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+        const bodySchema =
+          action === 'transmitir'
+            ? z.object({ incluirIbsCbs: z.boolean().optional().default(false) }).strict()
+            : action === 'cancelar'
+              ? z.object({ justificativa: z.string().min(15, 'Justificativa: mínimo de 15 caracteres.').max(255) }).strict()
+              : action === 'carta-correcao'
+                ? z.object({ correcao: z.string().min(15, 'Correção: mínimo de 15 caracteres.').max(1000) }).strict()
+                : z.object({}).strict();
+        const parsedBody = bodySchema.safeParse(b);
+        if (!parsedBody.success) {
+          return { status: 400, body: { error: parsedBody.error.issues.map((i) => `${i.path.join('.') || 'corpo'}: ${i.message}`).join('; ').slice(0, 500), code: 'SEFAZ_INVALID_INPUT' } };
+        }
+        const pb = parsedBody.data as { incluirIbsCbs?: boolean; justificativa?: string; correcao?: string };
+        if (CrmApiRouter.sefazInFlight.has(sfId)) {
+          return { status: 409, body: { error: 'Já há uma operação SEFAZ em andamento para esta NF-e.', code: 'SEFAZ_OPERATION_IN_PROGRESS' } };
+        }
+        CrmApiRouter.sefazInFlight.add(sfId);
+        const actor = sfPriv.email || this.sessionActorName(query) || 'sistema';
+        try {
+          await this.ensureCompanyEmitterHydrated();
+          const common = {
+            invoice: inv,
+            currentEnvironment: this.repo.getFiscalDocumentSettings().nfe.environment,
+            emitterSources: this.sefazEmitterSources(),
+            actor,
+          };
+          let state: ErpProductNfeSefazState;
+          let message: string;
+          let extra: Record<string, unknown> = {};
+          if (action === 'transmitir') {
+            const out = await transmitProductNfe({ ...common, ibsCbs: pb.incluirIbsCbs ? { enabled: true } : null }, this.sefazDeps());
+            state = out.state;
+            message = out.result.message;
+          } else if (action === 'consultar') {
+            const out = await consultProductNfe(common, this.sefazDeps());
+            state = out.state;
+            message = out.message;
+          } else {
+            const out = await sendProductNfeEvent(
+              { ...common, kind: action === 'cancelar' ? 'CANCELAMENTO' : 'CCE', xJust: pb.justificativa, xCorrecao: pb.correcao },
+              this.sefazDeps()
+            );
+            state = out.state;
+            message = `${out.event.cStat} — ${out.event.xMotivo}`;
+            extra = { event: { ...out.event, procXml: undefined, hasProcXml: Boolean(out.event.procXml) } };
+          }
+          const saved = this.repo.setProductNfeSefazState(sfId, state);
+          try {
+            this.repo.appendSecurityAuditLog({
+              actorEmail: sfPriv.email || 'sistema',
+              actorName: sfPriv.name || 'Sistema STI-hub',
+              actorRole: sfPriv.roleId || 'SISTEMA',
+              action: 'ERP_PRODUCT_NFE_SEFAZ',
+              module: 'ERP',
+              resource: `${method} ${cleanPath}`.slice(0, 200),
+              status: state.status === 'AUTORIZADA' || state.status === 'CANCELADA' ? 'SUCCESS' : 'WARNING',
+              ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+              details: `SEFAZ-SP HOMOLOGAÇÃO ${action}: NF-e ${inv.productNfe!.nNF} série ${inv.productNfe!.serie}, chave ${state.accessKey}, status ${state.status}, cStat ${state.cStat || '-'} ${String(state.xMotivo || '').slice(0, 160)}${state.nProt ? `, protocolo ${state.nProt}` : ''}.`,
+            });
+          } catch {
+            // auditoria nunca derruba a resposta
+          }
+          return {
+            status: 200,
+            body: {
+              data: {
+                environment: 'HOMOLOGACAO',
+                status: state.status,
+                cStat: state.cStat,
+                xMotivo: state.xMotivo,
+                message,
+                accessKey: state.accessKey,
+                nProt: state.nProt,
+                nRec: state.nRec,
+                hasNfeProc: Boolean(state.nfeProcXml),
+                invoiceStatus: saved?.status,
+                ...extra,
+              },
+            },
+          };
+        } catch (e) {
+          return this.sefazErrorResponse(e, method, cleanPath, query, sfPriv, inv.productNfe!.nNF);
+        } finally {
+          CrmApiRouter.sefazInFlight.delete(sfId);
+        }
+      }
+
+      const npIdMatch = cleanPath.match(/^\/api\/erp\/nfe-produtos\/([^/]+)$/);
+      if (npIdMatch && npIdMatch[1] !== 'context' && method === 'DELETE') {
+        const npPriv = this.fiscalIssuancePrivilege(query, ctx);
+        if (!npPriv.allowed) return this.denyFiscalIssuance(method, cleanPath, query, npPriv, 'exclusao de NF-e de produtos');
+        const npId = decodeURIComponent(npIdMatch[1]);
+        const del = this.repo.deleteProductNfeDraft(npId);
+        if (!del.ok) {
+          return del.code === 'NOT_FOUND'
+            ? { status: 404, body: { error: 'NF-e de produtos não encontrada.', code: 'PRODUCT_NFE_NOT_FOUND' } }
+            : { status: 409, body: { error: 'Só é possível excluir NF-e em rascunho.', code: 'PRODUCT_NFE_NOT_DRAFT' } };
+        }
+        try {
+          this.repo.appendSecurityAuditLog({
+            actorEmail: npPriv.email || 'sistema',
+            actorName: npPriv.name || 'Sistema STI-hub',
+            actorRole: npPriv.roleId || 'SISTEMA',
+            action: 'ERP_PRODUCT_NFE_DRAFT_DELETED',
+            module: 'ERP',
+            resource: `DELETE ${cleanPath}`.slice(0, 200),
+            status: 'SUCCESS',
+            ipAddress: String(query._clientIp || 'sem-ip').slice(0, 64),
+            details: `Rascunho de NF-e ${npId} excluído (o número reservado não é reaproveitado).`,
+          });
+        } catch {
+          // auditoria nunca derruba a resposta
+        }
+        return { status: 200, body: { success: true, deletedId: npId } };
+      }
+
       if (cleanPath === '/api/erp/nfe-importacao/calculate' && method === 'POST') {
         // #10: validação de entrada (zod) => 400 em vez de TypeError/NaN
         const validated = validateImportNfeRequest(body);
@@ -9499,6 +9875,7 @@ export class CrmApiRouter {
         const serie = input.serie || '1';
         // Configurações Fiscais: numeração e tpAmb do ambiente da NF-e (padrão HOMOLOGAÇÃO)
         const nfeEnvironment = this.repo.getFiscalDocumentSettings().nfe.environment;
+        await this.ensureCompanyEmitterHydrated();
         try {
           const meta = calculateSebraeImportNfe({
             serie,
@@ -9516,6 +9893,7 @@ export class CrmApiRouter {
             emitterCnpj: cfg.companyCnpj,
             emitterIe: cfg.stateRegistration,
             emitterUf: 'SP',
+            emitterAddress: this.draftEmitterAddress(),
           });
           return { status: 200, body: { data: meta } };
         } catch (err) {
@@ -9548,6 +9926,7 @@ export class CrmApiRouter {
         if (!rawContent.trim()) {
           return { status: 400, body: { error: 'Envie o conteúdo do arquivo .TXT ou .XML para importação.' } };
         }
+        await this.ensureCompanyEmitterHydrated();
         const erp = this.repo.getErpOverview();
         const cfg = erp.gestaoClickConfig;
         try {
@@ -9556,6 +9935,7 @@ export class CrmApiRouter {
             emitterCnpj: cfg.companyCnpj,
             emitterIe: cfg.stateRegistration,
             emitterUf: 'SP',
+            emitterAddress: this.draftEmitterAddress(),
           });
           return { status: 200, body: { data: draft } };
         } catch (err) {
@@ -9622,6 +10002,7 @@ export class CrmApiRouter {
           };
         }
         let meta;
+        await this.ensureCompanyEmitterHydrated();
         try {
           meta = calculateSebraeImportNfe({
             serie,
@@ -9639,6 +10020,7 @@ export class CrmApiRouter {
             emitterCnpj: cfg.companyCnpj,
             emitterIe: cfg.stateRegistration,
             emitterUf: 'SP',
+            emitterAddress: this.draftEmitterAddress(),
           });
         } catch (err) {
           return {

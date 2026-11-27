@@ -165,8 +165,15 @@ import { applySalesPipelineStageMigration } from '../modules/deals/sales-pipelin
 import { deriveServerTotpSecret, isTotpPairingPinnedByServer, unsealIamRecord } from './iam-security';
 import { SALES_AGENT_SERVICE_ID } from '../app/lib/service-account';
 import type { StiHubServiceAccountRecord } from './types';
-import type { FiscalDocumentSettings, FiscalEnvironment } from './types';
+import type { ErpProductNfeSefazState, FiscalDocumentSettings, FiscalEnvironment } from './types';
 import { FISCAL_PRODUCTION_SEED, normalizeFiscalDocumentSettings } from '../modules/erp/fiscal-settings';
+import {
+  computeProductNfeTotals,
+  generateProductNfeXml,
+  productNfeWarnings,
+  type ProductNfeDraft,
+} from '../modules/erp/product-nfe-engine';
+import type { DraftEmitterAddress } from '../modules/erp/sebrae-nfe-import-engine';
 
 /** Identidade reservada a contas de servico (id svc-* ou e-mail @servico.sti-hub). */
 export function isServiceAccountIdentity(id: unknown, email?: unknown): boolean {
@@ -1704,6 +1711,15 @@ export class CrmRepository {
       for (const ref of deletedInvoices) if (existingRefs.has(ref)) fiscalDropped++;
       deletedInvoices.clear();
     }
+    // SEFAZ (homologação): NF-e de produtos já transmitida (autorizada, denegada, cancelada ou em
+    // processamento) nunca é excluída pelo journal do navegador.
+    for (const inv of erp.invoices) {
+      if (isSefazLockedInvoice(inv) && (deletedInvoices.has(inv.id) || deletedInvoices.has(inv.documentNumber))) {
+        deletedInvoices.delete(inv.id);
+        deletedInvoices.delete(inv.documentNumber);
+        fiscalDropped++;
+      }
+    }
     if (deletedInvoices.size > 0) {
       const before = erp.invoices.length;
       erp.invoices = erp.invoices.filter(
@@ -1791,6 +1807,10 @@ export class CrmRepository {
           }
         }
         incomingInvoices = [];
+      }
+      if (Array.isArray(incomingInvoices) && incomingInvoices.length) {
+        const byIdAll = new Map(erp.invoices.map((i) => [i.id, i] as const));
+        incomingInvoices = incomingInvoices.map((inc) => protectServerSefazState(inc && typeof inc === 'object' ? byIdAll.get(inc.id) : undefined, inc));
       }
       upsertCollection(erp.invoices, incomingInvoices, deletedInvoices);
     }
@@ -7174,17 +7194,35 @@ export class CrmRepository {
     return inv.importMetadata?.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
   }
 
-  /** Maior nNF já usado por NF-e modelo 55 da série no ambiente (a partir dos metadados de importação gravados). */
+  /** Série/número/ambiente gravados de uma NF-e modelo 55 (importação ou NF-e de produtos do ERP). */
+  private invoiceNfeNumbering(inv: ErpFiscalInvoice): { serie: string; nNF: number; environment: FiscalEnvironment } | null {
+    if (inv.importMetadata) {
+      return {
+        serie: String(inv.importMetadata.serie),
+        nNF: Number(String(inv.importMetadata.nNF).replace(/\D/g, '')),
+        environment: this.importInvoiceEnvironment(inv),
+      };
+    }
+    if (inv.productNfe) {
+      return {
+        serie: String(inv.productNfe.serie),
+        nNF: Number(inv.productNfe.nNF),
+        environment: inv.productNfe.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO',
+      };
+    }
+    return null;
+  }
+
+  /** Maior nNF já usado por NF-e modelo 55 da série no ambiente (importação e NF-e de produtos gravadas). */
   private maxUsedFiscalNumber(modelo: string, serie: string, environment: FiscalEnvironment = 'HOMOLOGACAO'): number {
     if (modelo !== '55') return 0;
     const erp = this.ensureErp();
     const key = this.fiscalSequenceKey(modelo, serie, environment);
     let max = 0;
     for (const inv of erp.invoices) {
-      const meta = inv.importMetadata;
-      if (!meta || this.fiscalSequenceKey('55', meta.serie, this.importInvoiceEnvironment(inv)) !== key) continue;
-      const n = Number(String(meta.nNF).replace(/\D/g, ''));
-      if (Number.isFinite(n) && n > max) max = n;
+      const num = this.invoiceNfeNumbering(inv);
+      if (!num || this.fiscalSequenceKey('55', num.serie, num.environment) !== key) continue;
+      if (Number.isFinite(num.nNF) && num.nNF > max) max = num.nNF;
     }
     return max;
   }
@@ -7258,12 +7296,10 @@ export class CrmRepository {
     let nNF: number;
     if (requested !== undefined && requested !== null && Number.isFinite(requested) && requested > 0) {
       const req = Math.floor(requested);
-      const used = erp.invoices.some(
-        (inv) =>
-          inv.importMetadata &&
-          this.fiscalSequenceKey('55', inv.importMetadata.serie, this.importInvoiceEnvironment(inv)) === key &&
-          Number(String(inv.importMetadata.nNF).replace(/\D/g, '')) === req
-      );
+      const used = erp.invoices.some((inv) => {
+        const num = this.invoiceNfeNumbering(inv);
+        return Boolean(num && this.fiscalSequenceKey('55', num.serie, num.environment) === key && num.nNF === req);
+      });
       if (used || req <= reserved) return { ok: false, nextAvailable: last + 1 };
       nNF = req;
     } else {
@@ -7272,6 +7308,181 @@ export class CrmRepository {
     erp.fiscalNumberSequences[key] = Math.max(last, nNF);
     this.save();
     return { ok: true, nNF };
+  }
+
+  /**
+   * NF-e de produtos (Fiscal > Notas de produtos): grava como RASCUNHO no ambiente configurado
+   * (padrão HOMOLOGAÇÃO), com número reservado no numerador do ambiente, totais do erp-tax-engine
+   * com o regime CONFIGURADO (nunca alterado aqui) e XML 4.00 de rascunho. Não gera financeiro
+   * nem chama a SEFAZ.
+   */
+  createProductNfeDraft(
+    draft: ProductNfeDraft,
+    actor: string,
+    /** Endereço do emitente (Configurações > Empresa). Sem ele o XML de rascunho marca o endereço como PENDENTE. */
+    emitterAddress: DraftEmitterAddress | null = null
+  ): { ok: true; invoice: ErpFiscalInvoice } | { ok: false; code: 'NUMBER_IN_USE'; nextAvailable: number; environment: FiscalEnvironment; serie: string } {
+    const erp = this.ensureErp();
+    const settings = this.ensureFiscalDocumentSettings();
+    const environment: FiscalEnvironment = settings.nfe.environment === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
+    const serie = String(draft.general.serie || settings.nfe.serie || '1').replace(/\D/g, '') || '1';
+    const reserved = this.reserveFiscalNumber('55', serie, draft.general.number, environment);
+    if (!reserved.ok) return { ok: false, code: 'NUMBER_IN_USE', nextAvailable: reserved.nextAvailable, environment, serie };
+
+    const cfg = erp.gestaoClickConfig;
+    const taxRegime = cfg.taxRegime;
+    const totals = computeProductNfeTotals(draft, taxRegime);
+    const emitter = {
+      emitterName: cfg.companyLegalName,
+      emitterCnpj: cfg.companyCnpj,
+      emitterIe: cfg.stateRegistration,
+      emitterUf: 'SP',
+      address: emitterAddress,
+    };
+    const warnings = productNfeWarnings(draft, {
+      taxRegime,
+      emitterUf: emitter.emitterUf,
+      additionalInfo: draft.additionalInfo.complementary,
+      emitterCnpj: emitter.emitterCnpj,
+    });
+    const gen = generateProductNfeXml(draft, totals, { environment, serie, nNF: reserved.nNF, taxRegime, emitter });
+    const nowIso = new Date().toISOString();
+    const issueDate = draft.general.issueDateTime.slice(0, 10);
+    const r = draft.recipient;
+    const addr = r.address;
+    const companyAddress = [
+      [addr.street, addr.number].filter(Boolean).join(', '),
+      addr.complement,
+      addr.district,
+      addr.city && addr.uf ? `${addr.city}/${addr.uf}` : addr.city || addr.uf,
+      addr.cep ? `CEP ${addr.cep}` : '',
+    ]
+      .filter(Boolean)
+      .join(' — ');
+    const cfops = Array.from(new Set(draft.items.map((it) => it.cfop.replace(/\D/g, ''))));
+    const invoice: ErpFiscalInvoice = {
+      id: `inv-nfe-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      documentNumber: `NF-e ${reserved.nNF} - série ${serie}`,
+      documentType: 'NFE_VENDA_PRODUTO',
+      competenceMonth: `${issueDate.slice(5, 7)}/${issueDate.slice(0, 4)}`,
+      companyId: r.companyId || null,
+      companyName: r.name,
+      companyCnpj: r.document,
+      companyAddress: companyAddress || '—',
+      rentalContractId: null,
+      proposalId: null,
+      dealId: null,
+      grossAmount: totals.vProd,
+      discountAmount: totals.vDesc,
+      netAmount: totals.vNF,
+      status: 'RASCUNHO',
+      issueDate,
+      dueDate: issueDate,
+      paidAt: null,
+      paymentMethod: 'NAO_APLICAVEL',
+      serviceCodeLc116: null,
+      cfop: cfops.map((c) => `${c.charAt(0)}.${c.slice(1)}`).join(', '),
+      cstIcms: Array.from(new Set(draft.items.map((it) => it.icmsCode))).join(', '),
+      cstPisCofins: Array.from(new Set(totals.items.map((it) => it.cstPisCofins))).join(', '),
+      verificationCodeOrKey: gen.accessKey,
+      pixCopyPaste: '',
+      boletoDigitableLine: '',
+      itemsDescription: draft.items.map((it, i) => ({
+        description: it.description,
+        quantity: it.quantity,
+        unitValue: it.unitValue,
+        totalValue: totals.items[i].vProd,
+      })),
+      taxBreakdown: totals.taxBreakdown,
+      productNfe: {
+        environment,
+        modelo: '55',
+        serie,
+        nNF: reserved.nNF,
+        accessKey: gen.accessKey,
+        cNF: gen.cNF,
+        cDV: gen.cDV,
+        dhEmi: gen.dhEmi,
+        crt: totals.crt,
+        taxRegime,
+        form: JSON.parse(JSON.stringify(draft)) as Record<string, unknown>,
+        totals: {
+          vProd: totals.vProd,
+          vDesc: totals.vDesc,
+          vFrete: totals.vFrete,
+          vSeg: totals.vSeg,
+          vOutro: totals.vOutro,
+          vBC: totals.vBC,
+          vICMS: totals.vICMS,
+          vIPI: totals.vIPI,
+          vPIS: totals.vPIS,
+          vCOFINS: totals.vCOFINS,
+          vNF: totals.vNF,
+          vTotTrib: totals.vTotTrib,
+        },
+        warnings,
+        xmlContent: gen.xml,
+        createdBy: String(actor || 'sistema').slice(0, 200),
+      },
+      productsSubtotalBrl: totals.vProd,
+      freightValueBrl: totals.vFrete,
+      freightModality:
+        draft.transport.modFrete === '0'
+          ? 'CIF_EMITENTE'
+          : draft.transport.modFrete === '1'
+            ? 'FOB_DESTINATARIO'
+            : draft.transport.modFrete === '2'
+              ? 'TERCEIROS'
+              : draft.transport.modFrete === '3'
+                ? 'PROPRIO_SETA'
+                : 'SEM_FRETE',
+      deliveryCarrier: draft.transport.carrier?.name || null,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    erp.invoices.unshift(invoice);
+    this.save();
+    return { ok: true, invoice: JSON.parse(JSON.stringify(invoice)) as ErpFiscalInvoice };
+  }
+
+  /** Exclui NF-e de produtos SOMENTE em rascunho. O número reservado não volta ao numerador. */
+  deleteProductNfeDraft(id: string): { ok: true } | { ok: false; code: 'NOT_FOUND' | 'NOT_DRAFT' } {
+    const erp = this.ensureErp();
+    const inv = erp.invoices.find((i) => i.id === id);
+    if (!inv || !inv.productNfe) return { ok: false, code: 'NOT_FOUND' };
+    if (inv.status !== 'RASCUNHO' || isSefazLockedInvoice(inv)) return { ok: false, code: 'NOT_DRAFT' };
+    erp.invoices = erp.invoices.filter((i) => i.id !== id);
+    this.save();
+    return { ok: true };
+  }
+
+  /** NF-e de produtos por id (cópia), para a transmissão à SEFAZ. */
+  getProductNfeInvoice(id: string): ErpFiscalInvoice | null {
+    const inv = this.ensureErp().invoices.find((i) => i.id === id);
+    return inv && inv.productNfe ? (JSON.parse(JSON.stringify(inv)) as ErpFiscalInvoice) : null;
+  }
+
+  /**
+   * Grava o estado SEFAZ (homologação) da NF-e de produtos. AUTORIZADA => status EMITIDA e chave
+   * de acesso da transmissão; CANCELADA => status CANCELADA. Não gera financeiro.
+   */
+  setProductNfeSefazState(id: string, state: ErpProductNfeSefazState): ErpFiscalInvoice | null {
+    const erp = this.ensureErp();
+    const inv = erp.invoices.find((i) => i.id === id);
+    if (!inv || !inv.productNfe) return null;
+    inv.productNfe.sefaz = JSON.parse(JSON.stringify(state)) as ErpProductNfeSefazState;
+    if (state.status === 'AUTORIZADA' || state.status === 'DENEGADA' || state.status === 'CANCELADA' || state.status === 'EM_PROCESSAMENTO') {
+      inv.productNfe.accessKey = state.accessKey;
+      inv.productNfe.cNF = state.cNF;
+      inv.productNfe.cDV = state.cDV;
+      inv.productNfe.dhEmi = state.dhEmi;
+      inv.verificationCodeOrKey = state.accessKey;
+    }
+    if (state.status === 'AUTORIZADA') inv.status = 'EMITIDA';
+    if (state.status === 'CANCELADA') inv.status = 'CANCELADA';
+    inv.updatedAt = new Date().toISOString();
+    this.save();
+    return JSON.parse(JSON.stringify(inv)) as ErpFiscalInvoice;
   }
 
   createInvoice(
@@ -11248,6 +11459,30 @@ export function getRepository(): CrmRepository {
     singletonRepo = new CrmRepository({ persistPath: storePath, autoSeed: true });
   }
   return singletonRepo;
+}
+
+/** NF-e de produtos já transmitida à SEFAZ (estado final ou em processamento): bloqueada no journal e na exclusão. */
+function isSefazLockedInvoice(inv: ErpFiscalInvoice | undefined | null): boolean {
+  const st = inv?.productNfe?.sefaz?.status;
+  return st === 'AUTORIZADA' || st === 'DENEGADA' || st === 'CANCELADA' || st === 'EM_PROCESSAMENTO';
+}
+
+/**
+ * O estado SEFAZ é do servidor: o journal do navegador não cria, altera nem apaga productNfe.sefaz
+ * (nem o status/chave de uma nota transmitida). Cópia antiga do navegador não sobrescreve.
+ */
+function protectServerSefazState(cur: ErpFiscalInvoice | undefined, inc: ErpFiscalInvoice): ErpFiscalInvoice {
+  if (!inc || typeof inc !== 'object') return inc;
+  const serverSefaz = cur?.productNfe?.sefaz;
+  if (cur && serverSefaz) {
+    return { ...inc, status: cur.status, verificationCodeOrKey: cur.verificationCodeOrKey, productNfe: JSON.parse(JSON.stringify(cur.productNfe)) };
+  }
+  if (inc.productNfe && (inc.productNfe as { sefaz?: unknown }).sefaz !== undefined) {
+    const { sefaz: _drop, ...rest } = inc.productNfe;
+    void _drop;
+    return { ...inc, productNfe: rest as ErpFiscalInvoice['productNfe'] };
+  }
+  return inc;
 }
 
 export function createInMemoryRepository(initialState?: CrmDatabaseState): CrmRepository {
