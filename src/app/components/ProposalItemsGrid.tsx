@@ -433,8 +433,9 @@ export function ProposalItemsGrid({
         </div>
       </div>
 
-      <div className="px-3 py-2">
-        <table className="w-full text-[12px]">
+      <div className="px-3 py-2 max-w-full min-w-0">
+        <div className="max-w-full overflow-x-auto" data-testid={`proposal-grid-${noun}-scroll`}>
+        <table className="w-full min-w-[760px] text-[12px]">
           <thead>
             <tr className="border-b border-slate-200">
               <th className={`${th} w-[26%] min-w-[200px]`}>
@@ -699,9 +700,10 @@ export function ProposalItemsGrid({
             )}
           </tbody>
         </table>
+        </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 pt-3 mt-1 border-t border-slate-200">
-          <div className="flex items-center gap-2 min-w-[240px] flex-1">
+          <div className="flex items-center gap-2 min-w-0 sm:min-w-[240px] flex-1">
             <button
               type="button"
               onClick={startAddRow}
