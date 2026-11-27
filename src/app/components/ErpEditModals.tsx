@@ -642,6 +642,7 @@ export function ProposalEditModal({
         paymentMethod: method,
         billingDueRule: rule,
         billingDueDay: day,
+        billingFirstDueDate: firstDue,
       }),
     });
   };
@@ -683,12 +684,14 @@ export function ProposalEditModal({
                 ...computed,
                 billingDueRule,
                 billingDueDay,
+                billingFirstDueDate: firstDueDate,
               }) ||
               formatMonthlyPaymentCondition({
                 contractMonths: computed.contractMonths,
                 paymentMethod: defaultPaymentMethod,
                 billingDueRule,
                 billingDueDay,
+                billingFirstDueDate: firstDueDate,
               }),
           }
         : computed;
@@ -811,6 +814,7 @@ export function ProposalEditModal({
                                 paymentMethod: defaultPaymentMethod,
                                 billingDueRule,
                                 billingDueDay,
+                                billingFirstDueDate: firstDueDate,
                               }),
                             }
                           : {}),
@@ -856,6 +860,7 @@ export function ProposalEditModal({
                                 paymentMethod: defaultPaymentMethod,
                                 billingDueRule,
                                 billingDueDay,
+                                billingFirstDueDate: firstDueDate,
                               }),
                             }
                           : turningAvulso && (!rawCondition || conditionIsSlug)
@@ -1671,11 +1676,17 @@ export function ProposalEditModal({
                     <input
                       type="text"
                       data-testid="proposal-payment-condition"
-                      value={displayProposalPaymentCondition(draft) || formatMonthlyPaymentCondition({
+                      value={displayProposalPaymentCondition({
+                        ...draft,
+                        billingDueRule: draft.billingDueRule || billingDueRule,
+                        billingDueDay: draft.billingDueDay ?? billingDueDay,
+                        billingFirstDueDate: draft.billingFirstDueDate || firstDueDate,
+                      }) || formatMonthlyPaymentCondition({
                         contractMonths: draft.contractMonths,
                         paymentMethod: defaultPaymentMethod,
                         billingDueRule,
                         billingDueDay,
+                        billingFirstDueDate: firstDueDate,
                       })}
                       onChange={(e) => updateDraft({ paymentCondition: e.target.value })}
                       className="w-full px-2.5 py-1.5 rounded border border-slate-300"
@@ -1768,7 +1779,7 @@ export function ProposalEditModal({
                     <input
                       type="text"
                       placeholder={isAvulsoServiceProposal(draft) ? "À vista — Pagamento único" : ""}
-                      value={displayPaymentConditionText(isAvulsoServiceProposal(draft) ? readablePaymentCondition(draft.paymentCondition) : draft.paymentCondition)}
+                      value={displayProposalPaymentCondition(draft) || displayPaymentConditionText(isAvulsoServiceProposal(draft) ? readablePaymentCondition(draft.paymentCondition) : draft.paymentCondition)}
                       onChange={(e) => updateDraft({ paymentCondition: e.target.value })}
                       className="w-full px-2.5 py-1.5 rounded border border-slate-300"
                     />
